@@ -165,6 +165,8 @@ SymbolEditor::SymbolEditor(QWidget* parent)
     : QMainWindow(parent)
     , m_undoStack(new QUndoStack(this)) {
     setupUI();
+    applyTheme();
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, &SymbolEditor::applyTheme);
 }
 
 SymbolEditor::SymbolEditor(const SymbolDefinition& symbol, QWidget* parent)
@@ -173,6 +175,8 @@ SymbolEditor::SymbolEditor(const SymbolDefinition& symbol, QWidget* parent)
     , m_undoStack(new QUndoStack(this)) {
     setupUI();
     setSymbolDefinition(symbol);
+    applyTheme();
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, &SymbolEditor::applyTheme);
 }
 
 SymbolEditor::~SymbolEditor() {
@@ -184,6 +188,90 @@ SymbolEditor::~SymbolEditor() {
 // ─────────────────────────────────────────────────────────────────────────────
 //  SymbolEditor – Scene helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+void SymbolEditor::applyTheme() {
+    PCBTheme* theme = ThemeManager::theme();
+    if (!theme) return;
+    
+    theme->applyToWidget(this);
+
+    QString bg = theme->windowBackground().name();
+    QString panelBg = theme->panelBackground().name();
+    QString fg = theme->textColor().name();
+    QString textSec = theme->textSecondary().name();
+    QString border = theme->panelBorder().name();
+    QString accent = theme->accentColor().name();
+    QString inputBg = (theme->type() == PCBTheme::Light) ? "#ffffff" : "#121212";
+    QString btnBg = (theme->type() == PCBTheme::Light) ? "#f8fafc" : "#2d2d30";
+    QString btnHover = (theme->type() == PCBTheme::Light) ? "#e2e8f0" : "#3c3c3c";
+
+    setStyleSheet(QString(
+        "QMainWindow { background-color: %1; }"
+        "QDockWidget { color: %3; font-weight: bold; }"
+        "QDockWidget::title { background-color: %2; padding: 6px; border-bottom: 1px solid %5; }"
+        "QGroupBox { border: 1px solid %5; margin-top: 15px; padding-top: 15px; color: %6; font-size: 12px; font-weight: bold; border-radius: 4px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
+        "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background-color: %7; border: 1px solid %5; padding: 4px 8px; color: %3; border-radius: 3px; }"
+        "QLineEdit:focus, QComboBox:focus { border-color: %6; }"
+        "QPushButton { background-color: %8; border: 1px solid %5; padding: 6px 12px; color: %3; border-radius: 4px; }"
+        "QPushButton:hover { background-color: %9; border-color: %6; }"
+        "QPushButton:pressed { background-color: %6; color: white; }"
+        "QScrollArea { border: none; background-color: %1; }"
+    ).arg(bg, panelBg, fg, textSec, border, accent, inputBg, btnBg, btnHover));
+
+    if (m_toolbar) m_toolbar->setStyleSheet(theme->toolbarStylesheet());
+    if (m_leftToolbar) m_leftToolbar->setStyleSheet(theme->toolbarStylesheet());
+    
+    if (m_statusBar) m_statusBar->setStyleSheet(theme->statusBarStylesheet());
+    
+    for (auto dock : findChildren<QDockWidget*>()) {
+        dock->setStyleSheet(theme->dockStylesheet());
+    }
+
+    if (m_libraryTree) {
+        m_libraryTree->setStyleSheet(QString(
+            "QTreeWidget { background-color: %1; border: 1px solid %2; border-radius: 4px; color: %3; }"
+            "QTreeWidget::item { padding: 4px; }"
+            "QTreeWidget::item:selected { background-color: %4; color: white; }"
+        ).arg(inputBg, border, fg, accent));
+    }
+    
+    if (m_libSearchEdit) {
+        m_libSearchEdit->setStyleSheet(QString("QLineEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 4px; }")
+            .arg(inputBg, fg, border));
+    }
+
+    if (m_pinTable) {
+        m_pinTable->setStyleSheet(QString(
+            "QTableWidget { background-color: %1; color: %2; gridline-color: %3; border: 1px solid %3; }"
+            "QHeaderView::section { background-color: %4; color: %2; padding: 4px; border: 1px solid %3; font-weight: bold; }"
+        ).arg(inputBg, fg, border, panelBg));
+    }
+
+    if (m_codePreview) {
+        m_codePreview->setStyleSheet(QString("background-color: %1; color: %2; border: none;").arg(
+            (theme->type() == PCBTheme::Light) ? "#f8fafc" : "#0d1117",
+            (theme->type() == PCBTheme::Light) ? "#334155" : "#d1d5db"
+        ));
+    }
+    
+    if (m_srcList) {
+        m_srcList->setStyleSheet(QString("QListWidget { background-color: %1; color: %2; font-size: 11px; border: none; }").arg(
+            (theme->type() == PCBTheme::Light) ? "#f8fafc" : "#0d1117",
+            (theme->type() == PCBTheme::Light) ? "#ef4444" : "#ff6b6b"
+        ));
+    }
+
+    if (m_libPreviewView) {
+        m_libPreviewView->setBackgroundBrush(theme->type() == PCBTheme::Light ? QBrush(QColor("#f8fafc")) : QBrush(QColor("#121212")));
+        m_libPreviewView->setStyleSheet(QString("background-color: %1; border: 1px solid %2; border-radius: 4px; margin-top: 5px;")
+            .arg((theme->type() == PCBTheme::Light) ? "#f8fafc" : "#121212", border));
+    }
+
+    if (m_view) {
+        m_view->viewport()->update();
+    }
+}
 
 QColor SymbolEditor::themeLineColor() const {
     PCBTheme* theme = ThemeManager::theme();
@@ -788,21 +876,6 @@ void SymbolEditor::setupUI() {
     // Ensure standard window decorations including maximize/minimize buttons
     setWindowFlags(Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowMinimizeButtonHint | Qt::WindowCloseButtonHint);
 
-    // Global Dark Style
-    setStyleSheet(
-        "QMainWindow { background-color: #1e1e1e; }"
-        "QDockWidget { color: #cccccc; font-weight: bold; }"
-        "QDockWidget::title { background-color: #2d2d30; padding: 6px; border-bottom: 1px solid #3c3c3c; }"
-        "QGroupBox { border: 1px solid #3c3c3c; margin-top: 15px; padding-top: 15px; color: #3b82f6; font-size: 12px; font-weight: bold; border-radius: 4px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
-        "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background-color: #121212; border: 1px solid #3c3c3c; padding: 4px 8px; color: #cccccc; border-radius: 3px; }"
-        "QLineEdit:focus, QComboBox:focus { border-color: #007acc; }"
-        "QPushButton { background-color: #2d2d30; border: 1px solid #555; padding: 6px 12px; color: #cccccc; border-radius: 4px; }"
-        "QPushButton:hover { background-color: #3c3c3c; border-color: #666; }"
-        "QPushButton:pressed { background-color: #094771; color: white; }"
-        "QScrollArea { border: none; background-color: #1e1e1e; }"
-    );
-
     // ── Main Canvas ─────────────────────────────────────────────────────────
     m_scene = new QGraphicsScene(this);
     m_scene->setSceneRect(-500, -500, 1000, 1000);
@@ -854,12 +927,10 @@ void SymbolEditor::setupUI() {
     auto* actionLayout = new QVBoxLayout(actionGroup);
     
     auto* placeBtn = new QPushButton("Place in Schematic");
-    placeBtn->setStyleSheet("background-color: #0d9488; color: white; font-weight: bold; padding: 8px;");
     connect(placeBtn, &QPushButton::clicked, this, &SymbolEditor::onPlaceInSchematic);
     actionLayout->addWidget(placeBtn);
 
     auto* imgBtn = new QPushButton("Import Image");
-    imgBtn->setStyleSheet("background-color: #4b5563; color: white;");
     connect(imgBtn, &QPushButton::clicked, this, &SymbolEditor::onImportImage);
     actionLayout->addWidget(imgBtn);
 
@@ -906,7 +977,6 @@ void SymbolEditor::setupUI() {
     wizForm->addRow("Width:", m_bodyWidthSpin);
     wizLayout->addLayout(wizForm);
     auto* wizBtn = new QPushButton("Generate Symbol");
-    wizBtn->setStyleSheet("background-color: #007acc; color: white; font-weight: bold; margin-top: 10px;");
     connect(wizBtn, &QPushButton::clicked, this, &SymbolEditor::onWizardGenerate);
     wizLayout->addWidget(wizBtn);
     auto* importBtn = new QPushButton("Import KiCad Symbol");
@@ -936,14 +1006,12 @@ void SymbolEditor::setupUI() {
     m_codePreview = new QTextEdit();
     m_codePreview->setReadOnly(true);
     m_codePreview->setFont(QFont("Monospace", 9));
-    m_codePreview->setStyleSheet("background-color: #0d1117; color: #d1d5db; border: none;");
     codeDock->setWidget(m_codePreview);
     addDockWidget(Qt::BottomDockWidgetArea, codeDock);
 
     auto* srcDock = new QDockWidget("Rule Checker", this);
     srcDock->setObjectName("SRCDock");
     m_srcList = new QListWidget();
-    m_srcList->setStyleSheet("QListWidget { background-color: #0d1117; color: #d1d5db; font-size: 11px; border: none; }");
     connect(m_srcList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
         int idx = item->data(Qt::UserRole).toInt();
         if (idx >= 0 && idx < m_drawnItems.size()) {
@@ -1923,7 +1991,6 @@ void SymbolEditor::createLibraryBrowser() {
     m_libSearchEdit = new QLineEdit();
     m_libSearchEdit->setPlaceholderText("Search symbols…");
     m_libSearchEdit->setClearButtonEnabled(true);
-    m_libSearchEdit->setStyleSheet("QLineEdit { background-color: #2d2d2d; color: #ececec; border: 1px solid #3c3c3c; border-radius: 4px; padding: 4px; }");
     connect(m_libSearchEdit, &QLineEdit::textChanged,
             this, &SymbolEditor::onLibSearchChanged);
 
@@ -1934,9 +2001,6 @@ void SymbolEditor::createLibraryBrowser() {
     m_libraryTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_libraryTree, &QTreeWidget::customContextMenuRequested, this, &SymbolEditor::onLibraryContextMenu);
     
-    // the global setupUI will style the internal tree, but we can set a base bg here
-    m_libraryTree->setStyleSheet("QTreeWidget { background-color: #1e1e1e; border: 1px solid #3c3c3c; border-radius: 4px; } "
-                                 "QTreeWidget::item:selected { background-color: #007acc; }");
     connect(m_libraryTree, &QTreeWidget::itemDoubleClicked,
             this, &SymbolEditor::onCloneSymbol);
     connect(m_libraryTree, &QTreeWidget::itemClicked,
@@ -1945,10 +2009,8 @@ void SymbolEditor::createLibraryBrowser() {
     m_libPreviewScene = new QGraphicsScene(this);
     m_libPreviewView = new QGraphicsView(m_libPreviewScene);
     m_libPreviewView->setFixedHeight(180);
-    m_libPreviewView->setBackgroundBrush(QBrush(QColor("#121212")));
     m_libPreviewView->setRenderHint(QPainter::Antialiasing);
     m_libPreviewView->setFrameShape(QFrame::NoFrame);
-    m_libPreviewView->setStyleSheet("background-color: #121212; border: 1px solid #3c3c3c; border-radius: 4px; margin-top: 5px;");
 
     populateLibraryTree();
 }
@@ -1977,7 +2039,6 @@ void SymbolEditor::createPinTable() {
     m_pinTable = new QTableWidget(0, 7);
     m_pinTable->setHorizontalHeaderLabels({"Number", "Name", "Type", "Orientation", "Length", "Swap", "Alts"});
     m_pinTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_pinTable->setStyleSheet("QTableWidget { background-color: #1e1e1e; color: #cccccc; gridline-color: #333; }");
     m_pinTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_pinTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_pinTable->setContextMenuPolicy(Qt::CustomContextMenu);

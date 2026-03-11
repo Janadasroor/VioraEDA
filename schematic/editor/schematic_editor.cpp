@@ -285,7 +285,8 @@ void SchematicEditor::closeTab(int index) {
     QWidget* w = m_workspaceTabs->widget(index);
 
     if (w == m_simulationPanel) {
-        m_simulationPanel = nullptr;
+        m_workspaceTabs->removeTab(index);
+        return; // Don't delete the simulation panel, just hide the tab
     }
 
     // Don't close the last schematic if you want to keep one always open,
@@ -947,56 +948,9 @@ void SchematicEditor::addModelArchitectTab() {
 }
 
 void SchematicEditor::addSimulationTab(const QString& name) {
-    if (!m_scene || !m_netManager) return;
-
-    m_simulationPanel = new SimulationPanel(m_scene, m_netManager, m_projectDir, this);
-
-    SimulationPanel::AnalysisConfig pCfg;
-    pCfg.type = m_simConfig.type;
-    pCfg.stop = m_simConfig.stop;
-    pCfg.step = m_simConfig.step;
-    pCfg.fStart = m_simConfig.fStart;
-    pCfg.fStop = m_simConfig.fStop;
-    pCfg.pts = m_simConfig.pts;
-    m_simulationPanel->setAnalysisConfig(pCfg);
-
-    connect(m_simulationPanel, &SimulationPanel::resultsReady, this, &SchematicEditor::onSimulationResultsReady);
-    connect(m_simulationPanel, &SimulationPanel::timeSnapshotReady, this, &SchematicEditor::onTimeTravelSnapshot);
-    connect(m_simulationPanel, &SimulationPanel::probeRequested, this, [this]() {
-        m_view->setCurrentTool("Probe");
-        ensureProbeToolConnected();
-        statusBar()->showMessage("Click on a net or pin to probe signal", 5000);
-    });
-    connect(m_simulationPanel, &SimulationPanel::placementToolRequested, this, [this](const QString& toolName) {
-        if (!m_view) return;
-        m_view->setCurrentTool(toolName);
-        if (toolName == "Probe" ||
-            toolName == "Oscilloscope Instrument" ||
-            toolName == "Voltmeter (DC)" ||
-            toolName == "Voltmeter (AC)" ||
-            toolName == "Ammeter (DC)" ||
-            toolName == "Ammeter (AC)" ||
-            toolName == "Wattmeter" ||
-            toolName == "Power Meter" ||
-            toolName == "Frequency Counter" ||
-            toolName == "Logic Probe") {
-            ensureProbeToolConnected();
-        }
-        statusBar()->showMessage(QString("Placement tool active: %1").arg(toolName), 4000);
-    });
-    connect(m_simulationPanel, &SimulationPanel::simulationTargetRequested, this,
-            [this](const QString& type, const QString& id) {
-        navigateToSimulationTarget(type, id);
-        if (m_view) m_view->setFocus();
-        statusBar()->showMessage(QString("Navigated to %1: %2").arg(type, id), 4000);
-    });
-    connect(m_simulationPanel, &SimulationPanel::overlayVisibilityChanged,
-            this, &SchematicEditor::onOverlayVisibilityChanged, Qt::UniqueConnection);
-    connect(m_simulationPanel, &SimulationPanel::clearOverlaysRequested,
-            this, &SchematicEditor::onClearSimulationOverlays, Qt::UniqueConnection);
+    if (!m_scene || !m_netManager || !m_simulationPanel) return;
 
     if (m_oscilloscopeDock) {
-        m_oscilloscopeDock->setWidget(m_simulationPanel->getOscilloscopeContainer());
         m_oscilloscopeDock->setFloating(false);
         m_oscilloscopeDock->show();
     }
@@ -1004,7 +958,6 @@ void SchematicEditor::addSimulationTab(const QString& name) {
     int idx = m_workspaceTabs->addTab(m_simulationPanel, getThemeIcon(":/icons/tool_run.svg"), name);
     m_workspaceTabs->setCurrentIndex(idx);
 }
-
 void SchematicEditor::onToggleLeftSidebar() {
     bool visible = false;
     if (m_componentDock && m_componentDock->isVisible()) visible = true;
@@ -1019,7 +972,9 @@ void SchematicEditor::onToggleLeftSidebar() {
 }
 
 void SchematicEditor::onToggleBottomPanel() {
-    // Bottom panel currently empty after moving ERC
+    if (m_oscilloscopeDock) {
+        m_oscilloscopeDock->setVisible(!m_oscilloscopeDock->isVisible());
+    }
 }
 
 void SchematicEditor::onToggleRightSidebar() {

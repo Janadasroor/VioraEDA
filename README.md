@@ -1,25 +1,23 @@
-# VIOSpice 🚀
+# VIOSpice 
 
 **VIOSpice** is a high-performance, open-source SPICE-class circuit simulator with a modern, interactive schematic editor. Designed for speed and visual excellence, it bridges the gap between traditional simulation engines and modern user interfaces.
 
-![VIOSpice Banner](assets/v-letter.png) <!-- Assuming this exists or will be added -->
 
 ## Key Features
 
-- ⚡ **High-Performance Simulation**: Native Sparse LU solver and Verilog-A JIT compilation for lightning-fast analysis.
-- 🎨 **Modern Interactive UI**: A stunning, hardware-accelerated schematic editor with smooth animations and professional aesthetics.
-- 🔬 **Real-Time Oscilloscope**: Integrated CRT-style analog oscilloscope for live signal visualization.
-- 🔴 **Automatic Probing**: LTspice-inspired hover-probing system for effortless voltage measurements.
-- 🤖 **Gemini AI Co-Pilot**: Integrated AI assistant to help you debug ERC violations and generate FluxScript snippets.
-- 📦 **Hierarchical Design**: Full support for `.SUBCKT` expansion and complex hierarchical schematics.
-- 🛠️ **Virtual Instruments**: A full suite of virtual tools including Logic Analyzers, Voltmeters, Ammeters, and Wattmeters.
+- **High-Performance Simulation**: Native Sparse LU solver and Verilog-A JIT compilation for lightning-fast analysis.
+- **Modern Interactive UI**: A stunning, hardware-accelerated schematic editor with smooth animations and professional aesthetics.
+- **Real-Time Oscilloscope**: Integrated CRT-style analog oscilloscope for live signal visualization.
+- **Automatic Probing**: LTspice-inspired hover-probing system for effortless voltage measurements.
+- **Gemini AI Co-Pilot**: Integrated AI assistant to help you debug ERC violations and generate FluxScript snippets.
+- **Hierarchical Design**: Full support for `.SUBCKT` expansion and complex hierarchical schematics.
+- **Virtual Instruments**: A full suite of virtual tools including Logic Analyzers, Voltmeters, Ammeters, and Wattmeters.
 
 ## Tech Stack
 
 - **Core**: C++20 / Qt6
 - **Graphics**: Qt Graphics View Framework
 - **Sim Engine**: Custom Sparse LU Solver / ngspice compatible
-- **Scripting**: FluxScript (Custom DSL)
 - **AI**: Google Gemini API Integration
 
 ## Getting Started
@@ -34,8 +32,8 @@
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/[your-username]/viospice.git
-   cd viospice
+   git clone https://github.com/Janadasroor/vspice.git
+   cd vspice
    ```
 
 2. **Configure and build**:
@@ -62,4 +60,4 @@
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
-*Built with ❤️ by the VioraEDA Team.*
+*Built with by the Janadasroor Team.*

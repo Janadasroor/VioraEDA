@@ -549,6 +549,7 @@ void SchematicEditor::createToolBar() {
     addToggle(m_geminiDock, "Gemini Assistant");
     addToggle(m_hierarchyDock, "Sheet Hierarchy");
     addToggle(m_ercDock, "ERC Results");
+    addToggle(m_oscilloscopeDock, "Analog Oscilloscope");
 
     // Simulation Menu
     QMenu* simMenu = mainAppMenu->addMenu("&Simulation");
@@ -1402,6 +1403,57 @@ void SchematicEditor::createDockWidgets() {
     
     m_oscilloscopeDock->hide();
     addDockWidget(Qt::BottomDockWidgetArea, m_oscilloscopeDock);
+
+    // Initialize Simulation Panel (but don't add to tabs yet) so Oscilloscope is available
+    if (m_scene && m_netManager) {
+        m_simulationPanel = new SimulationPanel(m_scene, m_netManager, m_projectDir, this);
+        
+        SimulationPanel::AnalysisConfig pCfg;
+        pCfg.type = m_simConfig.type;
+        pCfg.stop = m_simConfig.stop;
+        pCfg.step = m_simConfig.step;
+        pCfg.fStart = m_simConfig.fStart;
+        pCfg.fStop = m_simConfig.fStop;
+        pCfg.pts = m_simConfig.pts;
+        m_simulationPanel->setAnalysisConfig(pCfg);
+
+        connect(m_simulationPanel, &SimulationPanel::resultsReady, this, &SchematicEditor::onSimulationResultsReady);
+        connect(m_simulationPanel, &SimulationPanel::timeSnapshotReady, this, &SchematicEditor::onTimeTravelSnapshot);
+        connect(m_simulationPanel, &SimulationPanel::probeRequested, this, [this]() {
+            m_view->setCurrentTool("Probe");
+            ensureProbeToolConnected();
+            statusBar()->showMessage("Click on a net or pin to probe signal", 5000);
+        });
+        connect(m_simulationPanel, &SimulationPanel::placementToolRequested, this, [this](const QString& toolName) {
+            if (!m_view) return;
+            m_view->setCurrentTool(toolName);
+            if (toolName == "Probe" ||
+                toolName == "Oscilloscope Instrument" ||
+                toolName == "Voltmeter (DC)" ||
+                toolName == "Voltmeter (AC)" ||
+                toolName == "Ammeter (DC)" ||
+                toolName == "Ammeter (AC)" ||
+                toolName == "Wattmeter" ||
+                toolName == "Power Meter" ||
+                toolName == "Frequency Counter" ||
+                toolName == "Logic Probe") {
+                ensureProbeToolConnected();
+            }
+            statusBar()->showMessage(QString("Placement tool active: %1").arg(toolName), 4000);
+        });
+        connect(m_simulationPanel, &SimulationPanel::simulationTargetRequested, this,
+                [this](const QString& type, const QString& id) {
+            navigateToSimulationTarget(type, id);
+            if (m_view) m_view->setFocus();
+            statusBar()->showMessage(QString("Navigated to %1: %2").arg(type, id), 4000);
+        });
+        connect(m_simulationPanel, &SimulationPanel::overlayVisibilityChanged,
+                this, &SchematicEditor::onOverlayVisibilityChanged, Qt::UniqueConnection);
+        connect(m_simulationPanel, &SimulationPanel::clearOverlaysRequested,
+                this, &SchematicEditor::onClearSimulationOverlays, Qt::UniqueConnection);
+
+        m_oscilloscopeDock->setWidget(m_simulationPanel->getOscilloscopeContainer());
+    }
 }
 
 void SchematicEditor::createStatusBar() {

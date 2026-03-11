@@ -112,6 +112,7 @@ private slots:
     void onPinStackSelected();
 
 private:
+    void applyTheme();
     void setupUI();
     void createMenuBar();
     void createToolBar();
