@@ -1,5 +1,5 @@
 # CMake
-assets
+assets/*
 build/
 CMakeFiles/
 CMakeCache.txt
