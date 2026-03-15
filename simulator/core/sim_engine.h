@@ -8,6 +8,8 @@
 #include <string>
 
 #include <atomic>
+#include <functional>
+#include <vector>
 
 struct SimWaveform {
     std::string name;
@@ -22,6 +24,7 @@ struct SimWaveform {
 struct SimControl {
     std::atomic<bool> stopRequested{false};
     std::atomic<bool> pauseRequested{false};
+    std::function<void(double t, const std::vector<double>& solution)> streamingCallback;
 };
 
 class SimResults {

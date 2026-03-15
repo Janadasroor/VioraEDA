@@ -79,6 +79,12 @@ public:
      * @brief Number of extra equations (voltage source branches) this component adds.
      */
     virtual int voltageSourceCount(const SimComponentInstance& inst) const { return 0; }
+
+    /**
+     * @brief Pre-initializes any expensive runtime data (caches, compiled expressions).
+     * This is called before the time loop to avoid race conditions on mutable data.
+     */
+    virtual void initializeRuntimeCache(const SimNetlist& netlist, const SimComponentInstance& inst) {}
 };
 
 /**
@@ -250,6 +256,7 @@ public:
                         const std::vector<double>& solution, double t, int& vSourceCounter) override;
     int voltageSourceCount(const SimComponentInstance& inst) const override { return 1; }
     bool isNonlinear() const override { return true; }
+    void initializeRuntimeCache(const SimNetlist& netlist, const SimComponentInstance& inst) override;
 };
 
 class BehavioralCurrentSourceModel : public SimComponentModel {
@@ -258,6 +265,7 @@ public:
     void stampNonlinear(SimMNAMatrix& matrix, const SimNetlist& netlist, const SimComponentInstance& inst, 
                         const std::vector<double>& solution, double t, int& vSourceCounter) override;
     bool isNonlinear() const override { return true; }
+    void initializeRuntimeCache(const SimNetlist& netlist, const SimComponentInstance& inst) override;
 };
 
 class LogicGateModel : public SimComponentModel {

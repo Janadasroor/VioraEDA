@@ -57,6 +57,7 @@ SimComponentType inferModelType(const std::string& typeToken, bool& ok) {
     if (typeStr == "D") return SimComponentType::Diode;
     if (typeStr == "NMOS") return SimComponentType::MOSFET_NMOS;
     if (typeStr == "PMOS") return SimComponentType::MOSFET_PMOS;
+    if (typeStr == "SW") return SimComponentType::Switch;
     ok = false;
     return SimComponentType::Resistor;
 }
@@ -116,7 +117,17 @@ bool SimModelParser::parseModelLine(
     if (tLine.empty() || tLine[0] == '*') return true;
     if (!startsWithNoCase(tLine, ".model")) return false;
 
-    auto tokens = split(tLine);
+    std::string lineToSplit = tLine;
+    bool inBraces = false;
+    for (char &c : lineToSplit) {
+        if (c == '{') inBraces = true;
+        else if (c == '}') inBraces = false;
+        if (!inBraces && (c == '(' || c == ')' || c == ',')) {
+            c = ' ';
+        }
+    }
+
+    auto tokens = split(lineToSplit);
     if (tokens.size() < 3) {
         addDiag(diagnostics, Severity::Error, lineNumber, sourceName, "invalid .model card (expected '.model <name> <type-or-base> ...')", tLine);
         return false;
@@ -209,7 +220,113 @@ bool SimModelParser::parseLibrary(
         if (tokens.empty()) continue;
         const std::string card = tokens[0];
 
-        if (startsWithNoCase(card, ".include") || startsWithNoCase(card, ".inc")) {
+        std::string cardLower = card;
+        std::transform(cardLower.begin(), cardLower.end(), cardLower.begin(), [](unsigned char c) { return std::tolower(c); });
+
+        if (inLibBlock && !parseLibBlock && cardLower != ".endl") {
+            continue;
+        }
+
+        if (cardLower == ".subckt") {
+            if (tokens.size() < 2) {
+                fail(ll.lineNo, "malformed .subckt card", tLine);
+                continue;
+            }
+            inSubckt = true;
+            currentSub = SimSubcircuit();
+            currentSub.name = tokens[1];
+            currentPinToId.clear();
+            currentLocalNodeToId.clear();
+            currentSub.pinNames.clear();
+            currentSub.components.clear();
+            for (size_t i = 2; i < tokens.size(); ++i) {
+                currentSub.pinNames.push_back(tokens[i]);
+                currentPinToId[tokens[i]] = static_cast<int>(i - 1); // pin 1..N
+            }
+            nextInternalNodeId = static_cast<int>(currentSub.pinNames.size()) + 1;
+            continue;
+        }
+
+        if (cardLower == ".ends") {
+            if (!inSubckt) {
+                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, ".ends found without active .subckt", tLine);
+                continue;
+            }
+            netlist.addSubcircuit(currentSub);
+            inSubckt = false;
+            continue;
+        }
+
+        if (cardLower == ".model") {
+            if (inSubckt) {
+                if (!parseModelLine(netlist, currentSub.models, tLine, ll.lineNo, options.sourceName, diagnostics)) {
+                    hadErrors = true;
+                }
+            } else {
+                if (!parseModelLine(netlist, netlist.mutableModels(), tLine, ll.lineNo, options.sourceName, diagnostics)) {
+                    hadErrors = true;
+                }
+            }
+            continue;
+        }
+
+        if (cardLower == ".param" || cardLower == ".params") {
+            for (size_t i = 1; i < tokens.size(); ++i) {
+                std::string token = stripParensComma(tokens[i]);
+                size_t eq = token.find('=');
+                
+                std::string key, val;
+                if (eq != std::string::npos) {
+                    key = token.substr(0, eq);
+                    val = token.substr(eq + 1);
+                    // Handle "key= val"
+                    if (val.empty() && i + 1 < tokens.size()) {
+                        val = stripParensComma(tokens[++i]);
+                    }
+                } else {
+                    // Handle "key = val" or "key =val"
+                    if (i + 1 < tokens.size() && (tokens[i+1] == "=" || tokens[i+1].front() == '=')) {
+                        key = token;
+                        if (tokens[i+1] == "=") {
+                            i += 2;
+                            if (i < tokens.size()) val = stripParensComma(tokens[i]);
+                        } else {
+                            val = stripParensComma(tokens[++i]).substr(1);
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+
+                if (key.empty()) continue;
+                double parsed = 0.0;
+                if (parseNumeric(val, parsed)) {
+                    if (inSubckt) currentSub.parameters[key] = parsed;
+                    else netlist.setParameter(key, parsed);
+                } else {
+                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "invalid numeric value for parameter '" + key + "'", tLine);
+                }
+            }
+            continue;
+        }
+
+        if (cardLower == ".lib") {
+            inLibBlock = true;
+            std::string section = (tokens.size() >= 2) ? tokens[1] : "";
+            parseLibBlock = options.activeLibSection.empty() || section == options.activeLibSection;
+            if (!parseLibBlock) {
+                addDiag(diagnostics, Severity::Info, ll.lineNo, options.sourceName, "skipping .lib section '" + section + "'", tLine);
+            }
+            continue;
+        }
+
+        if (cardLower == ".endl") {
+            inLibBlock = false;
+            parseLibBlock = true;
+            continue;
+        }
+
+        if (cardLower == ".include" || cardLower == ".inc") {
             if (tokens.size() < 2) {
                 fail(ll.lineNo, "malformed .include card", tLine);
                 continue;
@@ -237,74 +354,12 @@ bool SimModelParser::parseLibrary(
             continue;
         }
 
-        if (startsWithNoCase(card, ".lib")) {
-            inLibBlock = true;
-            std::string section = (tokens.size() >= 2) ? tokens[1] : "";
-            parseLibBlock = options.activeLibSection.empty() || section == options.activeLibSection;
-            if (!parseLibBlock) {
-                addDiag(diagnostics, Severity::Info, ll.lineNo, options.sourceName, "skipping .lib section '" + section + "'", tLine);
-            }
-            continue;
-        }
-        if (startsWithNoCase(card, ".endl")) {
-            inLibBlock = false;
-            parseLibBlock = true;
-            continue;
-        }
-        if (inLibBlock && !parseLibBlock) {
-            continue;
-        }
-
-        if (startsWithNoCase(card, ".param")) {
-            for (size_t i = 1; i < tokens.size(); ++i) {
-                std::string token = stripParensComma(tokens[i]);
-                const size_t eq = token.find('=');
-                if (eq == std::string::npos) continue;
-                const std::string key = token.substr(0, eq);
-                const std::string value = token.substr(eq + 1);
-                double parsed = 0.0;
-                if (key.empty()) continue;
-                if (parseNumeric(value, parsed)) {
-                    if (inSubckt) currentSub.parameters[key] = parsed;
-                    else netlist.setParameter(key, parsed);
-                } else {
-                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "invalid .param numeric value '" + token + "'", tLine);
-                }
-            }
-            continue;
-        }
-
-        if (startsWithNoCase(card, ".subckt")) {
-            if (tokens.size() < 2) {
-                fail(ll.lineNo, "malformed .subckt card", tLine);
-                continue;
-            }
-            inSubckt = true;
-            currentSub = SimSubcircuit();
-            currentSub.name = tokens[1];
-            currentPinToId.clear();
-            currentLocalNodeToId.clear();
-            currentSub.pinNames.clear();
-            currentSub.components.clear();
-            for (size_t i = 2; i < tokens.size(); ++i) {
-                currentSub.pinNames.push_back(tokens[i]);
-                currentPinToId[tokens[i]] = static_cast<int>(i - 1); // pin 1..N
-            }
-            nextInternalNodeId = static_cast<int>(currentSub.pinNames.size()) + 1;
-            continue;
-        }
-
-        if (startsWithNoCase(card, ".ends")) {
-            if (!inSubckt) {
-                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, ".ends found without active .subckt", tLine);
-                continue;
-            }
-            netlist.addSubcircuit(currentSub);
-            inSubckt = false;
-            continue;
-        }
 
         if (inSubckt) {
+            if (!card.empty() && card[0] == '.') {
+                addDiag(diagnostics, Severity::Info, ll.lineNo, options.sourceName, "ignored unsupported control card '" + card + "' in subcircuit", tLine);
+                continue;
+            }
             if (tokens.size() < 2) {
                 addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "ignored malformed subcircuit line", tLine);
                 continue;
@@ -356,6 +411,9 @@ bool SimModelParser::parseLibrary(
                 }
                 case 'X': isSubcktCall = true; break;
                 default:
+                    if (!inst.name.empty() && inst.name[0] == '.') {
+                        continue;
+                    }
                     addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "unsupported subcircuit primitive '" + inst.name + "'", tLine);
                     continue;
             }
@@ -456,22 +514,7 @@ bool SimModelParser::parseLibrary(
             continue;
         }
 
-        if (startsWithNoCase(card, ".model")) {
-            if (inSubckt) {
-                if (!parseModelLine(netlist, currentSub.models, tLine, ll.lineNo, options.sourceName, diagnostics)) {
-                    hadErrors = true;
-                }
-            } else {
-                std::map<std::string, SimModel> dummy; // Not ideal, but parseModelLine usually adds to netlist.
-                // Re-obtaining current Netlist models as a map reference isn't direct via API,
-                // so let's adjust the call to pass netlist.models() if we can.
-                // Actually, I'll just use a local temporary and add it.
-                if (!parseModelLine(netlist, netlist.mutableModels(), tLine, ll.lineNo, options.sourceName, diagnostics)) {
-                    hadErrors = true;
-                }
-            }
-            continue;
-        }
+
 
         if (!card.empty() && card[0] == '.') {
             addDiag(diagnostics, Severity::Info, ll.lineNo, options.sourceName, "ignored unsupported control card '" + card + "'", tLine);

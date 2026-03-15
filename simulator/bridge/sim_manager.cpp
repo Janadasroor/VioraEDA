@@ -52,12 +52,18 @@ void SimManager::runTransient(QGraphicsScene* scene, NetManager* netMgr, double 
     emit logMessage(QString("Building netlist for transient analysis (Stop: %1s, Step: %2s)...").arg(tStop).arg(tStep));
 
     m_control = new SimControl();
+    m_control->streamingCallback = [this](double t, const std::vector<double>& values) {
+        QMetaObject::invokeMethod(this, [this, t, values]() {
+            emit realTimePointReceived(t, values);
+        }, Qt::QueuedConnection);
+    };
     m_paused = false;
 
-    // Offload to background thread (including netlist building)
-    QFuture<SimResults> future = QtConcurrent::run([scene, netMgr, tStop, tStep, this]() {
-        SimNetlist netlist = SimSchematicBridge::buildNetlist(scene, netMgr);
-        
+    // Offload ONLY numerical calculation to background thread.
+    // Netlist building MUST happen on GUI thread as it traverses the scene.
+    SimNetlist netlist = SimSchematicBridge::buildNetlist(scene, netMgr);
+    
+    QFuture<SimResults> future = QtConcurrent::run([netlist, tStop, tStep, this]() {
         SimAnalysisConfig config;
         config.type = SimAnalysisType::Transient;
         config.tStart = 0;
@@ -65,10 +71,13 @@ void SimManager::runTransient(QGraphicsScene* scene, NetManager* netMgr, double 
         config.tStep = tStep;
         config.transientStorageMode = SimTransientStorageMode::AutoDecimate;
         config.transientMaxStoredPoints = 50000;
-        netlist.setAnalysis(config);
+        
+        // Ensure mutable components copy keeps their own copy of the config
+        SimNetlist localNetlist = netlist;
+        localNetlist.setAnalysis(config);
 
         SimEngine engine;
-        return engine.run(netlist, m_control);
+        return engine.run(localNetlist, m_control);
     });
 
     auto* watcher = new QFutureWatcher<SimResults>(this);

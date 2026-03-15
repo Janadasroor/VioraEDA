@@ -8,8 +8,11 @@
 #include <QUndoStack>
 #include <cmath>
 #include "schematic_tool.h"
+#include "../tools/schematic_probe_tool.h"
 
 class WireItem;
+class QGraphicsPixmapItem;
+class QGraphicsEllipseItem;
 
 class SchematicView : public QGraphicsView {
     Q_OBJECT
@@ -59,6 +62,13 @@ public:
     // Auto-numbering
     QString getNextReference(const QString& prefix);
 
+    // Probe cursor overlay (avoid OS cursor size limits)
+    void setProbeCursorOverlay(SchematicProbeTool::ProbeKind kind, const QPointF& scenePos);
+    void clearProbeCursorOverlay();
+    bool isProbeCursorOverlayVisible() const { return m_probeCursorVisible; }
+    void showProbeStartMarker(const QPointF& scenePos);
+    void clearProbeStartMarker();
+
 signals:
     void coordinatesChanged(QPointF pos);
     void toolChanged(const QString& toolName);
@@ -69,6 +79,7 @@ signals:
     void pageTitleBlockDoubleClicked();
     void syncSheetRequested(class SchematicSheetItem* sheet);
     void runLiveERC(const QList<SchematicItem*>& items);
+    void netProbed(const QString& netName);
 
 public:
     void setGridSize(double size);
@@ -130,6 +141,13 @@ private:
     SchematicItem* m_lastHoveredItem = nullptr;
     QMap<SchematicItem*, QSet<int>> m_hoverHighlightedPins;
     QList<QGraphicsItem*> m_liveErcMarkers;
+    bool m_probeClickActive = false;
+    QString m_probeStartNet;
+    QPointF m_probeStartPos;
+    QGraphicsEllipseItem* m_probeStartMarker = nullptr;
+    QGraphicsPixmapItem* m_probeCursorItem = nullptr;
+    bool m_probeCursorVisible = false;
+    SchematicProbeTool::ProbeKind m_probeCursorKind = SchematicProbeTool::ProbeKind::Voltage;
 
     QTimer* m_autoScrollTimer;
     QPoint m_autoScrollDelta;
@@ -138,6 +156,8 @@ private:
     void clearHoverHighlights();
     void updateAutoScroll(const QPoint& pos);
     void stopAutoScroll();
+    void ensureProbeCursorItem();
+    void applyProbeCursorPixmap(SchematicProbeTool::ProbeKind kind);
 };
 
 #endif // SCHEMATICVIEW_H

@@ -31,13 +31,13 @@ void SchematicEditor::applyTheme() {
 
         m_workspaceTabs->setStyleSheet(QString(
             "QTabWidget::pane { border: none; background: %1; }"
-            "QTabBar::tab { background: %2; color: %3; padding: 10px 20px; border-right: 1px solid %4; font-size: 11px; font-weight: 600; }"
+            "QTabBar::tab { background: %2; color: %3; padding: 4px 12px; border-right: 1px solid %4; font-size: 11px; font-weight: 600; min-height: 22px; }"
             "QTabBar::tab:selected { "
             "   background: %5; color: %6; "
             "   border-top: 2px solid rgba(0,0,0,0.1); "
             "   border-left: 1px solid rgba(0,0,0,0.05); "
             "   border-bottom: none; "
-            "   padding-top: 11px; " // Subtle shift down
+            "   padding-top: 7px; " // Subtle shift down
             "}"
             "QTabBar::close-button { image: url(:/icons/tool_clear.svg); subcontrol-position: right; margin-right: 4px; }"
             "QTabBar::close-button:hover { background: rgba(255,255,255,0.1); border-radius: 2px; }"

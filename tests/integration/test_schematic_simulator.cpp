@@ -84,11 +84,11 @@ void testDividerOperatingPoint() {
 
 void testDividerTransientWaveform() {
     QGraphicsScene scene;
-    buildDividerScene(scene, "0V", VoltageSourceItem::AC, [](VoltageSourceItem& source) {
-        source.setAcOffset(0.0);
-        source.setAcAmplitude(10.0);
-        source.setAcFrequency(1000.0);
-        source.setAcPhase(0.0);
+    buildDividerScene(scene, "0V", VoltageSourceItem::Sine, [](VoltageSourceItem& source) {
+        source.setSourceType(VoltageSourceItem::Sine);
+        source.setSineOffset("0.0");
+        source.setSineAmplitude("10.0");
+        source.setSineFrequency("1000.0");
     });
     SimNetlist netlist = SimSchematicBridge::buildNetlist(&scene, nullptr);
 
@@ -117,8 +117,9 @@ void testDividerTransientWaveform() {
         yMax = std::max(yMax, v);
     }
 
-    require(yMin < -4.8 + kEpsilon, "transient minimum too high");
-    require(yMax > 4.8 - kEpsilon, "transient maximum too low");
+    std::cout << "DEBUG: Transient V(OUT) range: [" << yMin << ", " << yMax << "]" << std::endl;
+    require(yMin < -4.8 + kEpsilon, "transient minimum too high: " + std::to_string(yMin));
+    require(yMax > 4.8 - kEpsilon, "transient maximum too low: " + std::to_string(yMax));
 }
 
 void testSwitchAndTransformerMapping() {

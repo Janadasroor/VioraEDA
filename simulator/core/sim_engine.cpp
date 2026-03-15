@@ -167,12 +167,19 @@ void appendEquationChannels(const SimNetlist& netlist, SimResults& results) {
     const std::vector<double> referenceX = results.waveforms.front().xData;
     if (referenceX.empty()) return;
 
+    std::vector<SimWaveform> newWaveforms;
     for (const std::string& raw : netlist.autoProbes()) {
         const std::string signal = trimCopy(raw);
         if (signal.empty()) continue;
 
         const std::string signalKey = uppercaseNoSpaces(signal);
         if (waveByKey.count(signalKey)) continue;
+        
+        // Also check if we already added it in this loop
+        auto itNew = std::find_if(newWaveforms.begin(), newWaveforms.end(), [&](const SimWaveform& w){
+            return uppercaseNoSpaces(w.name) == signalKey;
+        });
+        if (itNew != newWaveforms.end()) continue;
 
         std::string baseExpr = signal;
         bool derivativeChannel = false;
@@ -182,20 +189,53 @@ void appendEquationChannels(const SimNetlist& netlist, SimResults& results) {
             derivativeChannel = true;
         }
 
+        // To support probes depending on earlier probes, we need to temporarily combine them or search both.
+        // For now, let's just search both.
+        auto findInBoth = [&](const std::string& name) -> const SimWaveform* {
+            const std::string key = uppercaseNoSpaces(name);
+            auto it = waveByKey.find(key);
+            if (it != waveByKey.end()) return it->second;
+            for (const auto& nw : newWaveforms) {
+                if (uppercaseNoSpaces(nw.name) == key) return &nw;
+            }
+            return nullptr;
+        };
+
+        // We need a version of evaluateExpressionWaveform that uses our lambda
         std::vector<double> y;
-        std::string error;
-        if (!evaluateExpressionWaveform(baseExpr, referenceX, waveByKey, y, error)) {
-            results.diagnostics.push_back("Probe expression '" + signal + "' skipped: " + error);
+        Sim::Expression expr(baseExpr);
+        if (!expr.isValid()) {
+            results.diagnostics.push_back("Probe expression '" + signal + "' skipped: invalid expression");
             continue;
+        }
+
+        bool missingSignal = false;
+        std::vector<const SimWaveform*> varWaves;
+        for (const auto& v : expr.getVariables()) {
+            const SimWaveform* w = findInBoth(v);
+            if (!w) {
+                results.diagnostics.push_back("Probe expression '" + signal + "' skipped: unknown signal '" + v + "'");
+                missingSignal = true;
+                break;
+            }
+            varWaves.push_back(w);
+        }
+        if (missingSignal) continue;
+
+        y.reserve(referenceX.size());
+        std::map<std::string, double> variableValues;
+        auto exprVars = expr.getVariables();
+        for (double x : referenceX) {
+            for (size_t i = 0; i < exprVars.size(); ++i) {
+                variableValues[exprVars[i]] = sampleWaveAtX(*varWaves[i], x);
+            }
+            y.push_back(expr.evaluate(variableValues));
         }
 
         if (derivativeChannel) {
             std::vector<double> dydx(y.size(), 0.0);
             for (size_t i = 0; i < y.size(); ++i) {
-                if (y.size() == 1) {
-                    dydx[i] = 0.0;
-                    break;
-                }
+                if (y.size() <= 1) break;
                 if (i == 0) {
                     const double dx = referenceX[1] - referenceX[0];
                     dydx[i] = (std::abs(dx) > 1e-18) ? (y[1] - y[0]) / dx : 0.0;
@@ -214,9 +254,11 @@ void appendEquationChannels(const SimNetlist& netlist, SimResults& results) {
         derived.name = signal;
         derived.xData = referenceX;
         derived.yData = std::move(y);
-        results.waveforms.push_back(std::move(derived));
+        newWaveforms.push_back(std::move(derived));
+    }
 
-        waveByKey[signalKey] = &results.waveforms.back();
+    for (auto& nw : newWaveforms) {
+        results.waveforms.push_back(std::move(nw));
     }
 }
 
@@ -322,13 +364,14 @@ SimResults SimEngine::run(const SimNetlist& netlist, SimControl* control) {
 
     assignIndices(flatNetlist);
 
-    // Prepare Netlist: Assign vIdx to components that need it
+    // Prepare Netlist: Assign vIdx and pre-initialize caches
     int totalVIdx = 0;
-    for (auto& comp : flatNetlist.mutableComponents()) { // Use flatNetlist here
+    for (auto& comp : flatNetlist.mutableComponents()) {
         auto* model = SimComponentFactory::getModel(comp.type);
         if (model) {
             comp.vIdx = totalVIdx;
             totalVIdx += model->voltageSourceCount(comp);
+            model->initializeRuntimeCache(flatNetlist, comp);
         } else if (comp.type != SimComponentType::SubcircuitInstance) {
             flatNetlist.addDiagnostic("Missing internal model for component '" + comp.name + "' of type " + std::to_string(static_cast<int>(comp.type)));
         }
@@ -947,7 +990,7 @@ SimResults SimEngine::solveTransient(const SimNetlist& netlist, SimControl* cont
                 }
             }
             
-            std::vector<double> nextGuess = matrix.solve();
+            std::vector<double> nextGuess = matrix.solveSparse();
             if (nextGuess.empty()) break;
             
             double maxError = 0;
@@ -996,16 +1039,7 @@ SimResults SimEngine::solveTransient(const SimNetlist& netlist, SimControl* cont
         double ratio = 1.0;
         double maxErrorFactor = 0.0;
 
-        for (size_t i = 0; i < currentSolution.size(); ++i) {
-            const double cur = currentSolution[i];
-            const double prev = prevSolution[i];
-            const double scale = std::max({1.0, std::abs(cur), std::abs(prev)});
-            const double tol = config.absTol + config.relTol * scale;
-            if (tol > 0.0) {
-                maxErrorFactor = std::max(maxErrorFactor, std::abs(cur - prev) / tol);
-            }
-        }
-
+        // Local Truncation Error (LTE) check for reactive components (Capacitors, Inductors).
         if (!prev2Solution.empty()) {
             int vIdxLTE = 0;
             for (const auto& comp : netlist.components()) {
@@ -1064,6 +1098,10 @@ SimResults SimEngine::solveTransient(const SimNetlist& netlist, SimControl* cont
                 for (int i = 1; i < nodes; ++i) {
                     waveforms[i - 1].xData.push_back(t);
                     waveforms[i - 1].yData.push_back(currentSolution[i - 1]);
+                }
+
+                if (control && control->streamingCallback) {
+                    control->streamingCallback(t, currentSolution);
                 }
 
                 if (config.transientMaxStoredPoints > 0 && !waveforms.empty()) {

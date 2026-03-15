@@ -99,6 +99,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
         QString ref = comp.reference;
         int type = comp.type;
+        QMap<QString, QString> pins = componentPins.value(ref);
         
         // Handle Power Items separately
         if (type == SchematicItem::PowerType) {
@@ -118,6 +119,35 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         QString line;
         
         // Determine SPICE prefix
+        bool isInstrument = (comp.typeName == "OscilloscopeInstrument" ||
+                             comp.typeName == "Oscilloscope Instrument" ||
+                             comp.typeName == "VoltmeterInstrument" ||
+                             comp.typeName == "Voltmeter (DC)" ||
+                             comp.typeName == "Voltmeter (AC)" ||
+                             comp.typeName == "AmmeterInstrument" ||
+                             comp.typeName == "Ammeter (DC)" ||
+                             comp.typeName == "Ammeter (AC)" ||
+                             comp.typeName == "WattmeterInstrument" ||
+                             comp.typeName == "Wattmeter" ||
+                             comp.typeName == "FrequencyCounterInstrument" ||
+                             comp.typeName == "Frequency Counter" ||
+                             comp.typeName == "LogicProbeInstrument" ||
+                             comp.typeName == "Logic Probe");
+
+        if (isInstrument) {
+            QStringList keys = pins.keys();
+            std::sort(keys.begin(), keys.end());
+            for (const QString& pk : keys) {
+                QString node = pins[pk].replace(" ", "_");
+                if (node.isEmpty() || node.toUpper().startsWith("NC")) continue;
+                if (node == "0") continue; // No need to ground ground
+                
+                netlist += QString("R_%1_%2 %3 0 100Meg\n").arg(ref, pk, node);
+            }
+            continue;
+        }
+
+        // Determine SPICE prefix
         if (type == SchematicItem::ResistorType) line = "R" + ref;
         else if (type == SchematicItem::CapacitorType) line = "C" + ref;
         else if (type == SchematicItem::InductorType) line = "L" + ref;
@@ -129,9 +159,6 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
         else line = "X" + ref; // Subcircuit or generic
 
-        // Map pins to nodes
-        QMap<QString, QString> pins = componentPins.value(ref);
-        
         // --- SPICE Mapper Logic ---
         QString value = comp.value;
         if (!comp.spiceModel.isEmpty()) value = comp.spiceModel;
@@ -149,8 +176,8 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 std::sort(sortedIndices.begin(), sortedIndices.end());
                 for (int idx : sortedIndices) {
                     QString pinName = mapping[idx];
-                    QString net = pins.value(pinName, "0"); // Default to 0 if not connected
-                    nodes.append(net.replace(" ", "_"));
+                    QString net = pins.value(pinName, "0").replace(" ", "_");
+                    nodes.append(net);
                 }
             }
         }
@@ -224,7 +251,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             break;
     }
 
-    netlist += ".control\nrun\n.endc\n.end\n";
+    netlist += ".control\nrun\n.save all\n.endc\n.end\n";
     return netlist;
 }
 

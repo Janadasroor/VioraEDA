@@ -74,11 +74,12 @@ void fuzzValueParser() {
 
 void fuzzModelLineParser() {
     SimNetlist netlist;
-    require(SimModelParser::parseModelLine(netlist, ".model DFAST D (IS=1e-14 N=1.2)"),
+    require(SimModelParser::parseModelLine(netlist, netlist.mutableModels(), ".model DFAST D (IS=1e-14 N=1.2)"),
             "failed to parse valid diode model");
     require(netlist.findModel("DFAST") != nullptr, "valid model not registered");
 
     std::mt19937_64 rng(0x10D31F77ULL);
+    std::map<std::string, SimModel> dummyModels;
     std::vector<std::string> lines = {
         "", "* comment", ".model", ".model M1", ".model M2 BADTYPE",
         ".MODEL QNPN NPN (BF=100 IS=1e-15)",
@@ -89,7 +90,7 @@ void fuzzModelLineParser() {
     };
 
     for (const std::string& line : lines) {
-        (void)SimModelParser::parseModelLine(netlist, line);
+        (void)SimModelParser::parseModelLine(netlist, dummyModels, line);
     }
 
     for (int i = 0; i < 5000; ++i) {
@@ -99,7 +100,7 @@ void fuzzModelLineParser() {
         } else {
             line = randomToken(rng, 140);
         }
-        (void)SimModelParser::parseModelLine(netlist, line);
+        (void)SimModelParser::parseModelLine(netlist, dummyModels, line);
     }
 }
 

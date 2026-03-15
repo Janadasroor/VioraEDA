@@ -26,6 +26,7 @@ VoltageSourceItem::VoltageSourceItem(QPointF pos, const QString& value, SourceTy
     
     rebuildPrimitives();
     createLabels(QPointF(35, -15), QPointF(35, 15));
+    setValue(value);
 }
 
 QString VoltageSourceItem::itemTypeName() const {
@@ -158,9 +159,9 @@ void VoltageSourceItem::updateValue() {
         case DC: {
             QString v = m_dcVoltage.trimmed();
             if (v.startsWith("{") && v.endsWith("}")) {
-                m_value = QString("%1%2%3").arg(v).arg(acStr).arg(tail);
+                m_value = QString("%1 %2 %3").arg(v).arg(acStr).arg(tail);
             } else {
-                m_value = QString("%1V%2%3").arg(v).arg(acStr).arg(tail);
+                m_value = QString("%1 %2 %3").arg(v).arg(acStr).arg(tail);
             }
             break;
         }

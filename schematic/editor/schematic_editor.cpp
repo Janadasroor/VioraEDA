@@ -250,6 +250,15 @@ void SchematicEditor::addSchematicTab(const QString& name) {
         }
     });
     connect(view, &SchematicView::runLiveERC, this, &SchematicEditor::runLiveERC);
+    connect(view, &SchematicView::netProbed, this, [this](const QString& netName) {
+        if (m_simulationPanel) {
+            if (m_simulationPanel->hasProbe(netName)) {
+                m_simulationPanel->clearAllProbesPreserveX();
+            }
+            m_simulationPanel->addProbe(netName);
+            statusBar()->showMessage("Probed signal: " + netName, 3000);
+        }
+    });
 
     int idx = m_workspaceTabs->addTab(view, getThemeIcon(":/icons/comp_ic.svg"), name);
     m_workspaceTabs->setCurrentIndex(idx);
@@ -593,6 +602,8 @@ void SchematicEditor::ensureProbeToolConnected() {
                 m_simulationPanel, &SimulationPanel::removeProbe, Qt::UniqueConnection);
         connect(probeTool, &SchematicProbeTool::signalDifferentialProbed,
                 m_simulationPanel, &SimulationPanel::addDifferentialProbe, Qt::UniqueConnection);
+        connect(probeTool, &SchematicProbeTool::signalClearAllProbes,
+                m_simulationPanel, &SimulationPanel::clearAllProbesPreserveX, Qt::UniqueConnection);
     }
 }
 
@@ -1015,11 +1026,13 @@ void SchematicEditor::onToggleLeftSidebar() {
     else if (m_projectExplorerDock && m_projectExplorerDock->isVisible()) visible = true;
     else if (m_geminiDock && m_geminiDock->isVisible()) visible = true;
     else if (m_scriptDock && m_scriptDock->isVisible()) visible = true;
+    else if (m_hierarchyDock && m_hierarchyDock->isVisible()) visible = true;
 
     if (m_componentDock) m_componentDock->setVisible(!visible);
     if (m_projectExplorerDock) m_projectExplorerDock->setVisible(!visible);
     if (m_geminiDock) m_geminiDock->setVisible(!visible);
     if (m_scriptDock) m_scriptDock->setVisible(!visible);
+    if (m_hierarchyDock) m_hierarchyDock->setVisible(!visible);
 }
 
 void SchematicEditor::onToggleBottomPanel() {
@@ -1030,9 +1043,7 @@ void SchematicEditor::onToggleBottomPanel() {
 
 void SchematicEditor::onToggleRightSidebar() {
     bool visible = false;
-    if (m_hierarchyDock && m_hierarchyDock->isVisible()) visible = true;
     if (m_ercDock && m_ercDock->isVisible()) visible = true;
 
-    if (m_hierarchyDock) m_hierarchyDock->setVisible(!visible);
     if (m_ercDock) m_ercDock->setVisible(!visible);
 }

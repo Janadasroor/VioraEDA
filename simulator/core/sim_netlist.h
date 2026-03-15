@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 
 enum class SimComponentType {
     Resistor, Capacitor, Inductor,
@@ -77,6 +78,8 @@ struct SimComponentInstance {
     std::string pythonScript;
     std::vector<std::string> inputPinNames;
     std::vector<std::string> outputPinNames;
+
+    mutable std::shared_ptr<void> runtimeData; // Simulation cache
 };
 
 struct SimSubcircuit {

@@ -759,6 +759,60 @@ void TransmissionLineModel::stampAC(SimComplexMNAMatrix& matrix, const SimNetlis
 }
 
 // --- Behavioral Sources ---
+namespace {
+struct BSourceCache {
+    Sim::Expression expr;
+    struct ResolvedVar {
+        enum Type { Node, CompCurrent, Time };
+        Type type;
+        int index = -1;
+        int exprVarIdx = -1;
+    };
+    std::vector<ResolvedVar> vars;
+};
+
+void prepareBSourceCache(const SimNetlist& netlist, const SimComponentInstance& inst) {
+    if (inst.runtimeData) return;
+    
+    auto cache = std::make_shared<BSourceCache>();
+    std::string exprStr = inst.modelName.empty() ? "0" : inst.modelName;
+    if (exprStr.size() > 2 && (exprStr[1] == '=' || exprStr[1] == ' ')) {
+        if (exprStr[0] == 'V' || exprStr[0] == 'v' || exprStr[0] == 'I' || exprStr[0] == 'i') {
+            exprStr = exprStr.substr(2);
+        }
+    }
+    cache->expr = Sim::Expression(exprStr);
+    auto varNames = cache->expr.getVariables();
+    for (int i = 0; i < (int)varNames.size(); ++i) {
+        const auto& vn = varNames[i];
+        BSourceCache::ResolvedVar rv;
+        rv.exprVarIdx = i;
+        if (vn.rfind("V(", 0) == 0 && vn.back() == ')') {
+            rv.type = BSourceCache::ResolvedVar::Node;
+            rv.index = netlist.findNode(vn.substr(2, vn.size() - 3));
+        } else if (vn.rfind("I(", 0) == 0 && vn.back() == ')') {
+            rv.type = BSourceCache::ResolvedVar::CompCurrent;
+            std::string compName = vn.substr(2, vn.size() - 3);
+            for (const auto& c : netlist.components()) {
+                if (c.name == compName) { rv.index = c.vIdx; break; }
+            }
+        } else {
+            rv.type = BSourceCache::ResolvedVar::Time; 
+        }
+        cache->vars.push_back(rv);
+    }
+    inst.runtimeData = cache;
+}
+
+BSourceCache* getBSourceCache(const SimComponentInstance& inst) {
+    return static_cast<BSourceCache*>(inst.runtimeData.get());
+}
+}
+
+void BehavioralVoltageSourceModel::initializeRuntimeCache(const SimNetlist& netlist, const SimComponentInstance& inst) {
+    prepareBSourceCache(netlist, inst);
+}
+
 void BehavioralVoltageSourceModel::stamp(SimMNAMatrix& matrix, const SimNetlist&, const SimComponentInstance& inst, int& vSourceCounter, double) {
     if (inst.nodes.size() < 2) return;
     int nPos = inst.nodes[0], nNeg = inst.nodes[1];
@@ -766,43 +820,39 @@ void BehavioralVoltageSourceModel::stamp(SimMNAMatrix& matrix, const SimNetlist&
     matrix.addB(nPos, vIdx, 1.0); matrix.addB(nNeg, vIdx, -1.0);
     matrix.addC(vIdx, nPos, 1.0); matrix.addC(vIdx, nNeg, -1.0);
 }
+
 void BehavioralVoltageSourceModel::stampNonlinear(SimMNAMatrix& matrix, const SimNetlist& netlist, const SimComponentInstance& inst, const std::vector<double>& solution, double t, int& vIdx) {
     if (inst.nodes.size() < 2) return;
-    int nPos = inst.nodes[0], nNeg = inst.nodes[1];
-    std::string exprStr = inst.modelName.empty() ? "0" : inst.modelName;
-    Sim::Expression expr(exprStr);
-    std::map<std::string, double> vars;
-    auto varNames = expr.getVariables();
-    for (const auto& v : varNames) {
-        if (v.rfind("V(", 0) == 0 && v.back() == ')') {
-            int nId = netlist.findNode(v.substr(2, v.size() - 3));
-            vars[v] = (nId > 0) ? solution[nId - 1] : 0.0;
-        } else if (v.rfind("I(", 0) == 0 && v.back() == ')') {
-            std::string compName = v.substr(2, v.size() - 3);
-            int vIdxComp = -1;
-            for (const auto& c : netlist.components()) if (c.name == compName) { vIdxComp = c.vIdx; break; }
-            vars[v] = (vIdxComp >= 0) ? solution[netlist.nodeCount() - 1 + vIdxComp] : 0.0;
-        } else if (v == "time" || v == "t") vars[v] = t;
-        else vars[v] = 0.0;
+    auto* cache = getBSourceCache(inst);
+    if (!cache) return;
+
+    double vals[128]; // Increased to 128 strictly to avoid overflow on complex IC models
+    int maxVars = std::min((int)cache->vars.size(), 128);
+    for (int i = 0; i < maxVars; ++i) {
+        const auto& rv = cache->vars[i];
+        if (rv.exprVarIdx < 0 || rv.exprVarIdx >= 128) continue;
+        
+        if (rv.type == BSourceCache::ResolvedVar::Node) {
+            vals[rv.exprVarIdx] = (rv.index > 0) ? solution[rv.index - 1] : 0.0;
+        } else if (rv.type == BSourceCache::ResolvedVar::CompCurrent) {
+            vals[rv.exprVarIdx] = (rv.index >= 0) ? solution[netlist.nodeCount() - 1 + rv.index] : 0.0;
+        } else {
+            vals[rv.exprVarIdx] = t;
+        }
     }
-    double value = expr.evaluate(vars), jacobianSum = 0;
-    for (const auto& v : varNames) {
-        if (v.rfind("V(", 0) == 0 && v.back() == ')') {
-            int nId = netlist.findNode(v.substr(2, v.size() - 3));
-            if (nId > 0) {
-                double df_dv = expr.derivative(v, vars);
-                matrix.addC(vIdx, nId, -df_dv); 
-                jacobianSum += df_dv * solution[nId - 1];
-            }
-        } else if (v.rfind("I(", 0) == 0 && v.back() == ')') {
-            std::string compName = v.substr(2, v.size() - 3);
-            int vIdxDeriv = -1;
-            for (const auto& c : netlist.components()) if (c.name == compName) { vIdxDeriv = c.vIdx; break; }
-            if (vIdxDeriv >= 0) {
-                double df_di = expr.derivative(v, vars);
-                matrix.addD(vIdx, vIdxDeriv, -df_di);
-                jacobianSum += df_di * solution[netlist.nodeCount() - 1 + vIdxDeriv];
-            }
+
+    double value = cache->expr.evaluate(vals, maxVars), jacobianSum = 0;
+    for (const auto& rv : cache->vars) {
+        if (rv.exprVarIdx < 0 || rv.exprVarIdx >= 128) continue;
+
+        if (rv.type == BSourceCache::ResolvedVar::Node && rv.index > 0) {
+            double df_dv = cache->expr.derivative(rv.exprVarIdx, vals, maxVars);
+            matrix.addC(vIdx, rv.index, -df_dv); 
+            jacobianSum += df_dv * solution[rv.index - 1];
+        } else if (rv.type == BSourceCache::ResolvedVar::CompCurrent && rv.index >= 0) {
+            double df_di = cache->expr.derivative(rv.exprVarIdx, vals, maxVars);
+            matrix.addD(vIdx, rv.index, -df_di);
+            jacobianSum += df_di * solution[netlist.nodeCount() - 1 + rv.index];
         }
     }
     matrix.addE(vIdx, value - jacobianSum);
@@ -810,43 +860,44 @@ void BehavioralVoltageSourceModel::stampNonlinear(SimMNAMatrix& matrix, const Si
 
 
 void BehavioralCurrentSourceModel::stamp(SimMNAMatrix&, const SimNetlist&, const SimComponentInstance&, int&, double) {}
+void BehavioralCurrentSourceModel::initializeRuntimeCache(const SimNetlist& netlist, const SimComponentInstance& inst) {
+    prepareBSourceCache(netlist, inst);
+}
+
 void BehavioralCurrentSourceModel::stampNonlinear(SimMNAMatrix& matrix, const SimNetlist& netlist, const SimComponentInstance& inst, const std::vector<double>& solution, double t, int&) {
     if (inst.nodes.size() < 2) return;
     int nPos = inst.nodes[0], nNeg = inst.nodes[1];
-    std::string exprStr = inst.modelName.empty() ? "0" : inst.modelName;
-    Sim::Expression expr(exprStr);
-    std::map<std::string, double> vars;
-    auto varNames = expr.getVariables();
-    for (const auto& v : varNames) {
-        if (v.rfind("V(", 0) == 0 && v.back() == ')') {
-            int nId = netlist.findNode(v.substr(2, v.size() - 3));
-            vars[v] = (nId > 0) ? solution[nId - 1] : 0.0;
-        } else if (v.rfind("I(", 0) == 0 && v.back() == ')') {
-            std::string compName = v.substr(2, v.size() - 3);
-            int vIdxComp = -1;
-            for (const auto& c : netlist.components()) if (c.name == compName) { vIdxComp = c.vIdx; break; }
-            vars[v] = (vIdxComp >= 0) ? solution[netlist.nodeCount() - 1 + vIdxComp] : 0.0;
-        } else if (v == "time" || v == "t") vars[v] = t;
-        else vars[v] = 0.0;
+
+    auto* cache = getBSourceCache(inst);
+    if (!cache) return;
+
+    double vals[64]; 
+    int maxVars = std::min((int)cache->vars.size(), 64);
+    for (int i = 0; i < maxVars; ++i) {
+        const auto& rv = cache->vars[i];
+        if (rv.exprVarIdx < 0 || rv.exprVarIdx >= 64) continue;
+
+        if (rv.type == BSourceCache::ResolvedVar::Node) {
+            vals[rv.exprVarIdx] = (rv.index > 0) ? solution[rv.index - 1] : 0.0;
+        } else if (rv.type == BSourceCache::ResolvedVar::CompCurrent) {
+            vals[rv.exprVarIdx] = (rv.index >= 0) ? solution[netlist.nodeCount() - 1 + rv.index] : 0.0;
+        } else {
+            vals[rv.exprVarIdx] = t;
+        }
     }
-    double value = expr.evaluate(vars), jacobianSum = 0;
-    for (const auto& v : varNames) {
-        if (v.rfind("V(", 0) == 0 && v.back() == ')') {
-            int nId = netlist.findNode(v.substr(2, v.size() - 3));
-            if (nId > 0) { 
-                double df_dv = expr.derivative(v, vars);
-                matrix.addG(nPos, nId, df_dv); matrix.addG(nNeg, nId, -df_dv);
-                jacobianSum += df_dv * solution[nId - 1];
-            }
-        } else if (v.rfind("I(", 0) == 0 && v.back() == ')') {
-            std::string compName = v.substr(2, v.size() - 3);
-            int vIdxDeriv = -1;
-            for (const auto& c : netlist.components()) if (c.name == compName) { vIdxDeriv = c.vIdx; break; }
-            if (vIdxDeriv >= 0) {
-                double df_di = expr.derivative(v, vars);
-                matrix.addB(nPos, vIdxDeriv, df_di); matrix.addB(nNeg, vIdxDeriv, -df_di);
-                jacobianSum += df_di * solution[netlist.nodeCount() - 1 + vIdxDeriv];
-            }
+
+    double value = cache->expr.evaluate(vals, maxVars), jacobianSum = 0;
+    for (const auto& rv : cache->vars) {
+        if (rv.exprVarIdx < 0 || rv.exprVarIdx >= 64) continue;
+
+        if (rv.type == BSourceCache::ResolvedVar::Node && rv.index > 0) { 
+            double df_dv = cache->expr.derivative(rv.exprVarIdx, vals, maxVars);
+            matrix.addG(nPos, rv.index, df_dv); matrix.addG(nNeg, rv.index, -df_dv);
+            jacobianSum += df_dv * solution[rv.index - 1];
+        } else if (rv.type == BSourceCache::ResolvedVar::CompCurrent && rv.index >= 0) {
+            double df_di = cache->expr.derivative(rv.exprVarIdx, vals, maxVars);
+            matrix.addB(nPos, rv.index, df_di); matrix.addB(nNeg, rv.index, -df_di);
+            jacobianSum += df_di * solution[netlist.nodeCount() - 1 + rv.index];
         }
     }
     matrix.addI(nPos, -(value - jacobianSum)); matrix.addI(nNeg, value - jacobianSum);

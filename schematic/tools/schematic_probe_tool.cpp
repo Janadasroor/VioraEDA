@@ -60,6 +60,24 @@ void removeProbeMarker(QGraphicsScene* scene, const QString& markerKey) {
     }
 }
 
+void removeAllProbeMarkers(QGraphicsScene* scene) {
+    if (!scene) return;
+    QList<QGraphicsItem*> toDelete;
+    for (QGraphicsItem* item : scene->items()) {
+        if (dynamic_cast<SchematicWaveformMarker*>(item)) {
+            toDelete.append(item);
+            continue;
+        }
+        if (item->data(0).toString() == "probe_dot") {
+            toDelete.append(item);
+        }
+    }
+    for (QGraphicsItem* item : toDelete) {
+        scene->removeItem(item);
+        delete item;
+    }
+}
+
 void placeProbeMarker(QGraphicsScene* scene, const QPointF& pos, const QString& netName, const QString& kindTag) {
     if (!scene || netName.isEmpty()) return;
     const QString markerKey = markerKeyFor(netName, kindTag);
@@ -113,48 +131,101 @@ QString SchematicProbeTool::tooltip() const {
     }
 }
 
-QCursor SchematicProbeTool::createProbeCursor(ProbeKind kind) {
-    if (kind == ProbeKind::Voltage) {
-        QPixmap pixmap(":/icons/p-v-probe.png");
-        if (!pixmap.isNull()) {
-            QPixmap scaled = pixmap.scaled(32, 32, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            return QCursor(scaled, 3, 29);
-        }
-    } else if (kind == ProbeKind::Current) {
-        // Current used as Black/Negative probe for differential
-        QPixmap pixmap(":/icons/n-v-probe.png");
-        if (!pixmap.isNull()) {
-            QPixmap scaled = pixmap.scaled(32, 32, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            return QCursor(scaled, 3, 29);
+#include <QSvgRenderer>
+#include <cmath>
+
+SchematicProbeTool::ProbeCursorArt SchematicProbeTool::createProbeCursorArt(ProbeKind kind) {
+    constexpr int kBaseSize = 32;
+    constexpr int kDrawSize = 48;   // Visual size of probe
+    constexpr int kPadding = 4;     // Extra margin to avoid clipping at edges
+    constexpr int kCursorSize = kDrawSize + (kPadding * 2);
+    const qreal scale = static_cast<qreal>(kDrawSize) / static_cast<qreal>(kBaseSize);
+    const QPointF hotspotF(kPadding + (0.125 * kDrawSize),
+                           kPadding + (0.875 * kDrawSize)); // (4,28) scaled from 32 + padding
+    const QPoint hotspot(static_cast<int>(std::lround(hotspotF.x())),
+                         static_cast<int>(std::lround(hotspotF.y())));
+
+    if (kind == ProbeKind::Voltage || kind == ProbeKind::Current) {
+        QPixmap pixmap(kCursorSize, kCursorSize);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QString iconPath = (kind == ProbeKind::Voltage) ? ":/icons/p-v-probe.svg" : ":/icons/n-v-probe.svg";
+        QSvgRenderer renderer(iconPath);
+        if (renderer.isValid()) {
+            renderer.render(&painter, QRectF(kPadding, kPadding, kDrawSize, kDrawSize));
+            return {pixmap, hotspot};
         }
     }
-    
-    // Fallback for Power/Logic
-    QPixmap pix(32, 32);
+
+    // Fallback or other probe kinds (Current/Power)
+    QPixmap pix(kCursorSize, kCursorSize);
     pix.fill(Qt::transparent);
     QPainter p(&pix);
     p.setRenderHint(QPainter::Antialiasing);
 
-    QColor color = (kind == ProbeKind::Power) ? QColor(255, 105, 180) : QColor(0, 120, 215);
-    QString letter = (kind == ProbeKind::Power) ? "W" : "L";
+    // Color scheme
+    QColor tipColor = (kind == ProbeKind::Voltage) ? QColor(220, 38, 38) : QColor(31, 41, 55); // Red or Dark Gray
+    QColor bodyColor = QColor(209, 213, 219); // Light Gray
+    QColor shadowColor = QColor(0, 0, 0, 100);
 
-    p.setPen(QPen(Qt::black, 1));
-    p.setBrush(color);
-    QPolygon tip;
-    tip << QPoint(4, 28) << QPoint(10, 18) << QPoint(14, 22);
-    p.drawPolygon(tip);
-
-    p.setBrush(Qt::white);
-    p.drawRect(10, 4, 18, 18);
-    p.setPen(color);
-    p.setFont(QFont("Arial", 10, QFont::Bold));
-    p.drawText(QRect(10, 4, 18, 18), Qt::AlignCenter, letter);
+    // Tip at (4, 28) scaled - hotspot
+    // The probe points from bottom-left towards top-right
     
-    return QCursor(pix, 4, 28);
+    // Draw shadow for depth
+    p.setPen(Qt::NoPen);
+    p.setBrush(shadowColor);
+    QPolygonF shadow;
+    shadow << QPointF(5, 29) << QPointF(8, 20) << QPointF(29, 5) << QPointF(31, 7) << QPointF(10, 31);
+    for (QPointF& pt : shadow) pt = pt * scale + QPointF(kPadding, kPadding);
+    p.drawPolygon(shadow);
+
+    // Draw Probe Body (the stick)
+    p.setPen(QPen(Qt::black, 0.5 * scale));
+    QLinearGradient bodyGrad(8 * scale, 24 * scale, 28 * scale, 4 * scale);
+    bodyGrad.setColorAt(0, bodyColor);
+    bodyGrad.setColorAt(1, bodyColor.darker(110));
+    p.setBrush(bodyGrad);
+    
+    QPolygonF body;
+    body << QPointF(8, 22) << QPointF(26, 4) << QPointF(29, 7) << QPointF(11, 25);
+    for (QPointF& pt : body) pt = pt * scale + QPointF(kPadding, kPadding);
+    p.drawPolygon(body);
+
+    // Draw the active Tip (colored part)
+    p.setBrush(tipColor);
+    p.setPen(QPen(Qt::black, 0.5 * scale));
+    QPolygonF tip;
+    tip << QPointF(4, 28) << QPointF(8, 20) << QPointF(12, 24);
+    for (QPointF& pt : tip) pt = pt * scale + QPointF(kPadding, kPadding);
+    p.drawPolygon(tip);
+    
+    // Glossy overlay on tip
+    p.setBrush(QColor(255, 255, 255, 60));
+    QPolygonF gloss;
+    gloss << QPointF(5, 26) << QPointF(7, 21) << QPointF(9, 23);
+    for (QPointF& pt : gloss) pt = pt * scale + QPointF(kPadding, kPadding);
+    p.drawPolygon(gloss);
+
+    // Grip lines on handle
+    p.setPen(QPen(QColor(0, 0, 0, 80), 1 * scale));
+    p.drawLine(QPointF(15, 15) * scale + QPointF(kPadding, kPadding),
+               QPointF(18, 18) * scale + QPointF(kPadding, kPadding));
+    p.drawLine(QPointF(18, 12) * scale + QPointF(kPadding, kPadding),
+               QPointF(21, 15) * scale + QPointF(kPadding, kPadding));
+    p.drawLine(QPointF(21, 9) * scale + QPointF(kPadding, kPadding),
+               QPointF(24, 12) * scale + QPointF(kPadding, kPadding));
+
+    return {pix, hotspot};
+}
+
+QCursor SchematicProbeTool::createProbeCursor(ProbeKind kind) {
+    const ProbeCursorArt art = createProbeCursorArt(kind);
+    return QCursor(art.pixmap, art.hotspot.x(), art.hotspot.y());
 }
 
 QCursor SchematicProbeTool::cursor() const {
-    return createProbeCursor(m_kind);
+    return QCursor(Qt::BlankCursor);
 }
 
 
@@ -186,8 +257,10 @@ void SchematicProbeTool::mousePressEvent(QMouseEvent* event) {
                 const QString markerKey = markerKeyFor(netName, kindTag);
 
                 if (findProbeMarker(view()->scene(), markerKey)) {
-                    removeProbeMarker(view()->scene(), markerKey);
-                    emit signalUnprobed(signalName);
+                    emit signalClearAllProbes();
+                    removeAllProbeMarkers(view()->scene());
+                    emit signalProbed(signalName);
+                    placeProbeMarker(view()->scene(), scenePos, netName, kindTag);
                 } else {
                     emit signalProbed(signalName);
                     placeProbeMarker(view()->scene(), scenePos, netName, kindTag);
@@ -207,12 +280,20 @@ void SchematicProbeTool::mouseMoveEvent(QMouseEvent* event) {
             
             // If over a different net, show BLACK probe cursor
             if (!netName.isEmpty() && netName != m_startNetName) {
-                view()->viewport()->setCursor(createProbeCursor(ProbeKind::Current)); // Current is Black
+                view()->setProbeCursorOverlay(ProbeKind::Current, scenePos); // Current is Black
             } else {
-                view()->viewport()->setCursor(createProbeCursor(ProbeKind::Voltage)); // Voltage is Red
+                view()->setProbeCursorOverlay(ProbeKind::Voltage, scenePos); // Voltage is Red
             }
         }
         event->accept();
+        return;
+    }
+
+    if (view()) {
+        QPointF scenePos = view()->mapToScene(event->pos());
+        view()->setProbeCursorOverlay(m_kind, scenePos);
+        event->accept();
+        return;
     }
 }
 
@@ -236,8 +317,10 @@ void SchematicProbeTool::mouseReleaseEvent(QMouseEvent* event) {
                 const QString markerKey = markerKeyFor(m_startNetName, "V");
 
                 if (findProbeMarker(view()->scene(), markerKey)) {
-                    removeProbeMarker(view()->scene(), markerKey);
-                    emit signalUnprobed(signalName);
+                    emit signalClearAllProbes();
+                    removeAllProbeMarkers(view()->scene());
+                    emit signalProbed(signalName);
+                    placeProbeMarker(view()->scene(), scenePos, m_startNetName, "V");
                 } else {
                     emit signalProbed(signalName);
                     // Place marker at the START point for single probe
@@ -246,8 +329,10 @@ void SchematicProbeTool::mouseReleaseEvent(QMouseEvent* event) {
             }
         }
         
-        // Restore standard cursor
-        view()->viewport()->setCursor(cursor());
+        // Keep probe cursor visible after release
+        if (view()) {
+            view()->setProbeCursorOverlay(m_kind, scenePos);
+        }
         event->accept();
     }
 }

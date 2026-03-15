@@ -466,9 +466,10 @@ void SchematicEditor::createToolBar() {
     // ─── Main Toolbar ────────────────────────────────────────────────────────
     QToolBar *mainToolbar = addToolBar("Main");
     mainToolbar->setObjectName("MainToolbar");
-    mainToolbar->setIconSize(QSize(22, 22));
+    mainToolbar->setIconSize(QSize(18, 18));
     mainToolbar->setMovable(false);
     mainToolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    mainToolbar->setMinimumHeight(28);
     
     // 1. CREATE MODERN HAMBURGER MENU BUTTON
     QToolButton* menuBtn = new QToolButton(this);
@@ -682,14 +683,14 @@ void SchematicEditor::createToolBar() {
         QString("QToolBar#MainToolbar {"
         "  background-color: %1;"
         "  border-bottom: 1px solid %2;"
-        "  padding: 4px 8px;"
-        "  spacing: 3px;"
+        "  padding: 2px 6px;"
+        "  spacing: 2px;"
         "}"
         "QToolBar#MainToolbar QToolButton {"
         "  background: transparent;"
         "  border: 1px solid transparent;"
         "  border-radius: 4px;"
-        "  padding: 4px;"
+        "  padding: 2px;"
         "  color: %3;"
         "}"
         "QToolBar#MainToolbar QToolButton:hover {"
@@ -1457,6 +1458,8 @@ void SchematicEditor::createDockWidgets() {
               ThemeManager::theme()->panelBorder().name()));
     }
     
+    m_oscilloscopeDock->setMinimumHeight(300);
+    m_oscilloscopeDock->setMinimumWidth(700);
     m_oscilloscopeDock->hide();
     addDockWidget(Qt::BottomDockWidgetArea, m_oscilloscopeDock);
 

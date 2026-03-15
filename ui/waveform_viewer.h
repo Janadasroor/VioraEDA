@@ -26,6 +26,7 @@ public:
 signals:
     void mouseMoved(const QPointF &value);
     void cursorMoved(int id, double x);
+    void legendCtrlClicked(const QString &seriesName);
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -64,12 +65,16 @@ public:
     void loadCsv(const QString &fileName);
     void addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values);
     void setSignalChecked(const QString& name, bool checked);
+    void appendPoint(const QString& name, double x, double y);
     void removeSignal(const QString& name);
     void beginBatchUpdate() { m_blockUpdates = true; }
     void endBatchUpdate() { m_blockUpdates = false; updatePlot(true); }
     void clear();
     void zoomFit();
+    bool currentXRange(double& minX, double& maxX) const;
+    void preserveXRangeOnce(double minX, double maxX);
     static QString formatValue(double val, const QString &unit = "");
+    void updatePlot(bool autoScale = false);
 
 private slots:
     void onNodeSelected();
@@ -84,6 +89,7 @@ private slots:
     void updateZoomAnalysis();
     void onSubtractRequested();
     void onFftRequested();
+    void onLegendCtrlClicked(const QString &seriesName);
 
 private:
     VioChartView *m_chartView;
@@ -114,9 +120,19 @@ private:
     };
     
     QMap<QString, SignalData> m_signals;
+    QMap<QString, int> m_pointCounters;
     QStringList m_nodeNames;
     
     void setupUi();
     void setupStyle();
-    void updatePlot(bool autoScale = false);
+    void zoomFitYOnly();
+    void updateNodeItemStyle(QListWidgetItem* item);
+    void showAnalysisForSeries(const QString &seriesName);
+
+    bool m_preserveXRangeOnce = false;
+    double m_preserveXMin = 0.0;
+    double m_preserveXMax = 0.0;
+    int m_holdXRangeCount = 0;
+    double m_holdXMin = 0.0;
+    double m_holdXMax = 0.0;
 };

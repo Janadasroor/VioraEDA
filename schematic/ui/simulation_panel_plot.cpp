@@ -6,6 +6,12 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     for (auto* axis : m_spectrumChart->axes()) m_spectrumChart->removeAxis(axis);
 
     m_signalList->blockSignals(true);
+    QSet<QString> previouslyChecked;
+    for (int i = 0; i < m_signalList->count(); ++i) {
+        if (m_signalList->item(i)->checkState() == Qt::Checked) {
+             previouslyChecked.insert(m_signalList->item(i)->text());
+        }
+    }
     m_signalList->clear();
     if (m_measurementsTable) m_measurementsTable->setRowCount(0);
     
@@ -39,7 +45,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         return;
     }
 
-    m_chart->legend()->hide();
+    m_chart->legend()->show();
 
     int analysisIdx = m_analysisType->currentIndex();
     QAbstractAxis* axisX = nullptr;
@@ -57,6 +63,9 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         axisYPhase->setRange(-180, 180);
         axisYPhase->setLabelFormat("%d");
         axisYPhase->setGridLineVisible(false);
+        axisYPhase->setLabelsBrush(QBrush(Qt::white));
+        axisYPhase->setTitleBrush(QBrush(Qt::white));
+        axisYPhase->setLinePen(QPen(Qt::white, 1));
         m_chart->addAxis(axisYPhase, Qt::AlignRight);
     } else {
         auto* valX = new QValueAxis();
@@ -65,16 +74,22 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         axisX = valX;
     }
     
-    axisX->setGridLinePen(QPen(QColor("#d0d0d0"), 1, Qt::DotLine));
+    axisX->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
+    axisX->setLabelsBrush(QBrush(Qt::white));
+    axisX->setTitleBrush(QBrush(Qt::white));
+    axisX->setLinePen(QPen(Qt::white, 1));
     m_chart->addAxis(axisX, Qt::AlignBottom);
 
     QValueAxis* axisY = new QValueAxis();
     if (analysisIdx == 2) axisY->setTitleText("Magnitude (dB)");
     else axisY->setTitleText(axisLabelFromSchema(results.yAxisName));
-    axisY->setGridLinePen(QPen(QColor("#d0d0d0"), 1, Qt::DotLine));
+    axisY->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
+    axisY->setLabelsBrush(QBrush(Qt::white));
+    axisY->setTitleBrush(QBrush(Qt::white));
+    axisY->setLinePen(QPen(Qt::white, 1));
     m_chart->addAxis(axisY, Qt::AlignLeft);
 
-    const QList<QColor> colors = {Qt::red, Qt::blue, QColor("#00aa00"), Qt::magenta, Qt::darkCyan};
+    const QList<QColor> colors = {QColor(0, 204, 0), QColor(0, 0, 255), QColor(255, 0, 0), QColor(0, 255, 255), QColor(255, 0, 255), QColor(255, 255, 0)};
     int colorIdx = 0;
     QSet<QString> currentWaveNames;
 
@@ -140,7 +155,11 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
 
         QListWidgetItem* item = new QListWidgetItem(series->name());
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setCheckState(Qt::Checked);
+        if (previouslyChecked.contains(series->name())) {
+            item->setCheckState(Qt::Checked);
+        } else {
+            item->setCheckState(Qt::Unchecked);
+        }
         item->setForeground(series->pen().color());
         m_signalList->addItem(item);
 
@@ -208,10 +227,19 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     if (!m_spectrumChart->series().isEmpty()) {
         QValueAxis* axisFreq = new QValueAxis();
         axisFreq->setTitleText("Frequency (Hz)");
+        axisFreq->setLabelsBrush(QBrush(Qt::white));
+        axisFreq->setTitleBrush(QBrush(Qt::white));
+        axisFreq->setLinePen(QPen(Qt::white, 1));
+        axisFreq->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
         m_spectrumChart->addAxis(axisFreq, Qt::AlignBottom);
         for(auto* s : m_spectrumChart->series()) s->attachAxis(axisFreq);
+        
         QValueAxis* axisMag = new QValueAxis();
         axisMag->setTitleText("Magnitude (dB)");
+        axisMag->setLabelsBrush(QBrush(Qt::white));
+        axisMag->setTitleBrush(QBrush(Qt::white));
+        axisMag->setLinePen(QPen(Qt::white, 1));
+        axisMag->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
         m_spectrumChart->addAxis(axisMag, Qt::AlignLeft);
         for(auto* s : m_spectrumChart->series()) s->attachAxis(axisMag);
     }

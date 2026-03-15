@@ -30,6 +30,8 @@
 #include <QInputDialog>
 #include "flux/core/net_manager.h"
 #include <QTimer>
+#include <QGraphicsPixmapItem>
+#include <QGraphicsEllipseItem>
 
 #include "../analysis/schematic_erc.h"
 #include <QGraphicsEllipseItem>
@@ -134,6 +136,14 @@ void SchematicView::setCurrentTool(SchematicTool* tool) {
     }
 
     m_currentTool = tool;
+
+    if (m_probeCursorVisible) {
+        clearProbeCursorOverlay();
+    }
+    if (m_probeStartMarker) {
+        clearProbeStartMarker();
+        m_probeStartNet.clear();
+    }
 
     // Clear any cursor override left by previous tool (view + viewport can differ).
     unsetCursor();
@@ -319,11 +329,75 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
         return;
     }
 
-    // Clear hover highlights on click to avoid artifacts
-    clearHoverHighlights();
+    m_probeClickActive = false;
 
     if (event->button() == Qt::LeftButton && m_currentTool && m_currentTool->name() == "Select") {
         QPointF scenePos = mapToScene(event->pos());
+        
+        // --- LTspice Style: Interactive Probing ---
+        if (m_simulationRunning || m_probingEnabled) {
+            // Detect wire/label under cursor
+            bool isWireOrLabel = false;
+            QString probedNet;
+            
+            QRect searchRect(event->pos().x() - 2, event->pos().y() - 2, 5, 5);
+            QList<QGraphicsItem*> foundItems = items(searchRect);
+            for (QGraphicsItem* it : foundItems) {
+                SchematicItem* candidate = nullptr;
+                QGraphicsItem* curr = it;
+                while (curr) {
+                    if (auto* s = dynamic_cast<SchematicItem*>(curr)) { candidate = s; break; }
+                    curr = curr->parentItem();
+                }
+                if (candidate && (candidate->itemType() == SchematicItem::WireType || 
+                                  candidate->itemType() == SchematicItem::LabelType ||
+                                  candidate->itemType() == SchematicItem::NetLabelType)) {
+                    isWireOrLabel = true;
+                    break;
+                }
+            }
+            if (m_netManager) {
+                probedNet = m_netManager->findNetAtPoint(scenePos);
+                if (!probedNet.isEmpty()) isWireOrLabel = true;
+            }
+            
+            if (isWireOrLabel && !probedNet.isEmpty()) {
+                bool ctrlHeld = event->modifiers() & Qt::ControlModifier;
+                
+                if (!m_probeStartNet.isEmpty()) {
+                    // --- Second click: complete differential probe ---
+                    if (probedNet != m_probeStartNet) {
+                        // Different net: differential V(net1, net2)
+                        emit netProbed(QString("V(%1,%2)").arg(m_probeStartNet, probedNet));
+                    } else {
+                        // Same net: single probe
+                        emit netProbed(QString("V(%1)").arg(probedNet));
+                    }
+                    m_probeStartNet.clear();
+                    clearProbeStartMarker();
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
+                } else if (ctrlHeld) {
+                    // --- First click with Ctrl: arm differential probe ---
+                    m_probeStartNet = probedNet;
+                    m_probeStartPos = scenePos;
+                    showProbeStartMarker(scenePos);
+                    // Switch to black probe to signal "waiting for second net"
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, scenePos);
+                } else {
+                    // --- Normal click: single probe ---
+                    emit netProbed(QString("V(%1)").arg(probedNet));
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
+                }
+                event->accept();
+                return;
+            } else if (!probedNet.isEmpty() == false && !m_probeStartNet.isEmpty()) {
+                // Clicked empty space while armed: cancel
+                m_probeStartNet.clear();
+                clearProbeStartMarker();
+                setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
+            }
+        }
+
         QGraphicsItem* item = scene()->itemAt(scenePos, transform());
         if (item) {
             SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
@@ -390,25 +464,23 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
         stopAutoScroll();
     }
 
-    // Forward to current tool
-    if (m_currentTool) {
-        m_currentTool->mouseMoveEvent(event);
-        if (event->isAccepted()) {
-            return;
-        }
-    }
-
-    // Real-time Hover Highlighting & Automatic Probing
-    if (!m_isPanning && !(event->buttons() & Qt::LeftButton)) {
+    // --- LTspice Style: Probe cursor BEFORE tool forwarding ---
+    // This must run before the tool forwarding because the Select tool
+    // always accepts the mouseMoveEvent, which would prevent this code
+    // from executing if placed after.
+    bool isSelectTool = (!m_currentTool || m_currentTool->name() == "Select");
+    bool probeCursorActive = false;
+    // Allow probe cursor if hovering normally OR if we are currently clicking a wire
+    if (!m_isPanning && (m_probeClickActive || !(event->buttons() & Qt::LeftButton)) && isSelectTool) {
+        // Hover highlight
         QGraphicsItem* item = itemAt(event->pos());
         SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
         updateHoverHighlight(sItem);
 
-        // --- LTspice Style: Automatic Voltage Probe on hover during simulation ---
+        // Probe cursor when simulation/probing is active
         if (m_simulationRunning || m_probingEnabled) {
             bool isWireOrLabel = false;
             
-            // Use a small search area (5x5 pixels) for easier wire hitting with the probe
             QRect searchRect(event->pos().x() - 2, event->pos().y() - 2, 5, 5);
             QList<QGraphicsItem*> foundItems = items(searchRect);
             
@@ -433,27 +505,54 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
                 }
             }
 
-            // Fallback: if item probing failed, try net lookup directly (more robust for thin wires)
-            if (!isWireOrLabel) {
-                if (auto* editor = qobject_cast<SchematicEditor*>(window())) {
-                    if (auto* netMgr = editor->netManager()) {
-                        const QPointF scenePos = mapToScene(event->pos());
-                        const QString netName = netMgr->findNetAtPoint(scenePos);
-                        if (!netName.isEmpty()) isWireOrLabel = true;
-                    }
-                }
+            // Fallback: try net lookup directly (more robust for thin wires)
+            if (!isWireOrLabel && m_netManager) {
+                const QPointF scenePos = mapToScene(event->pos());
+                const QString netName = m_netManager->findNetAtPoint(scenePos);
+                if (!netName.isEmpty()) isWireOrLabel = true;
             }
 
             if (isWireOrLabel) {
-                viewport()->setCursor(SchematicProbeTool::createProbeCursor(SchematicProbeTool::ProbeKind::Voltage));
+                // If differential mode is armed (Ctrl+Click waiting for second net),
+                // show the black probe to clearly indicate second-net capture mode
+                if (!m_probeStartNet.isEmpty()) {
+                    QString currentNet;
+                    if (m_netManager) currentNet = m_netManager->findNetAtPoint(mapToScene(event->pos()));
+                    if (!currentNet.isEmpty() && currentNet != m_probeStartNet) {
+                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, mapToScene(event->pos()));
+                    } else {
+                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, mapToScene(event->pos()));
+                    }
+                } else {
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, mapToScene(event->pos()));
+                }
+                probeCursorActive = true;
             } else {
-                viewport()->setCursor(m_currentTool ? m_currentTool->cursor() : Qt::ArrowCursor);
+                // Not over a wire
+                if (!m_probeStartNet.isEmpty()) {
+                    // Still show black probe in "armed" mode so user knows they need to click a wire
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, mapToScene(event->pos()));
+                    probeCursorActive = true;
+                } else {
+                    clearProbeCursorOverlay();
+                }
             }
         }
-    } else if (event->buttons() & Qt::LeftButton) {
-        // During drag, skip highlighting entirely for performance
-    } else {
+    } else if (!m_isPanning && isSelectTool && !(event->buttons() & Qt::LeftButton)) {
         clearHoverHighlights();
+    }
+
+    if (!probeCursorActive && m_probeCursorVisible) {
+        clearProbeCursorOverlay();
+    }
+
+    // Forward to current tool — but skip when probe cursor is shown
+    // to prevent the Select tool's hover cue from resetting the cursor
+    if (m_currentTool && !probeCursorActive) {
+        m_currentTool->mouseMoveEvent(event);
+        if (event->isAccepted()) {
+            return;
+        }
     }
 
     // Default behavior
@@ -461,6 +560,8 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void SchematicView::mouseReleaseEvent(QMouseEvent *event) {
+    m_probeClickActive = false;
+
     if (event->button() == Qt::LeftButton) {
         stopAutoScroll();
         if (m_currentTool && m_currentTool->name() == "Select") {
@@ -611,6 +712,17 @@ void SchematicView::keyPressEvent(QKeyEvent *event) {
         
         if (!toRemove.isEmpty() && m_undoStack) {
             m_undoStack->push(new RemoveItemCommand(scene(), toRemove));
+            event->accept();
+            return;
+        }
+    }
+
+    if (event->key() == Qt::Key_Escape) {
+        // Cancel armed differential probe mode
+        if (!m_probeStartNet.isEmpty()) {
+            m_probeStartNet.clear();
+            clearProbeStartMarker();
+            setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, mapToScene(mapFromGlobal(QCursor::pos())));
             event->accept();
             return;
         }
@@ -1078,4 +1190,73 @@ void SchematicView::updateAutoScroll(const QPoint& pos) {
 void SchematicView::stopAutoScroll() {
     if (m_autoScrollTimer->isActive()) m_autoScrollTimer->stop();
     m_autoScrollDelta = QPoint(0, 0);
+}
+
+void SchematicView::ensureProbeCursorItem() {
+    if (m_probeCursorItem || !scene()) return;
+    m_probeCursorItem = new QGraphicsPixmapItem();
+    m_probeCursorItem->setZValue(2000000.0);
+    m_probeCursorItem->setAcceptedMouseButtons(Qt::NoButton);
+    m_probeCursorItem->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
+    m_probeCursorItem->setVisible(false);
+    scene()->addItem(m_probeCursorItem);
+}
+
+void SchematicView::applyProbeCursorPixmap(SchematicProbeTool::ProbeKind kind) {
+    if (!m_probeCursorItem) return;
+    const auto art = SchematicProbeTool::createProbeCursorArt(kind);
+    m_probeCursorItem->setPixmap(art.pixmap);
+    m_probeCursorItem->setOffset(-art.hotspot);
+}
+
+void SchematicView::setProbeCursorOverlay(SchematicProbeTool::ProbeKind kind, const QPointF& scenePos) {
+    if (!scene()) return;
+    ensureProbeCursorItem();
+    if (!m_probeCursorItem) return;
+
+    if (!m_probeCursorVisible || kind != m_probeCursorKind) {
+        m_probeCursorKind = kind;
+        applyProbeCursorPixmap(kind);
+    }
+
+    m_probeCursorItem->setPos(scenePos);
+    m_probeCursorItem->setVisible(true);
+    m_probeCursorVisible = true;
+
+    setCursor(Qt::BlankCursor);
+    viewport()->setCursor(Qt::BlankCursor);
+}
+
+void SchematicView::clearProbeCursorOverlay() {
+    if (m_probeCursorItem) m_probeCursorItem->setVisible(false);
+    m_probeCursorVisible = false;
+
+    if (m_currentTool) {
+        setCursor(m_currentTool->cursor());
+        viewport()->setCursor(m_currentTool->cursor());
+    } else {
+        setCursor(Qt::ArrowCursor);
+        viewport()->setCursor(Qt::ArrowCursor);
+    }
+}
+
+void SchematicView::showProbeStartMarker(const QPointF& scenePos) {
+    if (!scene()) return;
+    if (!m_probeStartMarker) {
+        m_probeStartMarker = new QGraphicsEllipseItem(-5, -5, 10, 10);
+        m_probeStartMarker->setPen(QPen(Qt::white, 1));
+        m_probeStartMarker->setBrush(QColor(31, 41, 55));
+        m_probeStartMarker->setZValue(1500);
+        m_probeStartMarker->setAcceptedMouseButtons(Qt::NoButton);
+        scene()->addItem(m_probeStartMarker);
+    }
+    m_probeStartMarker->setPos(scenePos);
+    m_probeStartMarker->setVisible(true);
+}
+
+void SchematicView::clearProbeStartMarker() {
+    if (!m_probeStartMarker) return;
+    scene()->removeItem(m_probeStartMarker);
+    delete m_probeStartMarker;
+    m_probeStartMarker = nullptr;
 }

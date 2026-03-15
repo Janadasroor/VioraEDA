@@ -2,11 +2,17 @@
 #define SCHEMATICPROBETOOL_H
 
 #include "schematic_tool.h"
+#include <QPixmap>
 
 class SchematicProbeTool : public SchematicTool {
     Q_OBJECT
 
 public:
+    struct ProbeCursorArt {
+        QPixmap pixmap;
+        QPoint hotspot;
+    };
+
     enum class ProbeKind {
         Voltage,
         Current,
@@ -16,6 +22,7 @@ public:
     explicit SchematicProbeTool(const QString& toolName = "Probe", ProbeKind kind = ProbeKind::Voltage);
     ~SchematicProbeTool() = default;
 
+    static ProbeCursorArt createProbeCursorArt(ProbeKind kind);
     static QCursor createProbeCursor(ProbeKind kind);
 
     void mousePressEvent(QMouseEvent* event) override;
@@ -34,6 +41,7 @@ signals:
     void signalProbed(const QString& signalName);
     void signalUnprobed(const QString& signalName);
     void signalDifferentialProbed(const QString& pNet, const QString& nNet);
+    void signalClearAllProbes();
 
 private:
     ProbeKind m_kind = ProbeKind::Voltage;

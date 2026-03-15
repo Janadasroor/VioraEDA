@@ -20,6 +20,8 @@
 #include <QToolButton>
 #include <cmath>
 #include <algorithm>
+#include <QGraphicsTextItem>
+#include <QGraphicsSimpleTextItem>
 #include "../core/theme_manager.h"
 
 QString WaveformViewer::formatValue(double val, const QString &unit) {
@@ -62,6 +64,34 @@ void VioChartView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void VioChartView::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ControlModifier)) {
+        if (auto* legend = chart()->legend(); legend && legend->isVisible()) {
+            const QPointF scenePos = mapToScene(event->pos());
+            if (legend->sceneBoundingRect().contains(scenePos) && scene()) {
+                const auto items = scene()->items(scenePos);
+                for (auto* item : items) {
+                    QString text;
+                    if (auto* t = dynamic_cast<QGraphicsTextItem*>(item)) {
+                        text = t->toPlainText().trimmed();
+                    } else if (auto* t = dynamic_cast<QGraphicsSimpleTextItem*>(item)) {
+                        text = t->text().trimmed();
+                    } else if (item->parentItem()) {
+                        if (auto* t = dynamic_cast<QGraphicsTextItem*>(item->parentItem())) {
+                            text = t->toPlainText().trimmed();
+                        } else if (auto* t = dynamic_cast<QGraphicsSimpleTextItem*>(item->parentItem())) {
+                            text = t->text().trimmed();
+                        }
+                    }
+
+                    if (!text.isEmpty()) {
+                        emit legendCtrlClicked(text);
+                        event->accept();
+                        return;
+                    }
+                }
+            }
+        }
+    }
     if (event->button() == Qt::LeftButton && m_showCursors) {
         double xPos = event->pos().x();
         auto xToPos = [&](double xv) { return chart()->mapToPosition(QPointF(xv, 0)).x(); };
@@ -99,6 +129,14 @@ void VioChartView::drawForeground(QPainter *painter, const QRectF &rect) {
     }
 
     if (!m_showCursors) return;
+
+    if (m_activeSeries) {
+        bool stillValid = false;
+        for (auto* s : chart()->series()) {
+            if (s == m_activeSeries) { stillValid = true; break; }
+        }
+        if (!stillValid) m_activeSeries = nullptr;
+    }
 
     painter->setRenderHint(QPainter::Antialiasing);
     auto drawC = [&](double x, double y, const QColor &color, const QString &label) {
@@ -148,9 +186,16 @@ void WaveformViewer::setupUi() {
     auto *toolbar = new QToolBar("Waveform Controls", this);
     toolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     
-    toolbar->addAction("Zoom In", this, &WaveformViewer::zoomIn);
-    toolbar->addAction("Zoom Out", this, &WaveformViewer::zoomOut);
-    toolbar->addAction("Zoom Fit", this, &WaveformViewer::zoomFit);
+    toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    toolbar->setMinimumHeight(24);
+    toolbar->setStyleSheet(R"(
+        QToolBar { spacing: 2px; padding: 0px 2px; }
+        QToolButton { padding: 2px 6px; margin: 0px; font-size: 11px; min-height: 20px; }
+    )");
+
+    toolbar->addAction("Z+", this, &WaveformViewer::zoomIn);
+    toolbar->addAction("Z-", this, &WaveformViewer::zoomOut);
+    toolbar->addAction("Fit", this, &WaveformViewer::zoomFit);
     toolbar->addSeparator();
     toolbar->addAction("Diff", this, &WaveformViewer::onSubtractRequested);
     toolbar->addAction("FFT", this, &WaveformViewer::onFftRequested);
@@ -166,20 +211,29 @@ void WaveformViewer::setupUi() {
     auto *mainArea = new QHBoxLayout();
     m_nodeList = new QListWidget(this);
     m_nodeList->setSelectionMode(QAbstractItemView::MultiSelection);
-    m_nodeList->setFixedWidth(180);
+    m_nodeList->setFixedWidth(120);
     connect(m_nodeList, &QListWidget::itemSelectionChanged, this, &WaveformViewer::onNodeSelected);
-    connect(m_nodeList, &QListWidget::itemChanged, this, [this](QListWidgetItem*){ updatePlot(false); });
+    connect(m_nodeList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item){
+        updateNodeItemStyle(item);
+        updatePlot(false);
+    });
     connect(m_nodeList, &QListWidget::itemClicked, this, &WaveformViewer::onNodeClicked);
     
     m_chart = new QChart();
-    m_chart->setBackgroundVisible(false);
-    m_chart->legend()->setAlignment(Qt::AlignBottom);
+    m_chart->setBackgroundVisible(true);
+    m_chart->legend()->setAlignment(Qt::AlignTop);
+    m_chart->legend()->setMarkerShape(QLegend::MarkerShapeRectangle);
+    m_chart->legend()->setBackgroundVisible(false);
+    m_chart->legend()->setLabelColor(Qt::white);
+    m_chart->setMargins(QMargins(0, 0, 0, 0));
+    m_chart->setBackgroundRoundness(0);
 
     m_chartView = new VioChartView(m_chart);
     m_chartView->setRenderHint(QPainter::Antialiasing);
     m_chartView->setRubberBand(QChartView::RectangleRubberBand);
     connect(m_chartView, &VioChartView::mouseMoved, this, &WaveformViewer::onMouseMoved);
     connect(m_chartView, &VioChartView::cursorMoved, this, &WaveformViewer::updateCursors);
+    connect(m_chartView, &VioChartView::legendCtrlClicked, this, &WaveformViewer::onLegendCtrlClicked);
 
     // Set up default axes so cursor mapping always works (even before signals are loaded)
     auto *defaultAxisX = new QValueAxis();
@@ -208,24 +262,25 @@ void WaveformViewer::setupUi() {
 }
 
 void WaveformViewer::setupStyle() {
-    PCBTheme* theme = ThemeManager::theme();
-    if (theme) {
-        m_chart->setTheme(theme->type() == PCBTheme::Light ? QChart::ChartThemeLight : QChart::ChartThemeDark);
-        m_chart->setBackgroundVisible(true);
-        m_chart->setBackgroundBrush(QBrush(theme->panelBackground()));
-        m_chart->setTitleBrush(QBrush(theme->textColor()));
-        m_chart->legend()->setLabelColor(theme->textColor());
-    } else {
-        m_chart->setTheme(QChart::ChartThemeDark);
-        m_chart->setTitleBrush(QBrush(Qt::white));
-    }
+    m_chart->setTheme(QChart::ChartThemeDark);
+    m_chart->setBackgroundBrush(QBrush(Qt::black));
+    m_chart->setPlotAreaBackgroundBrush(QBrush(Qt::black));
+    m_chart->setTitleBrush(QBrush(Qt::white));
+
+    m_nodeList->setStyleSheet(R"(
+        QListWidget { background: #f3f4f6; color: #111827; border: 1px solid #e5e7eb; }
+        QListWidget::item { padding: 2px 4px; color: #374151; }
+        QListWidget::item:selected { background: #dbeafe; color: #111827; }
+    )");
 }
 
 void WaveformViewer::clear() {
     m_signals.clear();
+    m_pointCounters.clear();
     m_nodeList->blockSignals(true);
     m_nodeList->clear();
     m_nodeList->blockSignals(false);
+    m_chartView->setCursorPositions(m_chartView->cursor1X(), 0, m_chartView->cursor2X(), 0, nullptr);
     m_chart->removeAllSeries();
     auto axes = m_chart->axes();
     for (auto* a : axes) {
@@ -233,6 +288,25 @@ void WaveformViewer::clear() {
         a->deleteLater();
     }
     m_activeSeriesName.clear();
+}
+
+bool WaveformViewer::currentXRange(double& minX, double& maxX) const {
+    auto axesX = m_chart->axes(Qt::Horizontal);
+    if (axesX.isEmpty()) return false;
+    auto* axis = qobject_cast<QValueAxis*>(axesX[0]);
+    if (!axis) return false;
+    minX = axis->min();
+    maxX = axis->max();
+    return true;
+}
+
+void WaveformViewer::preserveXRangeOnce(double minX, double maxX) {
+    m_preserveXRangeOnce = true;
+    m_preserveXMin = minX;
+    m_preserveXMax = maxX;
+    m_holdXRangeCount = 3;
+    m_holdXMin = minX;
+    m_holdXMax = maxX;
 }
 
 void WaveformViewer::addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values) {
@@ -267,15 +341,94 @@ void WaveformViewer::addSignal(const QString& name, const QVector<double>& time,
         m_nodeList->blockSignals(true);
         auto* item = new QListWidgetItem(name, m_nodeList);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
-        item->setCheckState(Qt::Unchecked); // Default to unchecked, user clicks to show
+        item->setCheckState(Qt::Unchecked); // Default to unchecked so only explicit probes show up
+        updateNodeItemStyle(item);
         m_nodeList->blockSignals(false);
+    }
+}
+
+void WaveformViewer::appendPoint(const QString& name, double x, double y) {
+    if (!m_signals.contains(name)) {
+        addSignal(name, {x}, {y});
+        // We don't auto-check by default, but we should check if it's already in the list
+    }
+    
+    auto& sig = m_signals[name];
+    sig.time.append(x);
+    sig.values.append(y);
+    
+    if (m_blockUpdates) return;
+
+    // Fast check for signal existence in chart
+    QLineSeries* lineSeries = nullptr;
+    for (auto* series : m_chart->series()) {
+        if (series->name() == name) {
+            lineSeries = qobject_cast<QLineSeries*>(series);
+            break;
+        }
+    }
+
+    // If series not in chart but signal is checked, add it now
+    if (!lineSeries) {
+        bool checked = false;
+        for (int i = 0; i < m_nodeList->count(); ++i) {
+            if (m_nodeList->item(i)->text() == name) {
+                checked = (m_nodeList->item(i)->checkState() == Qt::Checked);
+                break;
+            }
+        }
+        
+        if (checked) {
+            lineSeries = new QLineSeries();
+            lineSeries->setName(name);
+            m_chart->addSeries(lineSeries);
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            auto axesY = m_chart->axes(Qt::Vertical);
+            if (axesX.isEmpty() || axesY.isEmpty()) {
+                updatePlot(true); // Re-init axes
+                return; 
+            }
+            lineSeries->attachAxis(axesX[0]);
+            lineSeries->attachAxis(axesY[0]);
+        }
+    }
+
+    if (lineSeries) {
+        lineSeries->append(x, y);
+        
+        // If it's the very first points, set a reasonable range immediately
+        if (lineSeries->count() < 10) {
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            auto axesY = m_chart->axes(Qt::Vertical);
+            if (!axesX.isEmpty() && !axesY.isEmpty()) {
+                auto* ax = qobject_cast<QValueAxis*>(axesX[0]);
+                auto* ay = qobject_cast<QValueAxis*>(axesY[0]);
+                ax->setRange(std::min(0.0, x), std::max(1e-3, x * 1.5));
+                ay->setRange(y - 1.0, y + 1.0);
+            }
+        }
+
+        // Throttled auto-scale: only update every N points
+        int& count = m_pointCounters[name];
+        if ((++count % 50) == 0) {
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            auto axesY = m_chart->axes(Qt::Vertical);
+            if (!axesX.isEmpty() && !axesY.isEmpty()) {
+                auto* ax = qobject_cast<QValueAxis*>(axesX[0]);
+                auto* ay = qobject_cast<QValueAxis*>(axesY[0]);
+                
+                if (x > ax->max()) ax->setMax(x * 1.1);
+                if (y > ay->max()) ay->setMax(y > 0 ? y * 1.2 : y * 0.8);
+                if (y < ay->min()) ay->setMin(y < 0 ? y * 1.2 : y * 0.8);
+            }
+        }
     }
 }
 
 void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
     for (int i = 0; i < m_nodeList->count(); ++i) {
         QListWidgetItem* item = m_nodeList->item(i);
-        if (item->text() == name) {
+        if (item->text().compare(name, Qt::CaseInsensitive) == 0) {
             item->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
             return;
         }
@@ -407,11 +560,28 @@ void WaveformViewer::updateCursors() {
     m_chartView->setCursorPositions(m_cursor1X, v1, m_cursor2X, v2, series);
 
     if (m_measureDialog) {
+        const double dt = m_cursor2X - m_cursor1X;
+        const double dv = v2 - v1;
+        QString unit = "";
+        if (m_signals.contains(series->name())) {
+            const auto type = m_signals[series->name()].type;
+            if (type == SignalType::VOLTAGE) unit = "V";
+            else if (type == SignalType::CURRENT) unit = "A";
+            else if (type == SignalType::POWER) unit = "W";
+        }
+
+        QString freqStr = "---";
+        QString slopeStr = "---";
+        if (std::abs(dt) > 1e-15) {
+            freqStr = formatValue(1.0 / std::abs(dt), "Hz");
+            slopeStr = formatValue(dv / dt, unit + "/s");
+        }
+
         m_measureDialog->updateValues(series->name(), 
             formatValue(m_cursor1X, "s"), formatValue(v1, ""),
             formatValue(m_cursor2X, "s"), formatValue(v2, ""),
-            formatValue(m_cursor2X - m_cursor1X, "s"), formatValue(v2 - v1, ""),
-            "---", "---"
+            formatValue(dt, "s"), formatValue(dv, ""),
+            freqStr, slopeStr
         );
     }
 }
@@ -419,6 +589,7 @@ void WaveformViewer::updateCursors() {
 void WaveformViewer::updatePlot(bool autoScale) {
     if (m_blockUpdates) return;
     
+    m_chartView->setCursorPositions(m_chartView->cursor1X(), 0, m_chartView->cursor2X(), 0, nullptr);
     m_chart->removeAllSeries();
     auto axes = m_chart->axes();
     for (auto* a : axes) {
@@ -434,24 +605,24 @@ void WaveformViewer::updatePlot(bool autoScale) {
     auto* axisY = new QValueAxis();
     axisY->setTitleText("Amplitude");
 
-    PCBTheme* theme = ThemeManager::theme();
-    if (theme) {
-        QPen axisPen(theme->textSecondary());
-        axisX->setLinePen(axisPen);
-        axisX->setLabelsColor(theme->textColor());
-        axisX->setTitleBrush(QBrush(theme->textColor()));
-        axisX->setGridLineColor(theme->panelBorder());
+    QPen axisPen(Qt::white);
+    axisPen.setWidth(1);
+    
+    axisX->setLinePen(axisPen);
+    axisX->setLabelsBrush(QBrush(Qt::white));
+    axisX->setTitleBrush(QBrush(Qt::white));
+    axisX->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
 
-        axisY->setLinePen(axisPen);
-        axisY->setLabelsColor(theme->textColor());
-        axisY->setTitleBrush(QBrush(theme->textColor()));
-        axisY->setGridLineColor(theme->panelBorder());
-    }
+    axisY->setLinePen(axisPen);
+    axisY->setLabelsBrush(QBrush(Qt::white));
+    axisY->setTitleBrush(QBrush(Qt::white));
+    axisY->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
 
     m_chart->addAxis(axisX, Qt::AlignBottom);
     m_chart->addAxis(axisY, Qt::AlignLeft);
 
     bool hasAnyChecked = false;
+    int colorIdx = 0;
     for (int i = 0; i < m_nodeList->count(); ++i) {
         QListWidgetItem* item = m_nodeList->item(i);
         if (item->checkState() == Qt::Checked) {
@@ -498,16 +669,41 @@ void WaveformViewer::updatePlot(bool autoScale) {
                         series->append(data.time.back(), data.values.back());
                     }
                 }
+                
+                const QList<QColor> colors = {QColor(0, 204, 0), QColor(0, 0, 255), QColor(255, 0, 0), QColor(0, 255, 255), QColor(255, 0, 255), QColor(255, 255, 0)};
+                series->setPen(QPen(colors[colorIdx % colors.size()], 1.5));
                 m_chart->addSeries(series);
                 series->attachAxis(axisX);
                 series->attachAxis(axisY);
                 hasAnyChecked = true;
+                colorIdx++;
             }
         }
     }
     
     if (hasAnyChecked || autoScale) {
-        zoomFit();
+        if (m_preserveXRangeOnce) {
+            zoomFitYOnly();
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            if (!axesX.isEmpty()) {
+                if (auto* axisX = qobject_cast<QValueAxis*>(axesX[0])) {
+                    axisX->setRange(m_preserveXMin, m_preserveXMax);
+                }
+            }
+            m_preserveXRangeOnce = false;
+        } else {
+            zoomFit();
+        }
+    }
+
+    if (m_holdXRangeCount > 0) {
+        auto axesX = m_chart->axes(Qt::Horizontal);
+        if (!axesX.isEmpty()) {
+            if (auto* axisX = qobject_cast<QValueAxis*>(axesX[0])) {
+                axisX->setRange(m_holdXMin, m_holdXMax);
+            }
+        }
+        m_holdXRangeCount--;
     }
 }
 
@@ -563,6 +759,45 @@ void WaveformViewer::zoomFit() {
 }
 void WaveformViewer::resetZoom() { m_chart->zoomReset(); }
 
+void WaveformViewer::zoomFitYOnly() {
+    auto axesY = m_chart->axes(Qt::Vertical);
+    if (axesY.isEmpty()) return;
+
+    double minY = 1e30, maxY = -1e30;
+    bool found = false;
+
+    for (int i = 0; i < m_nodeList->count(); ++i) {
+        QListWidgetItem* item = m_nodeList->item(i);
+        if (item->checkState() == Qt::Checked) {
+            QString name = item->text();
+            if (m_signals.contains(name)) {
+                const auto& data = m_signals[name];
+                if (data.values.isEmpty()) continue;
+                auto minMaxY = std::minmax_element(data.values.begin(), data.values.end());
+                minY = std::min(minY, *minMaxY.first);
+                maxY = std::max(maxY, *minMaxY.second);
+                found = true;
+            }
+        }
+    }
+
+    if (!found) return;
+
+    if (std::abs(maxY - minY) < 1e-15) {
+        double dy = std::abs(minY) < 1e-9 ? 1.0 : std::abs(minY) * 0.1;
+        minY -= dy;
+        maxY += dy;
+    } else {
+        double dy = (maxY - minY) * 0.1;
+        minY -= dy;
+        maxY += dy;
+    }
+
+    if (auto* axisY = qobject_cast<QValueAxis*>(axesY[0])) {
+        axisY->setRange(minY, maxY);
+    }
+}
+
 void WaveformViewer::onNodeSelected() {
     auto items = m_nodeList->selectedItems();
     if (!items.isEmpty()) m_activeSeriesName = items.last()->text();
@@ -571,7 +806,20 @@ void WaveformViewer::onNodeSelected() {
 
 void WaveformViewer::onNodeClicked(QListWidgetItem *item) {
     if (!item) return;
+    if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
+        showAnalysisForSeries(item->text());
+        return;
+    }
     item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+}
+
+void WaveformViewer::updateNodeItemStyle(QListWidgetItem* item) {
+    if (!item) return;
+    if (item->checkState() == Qt::Checked) {
+        item->setForeground(QColor("#111827"));
+    } else {
+        item->setForeground(QColor("#6b7280"));
+    }
 }
 
 void WaveformViewer::updateZoomAnalysis() {
@@ -612,3 +860,84 @@ void WaveformViewer::onFftRequested() {
 }
 
 void WaveformViewer::loadCsv(const QString&) {}
+
+void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
+    if (seriesName.isEmpty()) return;
+    if (m_signals.contains(seriesName)) {
+        showAnalysisForSeries(seriesName);
+        return;
+    }
+    for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
+        if (it.key().compare(seriesName, Qt::CaseInsensitive) == 0) {
+            showAnalysisForSeries(it.key());
+            return;
+        }
+    }
+}
+
+void WaveformViewer::showAnalysisForSeries(const QString &seriesName) {
+    if (seriesName.isEmpty() || !m_signals.contains(seriesName)) return;
+    const auto& data = m_signals[seriesName];
+    if (data.time.size() < 2 || data.values.size() < 2) return;
+
+    double tStart = data.time.front();
+    double tEnd = data.time.back();
+    double minX = 0.0, maxX = 0.0;
+    if (currentXRange(minX, maxX)) {
+        tStart = std::max(tStart, minX);
+        tEnd = std::min(tEnd, maxX);
+    }
+    if (tEnd <= tStart) return;
+
+    double area = 0.0;
+    double areaSq = 0.0;
+    for (int i = 0; i < data.time.size() - 1; ++i) {
+        double x0 = data.time[i];
+        double x1 = data.time[i + 1];
+        double y0 = data.values[i];
+        double y1 = data.values[i + 1];
+        if (x1 <= tStart || x0 >= tEnd) continue;
+
+        const double segStart = std::max(x0, tStart);
+        const double segEnd = std::min(x1, tEnd);
+        const double span = x1 - x0;
+        if (span <= 0.0) continue;
+        const double u0 = (segStart - x0) / span;
+        const double u1 = (segEnd - x0) / span;
+        const double yStart = y0 + (y1 - y0) * u0;
+        const double yEnd = y0 + (y1 - y0) * u1;
+        const double dt = segEnd - segStart;
+
+        area += 0.5 * (yStart + yEnd) * dt;
+        areaSq += dt * (yStart * yStart + yStart * yEnd + yEnd * yEnd) / 3.0;
+    }
+
+    const double interval = tEnd - tStart;
+    const double avg = area / interval;
+    const double rms = std::sqrt(std::max(0.0, areaSq / interval));
+
+    QString unit = "";
+    QString rmsOrIntegralLabel;
+    bool isPower = (data.type == SignalType::POWER);
+    if (data.type == SignalType::VOLTAGE) unit = "V";
+    else if (data.type == SignalType::CURRENT) unit = "A";
+    else if (data.type == SignalType::POWER) unit = "W";
+
+    const QString avgStr = formatValue(avg, unit);
+    if (isPower) {
+        rmsOrIntegralLabel = formatValue(area, "J");
+    } else {
+        rmsOrIntegralLabel = formatValue(rms, unit);
+    }
+
+    if (!m_analysisDialog) m_analysisDialog = new AnalysisDialog(this);
+    m_analysisDialog->setValues(seriesName,
+                                formatValue(tStart, "s"),
+                                formatValue(tEnd, "s"),
+                                avgStr,
+                                rmsOrIntegralLabel,
+                                isPower);
+    m_analysisDialog->show();
+    m_analysisDialog->raise();
+    m_analysisDialog->activateWindow();
+}

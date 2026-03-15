@@ -19,6 +19,7 @@ enum class ExprTokenType {
 struct ExprToken {
     ExprTokenType type;
     std::string value;
+    int varIdx = -1; 
 };
 
 class Expression {
@@ -30,73 +31,111 @@ public:
 
     double evaluate(const std::map<std::string, double>& variables) const {
         if (m_rpn.empty()) return 0.0;
-
-        std::stack<double> stack;
-        for (const auto& token : m_rpn) {
-            if (token.type == ExprTokenType::Number) {
-                stack.push(std::stod(token.value));
-            } else if (token.type == ExprTokenType::Variable) {
-                if (variables.count(token.value)) {
-                    stack.push(variables.at(token.value));
-                } else {
-                    stack.push(0.0); // Default to 0
-                }
-            } else if (token.type == ExprTokenType::Operator) {
-                if (stack.size() < 2) throw std::runtime_error("Stack underflow for operator");
-                double b = stack.top(); stack.pop();
-                double a = stack.top(); stack.pop();
-                
-                if (token.value == "+") stack.push(a + b);
-                else if (token.value == "-") stack.push(a - b);
-                else if (token.value == "*") stack.push(a * b);
-                else if (token.value == "/") stack.push(b != 0 ? a / b : 0);
-                else if (token.value == "^") stack.push(std::pow(a, b));
-            } else if (token.type == ExprTokenType::Function) {
-                if (stack.empty()) throw std::runtime_error("Stack underflow for function");
-                double a = stack.top(); stack.pop();
-                
-                if (token.value == "sin") stack.push(std::sin(a));
-                else if (token.value == "cos") stack.push(std::cos(a));
-                else if (token.value == "exp") stack.push(std::exp(a));
-                else if (token.value == "log") stack.push(std::log(a));
-                else if (token.value == "sqrt") stack.push(std::sqrt(a));
-                else if (token.value == "abs") stack.push(std::abs(a));
-            }
-        }
-        return stack.empty() ? 0.0 : stack.top();
+        std::vector<double> vals;
+        auto vars = getVariables();
+        for (const auto& v : vars) vals.push_back(variables.count(v) ? variables.at(v) : 0.0);
+        return evaluate(vals);
     }
 
-    // Basic numerical derivative dF/dx
-    double derivative(const std::string& var, std::map<std::string, double> variables, double delta = 1e-6) const {
-        double x0 = variables[var];
-        variables[var] = x0 + delta;
-        double f1 = evaluate(variables);
-        variables[var] = x0 - delta;
-        double f2 = evaluate(variables);
-        variables[var] = x0;
+    double evaluate(const std::vector<double>& values) const {
+        return evaluate(values.data(), (int)values.size());
+    }
+
+    double evaluate(const double* values, int count) const {
+        if (m_rpn.empty()) return 0.0;
+        double stack[64]; 
+        int top = -1;
+
+        for (const auto& token : m_rpn) {
+            if (token.type == ExprTokenType::Number) {
+                stack[++top] = std::stod(token.value);
+            } else if (token.type == ExprTokenType::Variable) {
+                stack[++top] = (token.varIdx >= 0 && token.varIdx < count) ? values[token.varIdx] : 0.0;
+            } else if (token.type == ExprTokenType::Operator) {
+                if (top < 1) { top = -1; break; }
+                double b = stack[top--];
+                double a = stack[top];
+                if (token.value == "+") stack[top] = a + b;
+                else if (token.value == "-") stack[top] = a - b;
+                else if (token.value == "*") stack[top] = a * b;
+                else if (token.value == "/") stack[top] = (b != 0 ? a / b : 0);
+                else if (token.value == "^") stack[top] = std::pow(a, b);
+            } else if (token.type == ExprTokenType::Function) {
+                if (top < 0) continue;
+                double a = stack[top];
+                if (token.value == "sin") stack[top] = std::sin(a);
+                else if (token.value == "cos") stack[top] = std::cos(a);
+                else if (token.value == "exp") stack[top] = std::exp(a);
+                else if (token.value == "log") stack[top] = std::log(a);
+                else if (token.value == "sqrt") stack[top] = std::sqrt(a);
+                else if (token.value == "abs") stack[top] = std::abs(a);
+            }
+        }
+        return top < 0 ? 0.0 : stack[top];
+    }
+
+    double derivative(int varIdx, double* values, int count, double delta = 1e-6) const {
+        if (varIdx < 0 || varIdx >= count) return 0.0;
+        double x0 = values[varIdx];
+        values[varIdx] = x0 + delta;
+        double f1 = evaluate(values, count);
+        values[varIdx] = x0 - delta;
+        double f2 = evaluate(values, count);
+        values[varIdx] = x0;
         return (f1 - f2) / (2.0 * delta);
+    }
+
+    double derivative(int varIdx, std::vector<double>& values, double delta = 1e-6) const {
+        if (varIdx < 0 || varIdx >= (int)values.size()) return 0.0;
+        double x0 = values[varIdx];
+        values[varIdx] = x0 + delta;
+        double f1 = evaluate(values);
+        values[varIdx] = x0 - delta;
+        double f2 = evaluate(values);
+        values[varIdx] = x0;
+        return (f1 - f2) / (2.0 * delta);
+    }
+
+    double derivative(const std::string& var, std::map<std::string, double> variables, double delta = 1e-6) const {
+        auto vars = getVariables();
+        int idx = -1;
+        for (int i = 0; i < (int)vars.size(); ++i) if (vars[i] == var) { idx = i; break; }
+        if (idx == -1) return 0.0;
+        
+        std::vector<double> vals;
+        for (const auto& v : vars) vals.push_back(variables.count(v) ? variables.at(v) : 0.0);
+        return derivative(idx, vals, delta);
     }
 
     const std::string& source() const { return m_source; }
     bool isValid() const { return !m_rpn.empty(); }
 
     std::vector<std::string> getVariables() const {
-        std::vector<std::string> vars;
-        for (const auto& token : m_rpn) {
-            if (token.type == ExprTokenType::Variable) {
-                bool found = false;
-                for (const auto& v : vars) if (v == token.value) { found = true; break; }
-                if (!found) vars.push_back(token.value);
-            }
-        }
-        return vars;
+        return m_variables;
     }
 
 private:
     void parse() {
         std::vector<ExprToken> tokens = tokenize(m_source);
         m_rpn = shuntingYard(tokens);
+        
+        // Extract variables and assign indices to tokens
+        m_variables.clear();
+        for (auto& token : m_rpn) {
+            if (token.type == ExprTokenType::Variable) {
+                int foundIdx = -1;
+                for (int i = 0; i < (int)m_variables.size(); ++i) {
+                    if (m_variables[i] == token.value) { foundIdx = i; break; }
+                }
+                if (foundIdx == -1) {
+                    foundIdx = (int)m_variables.size();
+                    m_variables.push_back(token.value);
+                }
+                token.varIdx = foundIdx;
+            }
+        }
     }
+    // ... rest of private methods (tokenize, shuntingYard) ...
 
     std::vector<ExprToken> tokenize(const std::string& s) {
         std::vector<ExprToken> tokens;
@@ -192,6 +231,7 @@ private:
 
     std::string m_source;
     std::vector<ExprToken> m_rpn;
+    std::vector<std::string> m_variables;
 };
 
 } // namespace Sim

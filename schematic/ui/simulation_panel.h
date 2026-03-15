@@ -37,6 +37,8 @@ public:
     void addDifferentialProbe(const QString& pNet, const QString& nNet);
     void removeProbe(const QString& signalName);
     void clearAllProbes();
+    void clearAllProbesPreserveX();
+    bool hasProbe(const QString& signalName) const;
     void onRunSimulation();
 
     struct AnalysisConfig {
@@ -66,6 +68,7 @@ private slots:
     void onSimulationFinished();
     void onViewNetlist();
     void onSimResultsReady(const SimResults& results);
+    void onRealTimePointReceived(double t, const std::vector<double>& values);
     void onTimelineValueChanged(int value);
     void onGeneratorTypeChanged(int index);
     void onApplyGeneratorToSelection();
@@ -103,6 +106,7 @@ private:
     double sampleAtX(const SimWaveform& wave, double x) const;
     double estimateFrequency(const SimWaveform& wave) const;
     double estimateFftPeakHz(const SimWaveform& wave) const;
+    void updateChartRealTime(const QString& name, double t, double value);
 
     QGraphicsScene* m_scene;
     NetManager* m_netManager;
@@ -178,6 +182,9 @@ private:
     bool m_hasLastResults = false;
     bool m_hasPreviousResults = false;
     QDateTime m_lastRunTimestampUtc;
+    SimNetlist m_currentNetlist;
+    QMap<QString, QLineSeries*> m_realTimeSeries;
+    int m_realTimePointCounter = 0;
 };
 
 #endif // SIMULATION_PANEL_H

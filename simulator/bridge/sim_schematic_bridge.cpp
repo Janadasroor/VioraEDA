@@ -422,7 +422,7 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
             }
             if (comp.typeName == "Switch" || comp.typeName == "PushButton") {
                 r.supported = true;
-                r.type = SimComponentType::Resistor;
+                r.type = SimComponentType::Switch;
                 return r;
             }
             if (comp.typeName == "Transformer") {
@@ -971,28 +971,35 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
             }
         }
 
-        if (inst.type == SimComponentType::Resistor &&
-            (comp.typeName == "OscilloscopeInstrument" ||
-             comp.typeName == "VoltmeterInstrument" ||
-             comp.typeName == "AmmeterInstrument" ||
-             comp.typeName == "WattmeterInstrument" ||
-             comp.typeName == "FrequencyCounterInstrument" ||
-             comp.typeName == "LogicProbeInstrument")) {
-            // Instrument probes default to high-impedance to avoid disturbing circuits.
-            inst.params["resistance"] = 1e8;
+        bool isInstrument = (comp.typeName == "OscilloscopeInstrument" ||
+                             comp.typeName == "VoltmeterInstrument" ||
+                             comp.typeName == "AmmeterInstrument" ||
+                             comp.typeName == "WattmeterInstrument" ||
+                             comp.typeName == "FrequencyCounterInstrument" ||
+                             comp.typeName == "LogicProbeInstrument");
 
-            // Register all connected nets for auto-probing.
+        if (isInstrument) {
+            // For instruments, we ensure every connected pin is drained to ground 
+            // with a high-Z resistor so they aren't floating.
             for (const auto& [pinName, nodeId] : pinToNode) {
-                Q_UNUSED(pinName)
                 if (nodeId <= 0) continue;
+
+                SimComponentInstance probeRes;
+                probeRes.name = inst.name + "_" + pinName;
+                probeRes.type = SimComponentType::Resistor;
+                probeRes.nodes = { nodeId, 0 };
+                probeRes.params["resistance"] = 1e8;
+                netlist.addComponent(probeRes);
+
+                // Register for auto-probing
                 std::string nodeName = netlist.nodeName(nodeId);
                 if (nodeName != "?") {
                     netlist.addAutoProbe("V(" + nodeName + ")");
                 }
             }
+        } else {
+            netlist.addComponent(inst);
         }
-
-        netlist.addComponent(inst);
     }
 
     if (!mappingWarnings.isEmpty()) {
