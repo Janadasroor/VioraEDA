@@ -100,6 +100,7 @@ private slots:
     void onExportPDF();
     void onExportSVG();
     void onExportImage();
+    void onExportAISchematic();
     void onSettings();
     void onAbout();
     void onRunSimulation();
@@ -187,6 +188,7 @@ private:
     void onItemsHighlighted(const QStringList& references);
     void onSnippetGenerated(const QString& jsonSnippet);
     QList<ERCViolation> getErcViolations() const;
+    void updateCurrentTabTitleFromFilePath(const QString& filePath);
 
     // UI Components
     QTabWidget *m_workspaceTabs;

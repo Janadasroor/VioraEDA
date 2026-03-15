@@ -30,6 +30,12 @@ public:
                               const QMap<QString, QList<QString>>& busAliases = QMap<QString, QList<QString>>(),
                               const QSet<QString>& ercExclusions = QSet<QString>(),
                               const QJsonObject* simulationSetup = nullptr);
+    static bool saveSchematicAI(QGraphicsScene* scene, const QString& filePath,
+                                const QString& pageSize, const QString& script,
+                                const TitleBlockData& titleBlock,
+                                const QMap<QString, QList<QString>>& busAliases,
+                                const QSet<QString>& ercExclusions,
+                                const QJsonObject* simulationSetup);
     
     /**
      * @brief Load a schematic from a file

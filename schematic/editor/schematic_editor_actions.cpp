@@ -681,7 +681,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                     vSrc->setValue(val);
                 }
             } else {
-                VoltageSourceLTSpiceDialog dlg(vSrc, m_undoStack, m_scene, this);
+                VoltageSourceLTSpiceDialog dlg(vSrc, m_undoStack, m_scene, m_projectDir, this);
                 dlg.exec();
             }
             return;
@@ -1542,4 +1542,3 @@ void SchematicEditor::onAssignModel(const QString& modelName) {
 
     statusBar()->showMessage(QString("Assigned model '%1' to %2 component(s)").arg(modelName).arg(targets.size()), 4000);
 }
-

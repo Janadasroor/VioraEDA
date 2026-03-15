@@ -18,12 +18,18 @@
 #include "../../symbols/symbol_editor.h"
 #include "../../core/project.h"
 #include "../../core/recent_projects.h"
+#include "../../core/theme_manager.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QStandardPaths>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QFile>
+#include <QPlainTextEdit>
+#include <QSyntaxHighlighter>
+#include <QTextCharFormat>
+#include <QRegularExpression>
+#include <QPainter>
 #include <QDir>
 #include <QStatusBar>
 #include <QApplication>
@@ -55,11 +61,323 @@ QStringList itemPinNames(const SchematicItem* item) {
     }
     return pins;
 }
+
+bool isTextFile(const QString& path) {
+    const QString ext = QFileInfo(path).suffix().toLower();
+    static const QSet<QString> exts = {
+        "txt","log","md","json","json5","yaml","yml","xml",
+        "html","htm","css","js","ts","jsx","tsx",
+        "py","cpp","c","h","hpp","cmake","ini","cfg",
+        "csv","tsv","net","cir","sp","sub","model"
+    };
+    return exts.contains(ext);
+}
+
+enum class HighlightMode {
+    Plain,
+    Json,
+    Xml,
+    Html,
+    Yaml,
+    Python,
+    CLike,
+    Script
+};
+
+class LineNumberTextEdit;
+
+class LineNumberArea : public QWidget {
+public:
+    explicit LineNumberArea(QWidget* parent, LineNumberTextEdit* editor);
+    QSize sizeHint() const override;
+protected:
+    void paintEvent(QPaintEvent* event) override;
+private:
+    LineNumberTextEdit* m_editor;
+};
+
+class LineNumberTextEdit : public QPlainTextEdit {
+public:
+    explicit LineNumberTextEdit(QWidget* parent = nullptr) : QPlainTextEdit(parent) {
+        m_lineNumberArea = new LineNumberArea(this, this);
+        connect(this, &QPlainTextEdit::blockCountChanged, this, &LineNumberTextEdit::updateLineNumberAreaWidth);
+        connect(this, &QPlainTextEdit::updateRequest, this, &LineNumberTextEdit::updateLineNumberArea);
+        connect(this, &QPlainTextEdit::cursorPositionChanged, this, &LineNumberTextEdit::highlightCurrentLine);
+        updateLineNumberAreaWidth(0);
+        highlightCurrentLine();
+    }
+
+    int lineNumberAreaWidth() const {
+        int digits = 1;
+        int max = qMax(1, blockCount());
+        while (max >= 10) {
+            max /= 10;
+            ++digits;
+        }
+        const int space = 6 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+        return space;
+    }
+
+    void lineNumberAreaPaintEvent(QPaintEvent* event) {
+        QPainter painter(m_lineNumberArea);
+        painter.fillRect(event->rect(), QColor(255, 255, 255));
+
+        QTextBlock block = firstVisibleBlock();
+        int blockNumber = block.blockNumber();
+        int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+        int bottom = top + qRound(blockBoundingRect(block).height());
+
+        while (block.isValid() && top <= event->rect().bottom()) {
+            if (block.isVisible() && bottom >= event->rect().top()) {
+                const QString number = QString::number(blockNumber + 1);
+                painter.setPen(QColor(60, 60, 60));
+                painter.drawText(0, top, m_lineNumberArea->width() - 4, fontMetrics().height(),
+                                 Qt::AlignRight, number);
+            }
+
+            block = block.next();
+            top = bottom;
+            bottom = top + qRound(blockBoundingRect(block).height());
+            ++blockNumber;
+        }
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QPlainTextEdit::resizeEvent(event);
+        const QRect cr = contentsRect();
+        m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
+    }
+
+private slots:
+    void updateLineNumberAreaWidth(int) {
+        setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
+    }
+
+    void updateLineNumberArea(const QRect& rect, int dy) {
+        if (dy)
+            m_lineNumberArea->scroll(0, dy);
+        else
+            m_lineNumberArea->update(0, rect.y(), m_lineNumberArea->width(), rect.height());
+
+        if (rect.contains(viewport()->rect()))
+            updateLineNumberAreaWidth(0);
+    }
+
+    void highlightCurrentLine() {
+        QList<QTextEdit::ExtraSelection> extraSelections;
+        if (!isReadOnly()) {
+            QTextEdit::ExtraSelection selection;
+            selection.format.setBackground(QColor(232, 240, 254));
+            selection.format.setProperty(QTextFormat::FullWidthSelection, true);
+            selection.cursor = textCursor();
+            selection.cursor.clearSelection();
+            extraSelections.append(selection);
+        }
+        setExtraSelections(extraSelections);
+    }
+
+private:
+    LineNumberArea* m_lineNumberArea = nullptr;
+};
+
+void LineNumberArea::paintEvent(QPaintEvent* event) {
+    m_editor->lineNumberAreaPaintEvent(event);
+}
+
+LineNumberArea::LineNumberArea(QWidget* parent, LineNumberTextEdit* editor)
+    : QWidget(parent), m_editor(editor) {
+}
+
+QSize LineNumberArea::sizeHint() const {
+    return QSize(m_editor->lineNumberAreaWidth(), 0);
+}
+
+HighlightMode detectHighlightMode(const QString& path) {
+    const QString ext = QFileInfo(path).suffix().toLower();
+    if (ext == "json" || ext == "json5") return HighlightMode::Json;
+    if (ext == "xml") return HighlightMode::Xml;
+    if (ext == "html" || ext == "htm") return HighlightMode::Html;
+    if (ext == "yml" || ext == "yaml") return HighlightMode::Yaml;
+    if (ext == "py") return HighlightMode::Python;
+    if (ext == "c" || ext == "cpp" || ext == "h" || ext == "hpp") return HighlightMode::CLike;
+    if (ext == "js" || ext == "ts" || ext == "jsx" || ext == "tsx") return HighlightMode::Script;
+    if (ext == "css") return HighlightMode::Script;
+    return HighlightMode::Plain;
+}
+
+class SimpleSyntaxHighlighter : public QSyntaxHighlighter {
+public:
+    SimpleSyntaxHighlighter(QTextDocument* doc, HighlightMode mode, bool lightTheme)
+        : QSyntaxHighlighter(doc), m_mode(mode), m_lightTheme(lightTheme) {
+        setupRules();
+    }
+
+protected:
+    void highlightBlock(const QString& text) override {
+        for (const auto& rule : m_rules) {
+            QRegularExpressionMatchIterator it = rule.pattern.globalMatch(text);
+            while (it.hasNext()) {
+                const auto match = it.next();
+                setFormat(match.capturedStart(), match.capturedLength(), rule.format);
+            }
+        }
+
+        if (m_mode == HighlightMode::CLike || m_mode == HighlightMode::Script) {
+            setCurrentBlockState(0);
+            int startIdx = 0;
+            if (previousBlockState() != 1) {
+                startIdx = text.indexOf("/*");
+            }
+            while (startIdx >= 0) {
+                int endIdx = text.indexOf("*/", startIdx + 2);
+                int length;
+                if (endIdx == -1) {
+                    setCurrentBlockState(1);
+                    length = text.length() - startIdx;
+                } else {
+                    length = endIdx - startIdx + 2;
+                }
+                setFormat(startIdx, length, m_commentFormat);
+                startIdx = text.indexOf("/*", startIdx + length);
+            }
+        } else if (m_mode == HighlightMode::Python) {
+            setCurrentBlockState(0);
+            if (previousBlockState() == 1) {
+                int endIdx = text.indexOf("\"\"\"");
+                if (endIdx == -1) {
+                    setFormat(0, text.length(), m_stringFormat);
+                    setCurrentBlockState(1);
+                    return;
+                }
+                setFormat(0, endIdx + 3, m_stringFormat);
+            }
+            int startIdx = text.indexOf("\"\"\"");
+            if (startIdx >= 0) {
+                int endIdx = text.indexOf("\"\"\"", startIdx + 3);
+                if (endIdx == -1) {
+                    setFormat(startIdx, text.length() - startIdx, m_stringFormat);
+                    setCurrentBlockState(1);
+                } else {
+                    setFormat(startIdx, endIdx - startIdx + 3, m_stringFormat);
+                }
+            }
+        } else if (m_mode == HighlightMode::Xml || m_mode == HighlightMode::Html) {
+            setCurrentBlockState(0);
+            int startIdx = 0;
+            if (previousBlockState() != 1) {
+                startIdx = text.indexOf("<!--");
+            }
+            while (startIdx >= 0) {
+                int endIdx = text.indexOf("-->", startIdx + 4);
+                int length;
+                if (endIdx == -1) {
+                    setCurrentBlockState(1);
+                    length = text.length() - startIdx;
+                } else {
+                    length = endIdx - startIdx + 3;
+                }
+                setFormat(startIdx, length, m_commentFormat);
+                startIdx = text.indexOf("<!--", startIdx + length);
+            }
+        }
+    }
+
+private:
+    struct Rule {
+        QRegularExpression pattern;
+        QTextCharFormat format;
+    };
+
+    void setupRules() {
+        QTextCharFormat keywordFormat;
+        keywordFormat.setForeground(m_lightTheme ? QColor("#1d4ed8") : QColor("#60a5fa"));
+        keywordFormat.setFontWeight(QFont::DemiBold);
+
+        QTextCharFormat typeFormat;
+        typeFormat.setForeground(m_lightTheme ? QColor("#b45309") : QColor("#f59e0b"));
+
+        QTextCharFormat numberFormat;
+        numberFormat.setForeground(m_lightTheme ? QColor("#6d28d9") : QColor("#a78bfa"));
+
+        m_stringFormat.setForeground(m_lightTheme ? QColor("#047857") : QColor("#34d399"));
+        m_commentFormat.setForeground(m_lightTheme ? QColor("#6b7280") : QColor("#6b7280"));
+
+        // Strings (single/double)
+        m_rules.append({QRegularExpression(R"("([^"\\]|\\.)*")"), m_stringFormat});
+        m_rules.append({QRegularExpression(R"('([^'\\]|\\.)*')"), m_stringFormat});
+
+        // Numbers
+        m_rules.append({QRegularExpression(R"(\b-?\d+(\.\d+)?([eE][+-]?\d+)?\b)"), numberFormat});
+
+        if (m_mode == HighlightMode::Json) {
+            QTextCharFormat keyFormat;
+            keyFormat.setForeground(m_lightTheme ? QColor("#1d4ed8") : QColor("#93c5fd"));
+            m_rules.append({QRegularExpression(R"("([^"\\]|\\.)*"(?=\s*:))"), keyFormat});
+            QTextCharFormat literalFormat;
+            literalFormat.setForeground(m_lightTheme ? QColor("#b91c1c") : QColor("#f87171"));
+            m_rules.append({QRegularExpression(R"(\b(true|false|null)\b)"), literalFormat});
+            return;
+        }
+
+        if (m_mode == HighlightMode::Yaml) {
+            QTextCharFormat keyFormat;
+            keyFormat.setForeground(m_lightTheme ? QColor("#1d4ed8") : QColor("#93c5fd"));
+            m_rules.append({QRegularExpression(R"(^\s*[^:#\n]+(?=\s*:))"), keyFormat});
+        }
+
+        if (m_mode == HighlightMode::Xml || m_mode == HighlightMode::Html) {
+            QTextCharFormat tagFormat;
+            tagFormat.setForeground(m_lightTheme ? QColor("#1d4ed8") : QColor("#60a5fa"));
+            m_rules.append({QRegularExpression(R"(<\/?[\w:-]+)"), tagFormat});
+            QTextCharFormat attrFormat;
+            attrFormat.setForeground(m_lightTheme ? QColor("#b45309") : QColor("#f59e0b"));
+            m_rules.append({QRegularExpression(R"(\b[\w:-]+(?=\=))"), attrFormat});
+        }
+
+        if (m_mode == HighlightMode::Python) {
+            m_rules.append({QRegularExpression(R"(\b(def|class|return|if|elif|else|for|while|try|except|finally|with|as|import|from|pass|break|continue|lambda|yield|True|False|None)\b)"), keywordFormat});
+            m_rules.append({QRegularExpression(R"(#.*$)"), m_commentFormat});
+            return;
+        }
+
+        if (m_mode == HighlightMode::CLike || m_mode == HighlightMode::Script) {
+            m_rules.append({QRegularExpression(R"(\b(if|else|for|while|switch|case|break|continue|return|class|struct|public|private|protected|static|const|void|int|float|double|bool|char|new|delete|try|catch|throw|namespace|using|this|true|false|null)\b)"), keywordFormat});
+            m_rules.append({QRegularExpression(R"(//.*$)"), m_commentFormat});
+            return;
+        }
+    }
+
+    HighlightMode m_mode;
+    bool m_lightTheme = false;
+    QVector<Rule> m_rules;
+    QTextCharFormat m_stringFormat;
+    QTextCharFormat m_commentFormat;
+};
+
+QPlainTextEdit* createTextEditor(QWidget* parent, const QString& content, const QString& filePath, bool readOnly) {
+    auto* editor = new LineNumberTextEdit(parent);
+    editor->setPlainText(content);
+    editor->setReadOnly(readOnly);
+    editor->setLineWrapMode(QPlainTextEdit::NoWrap);
+    bool light = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
+    editor->setStyleSheet(QString(
+        "QPlainTextEdit { background: %1; color: %2; border: none; font-family: monospace; font-size: 12px; selection-background-color: %3; selection-color: %2; }"
+    ).arg(light ? "#f8fafc" : "#0f1115",
+          light ? "#111827" : "#e5e7eb",
+          light ? "#dbeafe" : "#1f2937"));
+    new SimpleSyntaxHighlighter(editor->document(), detectHighlightMode(filePath), light);
+    return editor;
+}
 }
 
 void SchematicEditor::setProjectContext(const QString& projectName, const QString& projectDir) {
     m_projectName = projectName;
     m_projectDir = projectDir;
+
+    if (m_projectExplorer && !projectDir.isEmpty()) {
+        m_projectExplorer->setRootPath(projectDir);
+    }
     
     // Auto-derive file path from project
     if (!projectName.isEmpty() && !projectDir.isEmpty()) {
@@ -146,6 +464,40 @@ bool SchematicEditor::openFile(const QString& filePath) {
         }
     }
 
+    if (isTextFile(filePath)) {
+        // Check if already open
+        for (int i = 0; i < m_workspaceTabs->count(); ++i) {
+            if (m_workspaceTabs->widget(i)->property("filePath").toString() == filePath) {
+                m_workspaceTabs->setCurrentIndex(i);
+                return true;
+            }
+        }
+
+        QFile file(filePath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QMessageBox::critical(this, "Open Error",
+                QString("Failed to open file:\n%1").arg(file.errorString()));
+            return false;
+        }
+        const QString content = QString::fromUtf8(file.readAll());
+        file.close();
+
+        auto* editor = createTextEditor(this, content, filePath, false);
+        editor->setProperty("filePath", filePath);
+        editor->setProperty("dirty", false);
+        connect(editor, &QPlainTextEdit::textChanged, this, [this, editor]() {
+            if (!editor->property("dirty").toBool()) {
+                editor->setProperty("dirty", true);
+                const int idx = m_workspaceTabs->indexOf(editor);
+                if (idx >= 0) m_workspaceTabs->setTabText(idx, m_workspaceTabs->tabText(idx) + "*");
+            }
+        });
+        const int idx = m_workspaceTabs->addTab(editor, getThemeIcon(":/icons/tool_search.svg"), QFileInfo(filePath).fileName());
+        m_workspaceTabs->setCurrentIndex(idx);
+        statusBar()->showMessage(QString("Opened: %1").arg(filePath), 3000);
+        return true;
+    }
+
     if (filePath.endsWith(".sym", Qt::CaseInsensitive)) {
         openSymbolEditorWindow(QFileInfo(filePath).baseName());
         // For now, assume it's a new symbol or handle loading logic in SymbolEditor
@@ -223,6 +575,32 @@ bool SchematicEditor::openFile(const QString& filePath) {
 }
 
 void SchematicEditor::onSaveSchematic() {
+    // If current tab is an unsaved schematic, force Save As to avoid overwriting another file
+    if (m_view && m_view->property("filePath").toString().isEmpty()) {
+        onSaveSchematicAs();
+        return;
+    }
+
+    QWidget* current = m_workspaceTabs->currentWidget();
+    if (auto* textEditor = qobject_cast<QPlainTextEdit*>(current)) {
+        const QString textPath = textEditor->property("filePath").toString();
+        if (!textPath.isEmpty() && isTextFile(textPath)) {
+            QFile file(textPath);
+            if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QMessageBox::critical(this, "Save Error",
+                    QString("Failed to save file:\n%1").arg(file.errorString()));
+                return;
+            }
+            file.write(textEditor->toPlainText().toUtf8());
+            file.close();
+
+            textEditor->setProperty("dirty", false);
+            updateCurrentTabTitleFromFilePath(textPath);
+            statusBar()->showMessage(QString("Saved: %1").arg(textPath), 3000);
+            return;
+        }
+    }
+
     // If we have a project context but no file path yet, derive it
     if (m_currentFilePath.isEmpty() && !m_projectName.isEmpty() && !m_projectDir.isEmpty()) {
         m_currentFilePath = m_projectDir + "/" + m_projectName + ".flxsch";
@@ -248,9 +626,8 @@ void SchematicEditor::onSaveSchematic() {
             success = true;
         }
     } else {
-        QString script = SchematicFileIO::convertToFluxScript(m_scene, m_netManager);
         const QJsonObject simSetup = m_simConfig.toJson();
-        success = SchematicFileIO::saveSchematic(m_scene, m_currentFilePath, m_currentPageSize, script, m_titleBlock, m_busAliases, m_ercExclusions, &simSetup);
+        success = SchematicFileIO::saveSchematic(m_scene, m_currentFilePath, m_currentPageSize, QString(), m_titleBlock, m_busAliases, m_ercExclusions, &simSetup);
     }
 
     if (success) {
@@ -258,6 +635,8 @@ void SchematicEditor::onSaveSchematic() {
         QFileInfo fileInfo(m_currentFilePath);
         setWindowTitle(QString("Viora EDA - Schematic Editor [%1]").arg(fileInfo.fileName()));
         statusBar()->showMessage(QString("Saved: %1").arg(m_currentFilePath), 3000);
+        if (m_view) m_view->setProperty("filePath", m_currentFilePath);
+        updateCurrentTabTitleFromFilePath(m_currentFilePath);
     } else {
         QMessageBox::critical(this, "Save Error",
             QString("Failed to save schematic:\n%1").arg(SchematicFileIO::lastError()));
@@ -265,6 +644,35 @@ void SchematicEditor::onSaveSchematic() {
 }
 
 void SchematicEditor::onSaveSchematicAs() {
+    QWidget* current = m_workspaceTabs->currentWidget();
+    if (auto* textEditor = qobject_cast<QPlainTextEdit*>(current)) {
+        QString defaultPath = textEditor->property("filePath").toString();
+        if (defaultPath.isEmpty()) {
+            defaultPath = m_projectDir.isEmpty() ? QDir::homePath() : m_projectDir;
+        }
+        QString filePath = QFileDialog::getSaveFileName(
+            this, "Save File As",
+            defaultPath,
+            "All Files (*)"
+        );
+        if (filePath.isEmpty()) return;
+
+        QFile file(filePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::critical(this, "Save Error",
+                QString("Failed to save file:\n%1").arg(file.errorString()));
+            return;
+        }
+        file.write(textEditor->toPlainText().toUtf8());
+        file.close();
+
+        textEditor->setProperty("filePath", filePath);
+        textEditor->setProperty("dirty", false);
+        updateCurrentTabTitleFromFilePath(filePath);
+        statusBar()->showMessage(QString("Saved: %1").arg(filePath), 3000);
+        return;
+    }
+
     if (m_projectName.isEmpty()) {
         // First time saving, prompt to create a project
         QString projectName = QInputDialog::getText(this, "Save New Project", "Project Name:");
@@ -317,15 +725,61 @@ void SchematicEditor::onSaveSchematicAs() {
     
     const QJsonObject simSetup = m_simConfig.toJson();
     if (SchematicFileIO::saveSchematic(m_scene, filePath, m_currentPageSize, QString(), m_titleBlock, m_busAliases, m_ercExclusions, &simSetup)) {
+        const QFileInfo savedInfo(filePath);
+        const QString newProjectName = savedInfo.completeBaseName();
+        const QString newProjectDir = savedInfo.absolutePath();
+        const bool projectChanged = (newProjectName != m_projectName) || (newProjectDir != m_projectDir);
+
+        if (projectChanged && !newProjectName.isEmpty() && !newProjectDir.isEmpty()) {
+            QDir().mkpath(newProjectDir);
+            Project project(newProjectName, newProjectDir);
+            if (project.save()) {
+                RecentProjects::instance().addProject(project.projectFilePath());
+            }
+            setProjectContext(newProjectName, newProjectDir);
+        }
+
         m_currentFilePath = filePath;
         updateGeminiProjectEffect();
         m_isModified = false;
         QFileInfo fileInfo(filePath);
         setWindowTitle(QString("Viora EDA - Schematic Editor [%1]").arg(fileInfo.fileName()));
         statusBar()->showMessage(QString("Saved: %1").arg(filePath), 3000);
+        if (m_view) m_view->setProperty("filePath", filePath);
+        updateCurrentTabTitleFromFilePath(filePath);
     } else {
         QMessageBox::critical(this, "Save Error",
             QString("Failed to save schematic:\n%1").arg(SchematicFileIO::lastError()));
+    }
+}
+
+void SchematicEditor::updateCurrentTabTitleFromFilePath(const QString& filePath) {
+    if (filePath.isEmpty()) return;
+    const int idx = m_workspaceTabs->currentIndex();
+    if (idx < 0) return;
+    const QFileInfo info(filePath);
+    const QString title = info.fileName();
+    if (!title.isEmpty()) m_workspaceTabs->setTabText(idx, title);
+    m_workspaceTabs->setTabToolTip(idx, filePath);
+}
+
+void SchematicEditor::onExportAISchematic() {
+    if (!m_scene) return;
+
+    QString defaultPath = m_projectDir.isEmpty() ? QDir::homePath() : m_projectDir;
+    QString suggested = defaultPath + "/" + (m_projectName.isEmpty() ? "schematic" : m_projectName) + ".ai.json";
+    QString filePath = QFileDialog::getSaveFileName(this, "Export AI Schematic", suggested, "AI Schematic JSON (*.ai.json);;All Files (*)");
+    if (filePath.isEmpty()) return;
+
+    QString script = SchematicFileIO::convertToFluxScript(m_scene, m_netManager);
+    const QJsonObject simSetup = m_simConfig.toJson();
+    bool success = SchematicFileIO::saveSchematicAI(m_scene, filePath, m_currentPageSize, script, m_titleBlock, m_busAliases, m_ercExclusions, &simSetup);
+
+    if (success) {
+        statusBar()->showMessage(QString("AI schematic exported: %1").arg(filePath), 3000);
+    } else {
+        QMessageBox::critical(this, "Export Error",
+            QString("Failed to export AI schematic:\n%1").arg(SchematicFileIO::lastError()));
     }
 }
 

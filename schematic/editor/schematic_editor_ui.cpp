@@ -505,6 +505,8 @@ void SchematicEditor::createToolBar() {
     exportMenu->addAction("Export as PDF", this, &SchematicEditor::onExportPDF);
     exportMenu->addAction("Export as SVG", this, &SchematicEditor::onExportSVG);
     exportMenu->addAction("Export as Image", this, &SchematicEditor::onExportImage);
+    exportMenu->addSeparator();
+    exportMenu->addAction("Export AI JSON...", this, &SchematicEditor::onExportAISchematic);
     fileMenu->addSeparator();
     fileMenu->addAction(createComponentIcon("Exit"), "Exit", this, &QWidget::close, QKeySequence::Quit);
 

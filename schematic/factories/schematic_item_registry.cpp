@@ -292,6 +292,30 @@ void SchematicItemRegistry::registerBuiltInItems() {
         return item;
     });
 
+    factory.registerItemType("Voltage_Source_EXP", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new VoltageSourceItem(pos, "EXP(0 5 0 1m 2m 1m)", VoltageSourceItem::EXP, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("Voltage_Source_SFFM", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new VoltageSourceItem(pos, "SFFM(0 1 1k 1 100)", VoltageSourceItem::SFFM, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("Voltage_Source_PWL", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new VoltageSourceItem(pos, "PWL(0 0 1 1)", VoltageSourceItem::PWL, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("Voltage_Source_PWLFile", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new VoltageSourceItem(pos, "PWL FILE \"waveform.pwl\"", VoltageSourceItem::PWLFile, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
     factory.registerItemType("Voltage_Source_Behavioral", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         auto* item = new VoltageSourceItem(pos, "V=V(1)*2", VoltageSourceItem::Behavioral, parent);
         if (!properties.isEmpty()) item->fromJson(properties);

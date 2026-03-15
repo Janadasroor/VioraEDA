@@ -27,6 +27,7 @@ public:
     // Tool lifecycle
     virtual void activate(SchematicView* view);
     virtual void deactivate();
+    void ensureView(SchematicView* view) { if (m_view != view) m_view = view; }
 
     // Event handling
     virtual void mousePressEvent(QMouseEvent* event) { Q_UNUSED(event) }

@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QStackedWidget>
 #include <QCheckBox>
+#include <QPushButton>
 #include <QUndoStack>
 #include <QGraphicsScene>
 #include "../items/voltage_source_item.h"
@@ -15,12 +16,13 @@ class VoltageSourceLTSpiceDialog : public QDialog {
     Q_OBJECT
 
 public:
-    VoltageSourceLTSpiceDialog(VoltageSourceItem* item, QUndoStack* undoStack = nullptr, QGraphicsScene* scene = nullptr, QWidget* parent = nullptr);
+    VoltageSourceLTSpiceDialog(VoltageSourceItem* item, QUndoStack* undoStack = nullptr, QGraphicsScene* scene = nullptr, const QString& projectDir = QString(), QWidget* parent = nullptr);
 
 private slots:
     void onFunctionChanged();
     void onAccepted();
     void onPwlBrowse();
+    void onCustomDraw();
 
 private:
     void setupUi();
@@ -30,6 +32,7 @@ private:
     VoltageSourceItem* m_item;
     QUndoStack* m_undoStack;
     QGraphicsScene* m_scene;
+    QString m_projectDir;
 
     // Functions
     QRadioButton* m_noneRadio;
@@ -38,6 +41,7 @@ private:
     QRadioButton* m_expRadio;
     QRadioButton* m_sffmRadio;
     QRadioButton* m_pwlRadio;
+    QRadioButton* m_customRadio;
     QRadioButton* m_pwlFileRadio;
 
     QStackedWidget* m_paramStack;
@@ -78,6 +82,8 @@ private:
 
     // PWL Params
     QLineEdit* m_pwlPoints;
+    QPushButton* m_pwlDrawBtn;
+    QCheckBox* m_pwlRepeat;
 
     // PWL File Params
     QLineEdit* m_pwlFile;

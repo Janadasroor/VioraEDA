@@ -21,6 +21,9 @@ signals:
 private slots:
     void onDoubleClicked(const QModelIndex& index);
     void onFilterChanged(const QString& text);
+    void onContextMenuRequested(const QPoint& pos);
+    void onRefreshRequested();
+    void onCollapseAllRequested();
 
 private:
     void setupUi();
@@ -30,6 +33,7 @@ private:
     QFileSystemModel* m_model;
     class FileFilterProxyModel* m_proxyModel;
     QLineEdit* m_searchBox;
+    QLabel* m_titleLabel;
     QString m_rootPath;
 };
 

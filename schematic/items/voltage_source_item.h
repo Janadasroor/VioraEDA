@@ -35,6 +35,7 @@ public:
     SchematicItem* clone() const override;
 
     void onInteractiveDoubleClick(const QPointF& pos) override;
+    void updateLabelText();
 
     // Connectivity
     QList<QPointF> connectionPoints() const override;
@@ -115,6 +116,8 @@ public:
     void setPwlPoints(const QString& p) { m_pwlPoints = p; updateValue(); update(); }
     QString pwlFile() const { return m_pwlFile; }
     void setPwlFile(const QString& f) { m_pwlFile = f; updateValue(); update(); }
+    bool pwlRepeat() const { return m_pwlRepeat; }
+    void setPwlRepeat(bool r) { m_pwlRepeat = r; updateValue(); update(); }
 
     // AC Analysis
     QString acAmplitude() const { return m_acAmplitude; }
@@ -185,6 +188,7 @@ private:
     // PWL
     QString m_pwlPoints;
     QString m_pwlFile;
+    bool m_pwlRepeat;
 
     // AC
     QString m_acAmplitude;

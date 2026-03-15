@@ -113,7 +113,9 @@ SchematicView::SchematicView(QWidget *parent)
 }
 
 SchematicView::~SchematicView() {
-    // Tool will be cleaned up by registry
+    if (m_currentTool) {
+        m_currentTool->deactivate();
+    }
 }
 
 void SchematicView::setCurrentTool(const QString& toolName) {
@@ -270,6 +272,7 @@ void SchematicView::wheelEvent(QWheelEvent *event) {
 }
 
 void SchematicView::mousePressEvent(QMouseEvent *event) {
+    if (m_currentTool) m_currentTool->ensureView(this);
     if (event->button() == Qt::MiddleButton) {
         m_isPanning = true;
         m_lastPanPoint = event->pos();
@@ -423,6 +426,7 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
 }
 
 void SchematicView::mouseMoveEvent(QMouseEvent *event) {
+    if (m_currentTool) m_currentTool->ensureView(this);
     QPointF scenePos = mapToScene(event->pos());
     
     // Use tool-specific snapping if available, otherwise default grid snapping
@@ -560,6 +564,7 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void SchematicView::mouseReleaseEvent(QMouseEvent *event) {
+    if (m_currentTool) m_currentTool->ensureView(this);
     m_probeClickActive = false;
 
     if (event->button() == Qt::LeftButton) {
@@ -612,6 +617,7 @@ void SchematicView::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
+    if (m_currentTool) m_currentTool->ensureView(this);
     if (m_currentTool) {
         // Only treat tool handling as authoritative when the tool explicitly accepts the event.
         event->setAccepted(false);
@@ -676,6 +682,7 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
 }
 
 void SchematicView::keyPressEvent(QKeyEvent *event) {
+    if (m_currentTool) m_currentTool->ensureView(this);
     if (event->matches(QKeySequence::Undo)) {
         if (m_undoStack && m_undoStack->canUndo()) {
             m_undoStack->undo();
@@ -809,6 +816,7 @@ QString SchematicView::getNextReference(const QString& prefix) {
 #include <QGuiApplication>
 
 void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
+    if (m_currentTool) m_currentTool->ensureView(this);
     // Only forward to specific tools that need it (not Select tool)
     if (m_currentTool && m_currentTool->name() != "Select") {
         QMouseEvent fakeEvent(QEvent::MouseButtonPress, event->pos(), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
@@ -851,7 +859,7 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
                     vsrc->setValue(val);
                 }
             } else {
-                VoltageSourceLTSpiceDialog dlg(vsrc, m_undoStack, scene(), this);
+                VoltageSourceLTSpiceDialog dlg(vsrc, m_undoStack, scene(), QString(), this);
                 dlg.exec();
             }
             return;

@@ -811,13 +811,16 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &GeminiPanel::onProcessFinished);
 
     QString sDir = QCoreApplication::applicationDirPath() + "/../python/scripts";
-    QString sPath = QDir(sDir).absoluteFilePath("gemini_query.py");
+    QString sPath = QDir(sDir).absoluteFilePath("adk_agent.py");
     QString vPy = QDir(sDir).absoluteFilePath("../venv/bin/python");
     QString py = QFile::exists(vPy) ? vPy : "python3";
-
-    QStringList pArgs; pArgs << sPath << args;
+    
+    QStringList pArgs;
+    pArgs << sPath << args;
+    
     if (!m_mode.isEmpty()) pArgs << "--mode" << m_mode;
     if (!m_projectFilePath.isEmpty()) pArgs << "--project_path" << m_projectFilePath;
+
     m_process->start(py, pArgs);
 }
 

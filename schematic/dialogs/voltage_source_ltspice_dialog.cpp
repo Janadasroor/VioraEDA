@@ -1,4 +1,5 @@
 #include "voltage_source_ltspice_dialog.h"
+#include "voltage_source_custom_waveform_dialog.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -7,8 +8,8 @@
 #include <QFileDialog>
 #include "../editor/schematic_commands.h"
 
-VoltageSourceLTSpiceDialog::VoltageSourceLTSpiceDialog(VoltageSourceItem* item, QUndoStack* undoStack, QGraphicsScene* scene, QWidget* parent)
-    : QDialog(parent), m_item(item), m_undoStack(undoStack), m_scene(scene) {
+VoltageSourceLTSpiceDialog::VoltageSourceLTSpiceDialog(VoltageSourceItem* item, QUndoStack* undoStack, QGraphicsScene* scene, const QString& projectDir, QWidget* parent)
+    : QDialog(parent), m_item(item), m_undoStack(undoStack), m_scene(scene), m_projectDir(projectDir) {
     
     setWindowTitle("Independent Voltage Source - " + item->reference());
     setupUi();
@@ -29,6 +30,7 @@ void VoltageSourceLTSpiceDialog::setupUi() {
     m_expRadio = new QRadioButton("EXP(V1 V2 Td1 Tau1 Td2 Tau2)");
     m_sffmRadio = new QRadioButton("SFFM(Voff Vamp Fcar MDI Fsig)");
     m_pwlRadio = new QRadioButton("PWL(t1 v1 t2 v2...)");
+    m_customRadio = new QRadioButton("CUSTOM (Draw)");
     m_pwlFileRadio = new QRadioButton("PWL FILE:");
 
     functionsLayout->addWidget(m_noneRadio);
@@ -37,6 +39,7 @@ void VoltageSourceLTSpiceDialog::setupUi() {
     functionsLayout->addWidget(m_expRadio);
     functionsLayout->addWidget(m_sffmRadio);
     functionsLayout->addWidget(m_pwlRadio);
+    functionsLayout->addWidget(m_customRadio);
     
     auto* pwlFileLayout = new QHBoxLayout();
     pwlFileLayout->addWidget(m_pwlFileRadio);
@@ -104,8 +107,14 @@ void VoltageSourceLTSpiceDialog::setupUi() {
     auto* pwlPage = new QWidget();
     auto* pwlLayout = new QVBoxLayout(pwlPage);
     pwlLayout->addWidget(new QLabel("Values(t1 v1 t2 v2...):"));
+    auto* pwlRow = new QHBoxLayout();
     m_pwlPoints = new QLineEdit();
-    pwlLayout->addWidget(m_pwlPoints);
+    m_pwlDrawBtn = new QPushButton("Draw...");
+    pwlRow->addWidget(m_pwlPoints);
+    pwlRow->addWidget(m_pwlDrawBtn);
+    pwlLayout->addLayout(pwlRow);
+    m_pwlRepeat = new QCheckBox("Repeat (PWL r=0)");
+    pwlLayout->addWidget(m_pwlRepeat);
     m_paramStack->addWidget(pwlPage);
 
     functionsLayout->addWidget(m_paramStack);
@@ -164,10 +173,12 @@ void VoltageSourceLTSpiceDialog::setupUi() {
     connect(m_expRadio, &QRadioButton::toggled, this, &VoltageSourceLTSpiceDialog::onFunctionChanged);
     connect(m_sffmRadio, &QRadioButton::toggled, this, &VoltageSourceLTSpiceDialog::onFunctionChanged);
     connect(m_pwlRadio, &QRadioButton::toggled, this, &VoltageSourceLTSpiceDialog::onFunctionChanged);
+    connect(m_customRadio, &QRadioButton::toggled, this, &VoltageSourceLTSpiceDialog::onFunctionChanged);
     connect(m_pwlFileRadio, &QRadioButton::toggled, this, &VoltageSourceLTSpiceDialog::onFunctionChanged);
 
     connect(okBtn, &QPushButton::clicked, this, &VoltageSourceLTSpiceDialog::onAccepted);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+    connect(m_pwlDrawBtn, &QPushButton::clicked, this, &VoltageSourceLTSpiceDialog::onCustomDraw);
 }
 
 void VoltageSourceLTSpiceDialog::onFunctionChanged() {
@@ -177,6 +188,10 @@ void VoltageSourceLTSpiceDialog::onFunctionChanged() {
     else if (m_expRadio->isChecked()) m_paramStack->setCurrentIndex(3);
     else if (m_sffmRadio->isChecked()) m_paramStack->setCurrentIndex(4);
     else if (m_pwlRadio->isChecked()) m_paramStack->setCurrentIndex(5);
+    else if (m_customRadio->isChecked()) {
+        m_paramStack->setCurrentIndex(5);
+        onCustomDraw();
+    }
     else if (m_pwlFileRadio->isChecked()) m_paramStack->setCurrentIndex(0); // PWL File uses the HLayout line edit
 }
 
@@ -188,6 +203,37 @@ void VoltageSourceLTSpiceDialog::onPwlBrowse() {
     }
 }
 
+void VoltageSourceLTSpiceDialog::onCustomDraw() {
+    VoltageSourceCustomWaveformDialog dlg(this);
+    dlg.setDefaultSavePath(m_projectDir, m_item ? (m_item->reference() + ".pwl") : "waveform.pwl");
+    if (dlg.exec() == QDialog::Accepted) {
+        if (m_pwlRepeat) {
+            m_pwlRepeat->setChecked(dlg.repeatEnabled());
+        }
+
+        if (dlg.saveToFileEnabled()) {
+            const QString path = dlg.pwlFilePath();
+            if (!path.isEmpty()) {
+                m_pwlFile->setText(path);
+                m_pwlFileRadio->setChecked(true);
+                m_paramStack->setCurrentIndex(0);
+                return;
+            }
+        }
+
+        const QString points = dlg.pwlPoints();
+        if (!points.isEmpty()) {
+            m_pwlPoints->setText(points);
+            if (m_customRadio && m_customRadio->isChecked()) {
+                m_paramStack->setCurrentIndex(5);
+            } else {
+                m_pwlRadio->setChecked(true);
+                m_paramStack->setCurrentIndex(5);
+            }
+        }
+    }
+}
+
 void VoltageSourceLTSpiceDialog::loadFromItem() {
     // Functions
     m_noneRadio->setChecked(m_item->sourceType() == VoltageSourceItem::DC);
@@ -196,6 +242,7 @@ void VoltageSourceLTSpiceDialog::loadFromItem() {
     m_expRadio->setChecked(m_item->sourceType() == VoltageSourceItem::EXP);
     m_sffmRadio->setChecked(m_item->sourceType() == VoltageSourceItem::SFFM);
     m_pwlRadio->setChecked(m_item->sourceType() == VoltageSourceItem::PWL);
+    m_customRadio->setChecked(false);
     m_pwlFileRadio->setChecked(m_item->sourceType() == VoltageSourceItem::PWLFile);
     
     onFunctionChanged();
@@ -237,6 +284,7 @@ void VoltageSourceLTSpiceDialog::loadFromItem() {
     // PWL
     m_pwlPoints->setText(m_item->pwlPoints());
     m_pwlFile->setText(m_item->pwlFile());
+    m_pwlRepeat->setChecked(m_item->pwlRepeat());
 
     // Right Col
     m_dcValue->setText(m_item->dcVoltage());
@@ -269,6 +317,7 @@ void VoltageSourceLTSpiceDialog::saveToItem() {
     else if (m_expRadio->isChecked()) type = VoltageSourceItem::EXP;
     else if (m_sffmRadio->isChecked()) type = VoltageSourceItem::SFFM;
     else if (m_pwlRadio->isChecked()) type = VoltageSourceItem::PWL;
+    else if (m_customRadio->isChecked()) type = VoltageSourceItem::PWL;
     else if (m_pwlFileRadio->isChecked()) type = VoltageSourceItem::PWLFile;
 
     m_item->setSourceType(type);
@@ -310,6 +359,7 @@ void VoltageSourceLTSpiceDialog::saveToItem() {
     // PWL
     m_item->setPwlPoints(m_pwlPoints->text());
     m_item->setPwlFile(m_pwlFile->text());
+    m_item->setPwlRepeat(m_pwlRepeat->isChecked());
 
     // Right Col
     m_item->setDcVoltage(m_dcValue->text());

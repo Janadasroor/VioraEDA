@@ -12,6 +12,7 @@ VoltageSourceItem::VoltageSourceItem(QPointF pos, const QString& value, SourceTy
       m_pulseWidth("0.5m"), m_pulsePeriod("1m"), m_pulseNcycles("0"),
       m_expV1("0.0"), m_expV2("5.0"), m_expTd1("0"), m_expTau1("1m"), m_expTd2("2m"), m_expTau2("1m"),
       m_sffmOff("0.0"), m_sffmAmplit("1.0"), m_sffmCarrier("1000"), m_sffmModIndex("1.0"), m_sffmSignalFreq("100"),
+      m_pwlRepeat(false),
       m_acAmplitude("1.0"), m_acPhase("0.0"),
       m_seriesResistance("0.0"), m_parallelCapacitance("0.0"),
       m_showFunction(true), m_showDc(true), m_showAc(true), m_showParasitic(true) {
@@ -95,6 +96,15 @@ void VoltageSourceItem::setValue(const QString& val) {
         if (parts.size() >= 3) m_sffmCarrier = parts[2];
         if (parts.size() >= 4) m_sffmModIndex = parts[3];
         if (parts.size() >= 5) m_sffmSignalFreq = parts[4];
+    } else if (v.contains("PWL FILE")) {
+        m_sourceType = PWLFile;
+        QRegularExpression re("PWL\\s+FILE\\s+\\\"([^\\\"]+)\\\"", QRegularExpression::CaseInsensitiveOption);
+        auto match = re.match(v);
+        if (match.hasMatch()) m_pwlFile = match.captured(1);
+    } else if (v.contains("PWL")) {
+        m_sourceType = PWL;
+        QStringList parts = captureParams(v, "PWL");
+        m_pwlPoints = parts.join(" ");
     } else {
         // DC or Simple value
         m_sourceType = DC;
@@ -118,6 +128,14 @@ void VoltageSourceItem::setValue(const QString& val) {
         if (v.startsWith("V=")) {
             m_sourceType = Behavioral;
         }
+    }
+
+    // Parse PWL repeat if present (r=0 or REPEAT)
+    if (m_sourceType == PWL || m_sourceType == PWLFile) {
+        QRegularExpression reRepeat("\\bR\\s*=\\s*[-+]?\\d*\\.?\\d+|\\bREPEAT\\b", QRegularExpression::CaseInsensitiveOption);
+        m_pwlRepeat = reRepeat.match(v).hasMatch();
+    } else {
+        m_pwlRepeat = false;
     }
 
     // Parse parasitics from tail if present Rser=... Cpar=...
@@ -154,6 +172,7 @@ void VoltageSourceItem::updateValue() {
         acStr = " AC " + m_acAmplitude;
         if (m_acPhase != "0" && !m_acPhase.isEmpty()) acStr += " " + m_acPhase;
     }
+    const QString repeatStr = m_pwlRepeat ? " r=0" : "";
 
     switch (m_sourceType) {
         case DC: {
@@ -179,14 +198,32 @@ void VoltageSourceItem::updateValue() {
         case SFFM:  m_value = QString("SFFM(%1 %2 %3 %4 %5)%6%7")
                                 .arg(m_sffmOff).arg(m_sffmAmplit).arg(m_sffmCarrier).arg(m_sffmModIndex).arg(m_sffmSignalFreq)
                                 .arg(acStr).arg(tail); break;
-        case PWL:   m_value = QString("PWL(%1)%2%3").arg(m_pwlPoints).arg(acStr).arg(tail); break;
-        case PWLFile: m_value = QString("PWL FILE \"%1\"%2%3").arg(m_pwlFile).arg(acStr).arg(tail); break;
+        case PWL:   m_value = QString("PWL(%1)%2%3%4").arg(m_pwlPoints).arg(repeatStr).arg(acStr).arg(tail); break;
+        case PWLFile: m_value = QString("PWL FILE \"%1\"%2%3%4").arg(m_pwlFile).arg(repeatStr).arg(acStr).arg(tail); break;
         case Behavioral: 
             if (!m_value.startsWith("V=")) m_value = "V=0"; // Default
             break;
         default: break;
     }
     updateLabelText();
+}
+
+void VoltageSourceItem::updateLabelText() {
+    if (!m_refLabelItem || !m_valueLabelItem) {
+        SchematicItem::updateLabelText();
+        return;
+    }
+
+    QString refText = reference().isEmpty() ? (referencePrefix() + "?") : reference();
+    m_refLabelItem->setText(refText);
+
+    QString display = value();
+    if ((m_sourceType == PWL || m_sourceType == PWLFile) && display.length() > 48) {
+        display = display.left(45) + "...";
+    } else if (display.length() > 64) {
+        display = display.left(61) + "...";
+    }
+    m_valueLabelItem->setText(display);
 }
 
 void VoltageSourceItem::rebuildPrimitives() {
@@ -298,6 +335,7 @@ QJsonObject VoltageSourceItem::toJson() const {
     // PWL
     json["pwlPoints"] = m_pwlPoints;
     json["pwlFile"]   = m_pwlFile;
+    json["pwlRepeat"] = m_pwlRepeat;
 
     // AC overlay
     json["acAmplitude"] = m_acAmplitude;
@@ -361,6 +399,7 @@ bool VoltageSourceItem::fromJson(const QJsonObject& json) {
     // PWL
     m_pwlPoints = json["pwlPoints"].toString();
     m_pwlFile   = json["pwlFile"].toString();
+    m_pwlRepeat = json["pwlRepeat"].toBool(false);
 
     // AC overlay
     m_acAmplitude = json["acAmplitude"].toString("1.0");

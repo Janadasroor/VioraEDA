@@ -58,10 +58,8 @@ bool SchematicFileIO::saveSchematic(QGraphicsScene* scene, const QString& filePa
     // Title Block metadata
     root["titleBlock"] = titleBlock.toJson();
 
-    // Embed FluxScript (Hybrid Format)
-    if (!script.isEmpty()) {
-        root["fluxScript"] = script;
-    }
+    // Embed FluxScript (Hybrid Format) only if explicitly provided
+    if (!script.isEmpty()) root["fluxScript"] = script;
 
     if (!busAliases.isEmpty()) {
         QJsonObject aliasesObj;
@@ -92,7 +90,7 @@ bool SchematicFileIO::saveSchematic(QGraphicsScene* scene, const QString& filePa
         return false;
     }
     
-    qint64 bytesWritten = file.write(doc.toJson(QJsonDocument::Indented));
+    qint64 bytesWritten = file.write(doc.toJson(QJsonDocument::Compact));
     file.close();
     
     if (bytesWritten < 0) {
@@ -102,6 +100,69 @@ bool SchematicFileIO::saveSchematic(QGraphicsScene* scene, const QString& filePa
     
     qDebug() << "Schematic saved successfully to" << filePath 
              << "(" << bytesWritten << "bytes)";
+    return true;
+}
+
+bool SchematicFileIO::saveSchematicAI(QGraphicsScene* scene, const QString& filePath,
+                                      const QString& pageSize, const QString& script,
+                                      const TitleBlockData& titleBlock,
+                                      const QMap<QString, QList<QString>>& busAliases,
+                                      const QSet<QString>& ercExclusions,
+                                      const QJsonObject* simulationSetup) {
+    if (!scene) {
+        s_lastError = "Invalid scene pointer";
+        return false;
+    }
+
+    QJsonObject root;
+
+    QJsonObject metadata;
+    metadata["version"] = FILE_FORMAT_VERSION;
+    metadata["application"] = "Viora EDA";
+    metadata["createdAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    metadata["modifiedAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    metadata["aiReadable"] = true;
+    root["metadata"] = metadata;
+
+    QJsonObject pageSettings;
+    pageSettings["size"] = pageSize;
+    pageSettings["orientation"] = "landscape";
+    root["pageSettings"] = pageSettings;
+
+    root["titleBlock"] = titleBlock.toJson();
+
+    if (!script.isEmpty()) root["fluxScript"] = script;
+
+    if (!busAliases.isEmpty()) {
+        QJsonObject aliasesObj;
+        for (auto it = busAliases.begin(); it != busAliases.end(); ++it) {
+            aliasesObj[it.key()] = QJsonArray::fromStringList(it.value());
+        }
+        root["busAliases"] = aliasesObj;
+    }
+    if (!ercExclusions.isEmpty()) {
+        QJsonArray arr;
+        for (const QString& v : ercExclusions) arr.append(v);
+        root["ercExclusions"] = arr;
+    }
+    if (simulationSetup && !simulationSetup->isEmpty()) {
+        root["simulationSetup"] = *simulationSetup;
+    }
+
+    root["items"] = serializeItems(scene);
+
+    QJsonDocument doc(root);
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        s_lastError = QString("Failed to open file for writing: %1").arg(file.errorString());
+        return false;
+    }
+    qint64 bytesWritten = file.write(doc.toJson(QJsonDocument::Indented));
+    file.close();
+    if (bytesWritten < 0) {
+        s_lastError = QString("Failed to write file: %1").arg(file.errorString());
+        return false;
+    }
     return true;
 }
 
