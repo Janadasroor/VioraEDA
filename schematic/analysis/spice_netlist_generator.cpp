@@ -11,6 +11,10 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QRegularExpression>
+#include <QFile>
+#include <QTextStream>
+#include <QFileInfo>
+#include <QDir>
 
 using Flux::Model::SymbolDefinition;
 
@@ -44,6 +48,99 @@ QString inferPowerVoltage(const QString& netName, const QString& valueText) {
     if (upperNet.contains("1.8V") || upperNet.contains("1V8")) return "1.8";
     if (upperNet.contains("VBAT") || upperNet.contains("BAT")) return "3.7";
     return "5";
+}
+
+QString inlinePwlFileIfNeeded(const QString& value, const QString& projectDir) {
+    const QString v = value.trimmed();
+    if (!v.contains("PWL", Qt::CaseInsensitive)) return value;
+
+    QRegularExpression reFile1("PWL\\s*\\([^\\)]*FILE\\s*=\\s*\\\"([^\\\"]+)\\\"[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression reFile2("PWL\\s*\\([^\\)]*FILE\\s*=\\s*([^\\)\\s]+)[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression reFile3("PWL\\s+FILE\\s+\\\"([^\\\"]+)\\\"", QRegularExpression::CaseInsensitiveOption);
+
+    QString path;
+    auto m1 = reFile1.match(v);
+    if (m1.hasMatch()) path = m1.captured(1);
+    else {
+        auto m2 = reFile2.match(v);
+        if (m2.hasMatch()) path = m2.captured(1);
+        else {
+            auto m3 = reFile3.match(v);
+            if (m3.hasMatch()) path = m3.captured(1);
+        }
+    }
+
+    if (path.isEmpty()) return value;
+    QFileInfo fi(path);
+    if (fi.isRelative() && !projectDir.isEmpty()) {
+        path = QDir(projectDir).filePath(path);
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return value;
+    }
+
+    QStringList tokens;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.isEmpty()) continue;
+        if (line.startsWith("*") || line.startsWith("#") || line.startsWith(";")) continue;
+        QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        if (parts.size() >= 2) {
+            tokens << parts[0] << parts[1];
+        }
+    }
+    file.close();
+
+    if (tokens.isEmpty()) return value;
+
+    QString inlined = QString("PWL(%1)").arg(tokens.join(' '));
+
+    QRegularExpression reRepeat("\\bR\\s*=\\s*[-+]?\\d*\\.?\\d+|\\bREPEAT\\b", QRegularExpression::CaseInsensitiveOption);
+    if (reRepeat.match(v).hasMatch()) {
+        inlined += " r=0";
+    }
+
+    return inlined;
+}
+
+QString formatPwlValueForNetlist(const QString& value, int maxLen = 140) {
+    const QString v = value.trimmed();
+    if (!v.startsWith("PWL", Qt::CaseInsensitive)) return value;
+
+    int closeIdx = v.lastIndexOf(')');
+    if (closeIdx < 0) return value;
+
+    QString tail = v.mid(closeIdx + 1).trimmed();
+    QString inside = v.left(closeIdx + 1);
+    int openIdx = inside.indexOf('(');
+    if (openIdx < 0) return value;
+
+    const QString head = inside.left(openIdx + 1); // "PWL("
+    const QString body = inside.mid(openIdx + 1, inside.length() - openIdx - 2);
+    QStringList tokens = body.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    if (tokens.isEmpty()) return value;
+
+    QStringList lines;
+    QString current = head;
+    for (const QString& token : tokens) {
+        const int extra = token.length() + 1;
+        if (current.length() + extra > maxLen && current != head) {
+            lines << current.trimmed();
+            current = "+ " + token;
+        } else {
+            if (!current.endsWith("(") && !current.endsWith("+ ")) current += " ";
+            current += token;
+        }
+    }
+
+    current += ")";
+    if (!tail.isEmpty()) current += " " + tail;
+    lines << current.trimmed();
+
+    return lines.join("\n");
 }
 }
 
@@ -159,9 +256,21 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
         else line = "X" + ref; // Subcircuit or generic
 
+        // Fallback: if we don't know the type but reference has a known prefix,
+        // use the reference as-is to avoid invalid X-lines.
+        if (line.startsWith("X") && !ref.isEmpty()) {
+            const QChar p = ref.at(0).toUpper();
+            const QString known = "RCLVIDQMB";
+            if (known.contains(p)) {
+                line = ref;
+            }
+        }
+
         // --- SPICE Mapper Logic ---
         QString value = comp.value;
         if (!comp.spiceModel.isEmpty()) value = comp.spiceModel;
+        value = inlinePwlFileIfNeeded(value, projectDir);
+        value = formatPwlValueForNetlist(value);
         QStringList nodes;
         
         // Find Symbol definition to check for custom mapping
@@ -218,7 +327,8 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
         // Add value
         if (value.isEmpty()) value = "1k"; // Default
-        line += " " + value + "\n";
+        line += " " + value;
+        if (!value.endsWith("\n")) line += "\n";
         
         netlist += line;
     }

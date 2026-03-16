@@ -96,15 +96,30 @@ void VoltageSourceItem::setValue(const QString& val) {
         if (parts.size() >= 3) m_sffmCarrier = parts[2];
         if (parts.size() >= 4) m_sffmModIndex = parts[3];
         if (parts.size() >= 5) m_sffmSignalFreq = parts[4];
-    } else if (v.contains("PWL FILE")) {
-        m_sourceType = PWLFile;
-        QRegularExpression re("PWL\\s+FILE\\s+\\\"([^\\\"]+)\\\"", QRegularExpression::CaseInsensitiveOption);
-        auto match = re.match(v);
-        if (match.hasMatch()) m_pwlFile = match.captured(1);
     } else if (v.contains("PWL")) {
-        m_sourceType = PWL;
-        QStringList parts = captureParams(v, "PWL");
-        m_pwlPoints = parts.join(" ");
+        // PWL can be inline or file-based (PWL(file="..."))
+        QRegularExpression reFile("PWL\\s*\\([^\\)]*FILE\\s*=\\s*\\\"([^\\\"]+)\\\"[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption);
+        auto m1 = reFile.match(v);
+        if (m1.hasMatch()) {
+            m_sourceType = PWLFile;
+            m_pwlFile = m1.captured(1);
+        } else {
+            QRegularExpression reFile2("PWL\\s*\\([^\\)]*FILE\\s*=\\s*([^\\)\\s]+)[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption);
+            auto m2 = reFile2.match(v);
+            if (m2.hasMatch()) {
+                m_sourceType = PWLFile;
+                m_pwlFile = m2.captured(1);
+            } else if (v.contains("PWL FILE")) {
+                m_sourceType = PWLFile;
+                QRegularExpression re("PWL\\s+FILE\\s+\\\"([^\\\"]+)\\\"", QRegularExpression::CaseInsensitiveOption);
+                auto match = re.match(v);
+                if (match.hasMatch()) m_pwlFile = match.captured(1);
+            } else {
+                m_sourceType = PWL;
+                QStringList parts = captureParams(v, "PWL");
+                m_pwlPoints = parts.join(" ");
+            }
+        }
     } else {
         // DC or Simple value
         m_sourceType = DC;
@@ -198,8 +213,8 @@ void VoltageSourceItem::updateValue() {
         case SFFM:  m_value = QString("SFFM(%1 %2 %3 %4 %5)%6%7")
                                 .arg(m_sffmOff).arg(m_sffmAmplit).arg(m_sffmCarrier).arg(m_sffmModIndex).arg(m_sffmSignalFreq)
                                 .arg(acStr).arg(tail); break;
-        case PWL:   m_value = QString("PWL(%1)%2%3%4").arg(m_pwlPoints).arg(repeatStr).arg(acStr).arg(tail); break;
-        case PWLFile: m_value = QString("PWL FILE \"%1\"%2%3%4").arg(m_pwlFile).arg(repeatStr).arg(acStr).arg(tail); break;
+        case PWL:   m_value = QString("PWL(%1)%2").arg(m_pwlPoints).arg(repeatStr); break;
+        case PWLFile: m_value = QString("PWL(file=\"%1\")%2").arg(m_pwlFile).arg(repeatStr); break;
         case Behavioral: 
             if (!m_value.startsWith("V=")) m_value = "V=0"; // Default
             break;

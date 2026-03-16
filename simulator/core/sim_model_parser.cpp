@@ -464,9 +464,54 @@ bool SimModelParser::parseLibrary(
                                 inst.modelName = token;
                             } else if (typeChar == 'V' || typeChar == 'I') {
                                 std::string key = (typeChar == 'V') ? "voltage" : "current";
-                                double v = 0.0;
-                                if (parseNumeric(token, v)) inst.params[key] = v;
-                                else inst.paramExpressions[key] = token; // SIN(...) etc
+                                // Handle PWL(...) which spans multiple tokens.
+                                std::string upper = token;
+                                std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+                                if (upper.rfind("PWL(", 0) == 0) {
+                                    std::string combined = token;
+                                    size_t endIdx = i;
+                                    while (combined.find(')') == std::string::npos && endIdx + 1 < tokens.size()) {
+                                        ++endIdx;
+                                        combined += " " + tokens[endIdx];
+                                    }
+
+                                    const size_t open = combined.find('(');
+                                    const size_t close = combined.rfind(')');
+                                    if (open != std::string::npos && close != std::string::npos && close > open + 1) {
+                                        std::string inside = combined.substr(open + 1, close - open - 1);
+                                        std::istringstream iss(inside);
+                                        std::vector<std::string> parts;
+                                        for (std::string part; iss >> part; ) {
+                                            parts.push_back(part);
+                                        }
+                                        const int nPairs = static_cast<int>(parts.size() / 2);
+                                        if (nPairs > 0) {
+                                            inst.params["wave_type"] = 5.0;
+                                            inst.params["pwl_n"] = static_cast<double>(nPairs);
+                                            for (int idx = 0; idx < nPairs; ++idx) {
+                                                double ti = 0.0;
+                                                double vi = 0.0;
+                                                if (!parseNumeric(parts[2 * idx], ti)) continue;
+                                                if (!parseNumeric(parts[2 * idx + 1], vi)) continue;
+                                                inst.params["pwl_t" + std::to_string(idx)] = ti;
+                                                inst.params["pwl_v" + std::to_string(idx)] = vi;
+                                                if (idx == 0) {
+                                                    inst.params["pwl_v0"] = vi;
+                                                }
+                                            }
+                                        } else {
+                                            inst.paramExpressions[key] = combined;
+                                        }
+                                    } else {
+                                        inst.paramExpressions[key] = combined;
+                                    }
+
+                                    i = endIdx;
+                                } else {
+                                    double v = 0.0;
+                                    if (parseNumeric(token, v)) inst.params[key] = v;
+                                    else inst.paramExpressions[key] = token; // SIN(...) etc
+                                }
                             } else if (typeChar == 'E' || typeChar == 'G') {
                                 double g = 0.0;
                                 if (parseNumeric(token, g)) inst.params["gain"] = g;
