@@ -247,6 +247,9 @@ void SchematicComponentsWidget::focusSearch() {
 
 // ─── Populate ───────────────────────────────────────────────────────────────
 void SchematicComponentsWidget::populate() {
+    // Reload user libraries so newly saved .viosym files appear immediately.
+    SymbolLibraryManager::instance().reloadUserLibraries();
+
     m_componentList->clear();
     
     QIcon folderIcon(":/icons/folder_open.svg");
@@ -301,7 +304,7 @@ void SchematicComponentsWidget::populate() {
         {"NPN Transistor", "Semiconductors"}, {"PNP Transistor", "Semiconductors"},
         {"NMOS Transistor", "Semiconductors"}, {"PMOS Transistor", "Semiconductors"},
         {"IC", "Integrated Circuits"}, {"RAM", "Integrated Circuits"}, {"OpAmp", "Integrated Circuits"},
-        {"Switch", "Interactive"}, {"Push Button", "Interactive"}, {"LED", "Interactive"},
+        {"Switch", "Interactive"}, {"Voltage Controlled Switch", "Interactive"}, {"Push Button", "Interactive"}, {"LED", "Interactive"},
         {"Blinking LED", "Interactive"},
         {"Gate_AND", "Logic"}, {"Gate_OR", "Logic"}, {"Gate_XOR", "Logic"},
         {"Gate_NAND", "Logic"}, {"Gate_NOR", "Logic"}, {"Gate_NOT", "Logic"},
@@ -326,10 +329,20 @@ void SchematicComponentsWidget::populate() {
         {"Smart Signal Block", "Simulation"},
         {"Voltage Source (DC)", "Simulation"},
         {"Voltage Source (Sine)", "Simulation"},
-        {"Voltage Source (Pulse)", "Simulation"}
+        {"Voltage Source (Pulse)", "Simulation"},
+        {"BV", "Simulation"},
+        {"BI", "Simulation"}
     };
     
+    // Build a set of user symbols to suppress duplicate built-in entries.
+    QSet<QString> userSymbolNames;
+    for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) {
+        if (lib->isBuiltIn()) continue;
+        for (const QString& name : lib->symbolNames()) userSymbolNames.insert(name.toLower());
+    }
+
     for (const auto& tool : builtInTools) {
+        if (userSymbolNames.contains(tool.name.toLower())) continue;
         categorizedSymbols[tool.category].append({tool.name, ""}); // "" means built-in tool
     }
 
@@ -342,6 +355,9 @@ void SchematicComponentsWidget::populate() {
                 if (tool.name == symName) { alreadyAdded = true; break; }
             }
             if (alreadyAdded) continue;
+
+            // Hide built-in symbols if a user symbol with the same name exists.
+            if (lib->isBuiltIn() && userSymbolNames.contains(symName.toLower())) continue;
 
             SymbolDefinition* sym = lib->findSymbol(symName);
             if (sym) {

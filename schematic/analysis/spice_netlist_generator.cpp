@@ -164,6 +164,12 @@ QString resolveModelPath(const QString& modelPath, const QString& projectDir) {
         if (QFileInfo::exists(candidate)) return candidate;
     }
 
+    // Fallback: default Viospice subcircuit library
+    {
+        const QString candidate = QDir(QDir::homePath() + "/ViospiceLib/sub").filePath(source);
+        if (QFileInfo::exists(candidate)) return candidate;
+    }
+
     return modelPath;
 }
 }
@@ -416,8 +422,87 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             }
         }
 
-        const bool isSwitch = (comp.typeName.compare("Switch", Qt::CaseInsensitive) == 0) || ref.startsWith("SW", Qt::CaseInsensitive);
+        const bool isBehavioralCurrentSource = (comp.typeName.compare("Current_Source_Behavioral", Qt::CaseInsensitive) == 0);
+        if (isBehavioralCurrentSource) {
+            const QString n1 = nodes.value(0, "0");
+            const QString n2 = nodes.value(1, "0");
+            QString expr = value.trimmed();
+            if (expr.isEmpty()) expr = "I=0";
+            if (!expr.startsWith("I=", Qt::CaseInsensitive)) expr = "I=" + expr;
+
+            QString bref = ref;
+            if (!bref.startsWith("B", Qt::CaseInsensitive)) bref = "B" + ref;
+            netlist += QString("%1 %2 %3 %4\n").arg(bref, n1, n2, expr);
+            continue;
+        }
+
+        const bool isVoltageControlledSwitch = (comp.typeName.compare("Voltage Controlled Switch", Qt::CaseInsensitive) == 0);
+        if (isVoltageControlledSwitch) {
+            const QString n1 = nodes.value(0, "0");
+            const QString n2 = nodes.value(1, "0");
+            const QString ctrlp = nodes.value(2, "0");
+            const QString ctrln = nodes.value(3, "0");
+
+            QString modelName = comp.paramExpressions.value("switch.model_name").trimmed();
+            if (modelName.isEmpty()) modelName = QString("SW_%1").arg(ref);
+
+            QString ron = comp.paramExpressions.value("switch.ron").trimmed();
+            if (ron.isEmpty()) ron = "0.1";
+            QString roff = comp.paramExpressions.value("switch.roff").trimmed();
+            if (roff.isEmpty()) roff = "1Meg";
+            QString vt = comp.paramExpressions.value("switch.vt").trimmed();
+            if (vt.isEmpty()) vt = "0.5";
+            QString vh = comp.paramExpressions.value("switch.vh").trimmed();
+            if (vh.isEmpty()) vh = "0.1";
+
+            if (!switchModelsAdded.contains(modelName)) {
+                netlist += QString(".model %1 SW(Ron=%2 Roff=%3 Vt=%4 Vh=%5)\n")
+                               .arg(modelName, ron, roff, vt, vh);
+                switchModelsAdded.insert(modelName);
+            }
+
+            QString switchRef = ref;
+            if (!switchRef.startsWith("S", Qt::CaseInsensitive)) switchRef = "S" + ref;
+            netlist += QString("%1 %2 %3 %4 %5 %6\n").arg(switchRef, n1, n2, ctrlp, ctrln, modelName);
+            continue;
+        }
+
+        const bool isSwitch = (comp.typeName.compare("Switch", Qt::CaseInsensitive) == 0) ||
+                              (comp.typeName.compare("sw", Qt::CaseInsensitive) == 0) ||
+                              ref.startsWith("SW", Qt::CaseInsensitive) ||
+                              ref.startsWith("S", Qt::CaseInsensitive);
         if (isSwitch) {
+            // If the symbol provides control pins, treat it as a voltage-controlled switch.
+            if (nodes.size() >= 4) {
+                const QString n1 = nodes.value(0, "0");
+                const QString n2 = nodes.value(1, "0");
+                const QString ctrlp = nodes.value(2, "0");
+                const QString ctrln = nodes.value(3, "0");
+
+                QString modelName = comp.paramExpressions.value("switch.model_name").trimmed();
+                if (modelName.isEmpty()) modelName = QString("SW_%1").arg(ref);
+
+                QString ron = comp.paramExpressions.value("switch.ron").trimmed();
+                if (ron.isEmpty()) ron = "0.1";
+                QString roff = comp.paramExpressions.value("switch.roff").trimmed();
+                if (roff.isEmpty()) roff = "1Meg";
+                QString vt = comp.paramExpressions.value("switch.vt").trimmed();
+                if (vt.isEmpty()) vt = "0.5";
+                QString vh = comp.paramExpressions.value("switch.vh").trimmed();
+                if (vh.isEmpty()) vh = "0.1";
+
+                if (!switchModelsAdded.contains(modelName)) {
+                    netlist += QString(".model %1 SW(Ron=%2 Roff=%3 Vt=%4 Vh=%5)\n")
+                                   .arg(modelName, ron, roff, vt, vh);
+                    switchModelsAdded.insert(modelName);
+                }
+
+                QString switchRef = ref;
+                if (!switchRef.startsWith("S", Qt::CaseInsensitive)) switchRef = "S" + ref;
+                netlist += QString("%1 %2 %3 %4 %5 %6\n").arg(switchRef, n1, n2, ctrlp, ctrln, modelName);
+                continue;
+            }
+
             const QString n1 = nodes.value(0, "0");
             const QString n2 = nodes.value(1, "0");
             const QString useModelExpr = comp.paramExpressions.value("switch.use_model").trimmed();

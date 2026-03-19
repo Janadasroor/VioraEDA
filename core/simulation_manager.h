@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QVector>
+#include <QTimer>
 #include <functional>
 #include <vector>
 #include <mutex>

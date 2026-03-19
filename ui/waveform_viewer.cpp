@@ -425,6 +425,111 @@ void WaveformViewer::appendPoint(const QString& name, double x, double y) {
     }
 }
 
+void WaveformViewer::appendPoints(const QString& name, const std::vector<double>& times, const std::vector<double>& values) {
+    if (times.empty() || times.size() != values.size()) return;
+
+    if (!m_signals.contains(name)) {
+        QVector<double> tVec; tVec.reserve(times.size());
+        QVector<double> vVec; vVec.reserve(values.size());
+        for(double t : times) tVec.append(t);
+        for(double v : values) vVec.append(v);
+        addSignal(name, tVec, vVec);
+    } else {
+        auto& sig = m_signals[name];
+        // Efficient append
+        const int oldSize = sig.time.size();
+        sig.time.resize(oldSize + times.size());
+        sig.values.resize(oldSize + values.size());
+        std::copy(times.begin(), times.end(), sig.time.begin() + oldSize);
+        std::copy(values.begin(), values.end(), sig.values.begin() + oldSize);
+    }
+    
+    if (m_blockUpdates) return;
+
+    // Fast check for signal existence in chart
+    QLineSeries* lineSeries = nullptr;
+    for (auto* series : m_chart->series()) {
+        if (series->name() == name) {
+            lineSeries = qobject_cast<QLineSeries*>(series);
+            break;
+        }
+    }
+
+    // If series not in chart but signal is checked, add it now
+    if (!lineSeries) {
+        bool checked = false;
+        for (int i = 0; i < m_nodeList->count(); ++i) {
+            if (m_nodeList->item(i)->text() == name) {
+                checked = (m_nodeList->item(i)->checkState() == Qt::Checked);
+                break;
+            }
+        }
+        
+        if (checked) {
+            lineSeries = new QLineSeries();
+            lineSeries->setName(name);
+            m_chart->addSeries(lineSeries);
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            auto axesY = m_chart->axes(Qt::Vertical);
+            if (axesX.isEmpty() || axesY.isEmpty()) {
+                updatePlot(true); // Re-init axes
+                return; 
+            }
+            lineSeries->attachAxis(axesX[0]);
+            lineSeries->attachAxis(axesY[0]);
+        }
+    }
+
+    if (lineSeries) {
+        QList<QPointF> points;
+        points.reserve(times.size());
+        for(size_t i=0; i<times.size(); ++i) {
+            points.append(QPointF(times[i], values[i]));
+        }
+        lineSeries->append(points);
+        
+        // If it's the very first points, set a reasonable range immediately
+        if (lineSeries->count() < std::max(10, (int)times.size() + 5)) {
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            auto axesY = m_chart->axes(Qt::Vertical);
+            if (!axesX.isEmpty() && !axesY.isEmpty()) {
+                auto* ax = qobject_cast<QValueAxis*>(axesX[0]);
+                auto* ay = qobject_cast<QValueAxis*>(axesY[0]);
+                double firstX = times.front();
+                double firstY = values.front();
+                ax->setRange(std::min(0.0, firstX), std::max(1e-3, firstX * 1.5));
+                ay->setRange(firstY - 1.0, firstY + 1.0);
+            }
+        }
+
+        // Throttled auto-scale: only update every N points (aggregated)
+        int& count = m_pointCounters[name];
+        count += times.size();
+        if ((count % 500) < times.size()) { // Roughly trigger if we crossed a 500-point boundary
+             auto axesX = m_chart->axes(Qt::Horizontal);
+             auto axesY = m_chart->axes(Qt::Vertical);
+             if (!axesX.isEmpty() && !axesY.isEmpty()) {
+                 auto* ax = qobject_cast<QValueAxis*>(axesX[0]);
+                 auto* ay = qobject_cast<QValueAxis*>(axesY[0]);
+                 
+                 double lastX = times.back();
+                 
+                 // Check bounds in the new batch
+                 double minVal = values[0];
+                 double maxVal = values[0];
+                 for(double v : values) {
+                     if (v < minVal) minVal = v;
+                     if (v > maxVal) maxVal = v;
+                 }
+
+                 if (lastX > ax->max()) ax->setMax(lastX * 1.1);
+                 if (maxVal > ay->max()) ay->setMax(maxVal > 0 ? maxVal * 1.2 : maxVal * 0.8);
+                 if (minVal < ay->min()) ay->setMin(minVal < 0 ? minVal * 1.2 : minVal * 0.8);
+             }
+        }
+    }
+}
+
 void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
     for (int i = 0; i < m_nodeList->count(); ++i) {
         QListWidgetItem* item = m_nodeList->item(i);

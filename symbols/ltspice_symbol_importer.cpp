@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QSet>
 #include <QLineF>
+#include <QtGlobal>
 #include <cmath>
 
 using Flux::Model::SymbolDefinition;
@@ -266,10 +267,14 @@ LtspiceSymbolImporter::ImportResult LtspiceSymbolImporter::importSymbolDetailed(
             }
         } else if (cmd == "CIRCLE") {
             if (parts.size() >= 6) {
-                QPointF p1 = parsePoint(parts[2], parts[3]);
-                QPointF p2 = parsePoint(parts[4], parts[5]);
+                // Avoid grid-rounding here to keep circle aspect ratio intact.
+                QPointF p1 = parsePoint(parts[2], parts[3], false);
+                QPointF p2 = parsePoint(parts[4], parts[5], false);
+                p1 = scale(p1);
+                p2 = scale(p2);
                 QRectF rect = QRectF(p1, p2).normalized();
-                symbol.addPrimitive(SymbolPrimitive::createCircle(rect.center(), rect.width() / 2.0));
+                const qreal r = qMin(rect.width(), rect.height()) / 2.0;
+                symbol.addPrimitive(SymbolPrimitive::createCircle(rect.center(), r));
             }
         } else if (cmd == "ARC") {
             if (parts.size() >= 10) {

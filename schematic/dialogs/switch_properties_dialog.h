@@ -7,18 +7,19 @@
 class QCheckBox;
 class QComboBox;
 class QLineEdit;
+class SchematicItem;
 class SwitchItem;
 
 class SwitchPropertiesDialog : public QDialog {
     Q_OBJECT
 public:
-    SwitchPropertiesDialog(SwitchItem* item, QWidget* parent = nullptr);
+    SwitchPropertiesDialog(SchematicItem* item, QWidget* parent = nullptr);
 
 private:
     void applyChanges();
     void updateEnabledState();
 
-    QPointer<SwitchItem> m_item;
+    QPointer<SchematicItem> m_item;
 
     QCheckBox* m_useModel = nullptr;
     QLineEdit* m_modelName = nullptr;

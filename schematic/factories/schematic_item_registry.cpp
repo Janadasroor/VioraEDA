@@ -19,10 +19,12 @@
 #include "generic_component_item.h"
 #include "schematic_text_item.h"
 #include "switch_item.h"
+#include "voltage_controlled_switch_item.h"
 #include "push_button_item.h"
 #include "led_item.h"
 #include "blinking_led_item.h"
 #include "signal_generator_item.h"
+#include "behavioral_current_source_item.h"
 #include "logic_analyzer_item.h"
 #include "oscilloscope_item.h"
 #include "smart_signal_item.h"
@@ -329,6 +331,18 @@ void SchematicItemRegistry::registerBuiltInItems() {
         return item;
     });
 
+    factory.registerItemType("Current_Source_Behavioral", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new BehavioralCurrentSourceItem(pos, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("BI", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new BehavioralCurrentSourceItem(pos, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
     factory.registerItemType("Voltage_Source_AC", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         QString value = properties.value("value").toString("1V");
         auto* item = new VoltageSourceItem(pos, value, VoltageSourceItem::Sine, parent);
@@ -350,6 +364,9 @@ void SchematicItemRegistry::registerBuiltInItems() {
 
     factory.registerItemType("Switch", [](QPointF pos, const QJsonObject&, QGraphicsItem* parent) -> SchematicItem* {
         return new SwitchItem(pos, parent);
+    });
+    factory.registerItemType("Voltage Controlled Switch", [](QPointF pos, const QJsonObject&, QGraphicsItem* parent) -> SchematicItem* {
+        return new VoltageControlledSwitchItem(pos, parent);
     });
 
     factory.registerItemType("PushButton", [](QPointF pos, const QJsonObject&, QGraphicsItem* parent) -> SchematicItem* {

@@ -56,9 +56,22 @@ PropertyEditor::PropertyEditor(QWidget *parent)
 PropertyEditor::~PropertyEditor() {}
 
 void PropertyEditor::clear() {
+    const bool wasBlocked = m_blockSignals;
     m_blockSignals = true;
+    m_table->blockSignals(true);
     m_table->setRowCount(0);
     m_schematicItems.clear();
+    m_table->blockSignals(wasBlocked);
+    m_blockSignals = wasBlocked;
+}
+
+void PropertyEditor::beginUpdate() {
+    m_blockSignals = true;
+    m_table->blockSignals(true);
+}
+
+void PropertyEditor::endUpdate() {
+    m_table->blockSignals(false);
     m_blockSignals = false;
 }
 
@@ -243,7 +256,7 @@ void PropertyEditor::addProperty(const QString &name, const QVariant &value, con
         check->setStyleSheet(
             "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #8a8a8a; border-radius: 2px; background: #1f1f1f; }"
             "QCheckBox::indicator:hover { border-color: #569cd6; }"
-            "QCheckBox::indicator:checked { border-color: #569cd6; background: #569cd6; image: url(:/icons/check.svg); }"
+            "QCheckBox::indicator:checked { border-color: #569cd6; background: #569cd6; }"
         );
         connect(check, &QCheckBox::stateChanged, this, [this, name](int state) {
             if (!m_blockSignals) emit propertyChanged(name, state == Qt::Checked);
@@ -263,6 +276,8 @@ void PropertyEditor::addProperty(const QString &name, const QVariant &value, con
 
 void PropertyEditor::onCellChanged(int row, int column) {
     if (m_blockSignals || column != 1) return;
-    QString propName = m_table->item(row, 0)->text();
-    emit propertyChanged(propName, m_table->item(row, column)->text());
+    auto *nameItem = m_table->item(row, 0);
+    auto *valueItem = m_table->item(row, column);
+    if (!nameItem || !valueItem) return;
+    emit propertyChanged(nameItem->text(), valueItem->text());
 }

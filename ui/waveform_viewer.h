@@ -11,6 +11,7 @@
 #include <QStringList>
 #include <QMap>
 #include <QVector>
+#include <vector>
 #include <QLabel>
 #include <QtCharts/QChart>
 #include "measurement_dialog.h"
@@ -66,6 +67,7 @@ public:
     void addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values);
     void setSignalChecked(const QString& name, bool checked);
     void appendPoint(const QString& name, double x, double y);
+    void appendPoints(const QString& name, const std::vector<double>& times, const std::vector<double>& values);
     void removeSignal(const QString& name);
     void beginBatchUpdate() { m_blockUpdates = true; }
     void endBatchUpdate() { m_blockUpdates = false; updatePlot(true); }

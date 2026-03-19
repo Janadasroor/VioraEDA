@@ -10,9 +10,11 @@
 #include "../items/voltage_source_item.h"
 #include "../items/generic_component_item.h"
 #include "../items/schematic_sheet_item.h"
+#include "../items/hierarchical_port_item.h"
 #include "../items/led_item.h"
 #include "../items/blinking_led_item.h"
 #include "../analysis/net_manager.h"
+#include "../tools/schematic_net_label_tool.h"
 #include "../../core/theme_manager.h"
 #include "../dialogs/led_properties_dialog.h"
 #include <algorithm>
@@ -163,7 +165,32 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return items.size() == 1 && items.first()->itemType() == SchematicItem::WireType;
     };
     editNetLabel.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
-        emit view->itemDoubleClicked(items.first());
+        auto* wire = dynamic_cast<WireItem*>(items.first());
+        if (!wire || !view) return;
+
+        QPointF pos;
+        const QList<QPointF> pts = wire->points();
+        if (!pts.isEmpty()) {
+            const QPointF a = wire->mapToScene(pts.first());
+            const QPointF b = wire->mapToScene(pts.last());
+            pos = (a + b) * 0.5;
+        } else {
+            pos = wire->scenePos();
+        }
+        pos = view->snapToGridOrPin(pos).point;
+
+        QString netName = "NET";
+        if (auto* nm = view->netManager()) {
+            nm->updateNets(view->scene());
+            netName = nm->findNetAtPoint(pos);
+            if (netName.isEmpty()) netName = "NET";
+        }
+
+        NetLabelDialogResult res = promptNetLabelDialog(view, "Net Label", netName, HierarchicalPortItem::Passive, true);
+        if (!res.accepted) return;
+
+        auto* item = new HierarchicalPortItem(pos, res.label, res.portType);
+        view->undoStack()->push(new AddItemCommand(view->scene(), item));
     };
     registerAction(SchematicItem::WireType, editNetLabel);
 

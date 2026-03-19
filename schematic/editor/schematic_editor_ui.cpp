@@ -1471,8 +1471,7 @@ void SchematicEditor::createDockWidgets() {
 
     connect(m_oscilloscopeDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
         if (m_view) {
-            bool hasResults = m_simulationPanel && m_simulationPanel->hasResults();
-            m_view->setProbingEnabled(visible || hasResults);
+            m_view->setProbingEnabled(visible);
         }
     });
 
@@ -1633,6 +1632,7 @@ void SchematicEditor::createDrawingToolbar() {
     addTool("Polygon", "Draw Polygon");
     addTool("Bezier", "Draw Bezier Curve");
     addTool("Text", "Add Text");
+    addTool("Net Label", "Place Net Label (Local)");
     addTool("Scissors", "Scissors Items (F5)")->setShortcut(QKeySequence("F5"));
     addTool("Spice Directive", "SPICE Directive (S)")->setShortcut(QKeySequence("S"));
 
@@ -1837,6 +1837,35 @@ void SchematicEditor::onRunSimulation() {
     // Auto-save pending Smart Signal code edits before building simulator netlist.
     if (m_logicEditorPanel) {
         m_logicEditorPanel->flushEdits();
+    }
+
+    // Auto-annotate if duplicate references exist (prevents netlist collisions like V1/V1/V1).
+    {
+        QSet<QString> seen;
+        bool hasDup = false;
+        for (auto* gi : m_scene->items()) {
+            auto* si = dynamic_cast<SchematicItem*>(gi);
+            if (!si) continue;
+            const int t = si->itemType();
+            if (t == SchematicItem::WireType ||
+                t == SchematicItem::LabelType ||
+                t == SchematicItem::NetLabelType ||
+                t == SchematicItem::JunctionType ||
+                t == SchematicItem::NoConnectType ||
+                t == SchematicItem::BusType ||
+                t == SchematicItem::SheetType ||
+                t == SchematicItem::HierarchicalPortType) {
+                continue;
+            }
+            const QString ref = si->reference().trimmed();
+            if (ref.isEmpty()) continue;
+            const QString key = ref.toUpper();
+            if (seen.contains(key)) { hasDup = true; break; }
+            seen.insert(key);
+        }
+        if (hasDup) {
+            onAnnotate();
+        }
     }
 
     m_simulationRunning = true;

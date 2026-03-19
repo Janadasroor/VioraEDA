@@ -23,6 +23,7 @@
 #include "kicad_symbol_importer.h"
 #include "ltspice_symbol_importer.h"
 #include "../core/library_index.h"
+#include "../ui/property_editor.h"
 #include <QGraphicsTextItem>
 #include "theme_manager.h"
 #include "symbol_commands.h"
@@ -1247,6 +1248,13 @@ void SymbolEditor::setupUI() {
     infoDock->setWidget(infoContainer);
     addDockWidget(Qt::RightDockWidgetArea, infoDock);
 
+    auto* propsDock = new QDockWidget("Selection Properties", this);
+    propsDock->setObjectName("PropertiesDock");
+    m_propertyEditor = new PropertyEditor();
+    connect(m_propertyEditor, &PropertyEditor::propertyChanged, this, &SymbolEditor::onPropertyChanged);
+    propsDock->setWidget(m_propertyEditor);
+    addDockWidget(Qt::RightDockWidgetArea, propsDock);
+
     auto* aiDock = new QDockWidget("✨ Gemini Assistant", this);
     aiDock->setObjectName("GeminiDock");
     m_aiPanel = new GeminiPanel(m_scene, this);
@@ -1255,8 +1263,9 @@ void SymbolEditor::setupUI() {
     aiDock->setWidget(m_aiPanel);
     addDockWidget(Qt::RightDockWidgetArea, aiDock);
 
+    // Keep Selection Properties visible by default (not tabbed)
     tabifyDockWidget(infoDock, aiDock);
-    infoDock->raise();
+    propsDock->raise();
 
     // ZONE 2: THE NAVIGATOR (Left Side - Assets & Wizards)
     // ----------------------------------------------------
@@ -3883,6 +3892,8 @@ void SymbolEditor::onDuplicate() {
 }
 
 void SymbolEditor::onSelectionChanged() {
+    updatePropertiesPanel();
+
     // Visual selection highlighting (Glow effect)
     for (QGraphicsItem* item : m_scene->items()) {
         // Only apply to our real items (primitives and labels)
@@ -3903,6 +3914,269 @@ void SymbolEditor::onSelectionChanged() {
                     item->setGraphicsEffect(nullptr);
                 }
             }
+        }
+    }
+}
+
+void SymbolEditor::populatePropertiesFor(int index) {
+    if (!m_propertyEditor) return;
+    m_propertyEditor->clear();
+    if (index < 0 || index >= m_symbol.primitives().size()) return;
+
+    const SymbolPrimitive& prim = m_symbol.primitives().at(index);
+
+    auto dbl = [&](const char* a, const char* b = nullptr) -> double {
+        if (prim.data.contains(a)) return prim.data[a].toDouble();
+        return b ? prim.data.value(b).toDouble() : 0.0;
+    };
+    auto str = [&](const char* k, const char* def = "") -> QString {
+        const QString s = prim.data.value(k).toString();
+        return s.isEmpty() ? QString(def) : s;
+    };
+
+    m_propertyEditor->addProperty("Unit", prim.unit());
+    m_propertyEditor->addProperty("Body Style", prim.bodyStyle(), "enum|Shared,Standard,De Morgan");
+
+    switch (prim.type) {
+    case SymbolPrimitive::Pin: {
+        m_propertyEditor->addProperty("Number",      prim.data.value("number").toInt());
+        m_propertyEditor->addProperty("Name",        str("name"));
+        m_propertyEditor->addProperty("X",           dbl("x"));
+        m_propertyEditor->addProperty("Y",           dbl("y"));
+        m_propertyEditor->addProperty("Orientation", str("orientation","Right"),
+                                      "enum|Right,Left,Up,Down");
+        m_propertyEditor->addProperty("Type",        str("electricalType","Passive"),
+                                      "enum|Input,Output,Bidirectional,Tri-state,Passive,Free,Unspecified,Power Input,Power Output,Open Collector,Open Emitter");
+        m_propertyEditor->addProperty("Shape",       str("pinShape","Line"),
+                                      "enum|Line,Inverted,Clock,Inverted Clock,Falling Edge Clock");
+        m_propertyEditor->addProperty("Stacked Pins", str("stackedNumbers"));
+        int modeCount = prim.data.value("pinModes").toArray().size();
+        m_propertyEditor->addProperty("Pin Modes", QString("%1 Defined").arg(modeCount), "button");
+        m_propertyEditor->addProperty("Name Size",   prim.data.value("nameSize").toDouble(7.0));
+        m_propertyEditor->addProperty("Number Size", prim.data.value("numSize").toDouble(7.0));
+        m_propertyEditor->addProperty("Visible",     prim.data.value("visible").toBool(true));
+        m_propertyEditor->addProperty("Length",      dbl("length") > 0 ? dbl("length") : 15.0);
+        m_propertyEditor->addProperty("Swap Group",  prim.data.value("swapGroup").toInt(0));
+        m_propertyEditor->addProperty("Jumper Group", prim.data.value("jumperGroup").toInt(0));
+        m_propertyEditor->addProperty("Alternate Names", str("alternateNames"));
+        m_propertyEditor->addProperty("Hide Name",   prim.data.value("hideName").toBool());
+        m_propertyEditor->addProperty("Hide Number", prim.data.value("hideNum").toBool());
+        break;
+    }
+    case SymbolPrimitive::Text:
+        m_propertyEditor->addProperty("Text",      str("text"));
+        m_propertyEditor->addProperty("X",         dbl("x"));
+        m_propertyEditor->addProperty("Y",         dbl("y"));
+        m_propertyEditor->addProperty("Font Size", prim.data.value("fontSize").toInt(10));
+        break;
+    case SymbolPrimitive::Line:
+        m_propertyEditor->addProperty("X1",         dbl("x1"));
+        m_propertyEditor->addProperty("Y1",         dbl("y1"));
+        m_propertyEditor->addProperty("X2",         dbl("x2"));
+        m_propertyEditor->addProperty("Y2",         dbl("y2"));
+        m_propertyEditor->addProperty("Line Width",  dbl("lineWidth") > 0 ? dbl("lineWidth") : 1.5);
+        m_propertyEditor->addProperty("Line Style",  str("lineStyle","Solid"),
+                                      "enum|Solid,Dash,Dot,DashDot");
+        break;
+    case SymbolPrimitive::Rect:
+        m_propertyEditor->addProperty("X",          dbl("x"));
+        m_propertyEditor->addProperty("Y",          dbl("y"));
+        m_propertyEditor->addProperty("Width",      dbl("width","w"));
+        m_propertyEditor->addProperty("Height",     dbl("height","h"));
+        m_propertyEditor->addProperty("Filled",     prim.data.value("filled").toBool());
+        m_propertyEditor->addProperty("Fill Color", str("fillColor","#007acc33"));
+        m_propertyEditor->addProperty("Line Width",  dbl("lineWidth") > 0 ? dbl("lineWidth") : 1.5);
+        m_propertyEditor->addProperty("Line Style",  str("lineStyle","Solid"),
+                                      "enum|Solid,Dash,Dot,DashDot");
+        break;
+    case SymbolPrimitive::Circle:
+        m_propertyEditor->addProperty("Center X",   dbl("centerX","cx"));
+        m_propertyEditor->addProperty("Center Y",   dbl("centerY","cy"));
+        m_propertyEditor->addProperty("Radius",     dbl("radius","r"));
+        m_propertyEditor->addProperty("Filled",     prim.data.value("filled").toBool());
+        m_propertyEditor->addProperty("Fill Color", str("fillColor","#007acc33"));
+        m_propertyEditor->addProperty("Line Width",  dbl("lineWidth") > 0 ? dbl("lineWidth") : 1.5);
+        m_propertyEditor->addProperty("Line Style",  str("lineStyle","Solid"),
+                                      "enum|Solid,Dash,Dot,DashDot");
+        break;
+    case SymbolPrimitive::Arc:
+        m_propertyEditor->addProperty("X",          dbl("x"));
+        m_propertyEditor->addProperty("Y",          dbl("y"));
+        m_propertyEditor->addProperty("Width",      dbl("width","w"));
+        m_propertyEditor->addProperty("Height",     dbl("height","h"));
+        m_propertyEditor->addProperty("Start Angle (°×16)", prim.data.value("startAngle").toInt(0));
+        m_propertyEditor->addProperty("Span Angle (°×16)",  prim.data.value("spanAngle").toInt(180 * 16));
+        m_propertyEditor->addProperty("Line Width",  dbl("lineWidth") > 0 ? dbl("lineWidth") : 1.5);
+        break;
+    case SymbolPrimitive::Polygon:
+        m_propertyEditor->addProperty("Points",     prim.data.value("points").toArray().size());
+        m_propertyEditor->addProperty("Filled",     prim.data.value("filled").toBool());
+        m_propertyEditor->addProperty("Fill Color", str("fillColor","#007acc33"));
+        break;
+    case SymbolPrimitive::Bezier:
+        m_propertyEditor->addProperty("X1", dbl("x1"));
+        m_propertyEditor->addProperty("Y1", dbl("y1"));
+        m_propertyEditor->addProperty("X2", dbl("x2"));
+        m_propertyEditor->addProperty("Y2", dbl("y2"));
+        m_propertyEditor->addProperty("X3", dbl("x3"));
+        m_propertyEditor->addProperty("Y3", dbl("y3"));
+        m_propertyEditor->addProperty("X4", dbl("x4"));
+        m_propertyEditor->addProperty("Y4", dbl("y4"));
+        m_propertyEditor->addProperty("Line Width", dbl("lineWidth") > 0 ? dbl("lineWidth") : 1.5);
+        break;
+    case SymbolPrimitive::Image:
+        m_propertyEditor->addProperty("X",      dbl("x"));
+        m_propertyEditor->addProperty("Y",      dbl("y"));
+        m_propertyEditor->addProperty("Width",  dbl("width", "w"));
+        m_propertyEditor->addProperty("Height", dbl("height", "h"));
+        break;
+    default:
+        break;
+    }
+}
+
+void SymbolEditor::updatePropertiesPanel() {
+    if (!m_propertyEditor) return;
+    m_propertyEditor->beginUpdate();
+    QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    if (selected.size() == 1) {
+        QGraphicsItem* item = selected.first();
+        if (item->data(0).toString() == "label") {
+            m_propertyEditor->clear();
+            QString type = item->data(1).toString();
+            m_propertyEditor->addSectionHeader(type == "reference" ? "Reference Label" : "Symbol Name Label");
+            m_propertyEditor->addProperty("Label X", item->pos().x());
+            m_propertyEditor->addProperty("Label Y", item->pos().y());
+            m_propertyEditor->endUpdate();
+            return;
+        }
+
+        int idx = primitiveIndex(item);
+        if (idx != -1) {
+            populatePropertiesFor(idx);
+            m_propertyEditor->endUpdate();
+            return;
+        }
+    }
+
+    m_propertyEditor->clear();
+    if (m_symbol.isDerived()) {
+        m_propertyEditor->addSectionHeader("Inheritance");
+        m_propertyEditor->addProperty("Parent Symbol",  m_symbol.parentName());
+        m_propertyEditor->addProperty("Parent Library", m_symbol.parentLibrary());
+    }
+    m_propertyEditor->addSectionHeader("Symbol Settings");
+    m_propertyEditor->addProperty("Symbol Name", m_nameEdit->text());
+    m_propertyEditor->addProperty("Ref Prefix",   m_prefixEdit->text());
+    m_propertyEditor->addProperty("Default Value", m_symbol.defaultValue());
+    m_propertyEditor->addProperty("Default Footprint", m_symbol.defaultFootprint());
+    m_propertyEditor->addProperty("Category",     m_categoryCombo->currentText(),
+                                  "enum|Passives,Semiconductors,Integrated Circuits,Connectors,Power,Other");
+    m_propertyEditor->endUpdate();
+}
+
+void SymbolEditor::onPropertyChanged(const QString& name, const QVariant& value) {
+    QList<QGraphicsItem*> selected = m_scene->selectedItems();
+
+    if (selected.size() == 1) {
+        QGraphicsItem* item = selected.first();
+
+        if (item->data(0).toString() == "label") {
+            QString type = item->data(1).toString();
+            SymbolDefinition oldDef = symbolDefinition();
+            SymbolDefinition newDef = oldDef;
+
+            if (type == "reference") {
+                QPointF p = oldDef.referencePos();
+                if (name == "Label X") p.setX(value.toDouble());
+                else if (name == "Label Y") p.setY(value.toDouble());
+                newDef.setReferencePos(p);
+            } else {
+                QPointF p = oldDef.namePos();
+                if (name == "Label X") p.setX(value.toDouble());
+                else if (name == "Label Y") p.setY(value.toDouble());
+                newDef.setNamePos(p);
+            }
+
+            m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Move Label"));
+            return;
+        }
+
+        int index = primitiveIndex(item);
+        if (index >= 0 && index < m_symbol.primitives().size()) {
+            SymbolDefinition oldDef = symbolDefinition();
+            SymbolDefinition newDef = oldDef;
+
+            SymbolPrimitive& prim = newDef.primitives()[index];
+            const QString key = name.toLower().replace(' ', '_');
+
+            static const QHash<QString, QString> keyMap {
+                {"x",             "x"},    {"y",             "y"},
+                {"x1",            "x1"},   {"y1",            "y1"},
+                {"x2",            "x2"},   {"y2",            "y2"},
+                {"x3",            "x3"},   {"y3",            "y3"},
+                {"x4",            "x4"},   {"y4",            "y4"},
+                {"center_x",      "centerX"}, {"center_y",   "centerY"},
+                {"radius",        "radius"},  {"width",       "width"},
+                {"height",        "height"},  {"filled",      "filled"},
+                {"fill_color",    "fillColor"},{"line_width",  "lineWidth"},
+                {"line_style",    "lineStyle"},{"text",        "text"},
+                {"font_size",     "fontSize"}, {"name",        "name"},
+                {"unit",          "unit"},     {"body_style",  "bodyStyle"},
+                {"number",        "number"},   {"orientation", "orientation"},
+                {"type",          "electricalType"}, {"length", "length"},
+                {"shape",         "pinShape"},
+                {"pin_modes",     "pinModes"},
+                {"name_size",     "nameSize"},
+                {"number_size",   "numSize"},
+                {"stacked_pins",  "stackedNumbers"},
+                {"swap_group",    "swapGroup"},
+                {"jumper_group",  "jumperGroup"},
+                {"alternate_names", "alternateNames"},
+                {"hide_name",     "hideName"}, {"hide_number", "hideNum"},
+                {"start_angle_(°×16)", "startAngle"},
+                {"span_angle_(°×16)",  "spanAngle"},
+            };
+
+            const QString dataKey = keyMap.value(key, key);
+
+            if (dataKey == "unit") {
+                prim.setUnit(value.toInt());
+            } else if (dataKey == "bodyStyle") {
+                if (value.typeId() == QMetaType::QString) {
+                    QString s = value.toString();
+                    if (s == "Standard") prim.setBodyStyle(1);
+                    else if (s == "De Morgan") prim.setBodyStyle(2);
+                    else prim.setBodyStyle(0);
+                } else {
+                    prim.setBodyStyle(value.toInt());
+                }
+            } else {
+                static const QSet<QString> boolKeys = {
+                    "filled", "visible", "hideName", "hideNum"
+                };
+                static const QSet<QString> intKeys = {
+                    "number", "swapGroup", "jumperGroup", "fontSize", "startAngle", "spanAngle"
+                };
+                static const QSet<QString> doubleKeys = {
+                    "x","y","x1","y1","x2","y2","x3","y3","x4","y4",
+                    "centerX","centerY","radius","width","height","lineWidth",
+                    "length","nameSize","numSize"
+                };
+
+                if (boolKeys.contains(dataKey)) {
+                    prim.data[dataKey] = QJsonValue(value.toBool());
+                } else if (intKeys.contains(dataKey)) {
+                    prim.data[dataKey] = QJsonValue(value.toInt());
+                } else if (doubleKeys.contains(dataKey)) {
+                    prim.data[dataKey] = QJsonValue(value.toDouble());
+                } else {
+                    prim.data[dataKey] = QJsonValue::fromVariant(value);
+                }
+            }
+
+            m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Edit Properties"));
+            return;
         }
     }
 }

@@ -231,10 +231,14 @@ SymbolLibrary* SymbolLibraryManager::findLibrary(const QString& name) {
 }
 
 SymbolDefinition* SymbolLibraryManager::findSymbol(const QString& name) {
+    // Prefer user libraries over built-in ones when names collide.
     for (SymbolLibrary* lib : m_libraries) {
-        if (SymbolDefinition* sym = lib->findSymbol(name)) {
-            return sym;
-        }
+        if (lib->isBuiltIn()) continue;
+        if (SymbolDefinition* sym = lib->findSymbol(name)) return sym;
+    }
+    for (SymbolLibrary* lib : m_libraries) {
+        if (!lib->isBuiltIn()) continue;
+        if (SymbolDefinition* sym = lib->findSymbol(name)) return sym;
     }
     return nullptr;
 }
@@ -248,17 +252,21 @@ SymbolDefinition* SymbolLibraryManager::findSymbol(const QString& name, const QS
 QList<SymbolDefinition*> SymbolLibraryManager::search(const QString& query) {
     QList<SymbolDefinition*> results;
     QString q = query.toLower();
-    
-    for (SymbolLibrary* lib : m_libraries) {
+
+    auto scanLib = [&](SymbolLibrary* lib) {
         for (const QString& name : lib->symbolNames()) {
             SymbolDefinition* sym = lib->findSymbol(name);
-            if (sym && (sym->name().toLower().contains(q) || 
+            if (sym && (sym->name().toLower().contains(q) ||
                         sym->description().toLower().contains(q) ||
                         sym->category().toLower().contains(q))) {
                 results.append(sym);
             }
         }
-    }
+    };
+
+    // Prefer user libraries first.
+    for (SymbolLibrary* lib : m_libraries) if (!lib->isBuiltIn()) scanLib(lib);
+    for (SymbolLibrary* lib : m_libraries) if (lib->isBuiltIn()) scanLib(lib);
     return results;
 }
 

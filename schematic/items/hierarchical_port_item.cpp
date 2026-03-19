@@ -82,6 +82,13 @@ void HierarchicalPortItem::paint(QPainter *painter, const QStyleOptionGraphicsIt
     
     QPainterPath path = shape();
     painter->drawPath(path);
+
+    // Draw connection dot at the tip
+    painter->setBrush(color);
+    painter->setPen(Qt::NoPen);
+    painter->drawEllipse(QPointF(0, 0), 2.0, 2.0);
+    painter->setBrush(Qt::NoBrush);
+    painter->setPen(QPen(color, 1.5));
     
     painter->setFont(m_font);
     // Reuse layout logic from shape()

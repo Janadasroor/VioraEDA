@@ -27,6 +27,8 @@ public:
     // specific helper 
     void addProperty(const QString& name, const QVariant& value, const QString& type = "string");
     void addSectionHeader(const QString& title);
+    void beginUpdate();
+    void endUpdate();
 
 signals:
     // Emitted when a property changes. 

@@ -11,6 +11,8 @@
 
 #include "schematic_editor.h"
 #include "../../symbols/symbol_editor.h"
+#include "../../symbols/symbol_library.h"
+#include "../../core/library_index.h"
 #include "../../ui/spice_model_architect.h"
 #include "schematic_api.h"
 #include "schematic_commands.h"
@@ -18,6 +20,20 @@
 #include "schematic_item_registry.h"
 #include "schematic_item.h"
 #include "schematic_page_item.h"
+#include <QDir>
+
+static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
+    auto& mgr = SymbolLibraryManager::instance();
+    for (SymbolLibrary* lib : mgr.libraries()) {
+        if (lib && !lib->isBuiltIn()) return lib;
+    }
+    const QString baseDir = QDir::homePath() + "/ViospiceLib/sym";
+    QDir().mkpath(baseDir);
+    auto* lib = new SymbolLibrary("User", false);
+    lib->setPath(QDir(baseDir).filePath("user.sclib"));
+    mgr.addLibrary(lib);
+    return lib;
+}
 #include "schematic_connectivity.h"
 #include "../analysis/schematic_erc.h"
 #include "theme_manager.h"
@@ -862,7 +878,10 @@ void SchematicEditor::onSimulationResultsReady(const SimResults& results) {
         win->updateData(results);
     }
 
-    if (m_view) m_view->setProbingEnabled(true);
+    if (m_view) {
+        const bool showByDock = (m_oscilloscopeDock && m_oscilloscopeDock->isVisible());
+        m_view->setProbingEnabled(showByDock);
+    }
 }
 
 void SchematicEditor::onTimeTravelSnapshot(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& currents) {
@@ -907,8 +926,7 @@ void SchematicEditor::onClearSimulationOverlays() {
     
     if (m_view) {
         bool showByDock = (m_oscilloscopeDock && m_oscilloscopeDock->isVisible());
-        bool hasResults = (m_simulationPanel && m_simulationPanel->hasResults());
-        m_view->setProbingEnabled(showByDock || hasResults);
+        m_view->setProbingEnabled(showByDock);
     }
     
     if (statusBar()) {
@@ -998,6 +1016,7 @@ void SchematicEditor::updateSimulationOverlays(const QMap<QString, double>& node
 
 void SchematicEditor::openSymbolEditorWindow(const QString& name, const SymbolDefinition& preBuiltDef) {
     SymbolEditor* editor;
+    const bool autoSaveToLibrary = preBuiltDef.isValid();
     if (preBuiltDef.isValid()) {
         editor = new SymbolEditor(preBuiltDef, nullptr);
     } else {
@@ -1011,8 +1030,24 @@ void SchematicEditor::openSymbolEditorWindow(const QString& name, const SymbolDe
     }
     editor->setProjectKey(projectKey);
     
-    // When a symbol is saved in the editor, we should refresh our library browser
-    connect(editor, &SymbolEditor::symbolSaved, this, [this](const SymbolDefinition&) {
+    // When a symbol is saved in the editor, optionally auto-save to default library
+    connect(editor, &SymbolEditor::symbolSaved, this, [this, autoSaveToLibrary](const SymbolDefinition& sym) {
+        if (autoSaveToLibrary) {
+            SymbolDefinition fixed = sym;
+            const QString rawPath = fixed.modelPath().trimmed();
+            if (!rawPath.isEmpty() && !QFileInfo(rawPath).isAbsolute()) {
+                const QString fallback = QDir(QDir::homePath() + "/ViospiceLib/sub").filePath(rawPath);
+                if (QFileInfo::exists(fallback)) fixed.setModelPath(fallback);
+            }
+
+            SymbolLibrary* lib = ensureDefaultUserSymbolLibrary();
+            if (lib) {
+                lib->addSymbol(fixed);
+                if (lib->save()) {
+                    LibraryIndex::instance().addSymbol(fixed.name(), lib->name(), fixed.category());
+                }
+            }
+        }
         if (m_componentsPanel) m_componentsPanel->populate();
     });
 

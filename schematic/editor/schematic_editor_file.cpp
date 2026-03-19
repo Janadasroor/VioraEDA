@@ -16,8 +16,12 @@
 #include "../../python/gemini_panel.h"
 #include "../dialogs/bus_aliases_dialog.h"
 #include "../../symbols/symbol_editor.h"
+#include "../items/net_label_item.h"
 #include "../../core/project.h"
 #include "../../core/recent_projects.h"
+#include "../analysis/spice_netlist_generator.h"
+#include <QMessageBox>
+#include <QRegularExpression>
 #include "../../core/theme_manager.h"
 #include <QInputDialog>
 #include <QFileDialog>
@@ -1297,28 +1301,23 @@ SymbolDefinition SchematicEditor::buildSymbolFromSelection() const {
     }
 
     // ── 5. Input pins (left side) ─────────────────────────────────────────
-    auto addPin = [&](const QString& name, const QString& type, qreal x, qreal y, const QString& orientation) {
-        SymbolPrimitive pin;
-        pin.type = SymbolPrimitive::Pin;
-        pin.data["x"] = x;
-        pin.data["y"] = y;
-        pin.data["length"] = 15.0;
-        pin.data["name"]   = name;
-        pin.data["label"]  = name;
-        pin.data["type"]   = type;
-        pin.data["orientation"] = orientation;
+    auto addPin = [&](int number, const QString& name, const QString& type, qreal x, qreal y, const QString& orientation) {
+        SymbolPrimitive pin = SymbolPrimitive::createPin(QPointF(x, y), number, name, orientation, 15.0);
+        pin.data["label"] = name;
+        pin.data["electricalType"] = type;
         pin.data["visible"] = true;
         def.addPrimitive(pin);
     };
 
     const qreal topOffset = -halfH + pinSpacing / 2.0;
+    int pinNum = 1;
     for (int i = 0; i < inputPins.size(); ++i) {
         qreal y = topOffset + i * pinSpacing;
-        addPin(inputPins[i].name, "Input", -halfW, y, "Right");
+        addPin(pinNum++, inputPins[i].name, "Input", -halfW, y, "Right");
     }
     for (int i = 0; i < outputPins.size(); ++i) {
         qreal y = topOffset + i * pinSpacing;
-        addPin(outputPins[i].name, "Output", halfW, y, "Left");
+        addPin(pinNum++, outputPins[i].name, "Output", halfW, y, "Left");
     }
 
     return def;
@@ -1348,8 +1347,115 @@ void SchematicEditor::onCreateSymbolFromSchematic() {
         this, "Symbol Category", "Category:", categories, 0, false, &ok);
     if (!ok) category = "Custom";
 
-    // ── Step 2: Build the SymbolDefinition from selected items ───────────
-    SymbolDefinition def = buildSymbolFromSelection();
+    // ── Step 2: Preflight and build pin order from Net Labels ────────────
+    struct OrderedPin {
+        int order = 0;
+        QString name;
+    };
+    QVector<OrderedPin> orderedPins;
+    {
+        QStringList errors;
+        QStringList warnings;
+
+        QList<QGraphicsItem*> selected = m_scene ? m_scene->selectedItems() : QList<QGraphicsItem*>();
+        QList<QGraphicsItem*> candidates = !selected.isEmpty() ? selected : (m_scene ? m_scene->items() : QList<QGraphicsItem*>());
+        QSet<QGraphicsItem*> selectedComps;
+        for (QGraphicsItem* gi : candidates) {
+            if (dynamic_cast<GenericComponentItem*>(gi)) selectedComps.insert(gi);
+        }
+
+        if (selectedComps.isEmpty()) {
+            warnings << "[warn] No components selected. Symbol will be built from labeled nets only.";
+        }
+
+        const QRegularExpression orderRe("^\\s*(\\d+)\\s*:\\s*(\\S.+)\\s*$");
+        QSet<int> usedOrders;
+        QSet<QString> usedNames;
+
+        for (QGraphicsItem* gi : candidates) {
+            QString label;
+            if (auto* nl = dynamic_cast<NetLabelItem*>(gi)) {
+                label = nl->label().trimmed();
+            } else if (auto* hp = dynamic_cast<HierarchicalPortItem*>(gi)) {
+                label = hp->label().trimmed();
+            } else {
+                continue;
+            }
+
+            if (label.isEmpty() || label.compare("NET", Qt::CaseInsensitive) == 0) {
+                errors << "[error] Net Label must use prefix order like \"1:IN\" (default \"NET\" is not valid).";
+                continue;
+            }
+
+            QRegularExpressionMatch m = orderRe.match(label);
+            if (!m.hasMatch()) {
+                errors << QString("[error] Net Label \"%1\" must be in the form \"N:NAME\" (e.g., 1:IN).").arg(label);
+                continue;
+            }
+
+            const int order = m.captured(1).toInt();
+            const QString name = m.captured(2).trimmed();
+            if (order <= 0) {
+                errors << QString("[error] Net Label \"%1\" has invalid order.").arg(label);
+                continue;
+            }
+            if (name.isEmpty() || name.contains(QRegularExpression("\\s"))) {
+                errors << QString("[error] Net Label \"%1\" has invalid pin name (no spaces).").arg(label);
+                continue;
+            }
+            if (usedOrders.contains(order)) {
+                errors << QString("[error] Duplicate pin order %1 in net labels.").arg(order);
+                continue;
+            }
+            if (usedNames.contains(name)) {
+                warnings << QString("[warn] Duplicate pin name \"%1\".").arg(name);
+            }
+
+            usedOrders.insert(order);
+            usedNames.insert(name);
+            orderedPins.push_back({order, name});
+        }
+
+        if (orderedPins.isEmpty()) {
+            errors << "[error] At least one Net Label with prefix order is required (e.g., 1:IN).";
+        }
+
+        std::sort(orderedPins.begin(), orderedPins.end(), [](const OrderedPin& a, const OrderedPin& b) {
+            return a.order < b.order;
+        });
+
+        if (!orderedPins.isEmpty()) {
+            int expected = orderedPins.front().order;
+            for (const auto& p : orderedPins) {
+                if (p.order != expected) {
+                    warnings << QString("[warn] Pin order has gaps (expected %1, saw %2).").arg(expected).arg(p.order);
+                    expected = p.order + 1;
+                } else {
+                    ++expected;
+                }
+            }
+        }
+
+        if (!errors.isEmpty()) {
+            QMessageBox::critical(this, "Symbol Preflight", errors.join("\n"));
+            return;
+        }
+
+        if (!warnings.isEmpty()) {
+            QMessageBox msg(this);
+            msg.setIcon(QMessageBox::Warning);
+            msg.setWindowTitle("Symbol Preflight");
+            msg.setText("Potential issues detected before opening the Symbol Editor.");
+            msg.setDetailedText(warnings.join("\n"));
+            msg.setStandardButtons(QMessageBox::Cancel | QMessageBox::Ok);
+            msg.setDefaultButton(QMessageBox::Cancel);
+            msg.button(QMessageBox::Ok)->setText("Continue");
+            if (msg.exec() != QMessageBox::Ok) return;
+        }
+    }
+
+    // ── Step 3: Build SymbolDefinition from ordered net labels ───────────
+    SymbolDefinition def;
     def.setName(symbolName);
     def.setReferencePrefix(prefix);
     def.setCategory(category);
@@ -1359,16 +1465,50 @@ void SchematicEditor::onCreateSymbolFromSchematic() {
     def.setModelPath(symbolName + ".sub");
     def.setModelName(symbolName);
 
-    // ── Step 3: Collect pin list for the .sub stub ───────────────────────
-    QStringList pinNames;
-    for (const SymbolPrimitive& prim : def.primitives()) {
-        if (prim.type != SymbolPrimitive::Pin) continue;
-        QString name = prim.data.value("name").toString();
-        if (!name.isEmpty() && !pinNames.contains(name))
-            pinNames.append(name);
+    const int pinCount = orderedPins.size();
+    const qreal pinSpacing = 20.0;
+    const qreal bodyH = qMax(60.0, pinCount * pinSpacing + pinSpacing);
+    const qreal bodyW = 60.0;
+    const qreal halfH = bodyH / 2.0;
+    const qreal halfW = bodyW / 2.0;
+
+    {
+        SymbolPrimitive rect;
+        rect.type = SymbolPrimitive::Rect;
+        rect.data["x"] = -halfW;
+        rect.data["y"] = -halfH;
+        rect.data["width"]  = bodyW;
+        rect.data["height"] = bodyH;
+        rect.data["filled"] = false;
+        rect.data["lineWidth"] = 1.5;
+        def.addPrimitive(rect);
     }
 
-    // ── Step 4: Save a .sub SPICE subcircuit stub ────────────────────────
+    auto addPin = [&](int number, const QString& name, const QString& type, qreal x, qreal y, const QString& orientation) {
+        SymbolPrimitive pin = SymbolPrimitive::createPin(QPointF(x, y), number, name, orientation, 15.0);
+        pin.data["label"] = name;
+        pin.data["electricalType"] = type;
+        pin.data["visible"] = true;
+        def.addPrimitive(pin);
+    };
+
+    int leftIdx = 0;
+    int rightIdx = 0;
+    const qreal topOffset = -halfH + pinSpacing / 2.0;
+    for (int i = 0; i < orderedPins.size(); ++i) {
+        const auto& p = orderedPins[i];
+        const bool leftSide = (i % 2 == 0);
+        qreal y = topOffset + (leftSide ? leftIdx++ : rightIdx++) * pinSpacing;
+        addPin(p.order, p.name, "Passive", leftSide ? -halfW : halfW, y, leftSide ? "Right" : "Left");
+    }
+
+    // ── Step 4: Collect pin list for the .sub stub ───────────────────────
+    QStringList pinNames;
+    for (const auto& p : orderedPins) {
+        if (!p.name.isEmpty() && !pinNames.contains(p.name)) pinNames.append(p.name);
+    }
+
+    // ── Step 5: Save a .sub SPICE subcircuit stub ────────────────────────
     QString libSubDir;
     const QStringList roots = ConfigManager::instance().libraryRoots();
     if (!roots.isEmpty()) {
@@ -1382,13 +1522,39 @@ void SchematicEditor::onCreateSymbolFromSchematic() {
     QFile subFile(subFilePath);
     if (subFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QTextStream ts(&subFile);
+        // Build a subcircuit body from the current schematic
+        SpiceNetlistGenerator::SimulationParams params;
+        params.type = SpiceNetlistGenerator::OP;
+        QString fullNetlist = SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params);
+        QStringList bodyLines;
+        bool inControl = false;
+        const QStringList lines = fullNetlist.split('\n');
+        for (const QString& rawLine : lines) {
+            QString line = rawLine;
+            QString t = line.trimmed().toLower();
+            if (t.startsWith(".control")) { inControl = true; continue; }
+            if (inControl) {
+                if (t.startsWith(".endc")) inControl = false;
+                continue;
+            }
+            if (t.startsWith(".tran") || t.startsWith(".op") || t.startsWith(".ac") || t.startsWith(".dc") ||
+                t.startsWith(".end") || t == "run" || t.startsWith(".save")) {
+                continue;
+            }
+            bodyLines << line;
+        }
+
         ts << "* Subcircuit: " << symbolName << "\n";
         ts << "* Generated by viospice – " << QDate::currentDate().toString(Qt::ISODate) << "\n";
         ts << "*\n";
         ts << ".subckt " << symbolName;
         for (const QString& pin : pinNames) ts << " " << pin;
         ts << "\n";
-        ts << "* TODO: add your netlist here\n";
+        if (!bodyLines.isEmpty()) {
+            ts << bodyLines.join("\n").trimmed() << "\n";
+        } else {
+            ts << "* TODO: add your netlist here\n";
+        }
         ts << ".ends " << symbolName << "\n";
         subFile.close();
         statusBar()->showMessage(
@@ -1398,7 +1564,9 @@ void SchematicEditor::onCreateSymbolFromSchematic() {
             QString("Could not write subcircuit stub to:\n%1\n\nYou can create it manually later.").arg(subFilePath));
     }
 
-    // ── Step 5: Open Symbol Editor with the pre-built definition ─────────
+    // Prefer absolute model path so ngspice can always find the .sub
+    def.setModelPath(subFilePath);
+
+    // ── Step 6: Open Symbol Editor with the pre-built definition ─────────
     openSymbolEditorWindow(symbolName, def);
 }
-

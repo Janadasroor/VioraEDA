@@ -133,6 +133,7 @@ SimulationPanel::SimulationPanel(QGraphicsScene* scene, NetManager* netManager, 
     connect(&builtin, &SimManager::logMessage, this, &SimulationPanel::onLogReceived);
     connect(&builtin, &SimManager::simulationFinished, this, &SimulationPanel::onSimResultsReady);
     connect(&builtin, &SimManager::realTimePointReceived, this, &SimulationPanel::onRealTimePointReceived);
+    connect(&builtin, &SimManager::realTimeDataBatchReceived, this, &SimulationPanel::onRealTimeDataBatchReceived);
     connect(&builtin, &SimManager::errorOccurred, this, &SimulationPanel::onLogReceived);
 }
 
@@ -1172,7 +1173,9 @@ void SimulationPanel::onRunSimulation() {
     m_realTimePointCounter = 0;
     
     int idx = m_analysisType->currentIndex();
-    m_acceptRealTimeStream = (idx == 6);
+    // Enable real-time streaming for Transient (0) and Real-Time Mode (6)
+    m_acceptRealTimeStream = (idx == 6 || idx == 0);
+    
     if (idx == 6) { // Real-time
         int interval = m_param1->text().toInt();
         if (interval < 10) interval = 10;
@@ -1298,8 +1301,26 @@ void SimulationPanel::plotResultsFromRaw(const QString& path) {
 
     if (!collectingData || varNames.isEmpty()) return;
 
+    auto isNoiseConstant = [](const QString& name) -> bool {
+        const QString n = name.trimmed().toLower();
+        static const QSet<QString> k = {
+            "true","false","yes","no","pi","e","i","c","h",
+            "boltz","echarge","kelvin","planck"
+        };
+        return k.contains(n);
+    };
+
+    QVector<int> keepVarIdx;
+    for (int i = 1; i < varNames.size(); ++i) {
+        if (!isNoiseConstant(varNames[i])) keepVarIdx << i;
+    }
+    if (keepVarIdx.isEmpty()) {
+        for (int i = 1; i < varNames.size(); ++i) keepVarIdx << i;
+    }
+
     QVector<QLineSeries*> seriesList;
-    for (int i = 1; i < varNames.size(); ++i) { 
+    for (int k = 0; k < keepVarIdx.size(); ++k) {
+        const int i = keepVarIdx[k];
         auto* s = new QLineSeries();
         s->setName(varNames[i]);
         seriesList << s;
@@ -1312,11 +1333,13 @@ void SimulationPanel::plotResultsFromRaw(const QString& path) {
         if (xParts.size() < 2) break;
         double xVal = xParts[1].toDouble();
 
+        int sIdx = 0;
         for (int v = 1; v < numVariables; ++v) {
             QString vLine = in.readLine().trimmed();
             double yVal = vLine.toDouble();
-            if (v-1 < seriesList.size()) {
-                seriesList[v-1]->append(xVal, yVal);
+            if (sIdx < keepVarIdx.size() && v == keepVarIdx[sIdx]) {
+                if (sIdx < seriesList.size()) seriesList[sIdx]->append(xVal, yVal);
+                ++sIdx;
             }
         }
     }
@@ -1324,9 +1347,10 @@ void SimulationPanel::plotResultsFromRaw(const QString& path) {
     // Populate WaveformViewer for Oscilloscope
     if (m_waveformViewer) {
         m_waveformViewer->clear();
-        for (int i = 1; i < varNames.size(); ++i) {
+        for (int idx = 0; idx < keepVarIdx.size(); ++idx) {
+            const int i = keepVarIdx[idx];
             QVector<double> xData, yData;
-            QLineSeries* s = seriesList[i-1];
+            QLineSeries* s = seriesList[idx];
             for (const auto& p : s->points()) {
                 xData << p.x();
                 yData << p.y();
@@ -1364,8 +1388,8 @@ void SimulationPanel::plotResultsFromRaw(const QString& path) {
     bool hadChecks = !checkedSignals.isEmpty();
 
     m_signalList->clear();
-    for (int i = 1; i < varNames.size(); ++i) {
-        const QString& waveName = varNames[i];
+    for (int idx = 0; idx < keepVarIdx.size(); ++idx) {
+        const QString& waveName = varNames[keepVarIdx[idx]];
         QListWidgetItem* item = new QListWidgetItem(waveName);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
         
@@ -1539,6 +1563,75 @@ void SimulationPanel::onRealTimePointReceived(double t, const std::vector<double
         }
     }
     */
+}
+
+void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values) {
+    if (!m_acceptRealTimeStream) return;
+    if (!m_waveformViewer) return;
+    if (times.empty() || values.empty()) return;
+
+    int nodes = m_currentNetlist.nodeCount();
+    
+    // Update Node Voltages
+    for (int i = 1; i < nodes; ++i) {
+        // Check if this node index exists in the first row of values
+        if (values[0].size() <= static_cast<size_t>(i - 1)) break;
+
+        QString name = "V(" + QString::fromStdString(m_currentNetlist.nodeName(i)) + ")";
+        
+        std::vector<double> signalValues;
+        signalValues.reserve(times.size());
+        for (const auto& row : values) {
+            if (static_cast<size_t>(i - 1) < row.size()) {
+                signalValues.push_back(row[i - 1]);
+            } else {
+                signalValues.push_back(0.0);
+            }
+        }
+        
+        m_waveformViewer->appendPoints(name, times, signalValues);
+
+        // Update preview chart
+        if (m_chart) {
+            QLineSeries* series = m_realTimeSeries.value(name, nullptr);
+            if (series) {
+                // Decimate for chart performance (target ~1000 points total per view width)
+                // If the batch is small, take all. If large, skip.
+                const int step = std::max(1, static_cast<int>(times.size()) / 20); 
+                
+                QList<QPointF> points;
+                points.reserve(times.size() / step + 2);
+                for(size_t k=0; k<times.size(); k += step) {
+                    points.append(QPointF(times[k], signalValues[k]));
+                }
+                // Ensure last point is always added for continuity
+                if (times.size() > 0 && (times.size() - 1) % step != 0) {
+                     points.append(QPointF(times.back(), signalValues.back()));
+                }
+
+                series->append(points);
+                
+                // Update axes once per batch using the last point/max values
+                double lastT = times.back();
+                double maxVal = -1e9, minVal = 1e9;
+                for(double v : signalValues) {
+                    if (v > maxVal) maxVal = v;
+                    if (v < minVal) minVal = v;
+                }
+
+                auto axesX = m_chart->axes(Qt::Horizontal);
+                auto axesY = m_chart->axes(Qt::Vertical);
+                if (!axesX.isEmpty() && !axesY.isEmpty()) {
+                    auto* ax = qobject_cast<QValueAxis*>(axesX[0]);
+                    auto* ay = qobject_cast<QValueAxis*>(axesY[0]);
+                    
+                    if (lastT > ax->max()) ax->setMax(lastT * 1.1);
+                    if (maxVal > ay->max()) ay->setMax(maxVal > 0 ? maxVal * 1.2 : maxVal * 0.8);
+                    if (minVal < ay->min()) ay->setMin(minVal < 0 ? minVal * 1.2 : minVal * 0.8);
+                }
+            }
+        }
+    }
 }
 
 void SimulationPanel::onTimelineValueChanged(int value) {

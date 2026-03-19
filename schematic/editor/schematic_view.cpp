@@ -836,7 +836,12 @@ QString SchematicView::getNextReference(const QString& prefix) {
 #include "../../core/config_manager.h"
 #include "../dialogs/led_properties_dialog.h"
 #include "../dialogs/switch_properties_dialog.h"
+#include "../dialogs/voltage_controlled_switch_dialog.h"
+#include "../dialogs/behavioral_current_source_dialog.h"
+#include "../items/voltage_controlled_switch_item.h"
+#include "../items/behavioral_current_source_item.h"
 #include "../items/switch_item.h"
+#include "../items/generic_component_item.h"
 #include <QGuiApplication>
 
 void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
@@ -908,6 +913,31 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
                 dlg.exec();
                 return;
             }
+        }
+        if (auto* gen = dynamic_cast<GenericComponentItem*>(targetSItem)) {
+            const QString name = gen->symbol().name().trimmed().toLower();
+            const QString prefix = gen->symbol().referencePrefix().trimmed().toLower();
+            if (name == "sw" || name == "switch" || prefix == "s") {
+                SwitchPropertiesDialog dlg(gen, this);
+                dlg.exec();
+                return;
+            }
+        }
+    }
+
+    if (targetSItem && targetSItem->itemTypeName() == "Voltage Controlled Switch") {
+        if (auto* vcsw = dynamic_cast<VoltageControlledSwitchItem*>(targetSItem)) {
+            VoltageControlledSwitchDialog dlg(vcsw, this);
+            dlg.exec();
+            return;
+        }
+    }
+
+    if (targetSItem && targetSItem->itemTypeName() == "Current_Source_Behavioral") {
+        if (auto* bi = dynamic_cast<BehavioralCurrentSourceItem*>(targetSItem)) {
+            BehavioralCurrentSourceDialog dlg(bi, scene(), this);
+            dlg.exec();
+            return;
         }
     }
 

@@ -273,9 +273,12 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
 }
 
 int SimulationManager::cbSendStat(char* stat, int id, void* userData) {
-    // Progress updates
+    // Progress updates - Throttled
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (self && stat) {
+        static int throttleCounter = 0;
+        if (++throttleCounter % 20 != 0) return 0; // Skip 95% of stats
+
         QString msg = QString::fromLatin1(stat);
         // Usually contains "% complete" or time info
         emit self->outputReceived(msg); 
@@ -286,9 +289,7 @@ int SimulationManager::cbSendStat(char* stat, int id, void* userData) {
 int SimulationManager::cbControlledExit(int status, bool immediate, bool quit, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (self) {
-        qDebug() << "Ngspice exit request:" << status;
-        // In shared lib mode, we usually don't want to exit the main app
-        // We just unload the circuit
+        qDebug() << "Ngspice exit request:" << status << " Thread:" << QThread::currentThreadId();
     }
     return 0;
 }
@@ -303,6 +304,7 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
         ngSpice_Command((char*)"bg_halt");
         return 0;
     }
+
 
     double time = 0.0;
     std::vector<double> values;

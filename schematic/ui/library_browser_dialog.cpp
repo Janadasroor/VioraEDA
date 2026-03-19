@@ -146,6 +146,7 @@ LibraryBrowserDialog::LibraryBrowserDialog(QWidget *parent)
     }
 
     setupUI();
+    SymbolLibraryManager::instance().reloadUserLibraries();
     performSymbolSearch("");
 }
 
@@ -308,12 +309,14 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
     QSet<QString> seenNames;
 
     if (q.isEmpty()) {
-        for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) {
-            if (!lib) continue;
+        auto scanLib = [&](SymbolLibrary* lib) {
+            if (!lib) return;
             for (const QString& name : lib->symbolNames()) {
                 if (SymbolDefinition* sym = lib->findSymbol(name)) found.append(sym);
             }
-        }
+        };
+        for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) if (!lib->isBuiltIn()) scanLib(lib);
+        for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) if (lib->isBuiltIn()) scanLib(lib);
     } else {
         found = SymbolLibraryManager::instance().search(q);
     }
@@ -360,9 +363,10 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
         {"Diode", "Semiconductors"}, {"NPN Transistor", "Semiconductors"}, {"PNP Transistor", "Semiconductors"},
         {"NMOS Transistor", "Semiconductors"}, {"PMOS Transistor", "Semiconductors"},
         {"IC", "Integrated Circuits"}, {"RAM", "Integrated Circuits"}, {"OpAmp", "Integrated Circuits"},
-        {"Switch", "Interactive"}, {"LED", "Interactive"}, {"Blinking LED", "Interactive"}, {"GND", "Power"}, {"VCC", "Power"},
+        {"Switch", "Interactive"}, {"Voltage Controlled Switch", "Interactive"}, {"LED", "Interactive"}, {"Blinking LED", "Interactive"}, {"GND", "Power"}, {"VCC", "Power"},
         {"Oscilloscope Instrument", "Simulation"}, {"Logic Analyzer", "Simulation"},
-        {"Voltage Source (DC)", "Simulation"}, {"Voltage Source (Sine)", "Simulation"}
+        {"Voltage Source (DC)", "Simulation"}, {"Voltage Source (Sine)", "Simulation"},
+        {"BV", "Simulation"}, {"BI", "Simulation"}
     };
     for (const auto& tool : builtInTools) {
         if (!q.isEmpty() && !tool.first.contains(q, Qt::CaseInsensitive)) continue;

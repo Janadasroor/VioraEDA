@@ -25,6 +25,7 @@ using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 
 class QAbstractGraphicsShapeItem;
+class PropertyEditor;
 /**
  * @brief Main window for creating and editing schematic symbols
  */
@@ -105,6 +106,7 @@ private slots:
     void onCanvasContextMenu(const QPoint& pos);
     void onLibraryItemClicked(class QTreeWidgetItem* item, int column);
     void onPinTableItemChanged(int row, int col);
+    void onPropertyChanged(const QString& name, const QVariant& value);
     
     // Pin Management
     void onPinRenumberSequential();
@@ -118,6 +120,8 @@ private:
     void applyTheme();
     void setupUI();
     QIcon getThemeIcon(const QString& path);
+    void updatePropertiesPanel();
+    void populatePropertiesFor(int index);
     void createMenuBar();
     void createToolBar();
     void rebuildPanelsMenu();
@@ -163,6 +167,7 @@ protected:
     // UI Components
     QGraphicsScene* m_scene = nullptr;
     SymbolEditorView* m_view = nullptr;
+    PropertyEditor* m_propertyEditor = nullptr;
     QToolBar* m_toolbar = nullptr;
     QToolBar* m_leftToolbar = nullptr;
     class QMenu* m_panelsMenu = nullptr;

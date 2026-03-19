@@ -79,6 +79,7 @@ void SchematicToolRegistryBuiltIn::registerBuiltInTools() {
     
     // Interactive Components
     registry.registerTool("Switch", []() { return new SchematicComponentTool("Switch"); });
+    registry.registerTool("Voltage Controlled Switch", []() { return new SchematicComponentTool("Voltage Controlled Switch"); });
     registry.registerTool("Push Button", []() { return new SchematicComponentTool("PushButton"); });
     registry.registerTool("LED", []() { return new SchematicComponentTool("LED"); });
     registry.registerTool("Blinking LED", []() { return new SchematicComponentTool("Blinking LED"); });
@@ -92,6 +93,8 @@ void SchematicToolRegistryBuiltIn::registerBuiltInTools() {
     registry.registerTool("Voltage Source (Pulse)", []() { return new SchematicComponentTool("Voltage_Source_Pulse"); });
     registry.registerTool("Voltage Source (AC)", []() { return new SchematicComponentTool("Voltage_Source_Sine"); }); // Alias
     registry.registerTool("BV", []() { return new SchematicComponentTool("Voltage_Source_Behavioral"); });
+    registry.registerTool("BI", []() { return new SchematicComponentTool("Current_Source_Behavioral"); });
+    registry.registerTool("Behavioral Current Source", []() { return new SchematicComponentTool("Current_Source_Behavioral"); });
     registry.registerTool("Voltmeter (DC)", []() { return new SchematicComponentTool("Voltmeter (DC)"); });
     registry.registerTool("Voltmeter (AC)", []() { return new SchematicComponentTool("Voltmeter (AC)"); });
     registry.registerTool("Ammeter (DC)", []() { return new SchematicComponentTool("Ammeter (DC)"); });
