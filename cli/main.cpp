@@ -26,11 +26,9 @@
 #include <limits>
 #include <optional>
 #include <memory>
-#ifdef Q_OS_UNIX
-#include <unistd.h>
-#include <fcntl.h>
-#include <cstdio>
-#endif
+// --- Cross-platform signal handling ---
+// We use QCoreApplication::aboutToQuit or QTimer to ensure clean termination
+// instead of platform-specific signal handlers.
 
 #include "core/plugins/plugin_manager.h"
 // Symbols
@@ -169,59 +167,11 @@ static bool isWarningLine(const QString& msg) {
     return lower.startsWith("warning") || lower.contains(" warning") || lower.contains("warning:");
 }
 
-#ifdef Q_OS_UNIX
-class ScopedFdSilence {
-public:
-    explicit ScopedFdSilence(bool enable, bool restoreOnDestroy = true)
-        : m_restore(restoreOnDestroy) { if (enable) start(); }
-    ~ScopedFdSilence() { if (m_restore) stop(); }
-    ScopedFdSilence(const ScopedFdSilence&) = delete;
-    ScopedFdSilence& operator=(const ScopedFdSilence&) = delete;
-    void release() { m_restore = false; }
-private:
-    int m_stdoutFd = -1;
-    int m_stderrFd = -1;
-    int m_nullFd = -1;
-    bool m_active = false;
-    bool m_restore = true;
-
-    void start() {
-        m_nullFd = ::open("/dev/null", O_WRONLY);
-        if (m_nullFd < 0) return;
-        m_stdoutFd = ::dup(STDOUT_FILENO);
-        m_stderrFd = ::dup(STDERR_FILENO);
-        if (m_stdoutFd < 0 || m_stderrFd < 0) {
-            if (m_stdoutFd >= 0) ::close(m_stdoutFd);
-            if (m_stderrFd >= 0) ::close(m_stderrFd);
-            ::close(m_nullFd);
-            m_stdoutFd = m_stderrFd = m_nullFd = -1;
-            return;
-        }
-        ::dup2(m_nullFd, STDOUT_FILENO);
-        ::dup2(m_nullFd, STDERR_FILENO);
-        m_active = true;
-    }
-
-    void stop() {
-        if (!m_active) return;
-        std::fflush(stdout);
-        std::fflush(stderr);
-        ::dup2(m_stdoutFd, STDOUT_FILENO);
-        ::dup2(m_stderrFd, STDERR_FILENO);
-        ::close(m_stdoutFd);
-        ::close(m_stderrFd);
-        ::close(m_nullFd);
-        m_stdoutFd = m_stderrFd = m_nullFd = -1;
-        m_active = false;
-    }
-};
-#else
 class ScopedFdSilence {
 public:
     explicit ScopedFdSilence(bool, bool = true) {}
     void release() {}
 };
-#endif
 
 struct RawData {
     QStringList varNames;

@@ -16,6 +16,7 @@
 #include "../../symbols/symbol_library.h"
 #include "../dialogs/simulation_debugger_dialog.h"
 #include "../../simulator/bridge/sim_manager.h"
+#include "../tools/schematic_zoom_area_tool.h"
 
 using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
@@ -725,11 +726,27 @@ void SchematicEditor::createToolBar() {
     // Zoom & View
     QAction* zoomInAct = mainToolbar->addAction(getThemeIcon(":/icons/view_zoom_in.svg"), "Zoom In");
     zoomInAct->setShortcut(QKeySequence::ZoomIn);
-    connect(zoomInAct, &QAction::triggered, this, &SchematicEditor::onZoomIn);
+    connect(zoomInAct, &QAction::triggered, this, [this]() {
+        m_view->setCurrentTool("Zoom Area");
+        if (auto* z = qobject_cast<SchematicZoomAreaTool*>(m_view->currentTool())) {
+            z->setDefaultMode(SchematicZoomAreaTool::ZoomMode::ZoomIn);
+            m_view->setCursor(z->cursor());
+            m_view->viewport()->setCursor(z->cursor());
+        }
+        statusBar()->showMessage("Zoom In tool active", 2000);
+    });
     
     QAction* zoomOutAct = mainToolbar->addAction(getThemeIcon(":/icons/view_zoom_out.svg"), "Zoom Out");
     zoomOutAct->setShortcut(QKeySequence::ZoomOut);
-    connect(zoomOutAct, &QAction::triggered, this, &SchematicEditor::onZoomOut);
+    connect(zoomOutAct, &QAction::triggered, this, [this]() {
+        m_view->setCurrentTool("Zoom Area");
+        if (auto* z = qobject_cast<SchematicZoomAreaTool*>(m_view->currentTool())) {
+            z->setDefaultMode(SchematicZoomAreaTool::ZoomMode::ZoomOut);
+            m_view->setCursor(z->cursor());
+            m_view->viewport()->setCursor(z->cursor());
+        }
+        statusBar()->showMessage("Zoom Out tool active", 2000);
+    });
 
     mainToolbar->addSeparator();
 

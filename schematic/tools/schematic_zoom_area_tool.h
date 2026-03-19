@@ -8,6 +8,7 @@ class SchematicZoomAreaTool : public SchematicTool {
     Q_OBJECT
 
 public:
+    enum class ZoomMode { ZoomIn, ZoomOut };
     explicit SchematicZoomAreaTool(QObject* parent = nullptr);
     virtual ~SchematicZoomAreaTool();
 
@@ -21,9 +22,15 @@ public:
     virtual QCursor cursor() const override;
     virtual QString tooltip() const override { return "Zoom Area (Z)"; }
 
+    void setDefaultMode(ZoomMode mode) { m_defaultMode = mode; }
+    ZoomMode defaultMode() const { return m_defaultMode; }
+
 private:
     QRubberBand* m_rubberBand;
     QPoint m_origin;
+    QCursor m_zoomInCursor;
+    QCursor m_zoomOutCursor;
+    ZoomMode m_defaultMode = ZoomMode::ZoomIn;
 };
 
 #endif // SCHEMATIC_ZOOM_AREA_TOOL_H

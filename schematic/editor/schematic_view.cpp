@@ -752,15 +752,6 @@ void SchematicView::keyPressEvent(QKeyEvent *event) {
             event->accept();
             return;
         }
-
-        // 3. Fallback: Toggle Scissors Tool
-        if (m_currentTool && m_currentTool->name() == "Scissors") {
-            setCurrentTool("Select");
-        } else {
-            setCurrentTool("Scissors");
-        }
-        event->accept();
-        return;
     }
 
     if (event->key() == Qt::Key_Escape) {

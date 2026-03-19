@@ -16,7 +16,11 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql 
 
 # --- NGSPICE Support ---
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-set(NGSPICE_ROOT "/home/jnd/cpp_projects/ngspice/release-shared/install-prefix/usr/local" CACHE PATH "Path to NGSPICE installation")
+if(WIN32)
+    set(NGSPICE_ROOT "$ENV{NGSPICE_ROOT}" CACHE PATH "Path to NGSPICE installation")
+else()
+    set(NGSPICE_ROOT "/usr/local" CACHE PATH "Path to NGSPICE installation")
+endif()
 find_package(NGSPICE)
 if(NGSPICE_FOUND)
     message(STATUS "NGSPICE found: ${NGSPICE_LIBRARIES}")

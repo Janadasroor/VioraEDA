@@ -330,21 +330,30 @@ void SchematicEditor::onRedo() {
 
 void SchematicEditor::onDelete() {
     QList<QGraphicsItem*> selectedItems = m_scene->selectedItems();
-    if (selectedItems.isEmpty()) return;
-    
+    if (selectedItems.isEmpty()) {
+        // Toggle Scissors Tool if nothing is selected
+        if (m_view->currentTool() && m_view->currentTool()->name() == "Scissors") {
+            m_view->setCurrentTool("Select");
+            statusBar()->showMessage("Select tool active", 2000);
+        } else {
+            m_view->setCurrentTool("Scissors");
+            statusBar()->showMessage("Scissors tool active", 2000);
+        }
+        return;
+    }
+
     QList<SchematicItem*> schematicItems;
     for (QGraphicsItem* item : selectedItems) {
         SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
         if (sItem) schematicItems.append(sItem);
     }
-    
+
     if (!schematicItems.isEmpty()) {
         RemoveItemCommand* cmd = new RemoveItemCommand(m_scene, schematicItems);
         m_undoStack->push(cmd);
         statusBar()->showMessage(QString("Deleted %1 item(s)").arg(schematicItems.size()), 2000);
     }
 }
-
 void SchematicEditor::onCopy() {
     QList<QGraphicsItem*> selectedItems = m_scene->selectedItems();
     if (selectedItems.isEmpty()) return;

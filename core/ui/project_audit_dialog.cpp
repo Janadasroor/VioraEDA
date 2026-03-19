@@ -78,9 +78,24 @@ void ProjectAuditDialog::refreshStats() {
     m_statusLabel->setText("Last updated: " + QDateTime::currentDateTime().toString("hh:mm:ss"));
 }
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <psapi.h>
+#endif
+
+// ... (existing includes)
+
 void ProjectAuditDialog::updateMemoryStats() {
-    // Basic memory usage (Linux specific example, would need platform guards for real app)
-    #ifdef Q_OS_LINUX
+    double mb = 0.0;
+    bool ok = false;
+
+#ifdef Q_OS_WIN
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        mb = pmc.WorkingSetSize / 1024.0 / 1024.0;
+        ok = true;
+    }
+#elif defined(Q_OS_LINUX)
     QProcess proc;
     proc.start("ps", {"-o", "rss", "-p", QString::number(qApp->applicationPid())});
     if (proc.waitForFinished()) {
@@ -88,25 +103,28 @@ void ProjectAuditDialog::updateMemoryStats() {
         QStringList lines = out.split("\n", Qt::SkipEmptyParts);
         if (lines.size() > 1) {
             long kb = lines[1].trimmed().toLong();
-            double mb = kb / 1024.0;
-            
-            auto setChild = [&](QTreeWidgetItem* root, const QString& label, const QString& val) {
-                for(int i=0; i<root->childCount(); ++i) {
-                    if(root->child(i)->text(0) == label) {
-                        root->child(i)->setText(1, val);
-                        return;
-                    }
-                }
-                new QTreeWidgetItem(root, {label, val});
-            };
-            
-            setChild(m_memRoot, "Viora Process Memory (RSS)", QString::number(mb, 'f', 1) + " MB");
-            setChild(m_memRoot, "PID", QString::number(qApp->applicationPid()));
+            mb = kb / 1024.0;
+            ok = true;
         }
     }
-    #else
-    new QTreeWidgetItem(m_memRoot, {"Platform Stats", "Unsupported"});
-    #endif
+#endif
+
+    if (ok) {
+        auto setChild = [&](QTreeWidgetItem* root, const QString& label, const QString& val) {
+            for(int i=0; i<root->childCount(); ++i) {
+                if(root->child(i)->text(0) == label) {
+                    root->child(i)->setText(1, val);
+                    return;
+                }
+            }
+            new QTreeWidgetItem(root, {label, val});
+        };
+        
+        setChild(m_memRoot, "Viora Process Memory (RSS)", QString::number(mb, 'f', 1) + " MB");
+        setChild(m_memRoot, "PID", QString::number(qApp->applicationPid()));
+    } else {
+        new QTreeWidgetItem(m_memRoot, {"Memory Usage", "Unavailable"});
+    }
 }
 
 void ProjectAuditDialog::updateSolverStats() {
