@@ -1645,7 +1645,19 @@ void SchematicSelectTool::mouseMoveEvent(QMouseEvent* event) {
                     } else {
                         QPointF initialPos = m_initialPositions[sItem];
                         QPointF targetPos = initialPos + totalMove;
-                        sItem->setPos(view()->snapToGridOrPin(targetPos).point);
+                        if (sItem->itemType() == SchematicItem::LabelType ||
+                            sItem->itemType() == SchematicItem::NetLabelType) {
+                            // Labels are child items; move in scene coords so rotation doesn't skew dragging.
+                            if (QGraphicsItem* parent = sItem->parentItem()) {
+                                const QPointF initialScene = parent->mapToScene(initialPos);
+                                const QPointF targetScene = initialScene + totalMove;
+                                sItem->setPos(parent->mapFromScene(targetScene));
+                            } else {
+                                sItem->setPos(targetPos);
+                            }
+                        } else {
+                            sItem->setPos(view()->snapToGridOrPin(targetPos).point);
+                        }
                     }
                 }
             }
@@ -1670,6 +1682,17 @@ void SchematicSelectTool::mouseMoveEvent(QMouseEvent* event) {
                 for (QGraphicsItem* item : selectedItems) {
                     if (m_segmentDragActive && item == m_segmentWire) continue;
                     if (m_vertexDragActive && item == m_vertexWire) continue;
+                    if (SchematicItem* sItem = dynamic_cast<SchematicItem*>(item)) {
+                        if (sItem->itemType() == SchematicItem::LabelType ||
+                            sItem->itemType() == SchematicItem::NetLabelType) {
+                            if (QGraphicsItem* parent = sItem->parentItem()) {
+                                const QPointF initialScene = parent->mapToScene(sItem->pos());
+                                const QPointF targetScene = initialScene + sceneDelta;
+                                sItem->setPos(parent->mapFromScene(targetScene));
+                                continue;
+                            }
+                        }
+                    }
                     item->setPos(item->pos() + sceneDelta);
                 }
             }

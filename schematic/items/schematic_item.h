@@ -198,12 +198,17 @@ public:
         return types;
     }
 
+protected:
+    QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
+
+public:
     // Bounding rect (required by QGraphicsItem)
     virtual QRectF boundingRect() const override = 0;
 
     // Painting (required by QGraphicsItem)
     virtual void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override = 0;
 
+protected:
     // Hover events to update connection point highlights
     void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override {
         QGraphicsItem::hoverEnterEvent(event);
@@ -215,6 +220,7 @@ public:
         update(); // Trigger repaint to hide connection highlights
     }
 
+public:
     // Netlist and Simulation state
     void setPinNet(int pinIndex, const QString& netName) { m_pinNets[pinIndex] = netName; }
     QString pinNet(int pinIndex) const { return m_pinNets.value(pinIndex); }
@@ -237,6 +243,9 @@ protected:
     void drawConnectionPointHighlights(QPainter* painter) const;
     QJsonObject pinPadMappingToJson() const;
     void loadPinPadMappingFromJson(const QJsonObject& json);
+
+private:
+    void updateLabelRotation();
 
 protected:
     QUuid m_id;

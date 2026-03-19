@@ -313,7 +313,18 @@ void SymbolTextItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
     const qreal anchorY = m_model.data.value("y").toDouble();
     int fs = m_model.data.value("fontSize").toInt(10);
     if (fs <= 0) fs = 10;
-    
+
+    // Keep text upright even if the parent symbol is rotated.
+    painter->save();
+    if (QGraphicsItem* p = parentItem()) {
+        const qreal rot = p->rotation();
+        if (rot != 0.0) {
+            painter->translate(anchorX, anchorY);
+            painter->rotate(-rot);
+            painter->translate(-anchorX, -anchorY);
+        }
+    }
+
     QFont font("SansSerif", fs);
     painter->setFont(font);
     
@@ -339,6 +350,7 @@ void SymbolTextItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
     else if (vAlign == "top") py += fm.ascent();
     
     painter->drawText(QPointF(anchorX + dx, py), resolved);
+    painter->restore();
 
     paintSelectionBorder(painter, option);
 }

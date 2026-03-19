@@ -5,7 +5,6 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
-*.cmake
 _deps/
 
 # Qt

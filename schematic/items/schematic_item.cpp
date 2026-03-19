@@ -37,16 +37,17 @@ void SchematicItem::createLabels(const QPointF& refOffset, const QPointF& valOff
         m_valueLabelItem->setFont(QFont("Inter", 9));
         m_valueLabelItem->setName("ValueLabel");
     }
+    updateLabelRotation();
 }
 
 void SchematicItem::resetLabels() {
     if (m_refLabelItem) {
         m_refLabelItem->setPos(m_defaultRefOffset);
-        m_refLabelItem->setRotation(0);
+        m_refLabelItem->setRotation(-rotation());
     }
     if (m_valueLabelItem) {
         m_valueLabelItem->setPos(m_defaultValOffset);
-        m_valueLabelItem->setRotation(0);
+        m_valueLabelItem->setRotation(-rotation());
     }
     update();
 }
@@ -81,6 +82,20 @@ void SchematicItem::setValueLabelPos(const QPointF& p) {
         m_valueLabelItem->setPos(p);
         update();
     }
+}
+
+QVariant SchematicItem::itemChange(GraphicsItemChange change, const QVariant& value) {
+    if (!m_isSubItem && change == QGraphicsItem::ItemRotationHasChanged) {
+        updateLabelRotation();
+    }
+    return QGraphicsItem::itemChange(change, value);
+}
+
+void SchematicItem::updateLabelRotation() {
+    if (m_isSubItem) return;
+    const qreal rot = rotation();
+    if (m_refLabelItem) m_refLabelItem->setRotation(-rot);
+    if (m_valueLabelItem) m_valueLabelItem->setRotation(-rot);
 }
 
 void SchematicItem::drawConnectionPointHighlights(QPainter* painter) const {
