@@ -6,6 +6,8 @@ add_executable(test_integration_ngspice_shared
 )
 
 target_link_libraries(test_integration_ngspice_shared PRIVATE Qt${QT_VERSION_MAJOR}::Test)
+# Ensure Python/Gemini symbols are available in the integration test link.
+target_link_libraries(test_integration_ngspice_shared PRIVATE FluxPython FluxPythonBindings)
 vioraeda_configure_cli_target(test_integration_ngspice_shared)
 
 add_test(

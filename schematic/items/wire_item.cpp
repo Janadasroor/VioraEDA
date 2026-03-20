@@ -1,5 +1,6 @@
 #include "wire_item.h"
 #include "theme_manager.h"
+#include "config_manager.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyleOptionGraphicsItem>
@@ -39,7 +40,13 @@ void WireItem::updatePen() {
         break;
     case SignalWire:
     default:
-        wireColor = theme->signalWire();
+        {
+            const QString defaultColor = theme ? theme->signalWire().name() : QString("#10b981");
+            const QString pref = ConfigManager::instance()
+                                     .toolProperty("Wire", "Color", defaultColor)
+                                     .toString();
+            wireColor = QColor(pref);
+        }
         wireWidth = 2.25;
         break;
     }

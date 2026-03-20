@@ -10,6 +10,7 @@
 #include <QStackedWidget>
 #include <QTextEdit>
 #include <QLineEdit>
+#include "ui/color_button.h"
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
@@ -32,6 +33,7 @@ private:
     QCheckBox* m_snapGridCheck;
     QCheckBox* m_autoFocusCrossProbeCheck;
     QCheckBox* m_realtimeWireUpdateCheck;
+    ColorButton* m_wireColorBtn = nullptr;
 
     // Simulator
     QComboBox* m_solverCombo;

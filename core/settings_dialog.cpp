@@ -129,6 +129,14 @@ void SettingsDialog::setupUI() {
     layBeh->addWidget(m_autoFocusCrossProbeCheck);
     layBeh->addWidget(m_realtimeWireUpdateCheck);
     layGeneral->addWidget(grpBehavior);
+
+    QGroupBox* grpSchematic = new QGroupBox("Schematic Defaults");
+    QFormLayout* formSchematic = new QFormLayout(grpSchematic);
+    m_wireColorBtn = new ColorButton(QColor("#10b981"));
+    m_wireColorBtn->setFixedHeight(22);
+    formSchematic->addRow("Default Wire Color:", m_wireColorBtn);
+    layGeneral->addWidget(grpSchematic);
+
     layGeneral->addStretch();
     m_pagesStack->addWidget(pageGeneral);
 
@@ -248,6 +256,10 @@ void SettingsDialog::loadSettings() {
     m_snapGridCheck->setChecked(config.snapToGrid());
     m_autoFocusCrossProbeCheck->setChecked(config.autoFocusOnCrossProbe());
     m_realtimeWireUpdateCheck->setChecked(config.isRealtimeWireUpdateEnabled());
+    if (m_wireColorBtn) {
+        const QString wireColorStr = config.toolProperty("Wire", "Color", "#10b981").toString();
+        m_wireColorBtn->setColor(QColor(wireColorStr));
+    }
     
     m_solverCombo->setCurrentText(config.defaultSolver());
     m_integrationCombo->setCurrentText(config.integrationMethod());
@@ -271,6 +283,9 @@ void SettingsDialog::onAccept() {
     config.setSnapToGrid(m_snapGridCheck->isChecked());
     config.setAutoFocusOnCrossProbe(m_autoFocusCrossProbeCheck->isChecked());
     config.setRealtimeWireUpdateEnabled(m_realtimeWireUpdateCheck->isChecked());
+    if (m_wireColorBtn) {
+        config.setToolProperty("Wire", "Color", m_wireColorBtn->color().name());
+    }
     
     config.setDefaultSolver(m_solverCombo->currentText());
     config.setIntegrationMethod(m_integrationCombo->currentText());

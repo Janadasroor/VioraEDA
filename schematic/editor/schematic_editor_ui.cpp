@@ -611,11 +611,14 @@ void SchematicEditor::createToolBar() {
     QAction* openCompAct = toolsMenu->addAction(getThemeIcon(":/icons/comp_ic.svg"), "Place Component...", this, &SchematicEditor::onOpenComponentBrowser, QKeySequence("A"));
     openCompAct->setToolTip("Open component browser and search (A)");
 
+    // Settings (top-level, above Help)
+    mainAppMenu->addSeparator();
+    mainAppMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Settings...", this, &SchematicEditor::onSettings);
+
     QMenu* helpMenu = mainAppMenu->addMenu("&Help");
     helpMenu->addAction(createComponentIcon("About"), "About viospice", this, &SchematicEditor::onAbout);
     helpMenu->addAction("Help & Guides", this, &SchematicEditor::onShowHelp, QKeySequence::HelpContents);
     helpMenu->addAction("Developer Documentation", this, &SchematicEditor::onShowDeveloperHelp, QKeySequence("Ctrl+Shift+F1"));
-    helpMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Settings...", this, &SchematicEditor::onSettings);
     helpMenu->addSeparator();
     helpMenu->addAction("Project Health Audit...", this, &SchematicEditor::onProjectAudit);
 
@@ -1544,6 +1547,12 @@ void SchematicEditor::createDockWidgets() {
 }
 
 void SchematicEditor::createStatusBar() {
+    statusBar()->setStyleSheet(
+        "QStatusBar { background: #f5f5f5; border-top: 1px solid #d1d5db; }"
+        "QStatusBar QLabel { padding: 0 8px; color: #111827; }"
+        "QStatusBar::item { border: none; }"
+    );
+
     // Coordinate display with icon
     m_coordLabel = new QLabel("X: 0.00  Y: 0.00 mm");
     m_coordLabel->setMinimumWidth(200);
@@ -1552,7 +1561,10 @@ void SchematicEditor::createStatusBar() {
     // Unit Switcher
     auto* unitCombo = new QComboBox();
     unitCombo->addItems({"mm", "mil", "in"});
-    unitCombo->setStyleSheet("QComboBox { background: #1e1e1e; color: white; border: 1px solid #3c3c3c; font-size: 10px; height: 18px; margin: 4px 0; }");
+    unitCombo->setStyleSheet(
+        "QComboBox { background: #ffffff; color: #111827; border: 1px solid #d1d5db; font-size: 10px; height: 18px; margin: 4px 0; }"
+        "QComboBox QAbstractItemView { background: #ffffff; color: #111827; selection-background-color: #e5e7eb; selection-color: #111827; }"
+    );
     connect(unitCombo, &QComboBox::currentTextChanged, this, [this](const QString& unit) {
         m_view->setProperty("currentUnit", unit);
         // Refresh coords if mouse is over view
@@ -1564,38 +1576,41 @@ void SchematicEditor::createStatusBar() {
     // Separator
     QFrame* sep1 = new QFrame();
     sep1->setFrameShape(QFrame::VLine);
-    sep1->setStyleSheet("QFrame { color: #3f3f46; margin: 4px 0; }");
+    sep1->setFixedWidth(1);
+    sep1->setStyleSheet("QFrame { background: #d1d5db; margin: 3px 6px; }");
     statusBar()->addWidget(sep1);
 
     // Grid display
-    m_gridLabel = new QLabel("⊞ Grid: 10mil");
+    m_gridLabel = new QLabel("Grid: 10mil");
     statusBar()->addPermanentWidget(m_gridLabel);
 
     // Separator
     QFrame* sep2 = new QFrame();
     sep2->setFrameShape(QFrame::VLine);
-    sep2->setStyleSheet("QFrame { color: #3f3f46; margin: 4px 0; }");
+    sep2->setFixedWidth(1);
+    sep2->setStyleSheet("QFrame { background: #d1d5db; margin: 3px 6px; }");
     statusBar()->addPermanentWidget(sep2);
 
     // Page size indicator
-    QLabel* pageLabel = new QLabel("📄 " + m_currentPageSize);
+    QLabel* pageLabel = new QLabel("Page: " + m_currentPageSize);
     statusBar()->addPermanentWidget(pageLabel);
 
     // Separator
     QFrame* sep3 = new QFrame();
     sep3->setFrameShape(QFrame::VLine);
-    sep3->setStyleSheet("QFrame { color: #3f3f46; margin: 4px 0; }");
+    sep3->setFixedWidth(1);
+    sep3->setStyleSheet("QFrame { background: #d1d5db; margin: 3px 6px; }");
     statusBar()->addPermanentWidget(sep3);
 
     // Layer indicator
-    m_layerLabel = new QLabel("📐 Schematic");
+    m_layerLabel = new QLabel("Layer: Schematic");
     statusBar()->addPermanentWidget(m_layerLabel);
 
     // Theme Switcher
-    QPushButton* themeBtn = new QPushButton("🎨 Theme");
+    QPushButton* themeBtn = new QPushButton("Theme");
     themeBtn->setFlat(true);
     themeBtn->setCursor(Qt::PointingHandCursor);
-    themeBtn->setStyleSheet("QPushButton { color: #a1a1aa; font-weight: bold; border: none; padding: 0 5px; } QPushButton:hover { color: white; }");
+    themeBtn->setStyleSheet("QPushButton { color: #374151; font-weight: 600; border: none; padding: 0 6px; } QPushButton:hover { color: #111827; }");
     connect(themeBtn, &QPushButton::clicked, this, []() {
         auto& tm = ThemeManager::instance();
         if (tm.currentTheme()->type() == PCBTheme::Engineering) tm.setTheme(PCBTheme::Dark);
@@ -1605,7 +1620,7 @@ void SchematicEditor::createStatusBar() {
     statusBar()->addPermanentWidget(themeBtn);
 
     // Ready message
-    statusBar()->showMessage("✨ Ready - Select a component or tool to begin", 5000);
+    statusBar()->showMessage("Ready - Select a component or tool to begin", 5000);
 }
 
 void SchematicEditor::createDrawingToolbar() {
