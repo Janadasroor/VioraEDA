@@ -90,6 +90,8 @@ public:
     };
     QList<SignalExport> exportSignals() const;
     void importSignals(const QList<SignalExport>& signalExports);
+    bool getSignalData(const QString& name, QVector<double>& time, QVector<double>& values);
+    QStringList getSignalNames() const;
 
 private slots:
     void onNodeSelected();
@@ -104,6 +106,7 @@ private slots:
     void updateZoomAnalysis();
     void onSubtractRequested();
     void onFftRequested();
+    void onExpressionSubmitted(const QString &expression);
     void onLegendCtrlClicked(const QString &seriesName);
 
 private:
@@ -146,6 +149,10 @@ private:
     void zoomFitYOnly();
     void updateNodeItemStyle(QListWidgetItem* item);
     void showAnalysisForSeries(const QString &seriesName);
+    bool parseExpression(const QString &expression, QStringList &signalNames, QString &error);
+    bool evaluateExpression(const QString &expression, const QStringList &signalNames, QVector<double> &time, QVector<double> &values);
+    double evaluateSimpleMath(const QString &expr, bool &ok);
+    double evaluateOperand(const QString &operand, const QVector<QVector<double>> &signalVectors, int index);
 
     bool m_preserveXRangeOnce = false;
     double m_preserveXMin = 0.0;

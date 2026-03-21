@@ -327,6 +327,8 @@ set(SCHEMATIC_SOURCES
     ui/measurement_dialog.h
     ui/fft_analyzer.cpp
     ui/fft_analyzer.h
+    ui/waveform_expression_dialog.cpp
+    ui/waveform_expression_dialog.h
     schematic/ui/simulation_setup_dialog.cpp
     schematic/ui/simulation_setup_dialog.h
     schematic/ui/virtual_instruments.cpp

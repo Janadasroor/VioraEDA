@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Janada Sroor
 
 #include "waveform_viewer.h"
+#include "waveform_expression_dialog.h"
 #include "../core/si_formatter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -19,6 +20,8 @@
 #include <QGraphicsLayout>
 #include <QApplication>
 #include <QToolButton>
+#include <QRegularExpression>
+#include <QDebug>
 #include <cmath>
 #include <algorithm>
 #include <numeric>
@@ -62,7 +65,7 @@ void VioChartView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void VioChartView::mousePressEvent(QMouseEvent *event) {
-    if (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ControlModifier)) {
+    if (event->button() == Qt::RightButton) {
         if (auto* legend = chart()->legend(); legend && legend->isVisible()) {
             const QPointF scenePos = mapToScene(event->pos());
             if (legend->sceneBoundingRect().contains(scenePos) && scene()) {
@@ -1130,19 +1133,397 @@ void WaveformViewer::onFftRequested() {
     dlg->show();
 }
 
+void WaveformViewer::onExpressionSubmitted(const QString &expression) {
+    qDebug() << "onExpressionSubmitted called with:" << expression;
+    QStringList signalNames;
+    QString error;
+    
+    if (!parseExpression(expression, signalNames, error)) {
+        qDebug() << "parseExpression failed:" << error;
+        return;
+    }
+    
+    qDebug() << "parseExpression succeeded, signalNames:" << signalNames;
+    
+    QVector<double> time, values;
+    if (!evaluateExpression(expression, signalNames, time, values)) {
+        qDebug() << "evaluateExpression failed";
+        return;
+    }
+    
+    qDebug() << "evaluateExpression succeeded, time size:" << time.size() << "values size:" << values.size();
+    
+    QString resultName = expression.isEmpty() ? "result" : expression;
+    qDebug() << "Adding signal with name:" << resultName;
+    addSignal(resultName, time, values);
+    
+    for (int i = 0; i < m_nodeList->count(); ++i) {
+        if (m_nodeList->item(i)->text() == resultName) {
+            m_nodeList->item(i)->setCheckState(Qt::Checked);
+            break;
+        }
+    }
+    
+    updatePlot(true);
+    
+    // Force check the signal to make sure it's visible
+    for (int i = 0; i < m_nodeList->count(); ++i) {
+        if (m_nodeList->item(i)->text() == resultName) {
+            m_nodeList->item(i)->setCheckState(Qt::Checked);
+            m_nodeList->item(i)->setSelected(true);
+            break;
+        }
+    }
+    
+    // Debug: check if signal was added
+    if (m_signals.contains(resultName)) {
+        const auto& data = m_signals[resultName];
+        qDebug() << "Added signal" << resultName << "with" << data.values.size() << "points";
+        if (!data.values.isEmpty()) {
+            qDebug() << "First few values:" << data.values.mid(0, qMin(5, data.values.size()));
+        }
+    }
+}
+
+bool WaveformViewer::parseExpression(const QString &expression, QStringList &signalNames, QString &error) {
+    QRegularExpression re("V\\(([^)]+)\\)", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatchIterator it = re.globalMatch(expression);
+    
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        QString net = match.captured(1);
+        qDebug() << "parseExpression: found V(" << net << ")";
+        
+        QString vPrefix = QString("V(%1)").arg(net);
+        QString actualKey;
+        bool found = false;
+        
+        for (auto it2 = m_signals.keyValueBegin(); it2 != m_signals.keyValueEnd(); ++it2) {
+            QString key = it2->first;
+            if (key.toLower() == vPrefix.toLower() || key.toLower() == net.toLower()) {
+                actualKey = key;
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            error = QString("Signal '%1' not found").arg(net);
+            qDebug() << "parseExpression: signal" << net << "not found in m_signals";
+            qDebug() << "Available signals:" << m_signals.keys();
+            return false;
+        }
+        
+        QString storedNetName;
+        if (actualKey.toLower().startsWith("v(")) {
+            QRegularExpression extractRe("^V\\((.+)\\)$", QRegularExpression::CaseInsensitiveOption);
+            QRegularExpressionMatch m = extractRe.match(actualKey);
+            if (m.hasMatch()) {
+                storedNetName = m.captured(1);
+            } else {
+                storedNetName = actualKey;
+            }
+        } else {
+            storedNetName = actualKey;
+        }
+        
+        if (!signalNames.contains(storedNetName)) {
+            signalNames.append(storedNetName);
+            qDebug() << "parseExpression: added" << storedNetName << "to signalNames";
+        }
+    }
+    
+    qDebug() << "Parsed expression:" << expression << "found signals:" << signalNames;
+    return true;
+}
+
+bool WaveformViewer::evaluateExpression(const QString &expression, const QStringList &signalNames, QVector<double> &time, QVector<double> &values) {
+    qDebug() << "evaluateExpression: expression=" << expression << "signalNames=" << signalNames;
+    if (signalNames.isEmpty()) {
+        qDebug() << "evaluateExpression: no signal names provided, returning false";
+        return false;
+    }
+    
+    QMap<QString, QPair<QVector<double>, QVector<double>>> signalData;
+    for (const QString &sig : signalNames) {
+        QString key = m_signals.contains(sig) ? sig : QString("V(%1)").arg(sig);
+        if (m_signals.contains(key)) {
+            signalData[sig] = qMakePair(m_signals[key].time, m_signals[key].values);
+        } else {
+            qDebug() << "evaluateExpression: signal" << key << "not found";
+            return false;
+        }
+    }
+    
+    int minSize = std::numeric_limits<int>::max();
+    for (const QString &sig : signalNames) {
+        minSize = qMin(minSize, signalData[sig].first.size());
+        minSize = qMin(minSize, signalData[sig].second.size());
+    }
+    
+    if (minSize == 0) return false;
+    
+    time = signalData[signalNames[0]].first.mid(0, minSize);
+    values.resize(minSize);
+    
+    QString expr = expression;
+    for (int i = 0; i < signalNames.size(); ++i) {
+        QString pattern = QString("V\\(%1\\)").arg(QRegularExpression::escape(signalNames[i]));
+        QRegularExpression re(pattern, QRegularExpression::CaseInsensitiveOption);
+        expr.replace(re, QString("s%1").arg(i));
+    }
+    qDebug() << "evaluateExpression: transformed expr=" << expr;
+    
+    qDebug() << "evaluateExpression: minSize=" << minSize << "time.size=" << time.size();
+    
+    QVector<QVector<double>> signalVectors;
+    for (int idx = 0; idx < signalNames.size(); ++idx) {
+        const QString &sig = signalNames[idx];
+        signalVectors.append(signalData[sig].second.mid(0, minSize));
+        qDebug() << "evaluateExpression: signal" << idx << "(" << sig << ") size=" << signalVectors.last().size() 
+                 << "first 3 values:" << (signalVectors.last().size() > 0 ? signalVectors.last()[0] : 0) 
+                 << (signalVectors.last().size() > 1 ? signalVectors.last()[1] : 0)
+                 << (signalVectors.last().size() > 2 ? signalVectors.last()[2] : 0);
+    }
+    
+    for (int i = 0; i < minSize; ++i) {
+        QString eval = expr;
+        
+        // Replace signal references with their values
+        for (int j = 0; j < signalVectors.size(); ++j) {
+            eval.replace(QString("s%1").arg(j), QString::number(signalVectors[j][i]));
+        }
+        
+        // Simple left-to-right evaluation for basic arithmetic
+        QStringList tokens;
+        QList<QChar> operators;
+        
+        // Tokenize the expression
+        QString current = "";
+        for (int pos = 0; pos < eval.length(); ++pos) {
+            QChar c = eval[pos];
+            if (c == '+' || c == '-' || c == '*' || c == '/') {
+                if (!current.isEmpty()) {
+                    tokens.append(current.trimmed());
+                    current = "";
+                }
+                operators.append(c);
+            } else {
+                current += c;
+            }
+        }
+        if (!current.isEmpty()) {
+            tokens.append(current.trimmed());
+        }
+        
+        // Evaluate tokens
+        if (tokens.isEmpty()) {
+            values[i] = 0.0;
+            continue;
+        }
+        
+        // First pass: handle * and /
+        QList<double> numbers;
+        QList<QChar> remainingOps;
+        
+        bool ok;
+        double firstNum = tokens[0].toDouble(&ok);
+        if (!ok) {
+            // Try to get from signal vectors
+            QRegularExpression re("s(\\d+)");
+            QRegularExpressionMatch match = re.match(tokens[0]);
+            if (match.hasMatch()) {
+                int signalIndex = match.captured(1).toInt();
+                if (signalIndex >= 0 && signalIndex < signalVectors.size()) {
+                    firstNum = signalVectors[signalIndex][i];
+                    ok = true;
+                }
+            }
+        }
+        if (!ok) firstNum = 0.0;
+        numbers.append(firstNum);
+        
+        for (int k = 0; k < operators.size(); ++k) {
+            QChar op = operators[k];
+            bool nextOk;
+            double nextNum = tokens[k+1].toDouble(&nextOk);
+            if (!nextOk) {
+                // Try to get from signal vectors
+                QRegularExpression re("s(\\d+)");
+                QRegularExpressionMatch match = re.match(tokens[k+1]);
+                if (match.hasMatch()) {
+                    int signalIndex = match.captured(1).toInt();
+                    if (signalIndex >= 0 && signalIndex < signalVectors.size()) {
+                        nextNum = signalVectors[signalIndex][i];
+                        nextOk = true;
+                    }
+                }
+            }
+            if (!nextOk) nextNum = 0.0;
+            
+            if (op == '*') {
+                double prev = numbers.last();
+                numbers.removeLast();
+                numbers.append(prev * nextNum);
+            } else if (op == '/') {
+                if (qFuzzyIsNull(nextNum)) {
+                    numbers.append(0.0);
+                } else {
+                    double prev = numbers.last();
+                    numbers.removeLast();
+                    numbers.append(prev / nextNum);
+                }
+            } else {
+                numbers.append(nextNum);
+                remainingOps.append(op);
+            }
+        }
+        
+        // Second pass: handle + and -
+        double result = numbers[0];
+        for (int k = 0; k < remainingOps.size(); ++k) {
+            if (remainingOps[k] == '+') {
+                result += numbers[k+1];
+            } else if (remainingOps[k] == '-') {
+                result -= numbers[k+1];
+            }
+        }
+        
+        if (i < 3) {
+            qDebug() << "evaluateExpression: i=" << i << "eval=" << eval << "result=" << result;
+        }
+        values[i] = result;
+    }
+    
+    return true;
+}
+    
+double WaveformViewer::evaluateSimpleMath(const QString &expr, bool &ok) {
+    qDebug() << "evaluateSimpleMath called with:" << expr;
+    ok = true;
+    QString e = expr.trimmed();
+    
+    if (e.isEmpty()) {
+        ok = false;
+        qDebug() << "evaluateSimpleMath: empty expression";
+        return 0;
+    }
+    
+    // First, look for + or - (lowest precedence), leftmost for left-to-right associativity
+    int pos = -1;
+    QChar op;
+    for (int i = 0; i < e.length(); ++i) {
+        if (e[i] == '+' || e[i] == '-') {
+            // Skip if it's the first character (could be a negative number)
+            if (i == 0) continue;
+            pos = i;
+            op = e[i];
+            break; // Take the first (leftmost) + or -
+        }
+    }
+    
+    if (pos != -1) {
+        QString left = e.left(pos).trimmed();
+        QString right = e.mid(pos + 1).trimmed();
+        
+        bool leftOk, rightOk;
+        double leftVal = evaluateSimpleMath(left, leftOk);
+        double rightVal = evaluateSimpleMath(right, rightOk);
+        
+        if (!leftOk || !rightOk) {
+            ok = false;
+            qDebug() << "evaluateSimpleMath: failed to evaluate left or right side of" << op;
+            return 0;
+        }
+        
+        if (op == '+') {
+            double result = leftVal + rightVal;
+            qDebug() << "evaluateSimpleMath: " << leftVal << " + " << rightVal << " = " << result;
+            return result;
+        } else { // '-'
+            double result = leftVal - rightVal;
+            qDebug() << "evaluateSimpleMath: " << leftVal << " - " << rightVal << " = " << result;
+            return result;
+        }
+    }
+    
+    // No + or - found, look for * or / (higher precedence), leftmost for left-to-right associativity
+    for (int i = 0; i < e.length(); ++i) {
+        if (e[i] == '*' || e[i] == '/') {
+            pos = i;
+            op = e[i];
+            break; // Take the first (leftmost) * or /
+        }
+    }
+    
+    if (pos != -1) {
+        QString left = e.left(pos).trimmed();
+        QString right = e.mid(pos + 1).trimmed();
+        
+        bool leftOk, rightOk;
+        double leftVal = evaluateSimpleMath(left, leftOk);
+        double rightVal = evaluateSimpleMath(right, rightOk);
+        
+        if (!leftOk || !rightOk) {
+            ok = false;
+            qDebug() << "evaluateSimpleMath: failed to evaluate left or right side of" << op;
+            return 0;
+        }
+        
+        if (op == '*') {
+            double result = leftVal * rightVal;
+            qDebug() << "evaluateSimpleMath: " << leftVal << " * " << rightVal << " = " << result;
+            return result;
+        } else { // '/'
+            double denominator = rightVal;
+            if (qFuzzyIsNull(denominator)) {
+                ok = false;
+                qDebug() << "evaluateSimpleMath: division by zero";
+                return 0;
+            }
+            double result = leftVal / rightVal;
+            qDebug() << "evaluateSimpleMath: " << leftVal << " / " << rightVal << " = " << result;
+            return result;
+        }
+    }
+    
+    // No operators found, must be a number
+    bool conversionOk;
+    double val = e.toDouble(&conversionOk);
+    if (!conversionOk) {
+        ok = false;
+        qDebug() << "evaluateSimpleMath: not a valid number:" << e;
+        return 0;
+    }
+    qDebug() << "evaluateSimpleMath: parsed number" << val;
+    return val;
+}
+
 void WaveformViewer::loadCsv(const QString&) {}
 
 void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
     if (seriesName.isEmpty()) return;
-    if (m_signals.contains(seriesName)) {
-        showAnalysisForSeries(seriesName);
-        return;
-    }
-    for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
-        if (it.key().compare(seriesName, Qt::CaseInsensitive) == 0) {
-            showAnalysisForSeries(it.key());
-            return;
+    
+    QString actualName = seriesName;
+    if (!m_signals.contains(seriesName)) {
+        for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
+            if (it.key().compare(seriesName, Qt::CaseInsensitive) == 0) {
+                actualName = it.key();
+                break;
+            }
         }
+    }
+    
+    if (!m_signals.contains(actualName)) return;
+    
+    QStringList signalNames;
+    for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
+        signalNames << it.key();
+    }
+    
+    WaveformExpressionDialog dlg(actualName, signalNames, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        onExpressionSubmitted(dlg.expression());
     }
 }
 
@@ -1295,4 +1676,22 @@ void WaveformViewer::importSignals(const QList<SignalExport>& signalExports) {
         setSignalChecked(sig.name, sig.checked);
     }
     updatePlot(true);
+}
+
+bool WaveformViewer::getSignalData(const QString& name, QVector<double>& time, QVector<double>& values) {
+    if (!m_signals.contains(name)) {
+        return false;
+    }
+    const auto& data = m_signals[name];
+    time = data.time;
+    values = data.values;
+    return true;
+}
+
+QStringList WaveformViewer::getSignalNames() const {
+    QStringList names;
+    for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
+        names.append(it.key());
+    }
+    return names;
 }
