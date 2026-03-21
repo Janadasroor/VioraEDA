@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include "sim_results.h"
+#include "sim_meas_evaluator.h"
 
 enum class SimComponentType {
     Resistor, Capacitor, Inductor,
@@ -112,6 +113,10 @@ public:
     void addDiagnostic(const std::string& msg) { m_diagnostics.push_back(msg); }
     const std::vector<std::string>& diagnostics() const { return m_diagnostics; }
 
+    void addMeasStatement(const MeasStatement& meas) { m_measStatements.push_back(meas); }
+    const std::vector<MeasStatement>& measStatements() const { return m_measStatements; }
+    std::vector<MeasStatement>& mutableMeasStatements() { return m_measStatements; }
+
 private:
     std::vector<SimNode> m_nodes;
     std::vector<SimComponentInstance> m_components;
@@ -120,6 +125,7 @@ private:
     std::map<std::string, double> m_parameters;
     std::vector<std::string> m_autoProbes;
     std::vector<std::string> m_diagnostics;
+    std::vector<MeasStatement> m_measStatements;
     SimAnalysisConfig m_config;
 };
 

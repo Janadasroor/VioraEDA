@@ -26,3 +26,23 @@ add_test(
     COMMAND test_integration_ngspice_shared
 )
 set_tests_properties(integration.ngspice_shared PROPERTIES LABELS "fast;integration;simulator;ngspice")
+
+add_executable(test_benchmark
+    test_benchmark.cpp
+    ${VIORAEDA_CLI_MODULE_OBJECTS}
+)
+
+target_link_libraries(test_benchmark PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+vioraeda_configure_cli_target(test_benchmark)
+target_link_libraries(test_benchmark PRIVATE
+    -Wl,--start-group
+    FluxCore
+    FluxSymbols
+    FluxSchematicCore
+    FluxSchematicUI
+    FluxUI
+    FluxPython
+    FluxPythonBindings
+    FluxSimulator
+    -Wl,--end-group
+)

@@ -72,3 +72,4 @@ viospice_schematic_files.txt
 temp-icons/
 Testing/
 tests/test-folders-paths.md
+benchmark_spice.sh

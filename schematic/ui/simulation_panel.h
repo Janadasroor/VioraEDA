@@ -21,6 +21,7 @@
 #include <QDateTime>
 #include "../../simulator/bridge/sim_manager.h"
 #include "../../simulator/core/sim_results.h"
+#include "../../simulator/core/sim_meas_evaluator.h"
 #include "../../ui/waveform_viewer.h"
 
 class QGraphicsScene;
@@ -113,6 +114,9 @@ private slots:
     void onExportResultsCsv();
     void onExportResultsJson();
     void onExportResultsReport();
+    void onMeasAdd();
+    void onMeasRemove();
+    void onMeasFunctionChanged(int index);
 
 private:
     void setupUI();
@@ -227,6 +231,28 @@ private:
     SimNetlist m_currentNetlist;
     QMap<QString, QLineSeries*> m_realTimeSeries;
     int m_realTimePointCounter = 0;
+
+    // .meas post-processing
+    std::vector<MeasStatement> m_measStatements;
+    void evaluateMeasStatements(const SimResults& results);
+
+    // .meas editor UI
+    QComboBox* m_measAnalysisType;
+    QComboBox* m_measFunction;
+    QLineEdit* m_measName;
+    QLineEdit* m_measSignal;
+    QLineEdit* m_measTrigSignal;
+    QLineEdit* m_measTrigVal;
+    QComboBox* m_measTrigEdge;
+    QLineEdit* m_measTargSignal;
+    QLineEdit* m_measTargVal;
+    QComboBox* m_measTargEdge;
+    QTableWidget* m_measListTable;
+    QPushButton* m_measAddBtn;
+    QPushButton* m_measRemoveBtn;
+    QWidget* m_measTrigTargWidget;
+    void rebuildMeasFromTable();
+    QString generateMeasLine(int row) const;
 
     // Per-tab oscilloscope state persistence
     QMap<QGraphicsScene*, TabOscilloscopeState> m_tabStates;

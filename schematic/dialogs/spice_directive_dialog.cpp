@@ -20,11 +20,14 @@ void SpiceDirectiveDialog::setupUi() {
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-    QLabel* infoLabel = new QLabel("Enter SPICE commands (e.g., .tran 10n 1u, .model, .param):", this);
+    QLabel* infoLabel = new QLabel("Enter SPICE commands:\n"
+        ".tran .ac .op .dc .noise .four .tf .disto .sens\n"
+        ".model .param .subckt .ends .include .lib .endl\n"
+        ".func .global .ic .nodeset .options .temp .step .meas .print", this);
     mainLayout->addWidget(infoLabel);
 
     m_commandEdit = new QPlainTextEdit(this);
-    m_commandEdit->setPlaceholderText(".tran 0 10m 10u");
+    m_commandEdit->setPlaceholderText(".tran 0 10m 10u\n.noise V(out) V1 10 1 1Meg\n.param RVAL=1k");
     QFont font("Courier New");
     font.setStyleHint(QFont::Monospace);
     font.setPointSize(10);

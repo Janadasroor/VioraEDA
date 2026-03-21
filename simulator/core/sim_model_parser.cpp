@@ -1,7 +1,9 @@
 #include "sim_model_parser.h"
 #include "sim_value_parser.h"
+#include "sim_meas_evaluator.h"
 
 #include <QString>
+#include <QRegularExpression>
 
 #include <sstream>
 #include <algorithm>
@@ -43,6 +45,40 @@ std::string stripParensComma(std::string s) {
 
 bool parseNumeric(const std::string& text, double& out) {
     return SimValueParser::parseSpiceNumber(QString::fromStdString(text), out);
+}
+
+QString sanitizeMeasName(const QString& raw) {
+    QString s = raw;
+    s.replace(QRegularExpression("[^A-Za-z0-9_]"), "_");
+    s.replace(QRegularExpression("_+"), "_");
+    s.remove(QRegularExpression("^_+"));
+    s.remove(QRegularExpression("_+$"));
+    return s.isEmpty() ? QString("m") : s.left(48);
+}
+
+bool convertMeanToMeasLine(const std::string& meanLine, int lineNo, std::string& outMeasLine) {
+    const QString qLine = QString::fromStdString(meanLine).trimmed();
+    static const QRegularExpression re(
+        "^\\s*\\.mean\\s+(?:(avg|max|min|rms)\\s+)?([^\\s]+)(?:\\s+from\\s*=\\s*([^\\s]+))?(?:\\s+to\\s*=\\s*([^\\s]+))?\\s*$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = re.match(qLine);
+    if (!m.hasMatch()) return false;
+
+    const QString mode = m.captured(1).isEmpty() ? QString("avg") : m.captured(1).toLower();
+    const QString signal = m.captured(2).trimmed();
+    const QString from = m.captured(3).trimmed();
+    const QString to = m.captured(4).trimmed();
+    if (signal.isEmpty()) return false;
+
+    const QString name = QString("mean_%1_%2_l%3")
+        .arg(mode, sanitizeMeasName(signal))
+        .arg(lineNo);
+
+    QString meas = QString(".meas tran %1 %2 %3").arg(name, mode, signal);
+    if (!from.isEmpty()) meas += QString(" from=%1").arg(from);
+    if (!to.isEmpty()) meas += QString(" to=%1").arg(to);
+    outMeasLine = meas.toStdString();
+    return true;
 }
 
 SimComponentType inferModelType(const std::string& typeToken, bool& ok) {
@@ -354,6 +390,99 @@ bool SimModelParser::parseLibrary(
             continue;
         }
 
+        // --- Recognized simulation / control directives (passed through to netlist) ---
+        // Analysis directives
+        if (cardLower == ".noise" || cardLower == ".four" || cardLower == ".tf" ||
+            cardLower == ".disto" || cardLower == ".sens" || cardLower == ".fft") {
+            continue; // Recognized analysis directive, silently pass through
+        }
+
+        // Measurement and stepping
+        if (cardLower == ".meas" || cardLower == ".measur" || cardLower == ".measure") {
+            MeasStatement meas;
+            if (SimMeasEvaluator::parse(tLine, ll.lineNo, options.sourceName, meas)) {
+                netlist.addMeasStatement(meas);
+            } else {
+                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName,
+                    "failed to parse .meas directive", tLine);
+            }
+            continue;
+        }
+        if (cardLower == ".mean") {
+            std::string measLine;
+            if (!convertMeanToMeasLine(tLine, ll.lineNo, measLine)) {
+                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName,
+                    "failed to parse .mean directive", tLine);
+                continue;
+            }
+            MeasStatement meas;
+            if (SimMeasEvaluator::parse(measLine, ll.lineNo, options.sourceName, meas)) {
+                netlist.addMeasStatement(meas);
+            } else {
+                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName,
+                    "failed to convert .mean directive to .meas", tLine);
+            }
+            continue;
+        }
+        if (cardLower == ".step") {
+            continue;
+        }
+
+        // Configuration and options
+        if (cardLower == ".options" || cardLower == ".option") {
+            continue;
+        }
+        if (cardLower == ".temp" || cardLower == ".temperature") {
+            continue;
+        }
+
+        // Initial conditions and node sets
+        if (cardLower == ".ic") {
+            continue;
+        }
+        if (cardLower == ".nodeset") {
+            continue;
+        }
+
+        // Global nodes
+        if (cardLower == ".global") {
+            continue;
+        }
+
+        // Functions
+        if (cardLower == ".func" || cardLower == ".function") {
+            continue;
+        }
+
+        // Output directives
+        if (cardLower == ".print" || cardLower == ".plot" || cardLower == ".probe") {
+            continue;
+        }
+
+        // Width and title
+        if (cardLower == ".width" || cardLower == ".title") {
+            continue;
+        }
+
+        // Save/load raw data
+        if (cardLower == ".save") {
+            continue;
+        }
+
+        // Control blocks
+        if (cardLower == ".control" || cardLower == ".endc") {
+            continue;
+        }
+
+        // Alter and update (device modification during simulation)
+        if (cardLower == ".alter" || cardLower == ".let") {
+            continue;
+        }
+
+        // CSDF output
+        if (cardLower == ".csdf") {
+            continue;
+        }
 
         if (inSubckt) {
             if (!card.empty() && card[0] == '.') {

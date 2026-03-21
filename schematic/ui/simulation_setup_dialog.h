@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QFormLayout>
 #include <QJsonObject>
+#include <QLabel>
 #include "../../simulator/core/sim_results.h"
 
 class SimulationSetupDialog : public QDialog {
@@ -40,9 +41,11 @@ private:
     void setupUI();
     void updateCommandDisplay();
     void parseCommandText(const QString& command);
+    void updateSyntaxHint();
 
     QComboBox* m_typeCombo;
     QLineEdit* m_commandLine;
+    QLabel* m_syntaxLabel;
     QLineEdit* m_param1;
     QLineEdit* m_param2;
     QLineEdit* m_param3;

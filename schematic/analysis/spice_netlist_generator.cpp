@@ -198,6 +198,38 @@ QString resolveModelPath(const QString& modelPath, const QString& projectDir) {
 
     return modelPath;
 }
+
+QString sanitizeDirectiveName(const QString& raw) {
+    QString s = raw;
+    s.replace(QRegularExpression("[^A-Za-z0-9_]"), "_");
+    s.replace(QRegularExpression("_+"), "_");
+    s.remove(QRegularExpression("^_+"));
+    s.remove(QRegularExpression("_+$"));
+    return s.isEmpty() ? QString("m") : s.left(40);
+}
+
+QString normalizeMeanDirective(const QString& cmd) {
+    static const QRegularExpression re(
+        "^\\s*\\.mean\\s+(?:(avg|max|min|rms)\\s+)?([^\\s]+)(?:\\s+from\\s*=\\s*([^\\s]+))?(?:\\s+to\\s*=\\s*([^\\s]+))?\\s*$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = re.match(cmd.trimmed());
+    if (!m.hasMatch()) return cmd;
+
+    const QString mode = m.captured(1).isEmpty() ? QString("avg") : m.captured(1).toLower();
+    const QString signal = m.captured(2).trimmed();
+    const QString from = m.captured(3).trimmed();
+    const QString to = m.captured(4).trimmed();
+    if (signal.isEmpty()) return cmd;
+
+    const QString name = QString("mean_%1_%2_%3")
+        .arg(mode, sanitizeDirectiveName(signal))
+        .arg(QString::number(qHash(cmd.toLower()), 16));
+
+    QString out = QString(".meas tran %1 %2 %3").arg(name, mode, signal);
+    if (!from.isEmpty()) out += QString(" from=%1").arg(from);
+    if (!to.isEmpty()) out += QString(" to=%1").arg(to);
+    return out;
+}
 }
 
 QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& projectDir, NetManager* /*netManager*/, const SimulationParams& params) {
@@ -216,7 +248,17 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 if (auto* dir = dynamic_cast<SchematicSpiceDirectiveItem*>(si)) {
                     QString cmd = dir->text().trimmed();
                     if (!cmd.isEmpty()) {
-                        netlist += cmd + "\n";
+                        if (cmd.startsWith(".mean", Qt::CaseInsensitive)) {
+                            const QString converted = normalizeMeanDirective(cmd);
+                            if (converted != cmd) {
+                                netlist += "* " + cmd + "\n";
+                                netlist += converted + "\n";
+                            } else {
+                                netlist += cmd + "\n";
+                            }
+                        } else {
+                            netlist += cmd + "\n";
+                        }
                     }
                 }
             }
@@ -662,6 +704,62 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         case OP:
             netlist += ".op\n";
             break;
+        case Noise:
+            {
+                const QString output = params.noiseOutput.isEmpty() ? "V(out)" : params.noiseOutput;
+                const QString source = params.noiseSource.isEmpty() ? "V1" : params.noiseSource;
+                const QString pts = params.step.isEmpty() ? "10" : params.step;
+                const QString fstart = params.start.isEmpty() ? "1" : params.start;
+                const QString fstop = params.stop.isEmpty() ? "1Meg" : params.stop;
+                netlist += QString(".noise %1 %2 %3 %4 %5\n").arg(output, source, pts, fstart, fstop);
+            }
+            break;
+        case Fourier:
+            {
+                const QString freq = params.fourFreq.isEmpty() ? "1k" : params.fourFreq;
+                QStringList outputs = params.fourOutputs;
+                if (outputs.isEmpty()) outputs << "V(out)";
+                netlist += QString(".four %1 %2\n").arg(freq, outputs.join(" "));
+            }
+            break;
+        case TF:
+            {
+                const QString output = params.tfOutput.isEmpty() ? "V(out)" : params.tfOutput;
+                const QString source = params.tfSource.isEmpty() ? "V1" : params.tfSource;
+                netlist += QString(".tf %1 %2\n").arg(output, source);
+            }
+            break;
+        case Disto:
+            {
+                const QString pts = params.step.isEmpty() ? "10" : params.step;
+                const QString fstart = params.start.isEmpty() ? "1" : params.start;
+                const QString fstop = params.stop.isEmpty() ? "1Meg" : params.stop;
+                if (!params.distoF2OverF1.isEmpty()) {
+                    netlist += QString(".disto %1 %2 %3 %4\n").arg(pts, fstart, fstop, params.distoF2OverF1);
+                } else {
+                    netlist += QString(".disto %1 %2 %3\n").arg(pts, fstart, fstop);
+                }
+            }
+            break;
+        case Meas:
+            if (!params.measRaw.isEmpty()) {
+                netlist += params.measRaw + "\n";
+            }
+            break;
+        case Step:
+            if (!params.stepRaw.isEmpty()) {
+                netlist += params.stepRaw + "\n";
+            }
+            break;
+        case Sens:
+            {
+                const QString output = params.sensOutput.isEmpty() ? "V(out)" : params.sensOutput;
+                netlist += QString(".sens %1\n").arg(output);
+            }
+            break;
+        case FFT:
+            // FFT is handled post-simulation, not a SPICE directive itself
+            break;
     }
 
     netlist += ".control\nrun\n.save all\n.endc\n.end\n";
@@ -689,6 +787,44 @@ QString SpiceNetlistGenerator::buildCommand(const SimulationParams& params) {
         }
         case OP:
             return ".op";
+        case Noise: {
+            const QString output = params.noiseOutput.isEmpty() ? "V(out)" : params.noiseOutput;
+            const QString source = params.noiseSource.isEmpty() ? "V1" : params.noiseSource;
+            const QString pts = params.step.isEmpty() ? "10" : params.step;
+            const QString fstart = params.start.isEmpty() ? "1" : params.start;
+            const QString fstop = params.stop.isEmpty() ? "1Meg" : params.stop;
+            return QString(".noise %1 %2 %3 %4 %5").arg(output, source, pts, fstart, fstop);
+        }
+        case Fourier: {
+            const QString freq = params.fourFreq.isEmpty() ? "1k" : params.fourFreq;
+            QStringList outputs = params.fourOutputs;
+            if (outputs.isEmpty()) outputs << "V(out)";
+            return QString(".four %1 %2").arg(freq, outputs.join(" "));
+        }
+        case TF: {
+            const QString output = params.tfOutput.isEmpty() ? "V(out)" : params.tfOutput;
+            const QString source = params.tfSource.isEmpty() ? "V1" : params.tfSource;
+            return QString(".tf %1 %2").arg(output, source);
+        }
+        case Disto: {
+            const QString pts = params.step.isEmpty() ? "10" : params.step;
+            const QString fstart = params.start.isEmpty() ? "1" : params.start;
+            const QString fstop = params.stop.isEmpty() ? "1Meg" : params.stop;
+            if (!params.distoF2OverF1.isEmpty()) {
+                return QString(".disto %1 %2 %3 %4").arg(pts, fstart, fstop, params.distoF2OverF1);
+            }
+            return QString(".disto %1 %2 %3").arg(pts, fstart, fstop);
+        }
+        case Meas:
+            return params.measRaw.isEmpty() ? ".meas" : params.measRaw;
+        case Step:
+            return params.stepRaw.isEmpty() ? ".step" : params.stepRaw;
+        case Sens: {
+            const QString output = params.sensOutput.isEmpty() ? "V(out)" : params.sensOutput;
+            return QString(".sens %1").arg(output);
+        }
+        case FFT:
+            return ".fft";
     }
     return ".op";
 }

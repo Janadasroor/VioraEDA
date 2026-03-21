@@ -8,8 +8,6 @@ set(CORE_SOURCES
     core/theme_manager.h
     core/project.cpp
     core/project.h
-    core/flux_python.cpp
-    core/flux_python.h
     core/recent_projects.cpp
     core/recent_projects.h
     core/settings_dialog.cpp
@@ -41,6 +39,13 @@ set(CORE_SOURCES
     core/ui/command_palette.cpp
     core/ui/command_palette.h
 )
+
+if(VIOSPICE_ENABLE_PYTHON)
+    list(APPEND CORE_SOURCES
+        core/flux_python.cpp
+        core/flux_python.h
+    )
+endif()
 
 # =============================================================================
 # SYMBOLS MODULE - Symbol definition and library
@@ -349,6 +354,13 @@ set(SCHEMATIC_SOURCES
     schematic/schematic_primitives.cpp
     schematic/schematic_primitives.h
 )
+
+if(NOT VIOSPICE_ENABLE_PYTHON)
+    list(REMOVE_ITEM SCHEMATIC_SOURCES
+        schematic/ui/logic_editor_panel.cpp
+        schematic/ui/logic_editor_panel.h
+    )
+endif()
 
 # =============================================================================
 # UI MODULE - Project manager and shared UI

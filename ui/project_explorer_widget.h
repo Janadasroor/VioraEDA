@@ -7,6 +7,13 @@
 #include <QVBoxLayout>
 #include <QLineEdit>
 #include <QLabel>
+#include <QStack>
+
+struct DeletedEntry {
+    QString originalPath;
+    QString trashPath;
+    bool isDir;
+};
 
 class ProjectExplorerWidget : public QWidget {
     Q_OBJECT
@@ -28,13 +35,18 @@ private slots:
 private:
     void setupUi();
     void applyTheme();
+    void deleteItem(const QString& path, bool isDir);
+    void undoLastDelete();
+    QString trashDir() const;
 
     QTreeView* m_treeView;
     QFileSystemModel* m_model;
     class FileFilterProxyModel* m_proxyModel;
     QLineEdit* m_searchBox;
     QLabel* m_titleLabel;
+    QToolButton* m_undoBtn;
     QString m_rootPath;
+    QStack<DeletedEntry> m_deleteHistory;
 };
 
 #endif // PROJECT_EXPLORER_WIDGET_H

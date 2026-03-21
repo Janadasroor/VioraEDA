@@ -50,6 +50,7 @@
 #include <QFileDialog>
 #include <QtConcurrent>
 #include <QFutureWatcher>
+#include <QShortcut>
 
 namespace {
 struct SimBuildResult {
@@ -146,6 +147,17 @@ QVector<QPointF> decimateMinMaxBuckets(const std::vector<double>& x, const std::
 int sampleStride(size_t pointCount, int targetPoints) {
     if (targetPoints <= 0 || pointCount <= static_cast<size_t>(targetPoints)) return 1;
     return static_cast<int>(std::ceil(static_cast<double>(pointCount) / static_cast<double>(targetPoints)));
+}
+
+std::string measAnalysisToken(SimAnalysisType type) {
+    switch (type) {
+    case SimAnalysisType::Transient: return "tran";
+    case SimAnalysisType::AC: return "ac";
+    case SimAnalysisType::DC: return "dc";
+    case SimAnalysisType::OP: return "op";
+    case SimAnalysisType::Noise: return "noise";
+    default: return "";
+    }
 }
 }
 
@@ -381,6 +393,76 @@ void SimulationPanel::addDifferentialProbe(const QString& pNet, const QString& n
     if (pNet.isEmpty() || nNet.isEmpty()) return;
     const QString signalName = QString("V(%1,%2)").arg(pNet, nNet);
     addProbe(signalName);
+}
+
+QString SimulationPanel::generateMeasLine(int row) const {
+    if (!m_measListTable || row < 0 || row >= m_measListTable->rowCount()) return QString();
+    QTableWidgetItem* item = m_measListTable->item(row, 1);
+    return item ? item->text() : QString();
+}
+
+void SimulationPanel::onMeasAdd() {
+    if (!m_measName || !m_measFunction || !m_measAnalysisType) return;
+    const QString atype = m_measAnalysisType->currentText();
+    const QString name = m_measName->text().trimmed();
+    const QString func = m_measFunction->currentText();
+    if (name.isEmpty()) { m_logOutput->append("[.meas] Name is required."); return; }
+
+    QString measLine;
+    if (func == "TRIG/TARG") {
+        const QString trigSig = m_measTrigSignal->text().trimmed();
+        const QString trigVal = m_measTrigVal->text().trimmed();
+        const QString trigEdge = m_measTrigEdge->currentText();
+        const QString targSig = m_measTargSignal->text().trimmed();
+        const QString targVal = m_measTargVal->text().trimmed();
+        const QString targEdge = m_measTargEdge->currentText();
+        if (trigSig.isEmpty() || targSig.isEmpty()) { m_logOutput->append("[.meas] TRIG/TARG signals required."); return; }
+        measLine = QString(".meas %1 %2 TRIG %3 VAL=%4 %5 TARG %6 VAL=%7 %8").arg(atype, name, trigSig, trigVal, trigEdge, targSig, targVal, targEdge);
+    } else {
+        const QString signal = m_measSignal->text().trimmed();
+        if (signal.isEmpty()) { m_logOutput->append("[.meas] Signal is required."); return; }
+        measLine = QString(".meas %1 %2 %3 %4").arg(atype, name, func, signal);
+    }
+    int row = m_measListTable->rowCount();
+    m_measListTable->insertRow(row);
+    m_measListTable->setItem(row, 0, new QTableWidgetItem(name));
+    m_measListTable->setItem(row, 1, new QTableWidgetItem(measLine));
+    m_measListTable->item(row, 0)->setForeground(QColor("#00ccff"));
+    MeasStatement meas;
+    if (SimMeasEvaluator::parse(measLine.toStdString(), row + 1, "Editor", meas)) m_measStatements.push_back(meas);
+    QRegularExpression numRe("(\\d+)$");
+    auto match = numRe.match(name);
+    if (match.hasMatch()) { int num = match.captured(1).toInt() + 1; m_measName->setText(name.left(match.capturedStart(1)) + QString::number(num)); }
+    m_logOutput->append(QString("[.meas] Added: %1").arg(measLine));
+}
+
+void SimulationPanel::onMeasRemove() {
+    if (!m_measListTable) return;
+    int row = m_measListTable->currentRow();
+    if (row < 0 || row >= m_measListTable->rowCount()) return;
+    QString name = m_measListTable->item(row, 0) ? m_measListTable->item(row, 0)->text() : "";
+    m_measListTable->removeRow(row);
+    auto it = std::remove_if(m_measStatements.begin(), m_measStatements.end(),
+        [&name](const MeasStatement& ms) { return QString::fromStdString(ms.name) == name; });
+    m_measStatements.erase(it, m_measStatements.end());
+    m_logOutput->append(QString("[.meas] Removed: %1").arg(name));
+}
+
+void SimulationPanel::rebuildMeasFromTable() {
+    m_measStatements.clear();
+    if (!m_measListTable) return;
+    for (int row = 0; row < m_measListTable->rowCount(); ++row) {
+        QString line = generateMeasLine(row);
+        if (line.isEmpty()) continue;
+        MeasStatement meas;
+        if (SimMeasEvaluator::parse(line.toStdString(), row + 1, "Editor", meas)) m_measStatements.push_back(meas);
+    }
+}
+
+void SimulationPanel::onMeasFunctionChanged(int index) {
+    Q_UNUSED(index)
+    if (!m_measFunction) return;
+    m_measTrigTargWidget->setVisible(m_measFunction->currentText() == "TRIG/TARG");
 }
 
 void SimulationPanel::removeProbe(const QString& signalName) {
@@ -1177,10 +1259,13 @@ void SimulationPanel::setupUI() {
 
     QPushButton* showFullLogBtn = new QPushButton("Show Detailed Log");
     showFullLogBtn->setStyleSheet("QPushButton { background: #374151; color: white; border-radius: 3px; padding: 4px; font-size: 10px; }");
-    connect(showFullLogBtn, &QPushButton::clicked, this, [this]() {
+    auto openLogDialog = [this]() {
         SimulationLogDialog dlg(m_logOutput->toPlainText(), this);
         dlg.exec();
-    });
+    };
+    connect(showFullLogBtn, &QPushButton::clicked, this, openLogDialog);
+    auto* logShortcut = new QShortcut(QKeySequence("Ctrl+L"), this);
+    connect(logShortcut, &QShortcut::activated, this, openLogDialog);
     sidebarLayout->addWidget(showFullLogBtn);
 
     QLabel* issuesLabel = new QLabel("SIM ISSUES (DOUBLE-CLICK TO NAVIGATE)");
@@ -1805,6 +1890,7 @@ void SimulationPanel::plotResultsFromRaw(const QString& path) {
 
     SimResults results = rawData.toSimResults();
     plotBuiltinResults(results);
+    evaluateMeasStatements(results);
 }
 
 QString SimulationPanel::generateSpiceNetlist() {
@@ -1872,6 +1958,7 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
     }
 
     plotBuiltinResults(results);
+    evaluateMeasStatements(results);
 
     qDebug() << "SimulationPanel::onSimResultsReady() - type:" << (int)results.analysisType;
 
@@ -1884,6 +1971,28 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
             dlg->raise();
             dlg->activateWindow();
         });
+    }
+}
+
+void SimulationPanel::evaluateMeasStatements(const SimResults& results) {
+    const auto& statements = m_currentNetlist.measStatements();
+    if (statements.empty()) return;
+
+    const std::string atype = measAnalysisToken(results.analysisType);
+    if (atype.empty()) return;
+
+    const std::vector<MeasResult> measResults = SimMeasEvaluator::evaluate(statements, results, atype);
+    if (measResults.empty()) return;
+
+    m_logOutput->append("\n--- Measurements (.meas/.mean) ---");
+    for (const auto& mr : measResults) {
+        const QString name = QString::fromStdString(mr.name);
+        if (mr.valid) {
+            m_logOutput->append(QString("%1 = %2").arg(name, QString::number(mr.value, 'g', 12)));
+        } else {
+            m_logOutput->append(QString("%1 : ERROR (%2)")
+                .arg(name, QString::fromStdString(mr.error)));
+        }
     }
 }
 

@@ -1,6 +1,8 @@
 add_library(FluxSimulator STATIC
     core/sim_netlist.h
     core/sim_netlist.cpp
+    core/sim_meas_evaluator.h
+    core/sim_meas_evaluator.cpp
     bridge/sim_audio_engine.h
     bridge/sim_audio_engine.cpp
     core/sim_model_parser.h
@@ -13,11 +15,19 @@ add_library(FluxSimulator STATIC
     bridge/sim_schematic_bridge.cpp
     bridge/sim_manager.h
     bridge/sim_manager.cpp
-    bridge/flux_script_marshaller.h
-    bridge/flux_script_marshaller.cpp
     bridge/model_library_manager.h
     bridge/model_library_manager.cpp
+    bridge/flux_script_marshaller.h
+    bridge/flux_script_marshaller.cpp
 )
+
+if(NOT VIOSPICE_ENABLE_PYTHON)
+    set_source_files_properties(
+        bridge/flux_script_marshaller.h
+        bridge/flux_script_marshaller.cpp
+        PROPERTIES HEADER_FILE_ONLY TRUE
+    )
+endif()
 
 vioraeda_configure_module_target(FluxSimulator)
 

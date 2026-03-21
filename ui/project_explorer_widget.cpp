@@ -12,6 +12,9 @@
 #include <QToolButton>
 #include <QAction>
 #include <QRegularExpression>
+#include <QProcess>
+#include <QDateTime>
+#include <QShortcut>
 
 class FileFilterProxyModel : public QSortFilterProxyModel {
 public:
@@ -19,11 +22,17 @@ public:
 protected:
     bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override {
         QModelIndex index = sourceModel()->index(source_row, 0, source_parent);
-        if (sourceModel()->hasChildren(index)) return true; // Always show directories
+        if (sourceModel()->hasChildren(index)) {
+            // Hide .trash directory
+            QString dirName = sourceModel()->data(index).toString();
+            if (dirName == ".trash") return false;
+            return true; // Always show other directories
+        }
         
         QString fileName = sourceModel()->data(index).toString().toLower();
         // Only show relevant engineering files
-        return fileName.endsWith(".sch") || fileName.endsWith(".sym") || 
+        return fileName.endsWith(".sch") || fileName.endsWith(".sym") ||
+               fileName.endsWith(".flxsch") ||
                fileName.endsWith(".lib") || fileName.endsWith(".sclib") ||
                fileName.contains(filterRegularExpression());
     }
@@ -75,8 +84,14 @@ void ProjectExplorerWidget::setupUi() {
     };
 
     addHeaderAction(":/icons/tool_sync.svg", "Refresh", [this]() { this->onRefreshRequested(); });
+    m_undoBtn = addHeaderAction(":/icons/undo.svg", "Undo Delete (Ctrl+Z)", [this]() { this->undoLastDelete(); });
+    m_undoBtn->setVisible(false);
 
     layout->addWidget(header);
+
+    // Ctrl+Z shortcut for undo delete
+    QShortcut* undoShortcut = new QShortcut(QKeySequence::Undo, this);
+    connect(undoShortcut, &QShortcut::activated, this, [this]() { undoLastDelete(); });
 
     // Search bar container for better padding
     QWidget* searchContainer = new QWidget(this);
@@ -168,6 +183,43 @@ void ProjectExplorerWidget::onContextMenuRequested(const QPoint& pos) {
     if (info.isFile()) {
         QAction* openAct = menu.addAction("Open");
         connect(openAct, &QAction::triggered, this, [this, path]() { emit fileDoubleClicked(path); });
+
+        QAction* openExtAct = menu.addAction("Open in External Editor");
+        connect(openExtAct, &QAction::triggered, this, [path]() {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+        });
+
+        if (info.suffix().toLower() == "flxsch") {
+            menu.addSeparator();
+            QAction* netlistAct = menu.addAction("Extract Netlist");
+            connect(netlistAct, &QAction::triggered, this, [this, path]() {
+                const QString projectDir = QFileInfo(path).absolutePath();
+                const QString baseName = QFileInfo(path).completeBaseName();
+                const QString outPath = projectDir + "/" + baseName + ".cir";
+
+                // Remove stale output so we can detect fresh creation
+                QFile::remove(outPath);
+
+                QString cliPath = QCoreApplication::applicationDirPath() + "/vio-cmd";
+                if (!QFile::exists(cliPath)) {
+                    cliPath = "vio-cmd";
+                }
+
+                QProcess proc;
+                proc.setWorkingDirectory(projectDir);
+                proc.start(cliPath, {"schematic-netlist", path, "--out", outPath});
+                proc.waitForFinished(30000);
+
+                if (QFile::exists(outPath) && QFileInfo(outPath).size() > 0) {
+                    QMessageBox::information(this, "Extract Netlist",
+                        "Netlist saved to:\n" + outPath);
+                } else {
+                    QString err = QString::fromUtf8(proc.readAllStandardError());
+                    QMessageBox::warning(this, "Extract Netlist",
+                        "Failed to extract netlist.\n" + err);
+                }
+            });
+        }
     } else {
         QAction* expandAct = menu.addAction(m_treeView->isExpanded(index) ? "Collapse" : "Expand");
         connect(expandAct, &QAction::triggered, this, [this, index]() {
@@ -198,6 +250,24 @@ void ProjectExplorerWidget::onContextMenuRequested(const QPoint& pos) {
         onRefreshRequested();
     });
 
+    QAction* deleteAct = menu.addAction("Delete");
+    connect(deleteAct, &QAction::triggered, this, [this, path, info]() {
+        const QString name = info.fileName();
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this, "Confirm Delete",
+            QString("Are you sure you want to delete '%1'?\n\nThe file will be moved to trash and can be restored with Undo Delete.").arg(name),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+        if (reply != QMessageBox::Yes) return;
+        deleteItem(path, info.isDir());
+    });
+
+    QAction* undoAct = menu.addAction("Undo Delete  (Ctrl+Z)");
+    undoAct->setEnabled(!m_deleteHistory.isEmpty());
+    connect(undoAct, &QAction::triggered, this, [this]() { undoLastDelete(); });
+
+    menu.addSeparator();
+
     QAction* copyPathAct = menu.addAction("Copy Path");
     connect(copyPathAct, &QAction::triggered, this, [path]() {
         QApplication::clipboard()->setText(path);
@@ -218,6 +288,89 @@ void ProjectExplorerWidget::onContextMenuRequested(const QPoint& pos) {
     });
 
     menu.exec(m_treeView->viewport()->mapToGlobal(pos));
+}
+
+QString ProjectExplorerWidget::trashDir() const {
+    return m_rootPath + "/.trash";
+}
+
+void ProjectExplorerWidget::deleteItem(const QString& path, bool isDir) {
+    QFileInfo info(path);
+    if (!info.exists()) return;
+
+    QString td = trashDir();
+    QDir().mkpath(td);
+
+    // Generate unique name in trash by appending timestamp
+    QString trashName = info.fileName();
+    QString trashPath = td + "/" + trashName;
+    if (QFileInfo::exists(trashPath)) {
+        QString ts = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+        QString base = info.completeBaseName();
+        QString ext = info.suffix().isEmpty() ? "" : "." + info.suffix();
+        trashName = base + "_" + ts + ext;
+        trashPath = td + "/" + trashName;
+    }
+
+    bool ok;
+    if (isDir) {
+        ok = QDir().rename(path, trashPath);
+    } else {
+        ok = QFile::rename(path, trashPath);
+    }
+
+    if (!ok) {
+        QMessageBox::warning(this, "Delete Failed", "Could not move item to trash.");
+        return;
+    }
+
+    DeletedEntry entry;
+    entry.originalPath = path;
+    entry.trashPath = trashPath;
+    entry.isDir = isDir;
+    m_deleteHistory.push(entry);
+    m_undoBtn->setVisible(true);
+
+    onRefreshRequested();
+}
+
+void ProjectExplorerWidget::undoLastDelete() {
+    if (m_deleteHistory.isEmpty()) return;
+
+    DeletedEntry entry = m_deleteHistory.pop();
+
+    if (!QFileInfo::exists(entry.trashPath)) {
+        QMessageBox::warning(this, "Undo Delete", "Trashed item no longer exists.");
+        return;
+    }
+
+    // Check if something already exists at original location
+    if (QFileInfo::exists(entry.originalPath)) {
+        QMessageBox::warning(this, "Undo Delete",
+            "Cannot restore: a file already exists at:\n" + entry.originalPath);
+        return;
+    }
+
+    // Ensure parent directory exists
+    QDir parentDir = QFileInfo(entry.originalPath).absoluteDir();
+    if (!parentDir.exists()) {
+        QDir().mkpath(parentDir.absolutePath());
+    }
+
+    bool ok;
+    if (entry.isDir) {
+        ok = QDir().rename(entry.trashPath, entry.originalPath);
+    } else {
+        ok = QFile::rename(entry.trashPath, entry.originalPath);
+    }
+
+    if (!ok) {
+        QMessageBox::warning(this, "Undo Delete", "Failed to restore item.");
+        return;
+    }
+
+    m_undoBtn->setVisible(!m_deleteHistory.isEmpty());
+    onRefreshRequested();
 }
 
 void ProjectExplorerWidget::applyTheme() {

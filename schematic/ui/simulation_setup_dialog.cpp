@@ -69,6 +69,9 @@ void SimulationSetupDialog::setupUI() {
         "font-family: 'Courier New'; font-weight: bold; padding: 4px; }");
     m_commandLine->setPlaceholderText(".tran <tstep> <tstop> [tstart]");
     form->addRow("Command:", m_commandLine);
+    m_syntaxLabel = new QLabel(this);
+    m_syntaxLabel->setStyleSheet("color: #6b7280;");
+    form->addRow("Syntax:", m_syntaxLabel);
 
     mainLayout->addLayout(form);
 
@@ -132,6 +135,7 @@ void SimulationSetupDialog::onAnalysisChanged(int index) {
         m_param1->setText("50"); m_param2->setText("1m");
     }
     
+    updateSyntaxHint();
     updateCommandDisplay();
 }
 
@@ -160,6 +164,7 @@ void SimulationSetupDialog::updateCommandDisplay() {
     }
     
     m_commandLine->setText(cmd);
+    updateSyntaxHint();
 }
 
 void SimulationSetupDialog::parseCommandText(const QString& command) {
@@ -195,7 +200,22 @@ void SimulationSetupDialog::parseCommandText(const QString& command) {
     m_param2->blockSignals(false);
     m_param3->blockSignals(false);
     
+    updateSyntaxHint();
     updateCommandDisplay();
+}
+
+void SimulationSetupDialog::updateSyntaxHint() {
+    if (!m_syntaxLabel || !m_typeCombo) return;
+    const int idx = m_typeCombo->currentIndex();
+    if (idx == 0) {
+        m_syntaxLabel->setText(".tran <tstep> <tstop> [tstart]");
+    } else if (idx == 1) {
+        m_syntaxLabel->setText(".op");
+    } else if (idx == 2) {
+        m_syntaxLabel->setText(".ac dec <points/dec> <fstart> <fstop>");
+    } else {
+        m_syntaxLabel->setText(".tran <rt_step> <update_interval> 0");
+    }
 }
 
 SimulationSetupDialog::Config SimulationSetupDialog::getConfig() const {

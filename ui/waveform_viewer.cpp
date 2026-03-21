@@ -14,6 +14,8 @@
 #include <QtCharts/QLogValueAxis>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QWheelEvent>
+#include <QKeyEvent>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QFileDialog>
@@ -22,8 +24,14 @@
 #include <QToolButton>
 #include <QRegularExpression>
 #include <QDebug>
+#include <QMenu>
+#include <QClipboard>
+#include <QColorDialog>
+#include <QSvgGenerator>
+#include <QPrinter>
 #include <cmath>
 #include <algorithm>
+#include <numeric>
 #include <numeric>
 #include <QGraphicsTextItem>
 #include <QGraphicsSimpleTextItem>
@@ -49,6 +57,28 @@ VioChartView::VioChartView(QChart *chart, QWidget *parent) : QChartView(chart, p
 
 void VioChartView::mouseMoveEvent(QMouseEvent *event) {
     m_mousePos = event->pos();
+
+    if (m_panning) {
+        auto *c = chart();
+        auto axesX = c->axes(Qt::Horizontal);
+        auto axesY = c->axes(Qt::Vertical);
+        if (!axesX.isEmpty() && !axesY.isEmpty()) {
+            auto *axX = qobject_cast<QValueAxis*>(axesX.first());
+            auto *axY = qobject_cast<QValueAxis*>(axesY.first());
+            if (axX && axY) {
+                QPointF startVal = c->mapToValue(m_panStart.toPoint());
+                QPointF curVal = c->mapToValue(event->position().toPoint());
+                double dx = startVal.x() - curVal.x();
+                double dy = startVal.y() - curVal.y();
+                axX->setRange(axX->min() + dx, axX->max() + dx);
+                axY->setRange(axY->min() + dy, axY->max() + dy);
+                m_panStart = event->position();
+            }
+        }
+        event->accept();
+        return;
+    }
+
     if (m_movingCursor > 0 && m_showCursors) {
         double x = chart()->mapToValue(event->pos()).x();
         if (m_movingCursor == 1) m_c1x = x;
@@ -65,6 +95,13 @@ void VioChartView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void VioChartView::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::MiddleButton) {
+        m_panning = true;
+        m_panStart = event->position();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::RightButton) {
         if (auto* legend = chart()->legend(); legend && legend->isVisible()) {
             const QPointF scenePos = mapToScene(event->pos());
@@ -92,6 +129,9 @@ void VioChartView::mousePressEvent(QMouseEvent *event) {
                 }
             }
         }
+        emit contextMenuRequested(mapToGlobal(event->pos()));
+        event->accept();
+        return;
     }
     if (event->button() == Qt::LeftButton && m_showCursors) {
         double xPos = event->pos().x();
@@ -113,8 +153,51 @@ void VioChartView::mousePressEvent(QMouseEvent *event) {
 }
 
 void VioChartView::mouseReleaseEvent(QMouseEvent *event) {
+    if (event->button() == Qt::MiddleButton) {
+        m_panning = false;
+        setCursor(Qt::ArrowCursor);
+        event->accept();
+        return;
+    }
     m_movingCursor = 0;
     QChartView::mouseReleaseEvent(event);
+}
+
+void VioChartView::wheelEvent(QWheelEvent *event) {
+    auto *c = chart();
+    if (!c) { QChartView::wheelEvent(event); return; }
+
+    auto axesX = c->axes(Qt::Horizontal);
+    auto axesY = c->axes(Qt::Vertical);
+    if (axesX.isEmpty() || axesY.isEmpty()) { QChartView::wheelEvent(event); return; }
+
+    auto *axX = qobject_cast<QValueAxis*>(axesX.first());
+    auto *axY = qobject_cast<QValueAxis*>(axesY.first());
+    if (!axX || !axY) { QChartView::wheelEvent(event); return; }
+
+    QPointF cursorVal = c->mapToValue(event->position().toPoint());
+
+    const double factor = 1.15;
+    double zoom = (event->angleDelta().y() > 0) ? 1.0 / factor : factor;
+
+    double xMin = axX->min(), xMax = axX->max();
+    double yMin = axY->min(), yMax = axY->max();
+
+    double newXRange = (xMax - xMin) * zoom;
+    double newYRange = (yMax - yMin) * zoom;
+
+    double xRatio = (cursorVal.x() - xMin) / (xMax - xMin);
+    double yRatio = (cursorVal.y() - yMin) / (yMax - yMin);
+
+    double nxMin = cursorVal.x() - xRatio * newXRange;
+    double nxMax = nxMin + newXRange;
+    double nyMin = cursorVal.y() - yRatio * newYRange;
+    double nyMax = nyMin + newYRange;
+
+    axX->setRange(nxMin, nxMax);
+    axY->setRange(nyMin, nyMax);
+
+    event->accept();
 }
 
 void VioChartView::drawForeground(QPainter *painter, const QRectF &rect) {
@@ -179,6 +262,66 @@ WaveformViewer::~WaveformViewer() {
     if (m_analysisDialog) m_analysisDialog->deleteLater();
 }
 
+void WaveformViewer::keyPressEvent(QKeyEvent *event) {
+    switch (event->key()) {
+    case Qt::Key_F:
+        zoomFit();
+        event->accept();
+        return;
+    case Qt::Key_R:
+        resetZoom();
+        event->accept();
+        return;
+    case Qt::Key_Plus:
+    case Qt::Key_Equal:
+        zoomIn();
+        event->accept();
+        return;
+    case Qt::Key_Minus:
+        zoomOut();
+        event->accept();
+        return;
+    case Qt::Key_1:
+        toggleCursors();
+        event->accept();
+        return;
+    case Qt::Key_2:
+        toggleCrosshair();
+        event->accept();
+        return;
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+        if (m_cursorsEnabled) {
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            if (!axesX.isEmpty()) {
+                auto *ax = qobject_cast<QValueAxis*>(axesX.first());
+                if (ax) {
+                    double step = (ax->max() - ax->min()) / 100.0;
+                    if (event->key() == Qt::Key_Left) step = -step;
+                    m_cursor1X += step;
+                    updateCursors();
+                }
+            }
+        }
+        event->accept();
+        return;
+    case Qt::Key_C:
+        if (event->modifiers() & Qt::ControlModifier) {
+            QString text;
+            if (buildValueAtCursor(text)) {
+                QClipboard *cb = QApplication::clipboard();
+                if (cb) cb->setText(text);
+            }
+            event->accept();
+            return;
+        }
+        break;
+    default:
+        break;
+    }
+    QWidget::keyPressEvent(event);
+}
+
 void WaveformViewer::setupUi() {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -200,6 +343,7 @@ void WaveformViewer::setupUi() {
     toolbar->addSeparator();
     toolbar->addAction("Diff", this, &WaveformViewer::onSubtractRequested);
     toolbar->addAction("FFT", this, &WaveformViewer::onFftRequested);
+    toolbar->addAction("Save", this, &WaveformViewer::exportImage);
     toolbar->addSeparator();
     auto *cursorAct = toolbar->addAction("Cursors", this, &WaveformViewer::toggleCursors);
     cursorAct->setCheckable(true);
@@ -235,6 +379,7 @@ void WaveformViewer::setupUi() {
     connect(m_chartView, &VioChartView::mouseMoved, this, &WaveformViewer::onMouseMoved);
     connect(m_chartView, &VioChartView::cursorMoved, this, &WaveformViewer::updateCursors);
     connect(m_chartView, &VioChartView::legendCtrlClicked, this, &WaveformViewer::onLegendCtrlClicked);
+    connect(m_chartView, &VioChartView::contextMenuRequested, this, &WaveformViewer::onContextMenuRequested);
 
     // Set up default axes so cursor mapping always works (even before signals are loaded)
     auto *defaultAxisX = new QValueAxis();
@@ -311,7 +456,16 @@ void WaveformViewer::preserveXRangeOnce(double minX, double maxX) {
 }
 
 void WaveformViewer::addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values) {
-    addSignal(name, time, values, {});
+    QVector<double> emptyPhase;
+    addSignal(name, time, values, emptyPhase);
+}
+
+void WaveformViewer::addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values, const QColor &color) {
+    QVector<double> emptyPhase;
+    addSignal(name, time, values, emptyPhase);
+    if (color.isValid() && m_signals.contains(name)) {
+        m_signals[name].customColor = color;
+    }
 }
 
 void WaveformViewer::addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values, const QVector<double>& phase) {
@@ -491,6 +645,9 @@ void WaveformViewer::onMouseMoved(const QPointF &value) {
         m_coordLabel->setText("Ready");
         return;
     }
+
+    m_lastMouseValue = value;
+    m_hasLastMouseValue = true;
 
     if (m_acMode) {
         const QString coordStr = QString("Freq: %1 | Mag: %2")
@@ -829,7 +986,9 @@ void WaveformViewer::updatePlot(bool autoScale) {
                 }
                 
                 const QList<QColor> colors = {QColor(0, 204, 0), QColor(0, 0, 255), QColor(255, 0, 0), QColor(0, 255, 255), QColor(255, 0, 255), QColor(255, 255, 0)};
-                series->setPen(QPen(colors[colorIdx % colors.size()], 1.5));
+                QColor seriesColor = data.customColor.isValid() ? data.customColor : colors[colorIdx % colors.size()];
+                QPen pen(seriesColor, data.lineWidth, data.penStyle);
+                series->setPen(pen);
                 m_chart->addSeries(series);
                 series->attachAxis(axisX);
                 series->attachAxis(axisY);
@@ -1087,6 +1246,136 @@ void WaveformViewer::onNodeClicked(QListWidgetItem *item) {
     item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
 }
 
+void WaveformViewer::onContextMenuRequested(const QPoint &globalPos) {
+    QMenu menu(this);
+
+    QAction* fitAct = menu.addAction("Fit");
+    QAction* fitYAct = menu.addAction("Fit Y Only");
+    QAction* resetAct = menu.addAction("Reset Zoom");
+    menu.addSeparator();
+
+    QAction* cursorsAct = menu.addAction("Toggle Cursors");
+    cursorsAct->setCheckable(true);
+    cursorsAct->setChecked(m_cursorsEnabled);
+
+    QAction* crosshairAct = menu.addAction("Toggle Crosshair");
+    crosshairAct->setCheckable(true);
+    crosshairAct->setChecked(m_chartView->isCrosshairEnabled());
+
+    menu.addSeparator();
+
+    QAction* copyAct = menu.addAction("Copy Value at Cursor");
+    QString copyText;
+    if (!buildValueAtCursor(copyText)) {
+        copyAct->setEnabled(false);
+    }
+
+    QAction* exportAct = menu.addAction("Export CSV (Current Signals)");
+
+    menu.addSeparator();
+    QAction* exportImgAct = menu.addAction("Export Image...");
+
+    QAction* chosen = menu.exec(globalPos);
+    if (!chosen) return;
+
+    if (chosen == fitAct) zoomFit();
+    else if (chosen == fitYAct) { zoomFitYOnly(); }
+    else if (chosen == resetAct) resetZoom();
+    else if (chosen == cursorsAct) toggleCursors();
+    else if (chosen == crosshairAct) toggleCrosshair();
+    else if (chosen == copyAct) {
+        QClipboard* cb = QApplication::clipboard();
+        if (cb) cb->setText(copyText);
+    } else if (chosen == exportAct) {
+        exportSignalsCsv();
+    } else if (chosen == exportImgAct) {
+        exportImage();
+    }
+}
+
+bool WaveformViewer::buildValueAtCursor(QString &outText) const {
+    if (!m_hasLastMouseValue) return false;
+    if (m_activeSeriesName.isEmpty()) return false;
+    if (!m_signals.contains(m_activeSeriesName)) return false;
+
+    const auto& data = m_signals[m_activeSeriesName];
+    if (data.time.isEmpty() || data.values.isEmpty()) return false;
+
+    // Find nearest time index to current mouse X
+    const double targetX = m_lastMouseValue.x();
+    int bestIdx = 0;
+    double bestDist = std::abs(data.time[0] - targetX);
+    for (int i = 1; i < data.time.size(); ++i) {
+        const double d = std::abs(data.time[i] - targetX);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+
+    double y = data.values[bestIdx];
+    if (m_acMode) {
+        outText = QString("%1 @ %2 : %3")
+                      .arg(m_activeSeriesName)
+                      .arg(SiFormatter::format(data.time[bestIdx], "Hz"))
+                      .arg(formatDb(y));
+        return true;
+    }
+
+    QString unit;
+    double scale = 1.0;
+    switch (data.type) {
+    case SignalType::VOLTAGE: unit = m_vUnit; scale = m_vMultiplier; break;
+    case SignalType::CURRENT: unit = m_iUnit; scale = m_iMultiplier; break;
+    case SignalType::POWER: unit = m_pUnit; scale = m_pMultiplier; break;
+    case SignalType::OTHER: unit = ""; scale = 1.0; break;
+    }
+
+    outText = QString("%1 @ %2 : %3")
+                  .arg(m_activeSeriesName)
+                  .arg(SiFormatter::format(data.time[bestIdx] / m_timeMultiplier, "s"))
+                  .arg(SiFormatter::format(y / scale, unit));
+    return true;
+}
+
+void WaveformViewer::exportSignalsCsv() {
+    QString path = QFileDialog::getSaveFileName(this, "Export Signals CSV", QString(), "CSV Files (*.csv)");
+    if (path.isEmpty()) return;
+
+    QStringList names;
+    for (int i = 0; i < m_nodeList->count(); ++i) {
+        QListWidgetItem* item = m_nodeList->item(i);
+        if (item->checkState() == Qt::Checked) names << item->text();
+    }
+    if (names.isEmpty()) {
+        for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
+            names << it.key();
+        }
+    }
+    if (names.isEmpty()) return;
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return;
+    QTextStream out(&f);
+
+    out << "index";
+    for (const auto& n : names) out << "," << n << "_x," << n << "_y";
+    out << "\n";
+
+    int maxSize = 0;
+    for (const auto& n : names) {
+        const auto& sig = m_signals[n];
+        maxSize = std::max(maxSize, static_cast<int>(sig.time.size()));
+    }
+
+    for (int i = 0; i < maxSize; ++i) {
+        out << i;
+        for (const auto& n : names) {
+            const auto& sig = m_signals[n];
+            if (i < sig.time.size() && i < sig.values.size()) out << "," << sig.time[i] << "," << sig.values[i];
+            else out << ",,";
+        }
+        out << "\n";
+    }
+}
+
 void WaveformViewer::updateNodeItemStyle(QListWidgetItem* item) {
     if (!item) return;
     if (item->checkState() == Qt::Checked) {
@@ -1133,108 +1422,212 @@ void WaveformViewer::onFftRequested() {
     dlg->show();
 }
 
-void WaveformViewer::onExpressionSubmitted(const QString &expression) {
-    qDebug() << "onExpressionSubmitted called with:" << expression;
+void WaveformViewer::onExpressionSubmitted(const QString &expression, const QColor &color, const QString &targetName) {
+    qDebug() << "onExpressionSubmitted called with:" << expression << "color:" << color << "color.isValid:" << color.isValid();
+    qDebug() << "Available signals:" << m_signals.keys();
+    
+    QString newSignalName = expression;
+    if (newSignalName.isEmpty()) {
+        newSignalName = targetName.isEmpty() ? "result" : targetName;
+    }
+    
+    qDebug() << "New signal name:" << newSignalName;
+    
     QStringList signalNames;
     QString error;
+    QRegularExpression exprRe("(V|I|P)\\([^)]+\\)|(derivative|integral)\\([^)]+\\)", QRegularExpression::CaseInsensitiveOption);
+    bool hasExpression = expression.contains(exprRe);
     
-    if (!parseExpression(expression, signalNames, error)) {
-        qDebug() << "parseExpression failed:" << error;
-        return;
-    }
-    
-    qDebug() << "parseExpression succeeded, signalNames:" << signalNames;
-    
-    QVector<double> time, values;
-    if (!evaluateExpression(expression, signalNames, time, values)) {
-        qDebug() << "evaluateExpression failed";
-        return;
-    }
-    
-    qDebug() << "evaluateExpression succeeded, time size:" << time.size() << "values size:" << values.size();
-    
-    QString resultName = expression.isEmpty() ? "result" : expression;
-    qDebug() << "Adding signal with name:" << resultName;
-    addSignal(resultName, time, values);
-    
-    for (int i = 0; i < m_nodeList->count(); ++i) {
-        if (m_nodeList->item(i)->text() == resultName) {
-            m_nodeList->item(i)->setCheckState(Qt::Checked);
-            break;
+    auto isBaseProbeName = [](const QString &name) -> bool {
+        QRegularExpression baseProbeRe("^[VIP]\\([^)]+\\)$", QRegularExpression::CaseInsensitiveOption);
+        return baseProbeRe.match(name).hasMatch();
+    };
+
+    if (hasExpression) {
+        if (!parseExpression(expression, signalNames, error)) {
+            qDebug() << "parseExpression failed:" << error;
+            return;
         }
+        
+        qDebug() << "parseExpression succeeded, signalNames:" << signalNames;
+        
+        QVector<double> time, values;
+        if (!evaluateExpression(expression, signalNames, time, values)) {
+            qDebug() << "evaluateExpression failed";
+            return;
+        }
+        
+        qDebug() << "evaluateExpression succeeded, time size:" << time.size() << "values size:" << values.size();
+        
+        if (!targetName.isEmpty() && targetName != newSignalName && m_signals.contains(targetName)) {
+            const bool preserveSourceSignal = isBaseProbeName(targetName);
+
+            SignalData data = m_signals[targetName];
+            data.name = newSignalName;
+            data.time = time;
+            data.values = values;
+            m_signals[newSignalName] = data;
+
+            if (!preserveSourceSignal) {
+                m_signals.remove(targetName);
+            }
+
+            for (int i = 0; i < m_nodeList->count(); ++i) {
+                if (m_nodeList->item(i)->text() == targetName) {
+                    m_nodeList->item(i)->setText(newSignalName);
+                    break;
+                }
+            }
+        } else if (m_signals.contains(newSignalName)) {
+            m_signals[newSignalName].name = newSignalName;
+            m_signals[newSignalName].time = time;
+            m_signals[newSignalName].values = values;
+        } else {
+            SignalData data;
+            data.time = time;
+            data.values = values;
+            data.name = expression;
+            data.type = SignalType::VOLTAGE;
+            m_signals[newSignalName] = data;
+            
+            auto* item = new QListWidgetItem(newSignalName, m_nodeList);
+            item->setCheckState(Qt::Checked);
+        }
+    } else {
+        qDebug() << "No expression with V() found, keeping existing signal data";
+    }
+    
+    qDebug() << "Signal updated:" << newSignalName;
+    
+    if (color.isValid()) {
+        qDebug() << "Storing custom color:" << color << "for signal:" << newSignalName;
+        if (m_signals.contains(newSignalName)) {
+            m_signals[newSignalName].customColor = color;
+        }
+    } else {
+        qDebug() << "Color is not valid, skipping color storage";
     }
     
     updatePlot(true);
-    
-    // Force check the signal to make sure it's visible
-    for (int i = 0; i < m_nodeList->count(); ++i) {
-        if (m_nodeList->item(i)->text() == resultName) {
-            m_nodeList->item(i)->setCheckState(Qt::Checked);
-            m_nodeList->item(i)->setSelected(true);
-            break;
-        }
-    }
-    
-    // Debug: check if signal was added
-    if (m_signals.contains(resultName)) {
-        const auto& data = m_signals[resultName];
-        qDebug() << "Added signal" << resultName << "with" << data.values.size() << "points";
-        if (!data.values.isEmpty()) {
-            qDebug() << "First few values:" << data.values.mid(0, qMin(5, data.values.size()));
-        }
-    }
 }
 
 bool WaveformViewer::parseExpression(const QString &expression, QStringList &signalNames, QString &error) {
-    QRegularExpression re("V\\(([^)]+)\\)", QRegularExpression::CaseInsensitiveOption);
-    QRegularExpressionMatchIterator it = re.globalMatch(expression);
+    QRegularExpression vRe("V\\(([^)]+)\\)", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression iRe("I\\(([^)]+)\\)", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression pRe("P\\(([^)]+)\\)", QRegularExpression::CaseInsensitiveOption);
     
-    while (it.hasNext()) {
-        QRegularExpressionMatch match = it.next();
-        QString net = match.captured(1);
-        qDebug() << "parseExpression: found V(" << net << ")";
-        
-        QString vPrefix = QString("V(%1)").arg(net);
-        QString actualKey;
-        bool found = false;
-        
+    QMap<QString, QStringList> exprPatterns;
+    exprPatterns["V"] = QStringList();
+    exprPatterns["I"] = QStringList();
+    exprPatterns["P"] = QStringList();
+    
+    auto extractSignal = [&signalNames, this](const QString &type, const QString &net) -> bool {
+        QString prefix = QString("%1(%2)").arg(type).arg(net);
         for (auto it2 = m_signals.keyValueBegin(); it2 != m_signals.keyValueEnd(); ++it2) {
             QString key = it2->first;
-            if (key.toLower() == vPrefix.toLower() || key.toLower() == net.toLower()) {
-                actualKey = key;
-                found = true;
-                break;
+            if (key.toLower() == prefix.toLower() || key.toLower() == net.toLower()) {
+                QString storedNetName;
+                QRegularExpression extractRe(QString("^%1\\((.+)\\)$").arg(type), QRegularExpression::CaseInsensitiveOption);
+                QRegularExpressionMatch m = extractRe.match(key);
+                if (m.hasMatch()) {
+                    storedNetName = m.captured(1);
+                } else {
+                    storedNetName = key;
+                }
+                if (!signalNames.contains(storedNetName)) {
+                    signalNames.append(storedNetName);
+                    qDebug() << "parseExpression: added" << storedNetName << "to signalNames";
+                }
+                return true;
             }
         }
-        
-        if (!found) {
-            error = QString("Signal '%1' not found").arg(net);
-            qDebug() << "parseExpression: signal" << net << "not found in m_signals";
-            qDebug() << "Available signals:" << m_signals.keys();
+        return false;
+    };
+    
+    QRegularExpressionMatchIterator itV = vRe.globalMatch(expression);
+    while (itV.hasNext()) {
+        QRegularExpressionMatch match = itV.next();
+        QString net = match.captured(1);
+        qDebug() << "parseExpression: found V(" << net << ")";
+        if (!extractSignal("V", net)) {
+            error = QString("Signal 'V(%1)' not found").arg(net);
             return false;
         }
-        
-        QString storedNetName;
-        if (actualKey.toLower().startsWith("v(")) {
-            QRegularExpression extractRe("^V\\((.+)\\)$", QRegularExpression::CaseInsensitiveOption);
-            QRegularExpressionMatch m = extractRe.match(actualKey);
-            if (m.hasMatch()) {
-                storedNetName = m.captured(1);
-            } else {
-                storedNetName = actualKey;
-            }
-        } else {
-            storedNetName = actualKey;
+    }
+    
+    QRegularExpressionMatchIterator itI = iRe.globalMatch(expression);
+    while (itI.hasNext()) {
+        QRegularExpressionMatch match = itI.next();
+        QString net = match.captured(1);
+        qDebug() << "parseExpression: found I(" << net << ")";
+        if (!extractSignal("I", net)) {
+            error = QString("Signal 'I(%1)' not found").arg(net);
+            return false;
         }
-        
-        if (!signalNames.contains(storedNetName)) {
-            signalNames.append(storedNetName);
-            qDebug() << "parseExpression: added" << storedNetName << "to signalNames";
+    }
+    
+    QRegularExpressionMatchIterator itP = pRe.globalMatch(expression);
+    while (itP.hasNext()) {
+        QRegularExpressionMatch match = itP.next();
+        QString net = match.captured(1);
+        qDebug() << "parseExpression: found P(" << net << ")";
+        if (!extractSignal("P", net)) {
+            error = QString("Signal 'P(%1)' not found").arg(net);
+            return false;
+        }
+    }
+    
+    QRegularExpression funcRe("(derivative|integral)\\(([VI])\\(([^)]+)\\)\\)", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatchIterator itFunc = funcRe.globalMatch(expression);
+    while (itFunc.hasNext()) {
+        QRegularExpressionMatch match = itFunc.next();
+        QString func = match.captured(1).toLower();
+        QString type = match.captured(2).toUpper();
+        QString net = match.captured(3);
+        qDebug() << "parseExpression: found" << func << "(" << type << "(" << net << "))";
+        if (!extractSignal(type, net)) {
+            error = QString("Signal '%1(%2)' not found").arg(type).arg(net);
+            return false;
         }
     }
     
     qDebug() << "Parsed expression:" << expression << "found signals:" << signalNames;
     return true;
+}
+
+QVector<double> WaveformViewer::computeDerivative(const QVector<double> &time, const QVector<double> &values) {
+    QVector<double> derivative;
+    int n = qMin(time.size(), values.size());
+    if (n < 2) return derivative;
+    
+    derivative.resize(n);
+    derivative[0] = 0.0;
+    
+    for (int i = 1; i < n; ++i) {
+        double dt = time[i] - time[i-1];
+        if (qFuzzyIsNull(dt)) {
+            derivative[i] = 0.0;
+        } else {
+            derivative[i] = (values[i] - values[i-1]) / dt;
+        }
+    }
+    return derivative;
+}
+
+QVector<double> WaveformViewer::computeIntegral(const QVector<double> &time, const QVector<double> &values) {
+    QVector<double> integral;
+    int n = qMin(time.size(), values.size());
+    if (n < 2) return integral;
+    
+    integral.resize(n);
+    integral[0] = 0.0;
+    
+    for (int i = 1; i < n; ++i) {
+        double dt = time[i] - time[i-1];
+        double avgVal = (values[i] + values[i-1]) / 2.0;
+        integral[i] = integral[i-1] + avgVal * dt;
+    }
+    return integral;
 }
 
 bool WaveformViewer::evaluateExpression(const QString &expression, const QStringList &signalNames, QVector<double> &time, QVector<double> &values) {
@@ -1246,40 +1639,111 @@ bool WaveformViewer::evaluateExpression(const QString &expression, const QString
     
     QMap<QString, QPair<QVector<double>, QVector<double>>> signalData;
     for (const QString &sig : signalNames) {
-        QString key = m_signals.contains(sig) ? sig : QString("V(%1)").arg(sig);
-        if (m_signals.contains(key)) {
-            signalData[sig] = qMakePair(m_signals[key].time, m_signals[key].values);
-        } else {
-            qDebug() << "evaluateExpression: signal" << key << "not found";
+        QStringList prefixes = {sig, QString("V(%1)").arg(sig), QString("I(%1)").arg(sig), QString("P(%1)").arg(sig)};
+        QString foundKey;
+        for (const QString &key : prefixes) {
+            if (m_signals.contains(key)) {
+                foundKey = key;
+                break;
+            }
+        }
+        if (foundKey.isEmpty()) {
+            qDebug() << "evaluateExpression: signal" << sig << "not found with any prefix";
             return false;
         }
+        signalData[sig] = qMakePair(m_signals[foundKey].time, m_signals[foundKey].values);
+        qDebug() << "evaluateExpression: found key" << foundKey << "with" << m_signals[foundKey].values.size() << "values";
     }
     
     int minSize = std::numeric_limits<int>::max();
     for (const QString &sig : signalNames) {
+        if (!signalData.contains(sig)) {
+            qDebug() << "evaluateExpression: signalData missing key" << sig;
+            return false;
+        }
         minSize = qMin(minSize, signalData[sig].first.size());
         minSize = qMin(minSize, signalData[sig].second.size());
     }
     
-    if (minSize == 0) return false;
+    if (minSize == 0 || minSize == std::numeric_limits<int>::max()) {
+        qDebug() << "evaluateExpression: invalid minSize" << minSize;
+        return false;
+    }
     
     time = signalData[signalNames[0]].first.mid(0, minSize);
     values.resize(minSize);
     
+    QMap<QString, QVector<double>> funcResults;
     QString expr = expression;
-    for (int i = 0; i < signalNames.size(); ++i) {
-        QString pattern = QString("V\\(%1\\)").arg(QRegularExpression::escape(signalNames[i]));
-        QRegularExpression re(pattern, QRegularExpression::CaseInsensitiveOption);
-        expr.replace(re, QString("s%1").arg(i));
+    
+    QRegularExpression funcRe("(derivative|integral)\\(([VI])\\(([^)]+)\\)\\)", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatchIterator itFunc = funcRe.globalMatch(expr);
+    QVector<QPair<QString, QString>> funcPlaceholders;
+    int funcIdx = 1000;
+    while (itFunc.hasNext()) {
+        QRegularExpressionMatch match = itFunc.next();
+        QString func = match.captured(1).toLower();
+        QString type = match.captured(2);
+        QString net = match.captured(3);
+        QString funcKey = match.captured(0);
+        
+        if (funcResults.contains(funcKey)) continue;
+        
+        QStringList prefixes = {net, QString("%1(%2)").arg(type).arg(net)};
+        QString sigKey;
+        for (const QString &k : prefixes) {
+            if (signalData.contains(k)) {
+                sigKey = k;
+                break;
+            }
+        }
+        if (!sigKey.isEmpty()) {
+            QVector<double> result;
+            if (func == "derivative") {
+                result = computeDerivative(signalData[sigKey].first, signalData[sigKey].second);
+            } else if (func == "integral") {
+                result = computeIntegral(signalData[sigKey].first, signalData[sigKey].second);
+            }
+            if (!result.isEmpty()) {
+                funcResults[funcKey] = result;
+                QString placeholder = QString("f%1").arg(funcIdx++);
+                funcPlaceholders.append({funcKey, placeholder});
+            }
+        }
     }
+    
+    for (const auto &p : funcPlaceholders) {
+        expr.replace(p.first, p.second);
+    }
+    
+    for (int i = 0; i < signalNames.size(); ++i) {
+        QStringList patterns = {
+            QString("V\\(%1\\)").arg(QRegularExpression::escape(signalNames[i])),
+            QString("I\\(%1\\)").arg(QRegularExpression::escape(signalNames[i])),
+            QString("P\\(%1\\)").arg(QRegularExpression::escape(signalNames[i]))
+        };
+        for (const QString &pattern : patterns) {
+            QRegularExpression re(pattern, QRegularExpression::CaseInsensitiveOption);
+            expr.replace(re, QString("s%1").arg(i));
+        }
+    }
+    
     qDebug() << "evaluateExpression: transformed expr=" << expr;
     
     qDebug() << "evaluateExpression: minSize=" << minSize << "time.size=" << time.size();
     
     QVector<QVector<double>> signalVectors;
+    signalVectors.reserve(signalNames.size());
     for (int idx = 0; idx < signalNames.size(); ++idx) {
         const QString &sig = signalNames[idx];
+        if (!signalData.contains(sig)) {
+            qDebug() << "evaluateExpression: ERROR - signalData missing during vector creation";
+            return false;
+        }
         signalVectors.append(signalData[sig].second.mid(0, minSize));
+        if (signalVectors.last().size() != minSize) {
+            qDebug() << "evaluateExpression: WARNING - vector size mismatch";
+        }
         qDebug() << "evaluateExpression: signal" << idx << "(" << sig << ") size=" << signalVectors.last().size() 
                  << "first 3 values:" << (signalVectors.last().size() > 0 ? signalVectors.last()[0] : 0) 
                  << (signalVectors.last().size() > 1 ? signalVectors.last()[1] : 0)
@@ -1288,11 +1752,6 @@ bool WaveformViewer::evaluateExpression(const QString &expression, const QString
     
     for (int i = 0; i < minSize; ++i) {
         QString eval = expr;
-        
-        // Replace signal references with their values
-        for (int j = 0; j < signalVectors.size(); ++j) {
-            eval.replace(QString("s%1").arg(j), QString::number(signalVectors[j][i]));
-        }
         
         // Simple left-to-right evaluation for basic arithmetic
         QStringList tokens;
@@ -1326,40 +1785,49 @@ bool WaveformViewer::evaluateExpression(const QString &expression, const QString
         QList<double> numbers;
         QList<QChar> remainingOps;
         
-        bool ok;
-        double firstNum = tokens[0].toDouble(&ok);
-        if (!ok) {
-            // Try to get from signal vectors
-            QRegularExpression re("s(\\d+)");
-            QRegularExpressionMatch match = re.match(tokens[0]);
+        if (tokens.isEmpty()) {
+            values[i] = 0.0;
+            continue;
+        }
+        
+        // Validate token/operator consistency
+        if (operators.size() >= tokens.size()) {
+            qDebug() << "evaluateExpression: ERROR - operators.size()" << operators.size() 
+                     << ">= tokens.size()" << tokens.size() << "for eval=" << eval;
+            values[i] = 0.0;
+            continue;
+        }
+        
+        auto resolveToken = [&](const QString &token) -> double {
+            bool ok;
+            double val = token.toDouble(&ok);
+            if (ok) return val;
+            
+            QRegularExpression sigRe("s(\\d+)");
+            QRegularExpressionMatch match = sigRe.match(token);
             if (match.hasMatch()) {
-                int signalIndex = match.captured(1).toInt();
-                if (signalIndex >= 0 && signalIndex < signalVectors.size()) {
-                    firstNum = signalVectors[signalIndex][i];
-                    ok = true;
+                int idx = match.captured(1).toInt();
+                if (idx >= 0 && idx < signalVectors.size() && i < signalVectors[idx].size()) {
+                    return signalVectors[idx][i];
                 }
             }
-        }
-        if (!ok) firstNum = 0.0;
-        numbers.append(firstNum);
+            
+            QRegularExpression funcRe("f(\\d+)");
+            match = funcRe.match(token);
+            if (match.hasMatch()) {
+                int idx = match.captured(1).toInt() - 1000;
+                if (idx >= 0 && idx < funcResults.size()) {
+                    return funcResults.values()[idx][qMin(i, funcResults.values()[idx].size() - 1)];
+                }
+            }
+            return 0.0;
+        };
+        
+        numbers.append(resolveToken(tokens[0]));
         
         for (int k = 0; k < operators.size(); ++k) {
             QChar op = operators[k];
-            bool nextOk;
-            double nextNum = tokens[k+1].toDouble(&nextOk);
-            if (!nextOk) {
-                // Try to get from signal vectors
-                QRegularExpression re("s(\\d+)");
-                QRegularExpressionMatch match = re.match(tokens[k+1]);
-                if (match.hasMatch()) {
-                    int signalIndex = match.captured(1).toInt();
-                    if (signalIndex >= 0 && signalIndex < signalVectors.size()) {
-                        nextNum = signalVectors[signalIndex][i];
-                        nextOk = true;
-                    }
-                }
-            }
-            if (!nextOk) nextNum = 0.0;
+            double nextNum = (k + 1 < tokens.size()) ? resolveToken(tokens[k+1]) : 0.0;
             
             if (op == '*') {
                 double prev = numbers.last();
@@ -1380,13 +1848,19 @@ bool WaveformViewer::evaluateExpression(const QString &expression, const QString
         }
         
         // Second pass: handle + and -
-        double result = numbers[0];
+        double result = numbers.isEmpty() ? 0.0 : numbers[0];
         for (int k = 0; k < remainingOps.size(); ++k) {
-            if (remainingOps[k] == '+') {
-                result += numbers[k+1];
-            } else if (remainingOps[k] == '-') {
-                result -= numbers[k+1];
+            if (k + 1 < numbers.size()) {
+                if (remainingOps[k] == '+') {
+                    result += numbers[k+1];
+                } else if (remainingOps[k] == '-') {
+                    result -= numbers[k+1];
+                }
             }
+        }
+        
+        if (!std::isfinite(result)) {
+            result = 0.0;
         }
         
         if (i < 3) {
@@ -1499,11 +1973,111 @@ double WaveformViewer::evaluateSimpleMath(const QString &expr, bool &ok) {
     return val;
 }
 
+void WaveformViewer::exportImage() {
+    QString path = QFileDialog::getSaveFileName(this, "Export Chart Image", QString(),
+        "PNG Image (*.png);;SVG Vector (*.svg);;PDF Document (*.pdf)");
+    if (path.isEmpty()) return;
+
+    if (path.endsWith(".svg", Qt::CaseInsensitive)) {
+        QRectF plotRect = m_chartView->rect();
+        QSvgGenerator generator;
+        generator.setFileName(path);
+        generator.setSize(plotRect.size().toSize());
+        generator.setViewBox(plotRect);
+        generator.setTitle("VioSpice Waveform");
+        QPainter painter(&generator);
+        painter.setRenderHint(QPainter::Antialiasing);
+        m_chartView->render(&painter);
+        painter.end();
+    } else if (path.endsWith(".pdf", Qt::CaseInsensitive)) {
+        QPrinter printer(QPrinter::HighResolution);
+        printer.setOutputFormat(QPrinter::PdfFormat);
+        printer.setOutputFileName(path);
+        printer.setPageSize(QPageSize(m_chartView->size(), QPageSize::Point));
+        QPainter painter(&printer);
+        painter.setRenderHint(QPainter::Antialiasing);
+        m_chartView->render(&painter);
+        painter.end();
+    } else {
+        QPixmap pixmap = m_chartView->grab();
+        if (!path.endsWith(".png", Qt::CaseInsensitive)) path += ".png";
+        pixmap.save(path, "PNG");
+    }
+}
+
+WaveformViewer::EdgeTimes WaveformViewer::computeEdgeTimes(const QVector<double>& time, const QVector<double>& values) const {
+    EdgeTimes result;
+    if (time.size() < 3 || time.size() != values.size()) return result;
+
+    double minVal = *std::min_element(values.begin(), values.end());
+    double maxVal = *std::max_element(values.begin(), values.end());
+    double range = maxVal - minVal;
+    if (range < 1e-15) return result;
+
+    double lo = minVal + range * 0.1;
+    double hi = minVal + range * 0.9;
+
+    QVector<double> riseTimes, fallTimes;
+
+    auto interpTime = [&](int idx, double threshold) -> double {
+        double y0 = values[idx], y1 = values[idx + 1];
+        if (std::abs(y1 - y0) < 1e-15) return time[idx];
+        double t = (threshold - y0) / (y1 - y0);
+        return time[idx] + t * (time[idx + 1] - time[idx]);
+    };
+
+    for (int i = 0; i < values.size() - 1; ++i) {
+        double y0 = values[i], y1 = values[i + 1];
+        // Rising edge: crosses 10% going up
+        if (y0 <= lo && y1 > lo) {
+            double t10 = interpTime(i, lo);
+            // Find next crossing of 90%
+            for (int j = i + 1; j < values.size() - 1; ++j) {
+                if (values[j] <= hi && values[j + 1] > hi) {
+                    double t90 = interpTime(j, hi);
+                    riseTimes.append(t90 - t10);
+                    i = j;
+                    break;
+                }
+                if (values[j + 1] < lo) break;
+            }
+        }
+        // Falling edge: crosses 90% going down
+        if (y0 >= hi && y1 < hi) {
+            double t90 = interpTime(i, hi);
+            for (int j = i + 1; j < values.size() - 1; ++j) {
+                if (values[j] >= lo && values[j + 1] < lo) {
+                    double t10 = interpTime(j, lo);
+                    fallTimes.append(t10 - t90);
+                    i = j;
+                    break;
+                }
+                if (values[j + 1] > hi) break;
+            }
+        }
+    }
+
+    auto computeStats = [](const QVector<double>& v, double& mn, double& mx, double& avg) {
+        if (v.isEmpty()) return;
+        mn = *std::min_element(v.begin(), v.end());
+        mx = *std::max_element(v.begin(), v.end());
+        double sum = 0;
+        for (double d : v) sum += d;
+        avg = sum / v.size();
+    };
+
+    result.riseCount = riseTimes.size();
+    result.fallCount = fallTimes.size();
+    if (result.riseCount > 0) computeStats(riseTimes, result.riseMin, result.riseMax, result.riseAvg);
+    if (result.fallCount > 0) computeStats(fallTimes, result.fallMin, result.fallMax, result.fallAvg);
+    return result;
+}
+
 void WaveformViewer::loadCsv(const QString&) {}
 
 void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
     if (seriesName.isEmpty()) return;
-    
+
     QString actualName = seriesName;
     if (!m_signals.contains(seriesName)) {
         for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
@@ -1513,17 +2087,87 @@ void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
             }
         }
     }
-    
+
     if (!m_signals.contains(actualName)) return;
-    
-    QStringList signalNames;
-    for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
-        signalNames << it.key();
+    auto &sig = m_signals[actualName];
+
+    QMenu menu;
+
+    // Color submenu
+    QMenu *colorMenu = menu.addMenu("Color");
+    colorMenu->addAction("Pick Color...");
+    colorMenu->addSeparator();
+    const QList<QPair<QString, QColor>> presetColors = {
+        {"Green", QColor(0, 204, 0)}, {"Blue", QColor(0, 0, 255)},
+        {"Red", QColor(255, 0, 0)}, {"Cyan", QColor(0, 255, 255)},
+        {"Magenta", QColor(255, 0, 255)}, {"Yellow", QColor(255, 255, 0)},
+        {"White", QColor(255, 255, 255)}, {"Orange", QColor(255, 165, 0)}
+    };
+    for (auto &pc : presetColors)
+        colorMenu->addAction(pc.first);
+
+    // Width submenu
+    QMenu *widthMenu = menu.addMenu("Line Width");
+    for (double w : {1.0, 1.5, 2.0, 3.0, 4.0}) {
+        QAction *a = widthMenu->addAction(QString::number(w));
+        a->setCheckable(true);
+        if (qFuzzyCompare(sig.lineWidth, w)) a->setChecked(true);
     }
-    
-    WaveformExpressionDialog dlg(actualName, signalNames, this);
-    if (dlg.exec() == QDialog::Accepted) {
-        onExpressionSubmitted(dlg.expression());
+
+    // Style submenu
+    QMenu *styleMenu = menu.addMenu("Line Style");
+    struct StyleOpt { QString name; Qt::PenStyle style; };
+    QList<StyleOpt> styles = {{"Solid", Qt::SolidLine}, {"Dash", Qt::DashLine},
+                              {"Dot", Qt::DotLine}, {"DashDot", Qt::DashDotLine}};
+    for (auto &s : styles) {
+        QAction *a = styleMenu->addAction(s.name);
+        a->setCheckable(true);
+        if (sig.penStyle == s.style) a->setChecked(true);
+    }
+
+    menu.addSeparator();
+    QAction *exprAct = menu.addAction("Expression...");
+
+    QAction *chosen = menu.exec(QCursor::pos());
+    if (!chosen) return;
+
+    // Handle color
+    if (chosen->text() == "Pick Color...") {
+        QColor c = QColorDialog::getColor(sig.customColor.isValid() ? sig.customColor : Qt::white, this, "Signal Color");
+        if (c.isValid()) { sig.customColor = c; updatePlot(); }
+    } else {
+        for (auto &pc : presetColors) {
+            if (chosen->text() == pc.first) {
+                sig.customColor = pc.second;
+                updatePlot();
+                return;
+            }
+        }
+    }
+
+    // Handle width
+    bool isWidth = false;
+    double w = chosen->text().toDouble(&isWidth);
+    if (isWidth) { sig.lineWidth = w; updatePlot(); return; }
+
+    // Handle style
+    for (auto &s : styles) {
+        if (chosen->text() == s.name) {
+            sig.penStyle = s.style;
+            updatePlot();
+            return;
+        }
+    }
+
+    // Expression
+    if (chosen == exprAct) {
+        QStringList signalNames;
+        for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it)
+            signalNames << it.key();
+        QColor existingColor = sig.customColor;
+        WaveformExpressionDialog dlg(actualName, signalNames, existingColor, actualName, this);
+        if (dlg.exec() == QDialog::Accepted)
+            onExpressionSubmitted(dlg.expression(), dlg.signalColor(), actualName);
     }
 }
 
@@ -1640,6 +2284,98 @@ void WaveformViewer::showAnalysisForSeries(const QString &seriesName) {
                                 avgStr,
                                 rmsOrIntegralLabel,
                                 isPower);
+
+    // Compute rise/fall times (only for non-AC, non-power signals with enough data)
+    if (!m_acMode && data.type != SignalType::POWER && data.time.size() >= 3) {
+        auto edges = computeEdgeTimes(data.time, data.values);
+        auto fmtTime = [](double t) -> QString {
+            return SiFormatter::format(t, "s");
+        };
+        m_analysisDialog->setEdgeTimes(
+            edges.riseCount,
+            edges.riseCount > 0 ? fmtTime(edges.riseMin) : "---",
+            edges.riseCount > 0 ? fmtTime(edges.riseAvg) : "---",
+            edges.riseCount > 0 ? fmtTime(edges.riseMax) : "---",
+            edges.fallCount,
+            edges.fallCount > 0 ? fmtTime(edges.fallMin) : "---",
+            edges.fallCount > 0 ? fmtTime(edges.fallAvg) : "---",
+            edges.fallCount > 0 ? fmtTime(edges.fallMax) : "---"
+        );
+
+        // Signal properties: vpp, period, frequency, duty cycle, pulse width, overshoot, undershoot
+        double minVal = *std::min_element(data.values.begin(), data.values.end());
+        double maxVal = *std::max_element(data.values.begin(), data.values.end());
+        double vpp = maxVal - minVal;
+        double mid = (maxVal + minVal) / 2.0;
+
+        // Find rising edge crossings at midpoint to measure period
+        QVector<double> periods, highTimes;
+        double lastRiseTime = -1;
+        bool aboveMid = false;
+        auto interp = [&](int idx, double thresh) -> double {
+            double y0 = data.values[idx], y1 = data.values[idx + 1];
+            if (std::abs(y1 - y0) < 1e-15) return data.time[idx];
+            double t = (thresh - y0) / (y1 - y0);
+            return data.time[idx] + t * (data.time[idx + 1] - data.time[idx]);
+        };
+
+        for (int i = 0; i < data.values.size() - 1; ++i) {
+            if (!aboveMid && data.values[i] <= mid && data.values[i + 1] > mid) {
+                double riseT = interp(i, mid);
+                if (lastRiseTime > 0)
+                    periods.append(riseT - lastRiseTime);
+                lastRiseTime = riseT;
+                aboveMid = true;
+            } else if (aboveMid && data.values[i] >= mid && data.values[i + 1] < mid) {
+                double fallT = interp(i, mid);
+                if (lastRiseTime > 0)
+                    highTimes.append(fallT - lastRiseTime);
+                aboveMid = false;
+            }
+        }
+
+        QString vppStr = SiFormatter::format(vpp, unit);
+        QString periodStr = "---", freqStr = "---", dutyStr = "---", pulseStr = "---";
+        if (!periods.isEmpty()) {
+            double avgPeriod = std::accumulate(periods.begin(), periods.end(), 0.0) / periods.size();
+            periodStr = SiFormatter::format(avgPeriod, "s");
+            freqStr = SiFormatter::format(1.0 / avgPeriod, "Hz");
+            if (!highTimes.isEmpty()) {
+                double avgHigh = std::accumulate(highTimes.begin(), highTimes.end(), 0.0) / highTimes.size();
+                double duty = avgHigh / avgPeriod * 100.0;
+                dutyStr = QString::number(duty, 'f', 1) + " %";
+                pulseStr = SiFormatter::format(avgHigh, "s");
+            }
+        }
+
+        // Overshoot / undershoot: compare max/min to steady-state levels
+        // Steady-state = median of values in upper/lower half
+        QVector<double> sorted = data.values;
+        std::sort(sorted.begin(), sorted.end());
+        double median = sorted[sorted.size() / 2];
+        double highLevel = 0, lowLevel = 0;
+        int highCnt = 0, lowCnt = 0;
+        for (double v : data.values) {
+            if (v >= median) { highLevel += v; highCnt++; }
+            else { lowLevel += v; lowCnt++; }
+        }
+        if (highCnt > 0) highLevel /= highCnt;
+        if (lowCnt > 0) lowLevel /= lowCnt;
+
+        QString overshootStr = "---", undershootStr = "---";
+        double swing = highLevel - lowLevel;
+        if (swing > 1e-15) {
+            double os = (maxVal - highLevel) / swing * 100.0;
+            double us = (lowLevel - minVal) / swing * 100.0;
+            if (os > 0.01) overshootStr = QString::number(os, 'f', 2) + " %";
+            else overshootStr = "0.00 %";
+            if (us > 0.01) undershootStr = QString::number(us, 'f', 2) + " %";
+            else undershootStr = "0.00 %";
+        }
+
+        m_analysisDialog->setSignalProperties(vppStr, periodStr, freqStr, dutyStr, pulseStr, overshootStr, undershootStr);
+    }
+
     m_analysisDialog->show();
     m_analysisDialog->raise();
     m_analysisDialog->activateWindow();
@@ -1654,6 +2390,9 @@ QList<WaveformViewer::SignalExport> WaveformViewer::exportSignals() const {
         exp.values = it->values;
         exp.phase = it->phase;
         exp.hasPhase = it->hasPhase;
+        exp.customColor = it->customColor;
+        exp.lineWidth = it->lineWidth;
+        exp.penStyle = it->penStyle;
         exp.checked = false;
         for (int i = 0; i < m_nodeList->count(); ++i) {
             if (m_nodeList->item(i)->text() == it->name) {
@@ -1672,6 +2411,12 @@ void WaveformViewer::importSignals(const QList<SignalExport>& signalExports) {
             addSignal(sig.name, sig.time, sig.values, sig.phase);
         } else {
             addSignal(sig.name, sig.time, sig.values);
+        }
+        if (m_signals.contains(sig.name)) {
+            auto &sd = m_signals[sig.name];
+            sd.customColor = sig.customColor;
+            sd.lineWidth = sig.lineWidth;
+            sd.penStyle = sig.penStyle;
         }
         setSignalChecked(sig.name, sig.checked);
     }

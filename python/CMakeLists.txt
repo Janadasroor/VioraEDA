@@ -1,5 +1,6 @@
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
 
+if(VIOSPICE_ENABLE_PYTHON)
 add_library(FluxPython STATIC
     python_manager.cpp
     python_manager.h
@@ -20,3 +21,4 @@ target_include_directories(FluxPython PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../schematic/io
     ${CMAKE_CURRENT_SOURCE_DIR}/../schematic/items
 )
+endif()

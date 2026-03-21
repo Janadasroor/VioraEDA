@@ -9,7 +9,7 @@
 #include <functional>
 
 enum class SimAnalysisType {
-    OP, Transient, AC, MonteCarlo, Sensitivity, ParametricSweep, Noise, Distortion, Optimization, FFT, RealTime
+    OP, Transient, AC, DC, MonteCarlo, Sensitivity, ParametricSweep, Noise, Distortion, Optimization, FFT, RealTime
 };
 
 enum class SimIntegrationMethod {

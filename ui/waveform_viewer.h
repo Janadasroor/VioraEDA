@@ -10,6 +10,7 @@
 #include <QListWidget>
 #include <QStringList>
 #include <QMap>
+#include <QColor>
 #include <QVector>
 #include <vector>
 #include <QLabel>
@@ -28,11 +29,13 @@ signals:
     void mouseMoved(const QPointF &value);
     void cursorMoved(int id, double x);
     void legendCtrlClicked(const QString &seriesName);
+    void contextMenuRequested(const QPoint &globalPos);
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
     void drawForeground(QPainter *painter, const QRectF &rect) override;
 
 private:
@@ -43,6 +46,8 @@ private:
     bool m_showCursors = false;
     bool m_crosshairEnabled = false;
     QPointF m_mousePos;
+    bool m_panning = false;
+    QPointF m_panStart;
 
 public:
     void setCursorsEnabled(bool enabled) { m_showCursors = enabled; viewport()->update(); }
@@ -66,6 +71,7 @@ public:
     void loadCsv(const QString &fileName);
     void addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values);
     void addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values, const QVector<double>& phase);
+    void addSignal(const QString& name, const QVector<double>& time, const QVector<double>& values, const QColor &color);
     void setSignalChecked(const QString& name, bool checked);
     void appendPoint(const QString& name, double x, double y);
     void appendPoints(const QString& name, const std::vector<double>& times, const std::vector<double>& values);
@@ -87,11 +93,17 @@ public:
         QVector<double> phase;
         bool hasPhase = false;
         bool checked = false;
+        QColor customColor;
+        double lineWidth = 1.5;
+        Qt::PenStyle penStyle = Qt::SolidLine;
     };
     QList<SignalExport> exportSignals() const;
     void importSignals(const QList<SignalExport>& signalExports);
     bool getSignalData(const QString& name, QVector<double>& time, QVector<double>& values);
     QStringList getSignalNames() const;
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override;
 
 private slots:
     void onNodeSelected();
@@ -99,6 +111,7 @@ private slots:
     void zoomOut();
     void resetZoom();
     void onMouseMoved(const QPointF &value);
+    void onContextMenuRequested(const QPoint &globalPos);
     void toggleCursors();
     void toggleCrosshair();
     void updateCursors();
@@ -106,7 +119,8 @@ private slots:
     void updateZoomAnalysis();
     void onSubtractRequested();
     void onFftRequested();
-    void onExpressionSubmitted(const QString &expression);
+    void exportImage();
+    void onExpressionSubmitted(const QString &expression, const QColor &color = QColor(), const QString &targetName = QString());
     void onLegendCtrlClicked(const QString &seriesName);
 
 private:
@@ -138,6 +152,9 @@ private:
         QVector<double> values;
         QVector<double> phase;
         bool hasPhase = false;
+        QColor customColor;
+        double lineWidth = 1.5;
+        Qt::PenStyle penStyle = Qt::SolidLine;
     };
     
     QMap<QString, SignalData> m_signals;
@@ -149,10 +166,21 @@ private:
     void zoomFitYOnly();
     void updateNodeItemStyle(QListWidgetItem* item);
     void showAnalysisForSeries(const QString &seriesName);
+    void exportSignalsCsv();
+    bool buildValueAtCursor(QString &outText) const;
     bool parseExpression(const QString &expression, QStringList &signalNames, QString &error);
     bool evaluateExpression(const QString &expression, const QStringList &signalNames, QVector<double> &time, QVector<double> &values);
     double evaluateSimpleMath(const QString &expr, bool &ok);
     double evaluateOperand(const QString &operand, const QVector<QVector<double>> &signalVectors, int index);
+
+    struct EdgeTimes {
+        double riseMin = 0, riseMax = 0, riseAvg = 0;
+        double fallMin = 0, fallMax = 0, fallAvg = 0;
+        int riseCount = 0, fallCount = 0;
+    };
+    EdgeTimes computeEdgeTimes(const QVector<double>& time, const QVector<double>& values) const;
+    QVector<double> computeDerivative(const QVector<double>& time, const QVector<double>& values);
+    QVector<double> computeIntegral(const QVector<double>& time, const QVector<double>& values);
 
     bool m_preserveXRangeOnce = false;
     double m_preserveXMin = 0.0;
@@ -160,4 +188,6 @@ private:
     int m_holdXRangeCount = 0;
     double m_holdXMin = 0.0;
     double m_holdXMax = 0.0;
+    QPointF m_lastMouseValue;
+    bool m_hasLastMouseValue = false;
 };
