@@ -12,7 +12,7 @@
 DeveloperHelpWindow::DeveloperHelpWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("Viora EDA - Developer Portal & Architecture");
+    setWindowTitle("viospice - Developer Portal & Architecture");
     resize(1200, 800);
     
     setupUi();

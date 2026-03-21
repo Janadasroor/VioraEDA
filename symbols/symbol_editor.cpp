@@ -36,6 +36,14 @@
 #include <QFileDialog>
 #include <QStyleOptionGraphicsItem>
 #include <QPainterPathStroker>
+#include <QTabWidget>
+#include <QFormLayout>
+#include <QLineEdit>
+#include <QSpinBox>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QTableWidget>
+#include <QHeaderView>
 
 namespace {
 QString runThemedOpenFileDialog(QWidget* parent, const QString& title, const QString& filter) {
@@ -1176,8 +1184,6 @@ void SymbolEditor::setupUI() {
 
     // ZONE 1: THE INSPECTOR (Right Side - Properties & Metadata)
     // ---------------------------------------------------------
-    auto* infoDock = new QDockWidget("Symbol Metadata", this);
-    infoDock->setObjectName("SymbolInfoDock");
     createSymbolInfoPanel();
     // ... metadata setup ...
     auto* infoContainer = new QWidget();
@@ -1245,27 +1251,97 @@ void SymbolEditor::setupUI() {
     actionLayout->addWidget(fieldsBtn);
     infoLayout->addWidget(actionGroup);
     infoLayout->addStretch();
-    infoDock->setWidget(infoContainer);
-    addDockWidget(Qt::RightDockWidgetArea, infoDock);
+    // Info panel is embedded into the right-side tab set (no separate dock).
 
-    auto* propsDock = new QDockWidget("Selection Properties", this);
-    propsDock->setObjectName("PropertiesDock");
+    // Create single Properties dock with tabs on the right side
+    m_propsDock = new QDockWidget("Properties", this);
+    m_propsDock->setObjectName("PropertiesDock");
+    
+    m_propsTabWidget = new QTabWidget();
+    m_propsTabWidget->setTabPosition(QTabWidget::East);
+    m_propsTabWidget->setDocumentMode(true);
+    m_propsTabWidget->tabBar()->setExpanding(false);
+    m_propsTabWidget->tabBar()->setUsesScrollButtons(true);
+    m_propsTabWidget->tabBar()->setElideMode(Qt::ElideRight);
+    m_propsTabWidget->tabBar()->setFixedWidth(28);
+    
+    // Apply styling for vertical tabs on right
+    bool isLightTheme = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
+    QString tabStyle;
+    if (isLightTheme) {
+        tabStyle = R"(
+            QTabWidget::pane { border: 1px solid #cbd5e1; border-right: none; background-color: #ffffff; }
+            QTabBar::tab {
+                background-color: #f1f5f9;
+                color: #64748b;
+                border: 1px solid #cbd5e1;
+                border-left: none;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+                padding: 2px 2px;
+                min-width: 24px;
+                min-height: 64px;
+                font-weight: 600;
+                margin: 0;
+            }
+            QTabBar::tab:selected {
+                background-color: #ffffff;
+                color: #1f2937;
+                border-right: 3px solid #10b981;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #e2e8f0;
+            }
+        )";
+    } else {
+        tabStyle = R"(
+            QTabWidget::pane { border: 1px solid #3f3f46; border-right: none; background-color: #1e1e1e; }
+            QTabBar::tab {
+                background-color: #2d2d2d;
+                color: #9ca3af;
+                border: 1px solid #3f3f46;
+                border-left: none;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+                padding: 2px 2px;
+                min-width: 24px;
+                min-height: 64px;
+                font-weight: 600;
+                margin: 0;
+            }
+            QTabBar::tab:selected {
+                background-color: #1e1e1e;
+                color: #e5e7eb;
+                border-right: 3px solid #10b981;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #3f3f46;
+            }
+        )";
+    }
+    m_propsTabWidget->setStyleSheet(tabStyle);
+    
+    // Tab 1: Selection Properties
     m_propertyEditor = new PropertyEditor();
     connect(m_propertyEditor, &PropertyEditor::propertyChanged, this, &SymbolEditor::onPropertyChanged);
-    propsDock->setWidget(m_propertyEditor);
-    addDockWidget(Qt::RightDockWidgetArea, propsDock);
-
-    auto* aiDock = new QDockWidget("✨ Gemini Assistant", this);
-    aiDock->setObjectName("GeminiDock");
+    m_propsTabWidget->addTab(m_propertyEditor, "Selection");
+    
+    // Tab 2: Symbol Metadata (editable)
+    m_propsTabWidget->addTab(infoContainer, "Metadata");
+    
+    // Tab 3: Gemini Assistant
+    auto* aiWidget = new QWidget();
+    auto* aiLayout = new QVBoxLayout(aiWidget);
+    aiLayout->setContentsMargins(0, 0, 0, 0);
     m_aiPanel = new GeminiPanel(m_scene, this);
     m_aiPanel->setMode("symbol");
     connect(m_aiPanel, &GeminiPanel::symbolJsonGenerated, this, &SymbolEditor::onAiSymbolGenerated);
-    aiDock->setWidget(m_aiPanel);
-    addDockWidget(Qt::RightDockWidgetArea, aiDock);
-
-    // Keep Selection Properties visible by default (not tabbed)
-    tabifyDockWidget(infoDock, aiDock);
-    propsDock->raise();
+    aiLayout->addWidget(m_aiPanel);
+    m_propsTabWidget->addTab(aiWidget, "Gemini AI");
+    
+    m_propsDock->setWidget(m_propsTabWidget);
+    addDockWidget(Qt::RightDockWidgetArea, m_propsDock);
+    m_propsDock->raise();
 
     // ZONE 2: THE NAVIGATOR (Left Side - Assets & Wizards)
     // ----------------------------------------------------
@@ -1420,17 +1496,21 @@ void SymbolEditor::connectViewSignals() {
             if (visual) m_undoStack->push(new AddPrimitiveCommand(this, prim, visual));
         } else if (m_currentTool == Bezier && m_polyPoints.size() >= 2) {
             // If we have at least start and end, we could finalize but Bezier really needs 4.
+        } else if (m_currentTool == Pen && m_penPoints.size() >= 2) {
+            finalizePenPath();
         }
 
-        if (m_selectAction) m_selectAction->trigger();
+        // Switch to select tool
+        m_currentTool = Select;
+        m_view->setCurrentTool(0);
+        m_view->setDragMode(QGraphicsView::RubberBandDrag);
         
         // Cleanup state
         m_polyPoints.clear();
-        if (m_previewItem) {
-            m_scene->removeItem(m_previewItem);
-            delete m_previewItem;
-            m_previewItem = nullptr;
-        }
+        clearPenState();
+        
+        // Update toolbar check state
+        if (m_selectAction) m_selectAction->setChecked(true);
     });
 
     connect(m_view, &SymbolEditorView::contextMenuRequested, this, &SymbolEditor::onCanvasContextMenu);
@@ -1441,6 +1521,12 @@ void SymbolEditor::connectViewSignals() {
     connect(m_view, &SymbolEditorView::flipVRequested,     this, &SymbolEditor::onFlipV);
     connect(m_view, &SymbolEditorView::coordinatesChanged, this, &SymbolEditor::updateCoordinates);
     connect(m_view, &SymbolEditorView::itemErased,         this, &SymbolEditor::onItemErased);
+    
+    // Pen tool signals
+    connect(m_view, &SymbolEditorView::penPointAdded, this, &SymbolEditor::onPenPointAdded);
+    connect(m_view, &SymbolEditorView::penHandleDragged, this, &SymbolEditor::onPenHandleDragged);
+    connect(m_view, &SymbolEditorView::penPointFinished, this, &SymbolEditor::onPenPointFinished);
+    connect(m_view, &SymbolEditorView::penPathClosed, this, &SymbolEditor::onPenPathClosed);
 
     // Items dragged in Select mode → move primitives via undo command
     connect(m_view, &SymbolEditorView::itemsMoved, this, [this](QPointF delta) {
@@ -1799,11 +1885,9 @@ void SymbolEditor::createMenuBar() {
         }
     };
 
-    addDockToggle("Show Symbol Info", "SymbolInfoDock");
     addDockToggle("Show Properties",  "PropertiesDock");
     addDockToggle("Show Library Browser", "LibraryDock");
     addDockToggle("Show IC Wizard", "WizardDock");
-    addDockToggle("Show AI Assistant", "GeminiDock");
     viewMenu->addSeparator();
     addDockToggle("Show Pin Table", "PinDock");
     addDockToggle("Show JSON Preview", "CodeDock");
@@ -1817,20 +1901,16 @@ void SymbolEditor::createMenuBar() {
         }
         
         // Logical zones
-        QDockWidget* info = findChild<QDockWidget*>("SymbolInfoDock");
         QDockWidget* props = findChild<QDockWidget*>("PropertiesDock");
-        QDockWidget* ai = findChild<QDockWidget*>("GeminiDock");
         QDockWidget* lib = findChild<QDockWidget*>("LibraryDock");
         QDockWidget* wiz = findChild<QDockWidget*>("WizardDock");
         QDockWidget* pin = findChild<QDockWidget*>("PinDock");
         QDockWidget* code = findChild<QDockWidget*>("CodeDock");
         QDockWidget* src = findChild<QDockWidget*>("SRCDock");
 
-        if (info && props && ai) {
-            addDockWidget(Qt::RightDockWidgetArea, info);
-            tabifyDockWidget(info, props);
-            tabifyDockWidget(props, ai);
-            info->raise();
+        if (props) {
+            addDockWidget(Qt::RightDockWidgetArea, props);
+            props->raise();
         }
         if (lib && wiz) {
             addDockWidget(Qt::LeftDockWidgetArea, lib);
@@ -1980,6 +2060,7 @@ void SymbolEditor::createToolBar() {
     addTool("Arc",     ":/icons/tool_arc.svg",     Arc,     "A");
     addTool("Polygon", ":/icons/tool_polygon.svg", Polygon, "G");
     addTool("Bezier",  ":/icons/tool_bezier.svg",  Bezier,  "B");
+    addTool("Pen",     ":/icons/tool_pen.svg",     Pen,     "Y");
     addTool("Image",   ":/icons/tool_image.svg",   SymbolEditor::Image,  "I");
     addTool("Text",    ":/icons/tool_text.svg",    Text,    "T");
     addTool("Erase",   ":/icons/tool_erase.svg",   Erase,   "E");
@@ -2332,11 +2413,128 @@ void SymbolEditor::createSymbolInfoPanel() {
     connect(m_prefixEdit, &QLineEdit::textChanged, this, &SymbolEditor::updateCodePreview);
     connect(m_descriptionEdit, &QLineEdit::textChanged, this, &SymbolEditor::updateCodePreview);
     connect(m_categoryCombo, &QComboBox::currentTextChanged, this, &SymbolEditor::updateCodePreview);
-    connect(m_modelSourceCombo, &QComboBox::currentIndexChanged, this, &SymbolEditor::updateCodePreview);
-    connect(m_modelPathEdit, &QLineEdit::textChanged, this, &SymbolEditor::updateCodePreview);
-    connect(m_modelNameEdit, &QLineEdit::textChanged, this, &SymbolEditor::updateCodePreview);
-    connect(m_modelPathEdit, &QLineEdit::editingFinished, this, &SymbolEditor::tryAutoDetectModelName);
-    connect(m_modelSourceCombo, &QComboBox::currentIndexChanged, this, &SymbolEditor::tryAutoDetectModelName);
+}
+
+QWidget* SymbolEditor::createSymbolMetadataWidget() {
+    auto* widget = new QWidget();
+    auto* layout = new QVBoxLayout(widget);
+    layout->setContentsMargins(4, 4, 4, 4);
+    
+    // Apply light theme styling
+    bool isLightTheme = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
+    QString lightStyle;
+    if (isLightTheme) {
+        lightStyle = R"(
+            QWidget { background-color: #f8fafc; color: #1f2937; }
+            QGroupBox { font-weight: bold; border: 1px solid #cbd5e1; border-radius: 4px; margin-top: 8px; padding-top: 8px; background-color: #ffffff; }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #374151; }
+            QFormLayout { spacing: 6px; }
+            QFormLayout > QWidget { background-color: transparent; }
+            QLabel { background-color: transparent; color: #374151; }
+            QLabel[objectName="metaName"] { font-weight: bold; color: #059669; }
+            QTableWidget { background-color: #ffffff; alternate-background-color: #f1f5f9; gridline-color: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 4px; }
+            QTableWidget::item { color: #1f2937; }
+            QTableWidget::item:selected { background-color: #dbeafe; color: #1e40af; }
+            QHeaderView::section { background-color: #f1f5f9; color: #475569; border: none; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 4px; font-weight: bold; }
+            QScrollArea { background-color: transparent; border: none; }
+            QScrollBar:vertical { background: #f1f5f9; width: 8px; }
+            QScrollBar::handle:vertical { background: #cbd5e1; border-radius: 4px; }
+        )";
+        widget->setStyleSheet(lightStyle);
+    }
+    
+    // Create scroll area
+    auto* scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { border: none; }");
+    
+    auto* content = new QWidget();
+    auto* form = new QFormLayout(content);
+    form->setLabelAlignment(Qt::AlignLeft);
+    form->setSpacing(6);
+    
+    // Basic Info Section
+    auto* basicGroup = new QGroupBox("Basic Information");
+    auto* basicLayout = new QFormLayout(basicGroup);
+    basicLayout->setLabelAlignment(Qt::AlignLeft);
+    
+    QLabel* nameLabel = new QLabel();
+    nameLabel->setObjectName("metaName");
+    basicLayout->addRow("Name:", nameLabel);
+    
+    QLabel* descLabel = new QLabel();
+    descLabel->setObjectName("metaDesc");
+    descLabel->setWordWrap(true);
+    basicLayout->addRow("Description:", descLabel);
+    
+    QLabel* categoryLabel = new QLabel();
+    categoryLabel->setObjectName("metaCategory");
+    basicLayout->addRow("Category:", categoryLabel);
+    
+    QLabel* prefixLabel = new QLabel();
+    prefixLabel->setObjectName("metaPrefix");
+    basicLayout->addRow("Prefix:", prefixLabel);
+    
+    QLabel* unitCountLabel = new QLabel();
+    unitCountLabel->setObjectName("metaUnits");
+    basicLayout->addRow("Unit Count:", unitCountLabel);
+    
+    form->addRow(basicGroup);
+    
+    // SPICE Model Section
+    auto* spiceGroup = new QGroupBox("SPICE Model");
+    auto* spiceLayout = new QFormLayout(spiceGroup);
+    
+    QLabel* modelNameLabel = new QLabel();
+    modelNameLabel->setObjectName("metaModelName");
+    modelNameLabel->setWordWrap(true);
+    spiceLayout->addRow("Model Name:", modelNameLabel);
+    
+    QLabel* modelSourceLabel = new QLabel();
+    modelSourceLabel->setObjectName("metaModelSource");
+    spiceLayout->addRow("Source:", modelSourceLabel);
+    
+    QLabel* modelPathLabel = new QLabel();
+    modelPathLabel->setObjectName("metaModelPath");
+    modelPathLabel->setWordWrap(true);
+    spiceLayout->addRow("Path:", modelPathLabel);
+    
+    form->addRow(spiceGroup);
+    
+    // Physical Info Section
+    auto* physicalGroup = new QGroupBox("Physical");
+    auto* physicalLayout = new QFormLayout(physicalGroup);
+    
+    QLabel* footprintLabel = new QLabel();
+    footprintLabel->setObjectName("metaFootprint");
+    physicalLayout->addRow("Default Footprint:", footprintLabel);
+    
+    QLabel* datasheetLabel = new QLabel();
+    datasheetLabel->setObjectName("metaDatasheet");
+    datasheetLabel->setOpenExternalLinks(true);
+    physicalLayout->addRow("Datasheet:", datasheetLabel);
+    
+    form->addRow(physicalGroup);
+    
+    // Custom Fields Section
+    auto* fieldsGroup = new QGroupBox("Custom Fields");
+    auto* fieldsLayout = new QVBoxLayout(fieldsGroup);
+    
+    auto* fieldsTable = new QTableWidget(0, 2);
+    fieldsTable->setObjectName("metaFieldsTable");
+    fieldsTable->setHorizontalHeaderLabels({"Field", "Value"});
+    fieldsTable->horizontalHeader()->setStretchLastSection(true);
+    fieldsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    fieldsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    fieldsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    fieldsLayout->addWidget(fieldsTable);
+    
+    form->addRow(fieldsGroup);
+    
+    layout->addWidget(scroll);
+    
+    return widget;
 }
 
 void SymbolEditor::createLibraryBrowser() {
@@ -2692,6 +2890,11 @@ void SymbolEditor::onToolSelected() {
         return;
     }
 
+    // Clear pen state when switching tools
+    if (m_currentTool != Pen) {
+        clearPenState();
+    }
+    
     m_view->setCurrentTool(static_cast<int>(m_currentTool));
     m_view->setDragMode(m_currentTool == Select ? QGraphicsView::RubberBandDrag
                                                 : QGraphicsView::NoDrag);
@@ -2832,7 +3035,7 @@ void SymbolEditor::onExportVioSym() {
     QDir().mkpath(baseDir);
     QString suggested = QDir(baseDir).filePath(m_nameEdit->text().trimmed() + ".viosym");
 
-    QString path = runThemedSaveFileDialog(this, "Export Symbol (.viosym)", "Viora Symbol (*.viosym)", suggested);
+    QString path = runThemedSaveFileDialog(this, "Export Symbol (.viosym)", "viospice Symbol (*.viosym)", suggested);
     if (path.isEmpty()) return;
     if (!path.endsWith(".viosym", Qt::CaseInsensitive)) path += ".viosym";
 
@@ -3839,6 +4042,211 @@ void SymbolEditor::onAiSymbolGenerated(const QString& json) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  SymbolEditor – Pen Tool (Figma-style bezier path)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void SymbolEditor::onPenPointAdded(QPointF pos) {
+    if (m_currentTool != Pen) return;
+    
+    // Check if clicking on first point to close path
+    if (m_penPoints.size() > 2) {
+        if (QLineF(pos, m_penPoints.first().pos).length() < 8.0) {
+            onPenPathClosed();
+            return;
+        }
+    }
+    
+    PenPoint newPoint;
+    newPoint.pos = pos;
+    newPoint.handleIn = QPointF(0, 0);
+    newPoint.handleOut = QPointF(0, 0);
+    newPoint.smooth = false;
+    m_penPoints.append(newPoint);
+    updatePenPreview();
+}
+
+void SymbolEditor::onPenHandleDragged(QPointF handlePos) {
+    if (m_currentTool != Pen || m_penPoints.isEmpty()) return;
+    
+    PenPoint& lastPoint = m_penPoints.last();
+    QPointF delta = handlePos - lastPoint.pos;
+    
+    // Set handleOut (going out of this point)
+    lastPoint.handleOut = delta;
+    
+    // If smooth mode, mirror the handle
+    if (lastPoint.smooth) {
+        lastPoint.handleIn = -delta;
+    }
+    
+    updatePenPreview();
+}
+
+void SymbolEditor::onPenPointFinished() {
+    if (m_currentTool != Pen) return;
+    
+    // If we have enough points and user presses Enter, finalize the path
+    if (m_penPoints.size() >= 2) {
+        // Path is ready but waiting for explicit finish (Enter key)
+    }
+    updatePenPreview();
+}
+
+void SymbolEditor::onPenPathClosed() {
+    if (m_currentTool != Pen || m_penPoints.size() < 3) return;
+    finalizePenPath();
+}
+
+void SymbolEditor::finalizePenPath() {
+    if (m_penFinalizing) return;
+    if (m_penPoints.size() < 2) {
+        clearPenState();
+        return;
+    }
+    m_penFinalizing = true;
+    
+    // Convert pen points to bezier curve primitives
+    // Each segment between two points becomes a bezier curve
+    
+    for (int i = 0; i < m_penPoints.size(); ++i) {
+        PenPoint& p1 = m_penPoints[i];
+        PenPoint& p2 = m_penPoints[(i + 1) % m_penPoints.size()];
+        
+        // Calculate control points for bezier curve
+        QPointF cp1 = p1.pos + p1.handleOut;
+        QPointF cp2 = p2.pos + p2.handleIn;
+        QPointF end = p2.pos;
+        
+        // Only create curve if there's at least one handle
+        if (p1.handleOut != QPointF(0, 0) || p2.handleIn != QPointF(0, 0)) {
+            SymbolPrimitive prim = SymbolPrimitive::createBezier(p1.pos, cp1, cp2, end);
+            prim.setUnit(m_currentUnit);
+            prim.setBodyStyle(m_currentStyle);
+            QGraphicsItem* visual = buildVisual(prim, m_symbol.primitives().size());
+            if (visual) {
+                m_undoStack->push(new AddPrimitiveCommand(this, prim, visual));
+            }
+        } else {
+            // Straight line if no handles
+            SymbolPrimitive prim = SymbolPrimitive::createLine(p1.pos, end);
+            prim.setUnit(m_currentUnit);
+            prim.setBodyStyle(m_currentStyle);
+            QGraphicsItem* visual = buildVisual(prim, m_symbol.primitives().size());
+            if (visual) {
+                m_undoStack->push(new AddPrimitiveCommand(this, prim, visual));
+            }
+        }
+    }
+    
+    clearPenState();
+}
+
+void SymbolEditor::clearPenState() {
+    m_penPoints.clear();
+    m_selectedPenPoint = -1;
+    
+    if (m_penPreviewItem) {
+        m_scene->removeItem(m_penPreviewItem);
+        delete m_penPreviewItem;
+        m_penPreviewItem = nullptr;
+    }
+    
+    for (auto* marker : m_penPointMarkers) {
+        m_scene->removeItem(marker);
+        delete marker;
+    }
+    m_penPointMarkers.clear();
+    
+    for (auto* line : m_penHandleLines) {
+        m_scene->removeItem(line);
+        delete line;
+    }
+    m_penHandleLines.clear();
+}
+
+void SymbolEditor::updatePenPreview() {
+    if (m_currentTool != Pen) return;
+    
+    // Clear previous preview
+    if (m_penPreviewItem) {
+        m_scene->removeItem(m_penPreviewItem);
+        delete m_penPreviewItem;
+        m_penPreviewItem = nullptr;
+    }
+    for (auto* marker : m_penPointMarkers) {
+        m_scene->removeItem(marker);
+        delete marker;
+    }
+    m_penPointMarkers.clear();
+    for (auto* line : m_penHandleLines) {
+        m_scene->removeItem(line);
+        delete line;
+    }
+    m_penHandleLines.clear();
+    
+    if (m_penPoints.isEmpty()) return;
+    
+    // Build the path
+    QPainterPath path;
+    path.moveTo(m_penPoints.first().pos);
+    
+    for (int i = 0; i < m_penPoints.size(); ++i) {
+        PenPoint& p = m_penPoints[i];
+        PenPoint& next = m_penPoints[(i + 1) % m_penPoints.size()];
+        
+        QPointF cp1 = p.pos + p.handleOut;
+        QPointF cp2 = next.pos + next.handleIn;
+        
+        if (p.handleOut != QPointF(0, 0) || next.handleIn != QPointF(0, 0)) {
+            path.cubicTo(cp1, cp2, next.pos);
+        } else {
+            path.lineTo(next.pos);
+        }
+    }
+    
+    // Draw preview path
+    m_penPreviewItem = m_scene->addPath(path, QPen(Qt::cyan, 1.5, Qt::DashLine), QBrush());
+    m_penPreviewItem->setZValue(1000);
+    
+    // Draw anchor points and handles
+    for (int i = 0; i < m_penPoints.size(); ++i) {
+        PenPoint& p = m_penPoints[i];
+        
+        // Anchor point marker
+        QColor anchorColor = (i == 0) ? Qt::green : Qt::yellow;
+        auto* marker = m_scene->addEllipse(p.pos.x() - 4, p.pos.y() - 4, 8, 8, 
+                                          QPen(anchorColor, 1.5), QBrush(anchorColor));
+        marker->setZValue(1001);
+        m_penPointMarkers.append(marker);
+        
+        // Handle lines and dots
+        if (p.handleIn != QPointF(0, 0)) {
+            QPointF handlePos = p.pos + p.handleIn;
+            auto* handleLine = m_scene->addLine(QLineF(p.pos, handlePos), QPen(Qt::red, 1));
+            handleLine->setZValue(1001);
+            m_penHandleLines.append(handleLine);
+            
+            auto* handleDot = m_scene->addEllipse(handlePos.x() - 3, handlePos.y() - 3, 6, 6,
+                                                  QPen(Qt::red, 1), QBrush(Qt::red));
+            handleDot->setZValue(1001);
+            m_penPointMarkers.append(handleDot);
+        }
+        
+        if (p.handleOut != QPointF(0, 0)) {
+            QPointF handlePos = p.pos + p.handleOut;
+            auto* handleLine = m_scene->addLine(QLineF(p.pos, handlePos), QPen(Qt::red, 1));
+            handleLine->setZValue(1001);
+            m_penHandleLines.append(handleLine);
+            
+            auto* handleDot = m_scene->addEllipse(handlePos.x() - 3, handlePos.y() - 3, 6, 6,
+                                                  QPen(Qt::red, 1), QBrush(Qt::red));
+            handleDot->setZValue(1001);
+            m_penPointMarkers.append(handleDot);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  SymbolEditor – Zoom
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3892,6 +4300,17 @@ void SymbolEditor::onDuplicate() {
 }
 
 void SymbolEditor::onSelectionChanged() {
+    // Focus the Selection tab when items are selected
+    if (m_propsTabWidget && !m_scene->selectedItems().isEmpty()) {
+        if (m_propsTabWidget->currentIndex() != 0) {
+            m_propsTabWidget->setCurrentIndex(0);
+        }
+        if (m_propsDock) {
+            m_propsDock->raise();
+            m_propsDock->activateWindow();
+        }
+    }
+    
     updatePropertiesPanel();
 
     // Visual selection highlighting (Glow effect)
@@ -4284,8 +4703,21 @@ void SymbolEditor::updateVisualForPrimitive(int index, const SymbolPrimitive& pr
 // ─────────────────────────────────────────────────────────────────────────────
 
 void SymbolEditor::keyPressEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_Escape && m_selectAction) {
-        m_selectAction->trigger();
+    if (event->key() == Qt::Key_Escape) {
+        // Finalize pen path if active
+        if (m_currentTool == Pen && m_penPoints.size() >= 2) {
+            finalizePenPath();
+        }
+        // Switch to select tool
+        m_currentTool = Select;
+        if (m_view) m_view->setCurrentTool(0);
+        if (m_view) m_view->setDragMode(QGraphicsView::RubberBandDrag);
+        m_polyPoints.clear();
+        clearPenState();
+        m_penFinalizing = false;  // Reset guard flag after all cleanup
+        if (m_selectAction) m_selectAction->setChecked(true);
+        event->accept();
+        return;
     } else if (event->key() == Qt::Key_R && m_currentTool == Pin) {
         // Cycle orientation: Right -> Down -> Left -> Up
         if (m_previewOrientation == "Right") m_previewOrientation = "Down";
@@ -4296,6 +4728,17 @@ void SymbolEditor::keyPressEvent(QKeyEvent* event) {
         // Refresh preview immediately
         QPointF scenePos = m_view->snapToGrid(m_view->mapToScene(m_view->mapFromGlobal(QCursor::pos())));
         updatePinPreview(scenePos);
+        event->accept();
+        return;
+    } else if (event->key() == Qt::Key_Return && m_currentTool == Pen) {
+        // Enter key: finalize pen path
+        finalizePenPath();
+        event->accept();
+        return;
+    } else if (event->key() == Qt::Key_Backspace && m_currentTool == Pen && !m_penPoints.isEmpty()) {
+        // Backspace: remove last point
+        m_penPoints.removeLast();
+        updatePenPreview();
         event->accept();
         return;
     }
@@ -4532,6 +4975,7 @@ void SymbolEditor::onCanvasContextMenu(const QPoint& pos) {
         addMenu->addAction(getThemeIcon(":/icons/tool_arc.svg"), "Arc", [this]() { m_currentTool = Arc; });
         addMenu->addAction(getThemeIcon(":/icons/tool_polygon.svg"), "Polygon", [this]() { m_currentTool = Polygon; });
         addMenu->addAction(getThemeIcon(":/icons/tool_bezier.svg"), "Bezier Curve", [this]() { m_currentTool = Bezier; });
+        addMenu->addAction(getThemeIcon(":/icons/tool_pen.svg"), "Pen Tool", [this]() { m_currentTool = Pen; });
         addMenu->addAction(getThemeIcon(":/icons/tool_text.svg"), "Text", [this, pos]() { 
             m_currentTool = Text; 
             QPointF scenePos = m_view->snapToGrid(m_view->mapToScene(pos));

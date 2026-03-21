@@ -9,7 +9,7 @@
 #include <QLabel>
 
 CalculatorDialog::CalculatorDialog(QWidget* parent) : QDialog(parent) {
-    setWindowTitle("Viora EDA Engineering Calculator");
+    setWindowTitle("viospice Engineering Calculator");
     resize(700, 680);
     setAttribute(Qt::WA_DeleteOnClose);
     setupUI();

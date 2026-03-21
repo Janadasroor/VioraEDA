@@ -16,7 +16,7 @@ struct TitleBlockData {
     QString sheetName;     // "Power Supply"
     QString sheetNumber;   // "3"
     QString sheetTotal;    // "5"  → shows as "Sheet 3 of 5"
-    QString company;       // "Viora EDA Inc."
+    QString company;       // "viospice Inc."
     QString revision;      // "A"
     QString designer;      // "J. Smith"
     QString date;          // auto-filled if empty

@@ -1023,7 +1023,7 @@ bool PluginManagerDialog::startDownloadForPluginVersion(const QString& pluginId,
             this,
             "Save Plugin Package",
             defaultDownloadPath(pluginId.trimmed(), version.trimmed()),
-            "VioraEDA Plugin (*.fluxplugin);;All Files (*)");
+            "viospice Plugin (*.fluxplugin);;All Files (*)");
     }
 
     if (savePath.isEmpty()) {

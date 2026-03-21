@@ -112,7 +112,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
       m_hierarchyTree(nullptr),
       m_ercRules(SchematicERCRules::defaultRules())
 {
-    setWindowTitle("Viora EDA - Schematic Editor");
+    setWindowTitle("viospice - Schematic Editor");
     setMinimumSize(640, 480);
     resize(1024, 720);
     setWindowFlags(windowFlags() | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint);
@@ -148,6 +148,19 @@ SchematicEditor::SchematicEditor(QWidget *parent)
         QByteArray state = ConfigManager::instance().windowState("SchematicEditor");
         if (!geom.isEmpty()) restoreGeometry(geom);
         if (!state.isEmpty()) restoreState(state);
+    }
+    // Re-apply dock nesting and corner rules after restoring state to avoid overlaps.
+    setDockNestingEnabled(true);
+    setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
+    setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
+    setDockOptions(QMainWindow::AllowTabbedDocks | QMainWindow::ForceTabbedDocks);
+    if (m_ercDock && m_sourceControlDock) {
+        addDockWidget(Qt::RightDockWidgetArea, m_ercDock);
+        addDockWidget(Qt::RightDockWidgetArea, m_sourceControlDock);
+        if (m_terminalDock) addDockWidget(Qt::RightDockWidgetArea, m_terminalDock);
+        tabifyDockWidget(m_ercDock, m_sourceControlDock);
+        if (m_terminalDock) tabifyDockWidget(m_sourceControlDock, m_terminalDock);
+        m_sourceControlDock->raise();
     }
     
     // Theme and grid
@@ -351,6 +364,10 @@ void SchematicEditor::onTabChanged(int index) {
         updateCoordinates(m_view->mapToScene(m_view->mapFromGlobal(QCursor::pos())));
     } else if (QString(current->metaObject()->className()) == "SymbolEditor") {
         // Contextually disable schematic docks/toolbars if needed
+    }
+
+    if (m_showDetailedLogAction) {
+        m_showDetailedLogAction->setEnabled(current == m_simulationPanel);
     }
 }
 
@@ -1108,7 +1125,11 @@ void SchematicEditor::onToggleBottomPanel() {
 void SchematicEditor::onToggleRightSidebar() {
     bool visible = false;
     if (m_ercDock && m_ercDock->isVisible()) visible = true;
+    else if (m_sourceControlDock && m_sourceControlDock->isVisible()) visible = true;
+    else if (m_terminalDock && m_terminalDock->isVisible()) visible = true;
 
     if (m_ercDock) m_ercDock->setVisible(!visible);
+    if (m_sourceControlDock) m_sourceControlDock->setVisible(!visible);
+    if (m_terminalDock) m_terminalDock->setVisible(!visible);
     ConfigManager::instance().saveWindowState("SchematicEditor", saveGeometry(), saveState());
 }

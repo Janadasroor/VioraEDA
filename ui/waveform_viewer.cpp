@@ -16,6 +16,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
+#include <QRubberBand>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QFileDialog>
@@ -53,6 +54,7 @@ QString formatDb(double value) {
 
 VioChartView::VioChartView(QChart *chart, QWidget *parent) : QChartView(chart, parent) {
     setMouseTracking(true);
+    m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
 }
 
 void VioChartView::mouseMoveEvent(QMouseEvent *event) {
@@ -89,6 +91,11 @@ void VioChartView::mouseMoveEvent(QMouseEvent *event) {
     if (m_crosshairEnabled) {
         viewport()->update();
     }
+
+    if (m_zoomRectActive) {
+        m_rubberBand->setGeometry(QRect(m_zoomRectStart, event->pos()).normalized());
+    }
+
     QPointF value = chart()->mapToValue(event->pos());
     emit mouseMoved(value);
     QChartView::mouseMoveEvent(event);
@@ -102,7 +109,11 @@ void VioChartView::mousePressEvent(QMouseEvent *event) {
         event->accept();
         return;
     }
-    if (event->button() == Qt::RightButton) {
+
+    // Handle Ctrl+left-click or right-click on legend
+    bool isRightClick = (event->button() == Qt::RightButton);
+    bool isCtrlLeftClick = (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ControlModifier));
+    if (isRightClick || isCtrlLeftClick) {
         if (auto* legend = chart()->legend(); legend && legend->isVisible()) {
             const QPointF scenePos = mapToScene(event->pos());
             if (legend->sceneBoundingRect().contains(scenePos) && scene()) {
@@ -129,6 +140,8 @@ void VioChartView::mousePressEvent(QMouseEvent *event) {
                 }
             }
         }
+    }
+    if (event->button() == Qt::RightButton) {
         emit contextMenuRequested(mapToGlobal(event->pos()));
         event->accept();
         return;
@@ -149,10 +162,38 @@ void VioChartView::mousePressEvent(QMouseEvent *event) {
             return; 
         }
     }
+    // Start zoom rectangle on plain left-click in plot area
+    if (event->button() == Qt::LeftButton && !(event->modifiers() & Qt::ControlModifier)) {
+        QRectF plotArea = chart()->plotArea();
+        if (plotArea.contains(event->pos())) {
+            m_zoomRectActive = true;
+            m_zoomRectStart = event->pos();
+            m_rubberBand->setGeometry(QRect(m_zoomRectStart, QSize()).normalized());
+            m_rubberBand->show();
+            event->accept();
+            return;
+        }
+    }
     QChartView::mousePressEvent(event);
 }
 
 void VioChartView::mouseReleaseEvent(QMouseEvent *event) {
+    if (m_zoomRectActive && event->button() == Qt::LeftButton) {
+        m_zoomRectActive = false;
+        m_rubberBand->hide();
+        QRect pixelRect = QRect(m_zoomRectStart, event->pos()).normalized();
+        if (pixelRect.width() > 5 && pixelRect.height() > 5) {
+            QPointF topLeft = chart()->mapToValue(pixelRect.topLeft());
+            QPointF bottomRight = chart()->mapToValue(pixelRect.bottomRight());
+            double xMin = std::min(topLeft.x(), bottomRight.x());
+            double xMax = std::max(topLeft.x(), bottomRight.x());
+            double yMin = std::min(topLeft.y(), bottomRight.y());
+            double yMax = std::max(topLeft.y(), bottomRight.y());
+            emit zoomRectCompleted(QRectF(QPointF(xMin, yMin), QPointF(xMax, yMax)));
+        }
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::MiddleButton) {
         m_panning = false;
         setCursor(Qt::ArrowCursor);
@@ -265,10 +306,12 @@ WaveformViewer::~WaveformViewer() {
 void WaveformViewer::keyPressEvent(QKeyEvent *event) {
     switch (event->key()) {
     case Qt::Key_F:
+        pushZoomState();
         zoomFit();
         event->accept();
         return;
     case Qt::Key_R:
+        pushZoomState();
         resetZoom();
         event->accept();
         return;
@@ -305,6 +348,20 @@ void WaveformViewer::keyPressEvent(QKeyEvent *event) {
         }
         event->accept();
         return;
+    case Qt::Key_Z:
+        if (event->modifiers() & Qt::ControlModifier) {
+            undoZoom();
+            event->accept();
+            return;
+        }
+        break;
+    case Qt::Key_Y:
+        if (event->modifiers() & Qt::ControlModifier) {
+            redoZoom();
+            event->accept();
+            return;
+        }
+        break;
     case Qt::Key_C:
         if (event->modifiers() & Qt::ControlModifier) {
             QString text;
@@ -379,6 +436,7 @@ void WaveformViewer::setupUi() {
     connect(m_chartView, &VioChartView::mouseMoved, this, &WaveformViewer::onMouseMoved);
     connect(m_chartView, &VioChartView::cursorMoved, this, &WaveformViewer::updateCursors);
     connect(m_chartView, &VioChartView::legendCtrlClicked, this, &WaveformViewer::onLegendCtrlClicked);
+    connect(m_chartView, &VioChartView::zoomRectCompleted, this, &WaveformViewer::onZoomRectCompleted);
     connect(m_chartView, &VioChartView::contextMenuRequested, this, &WaveformViewer::onContextMenuRequested);
 
     // Set up default axes so cursor mapping always works (even before signals are loaded)
@@ -1176,6 +1234,74 @@ void WaveformViewer::zoomFit() {
     }
 }
 void WaveformViewer::resetZoom() { m_chart->zoomReset(); }
+
+void WaveformViewer::pushZoomState() {
+    auto axesX = m_chart->axes(Qt::Horizontal);
+    auto axesY = m_chart->axes(Qt::Vertical);
+    if (axesX.isEmpty() || axesY.isEmpty()) return;
+    auto *axX = qobject_cast<QValueAxis*>(axesX.first());
+    auto *axY = qobject_cast<QValueAxis*>(axesY.first());
+    if (!axX || !axY) return;
+    ZoomState s = {axX->min(), axX->max(), axY->min(), axY->max()};
+    // Avoid duplicate pushes
+    if (!m_zoomUndo.isEmpty()) {
+        const auto &top = m_zoomUndo.top();
+        if (qFuzzyCompare(top.xMin, s.xMin) && qFuzzyCompare(top.xMax, s.xMax) &&
+            qFuzzyCompare(top.yMin, s.yMin) && qFuzzyCompare(top.yMax, s.yMax))
+            return;
+    }
+    m_zoomUndo.push(s);
+    m_zoomRedo.clear();
+}
+
+void WaveformViewer::applyZoomState(const ZoomState &s) {
+    auto axesX = m_chart->axes(Qt::Horizontal);
+    auto axesY = m_chart->axes(Qt::Vertical);
+    if (axesX.isEmpty() || axesY.isEmpty()) return;
+    auto *axX = qobject_cast<QValueAxis*>(axesX.first());
+    auto *axY = qobject_cast<QValueAxis*>(axesY.first());
+    if (!axX || !axY) return;
+    axX->setRange(s.xMin, s.xMax);
+    axY->setRange(s.yMin, s.yMax);
+}
+
+void WaveformViewer::onZoomRectCompleted(const QRectF &valueRect) {
+    pushZoomState();
+    auto axesX = m_chart->axes(Qt::Horizontal);
+    auto axesY = m_chart->axes(Qt::Vertical);
+    if (axesX.isEmpty() || axesY.isEmpty()) return;
+    auto *axX = qobject_cast<QValueAxis*>(axesX.first());
+    auto *axY = qobject_cast<QValueAxis*>(axesY.first());
+    if (!axX || !axY) return;
+    axX->setRange(valueRect.left(), valueRect.right());
+    axY->setRange(valueRect.top(), valueRect.bottom());
+}
+
+void WaveformViewer::undoZoom() {
+    if (m_zoomUndo.isEmpty()) return;
+    auto axesX = m_chart->axes(Qt::Horizontal);
+    auto axesY = m_chart->axes(Qt::Vertical);
+    if (axesX.isEmpty() || axesY.isEmpty()) return;
+    auto *axX = qobject_cast<QValueAxis*>(axesX.first());
+    auto *axY = qobject_cast<QValueAxis*>(axesY.first());
+    if (!axX || !axY) return;
+    // Push current state to redo
+    m_zoomRedo.push({axX->min(), axX->max(), axY->min(), axY->max()});
+    applyZoomState(m_zoomUndo.pop());
+}
+
+void WaveformViewer::redoZoom() {
+    if (m_zoomRedo.isEmpty()) return;
+    auto axesX = m_chart->axes(Qt::Horizontal);
+    auto axesY = m_chart->axes(Qt::Vertical);
+    if (axesX.isEmpty() || axesY.isEmpty()) return;
+    auto *axX = qobject_cast<QValueAxis*>(axesX.first());
+    auto *axY = qobject_cast<QValueAxis*>(axesY.first());
+    if (!axX || !axY) return;
+    // Push current state to undo
+    m_zoomUndo.push({axX->min(), axX->max(), axY->min(), axY->max()});
+    applyZoomState(m_zoomRedo.pop());
+}
 
 void WaveformViewer::zoomFitYOnly() {
     auto axesY = m_chart->axes(Qt::Vertical);
@@ -2089,6 +2215,12 @@ void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
     }
 
     if (!m_signals.contains(actualName)) return;
+
+    if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
+        showAnalysisForSeries(actualName);
+        return;
+    }
+
     auto &sig = m_signals[actualName];
 
     QMenu menu;

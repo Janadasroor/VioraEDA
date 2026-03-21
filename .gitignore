@@ -45,7 +45,7 @@ test_schematic.sch
 # Local Config
 local_config.h
 build_log.txt
-
+.claude/
 # Python
 __pycache__/
 *.py[cod]

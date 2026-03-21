@@ -15,6 +15,7 @@
 #include <vector>
 #include <QLabel>
 #include <QtCharts/QChart>
+#include <QStack>
 #include "measurement_dialog.h"
 #include "analysis_dialog.h"
 #include "fft_analyzer.h"
@@ -30,6 +31,7 @@ signals:
     void cursorMoved(int id, double x);
     void legendCtrlClicked(const QString &seriesName);
     void contextMenuRequested(const QPoint &globalPos);
+    void zoomRectCompleted(const QRectF &valueRect);
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -48,6 +50,9 @@ private:
     QPointF m_mousePos;
     bool m_panning = false;
     QPointF m_panStart;
+    bool m_zoomRectActive = false;
+    QPoint m_zoomRectStart;
+    QRubberBand *m_rubberBand = nullptr;
 
 public:
     void setCursorsEnabled(bool enabled) { m_showCursors = enabled; viewport()->update(); }
@@ -110,6 +115,8 @@ private slots:
     void zoomIn();
     void zoomOut();
     void resetZoom();
+    void undoZoom();
+    void redoZoom();
     void onMouseMoved(const QPointF &value);
     void onContextMenuRequested(const QPoint &globalPos);
     void toggleCursors();
@@ -190,4 +197,13 @@ private:
     double m_holdXMax = 0.0;
     QPointF m_lastMouseValue;
     bool m_hasLastMouseValue = false;
+
+    struct ZoomState {
+        double xMin, xMax, yMin, yMax;
+    };
+    QStack<ZoomState> m_zoomUndo;
+    QStack<ZoomState> m_zoomRedo;
+    void pushZoomState();
+    void applyZoomState(const ZoomState &s);
+    void onZoomRectCompleted(const QRectF &valueRect);
 };

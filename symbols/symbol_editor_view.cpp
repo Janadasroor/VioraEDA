@@ -33,7 +33,7 @@ SymbolEditorView::SymbolEditorView(QWidget* parent)
 void SymbolEditorView::setCurrentTool(int tool) {
     m_currentTool = tool;
     
-    // Tools: Select=0, Line=1, Rect=2, Circle=3, Arc=4, Text=5, Pin=6, Polygon=7, Erase=8, ZoomArea=9, Anchor=10, Bezier=11, Image=12
+    // Tools: Select=0, Line=1, Rect=2, Circle=3, Arc=4, Text=5, Pin=6, Polygon=7, Erase=8, ZoomArea=9, Anchor=10, Bezier=11, Image=12, Pen=13
     if (tool == 6) {
         // Pin tool: specialized crosshair for precision
         setCursor(Qt::CrossCursor);
@@ -45,6 +45,10 @@ void SymbolEditorView::setCurrentTool(int tool) {
         // Erase tool: use eraser cursor
         QPixmap pixmap(":/icons/cursor_eraser.svg");
         setCursor(QCursor(pixmap.scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation), 7, 19));
+    } else if (tool == 13) {
+        // Pen tool: Figma-style pen cursor
+        QPixmap pixmap(":/icons/tool_pen.svg");
+        setCursor(QCursor(pixmap.scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation), 2, 2));
     } else {
         // Default / Select / Zoom / Anchor
         setCursor(Qt::ArrowCursor);
@@ -151,6 +155,13 @@ void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
                 event->accept();
                 return;
             }
+            if (m_currentTool == 13) { // Pen tool
+                m_penIsDragging = false;
+                m_penPressPos = snapToGrid(mapToScene(event->pos()));
+                m_isDrawing = true;
+                event->accept();
+                return;
+            }
             m_isDrawing = true;
             m_drawStart = snapToGrid(mapToScene(event->pos()));
             emit pointClicked(m_drawStart);
@@ -189,10 +200,23 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
     }
 
     if (m_isDrawing) {
-        clearPinAlignmentGuides();
-        emit lineDragged(m_drawStart, snapToGrid(mapToScene(event->pos())));
+        if (m_currentTool == 13 && m_penIsDragging) { // Pen tool dragging
+            emit penHandleDragged(snapToGrid(mapToScene(event->pos())));
+        } else if (m_currentTool != 13) {
+            clearPinAlignmentGuides();
+            emit lineDragged(m_drawStart, snapToGrid(mapToScene(event->pos())));
+        }
         event->accept();
         return;
+    }
+    
+    // Check if we should start pen dragging
+    if (m_currentTool == 13 && (event->buttons() & Qt::LeftButton)) {
+        QPointF currentPos = mapToScene(event->pos());
+        if (QLineF(m_penPressPos, snapToGrid(currentPos)).length() > PEN_DRAG_THRESHOLD) {
+            m_penIsDragging = true;
+            emit penHandleDragged(snapToGrid(currentPos));
+        }
     }
 
     if (m_currentTool == 0 && (event->buttons() & Qt::LeftButton)) {
@@ -214,9 +238,16 @@ void SymbolEditorView::mouseReleaseEvent(QMouseEvent* event) {
 
     if (event->button() == Qt::LeftButton) {
         if (m_isDrawing) {
+            if (m_currentTool == 13) { // Pen tool
+                QPointF releasePos = snapToGrid(mapToScene(event->pos()));
+                emit penPointFinished();
+                emit penPointAdded(m_penPressPos);
+                m_penIsDragging = false;
+            } else {
+                clearPinAlignmentGuides();
+                emit drawingFinished(m_drawStart, snapToGrid(mapToScene(event->pos())));
+            }
             m_isDrawing = false;
-            clearPinAlignmentGuides();
-            emit drawingFinished(m_drawStart, snapToGrid(mapToScene(event->pos())));
             event->accept();
             return;
         }

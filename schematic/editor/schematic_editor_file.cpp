@@ -8,6 +8,7 @@
 #include "schematic_page_item.h"
 #include "../items/schematic_sheet_item.h"
 #include "schematic_erc.h"
+#include "../../ui/terminal_panel.h"
 #include "netlist_generator.h"
 #include "../ui/netlist_editor.h"
 #include "../ui/bom_dialog.h"
@@ -21,6 +22,7 @@
 #include "../../core/recent_projects.h"
 #include "../analysis/spice_netlist_generator.h"
 #include "../ui/simulation_panel.h"
+#include "../../ui/source_control_manager.h"
 #include <QMessageBox>
 #include <QRegularExpression>
 #include "../../core/theme_manager.h"
@@ -385,14 +387,24 @@ void SchematicEditor::setProjectContext(const QString& projectName, const QStrin
     if (m_projectExplorer && !projectDir.isEmpty()) {
         m_projectExplorer->setRootPath(projectDir);
     }
-    
+
+    // Initialize source control for this project
+    if (!projectDir.isEmpty()) {
+        SourceControlManager::instance().setProjectDir(projectDir);
+    }
+
+    // Set terminal working directory
+    if (m_terminalPanel && !projectDir.isEmpty()) {
+        m_terminalPanel->setWorkingDirectory(projectDir);
+    }
+
     // Auto-derive file path from project
     if (!projectName.isEmpty() && !projectDir.isEmpty()) {
         QString derivedPath = projectDir + "/" + projectName + ".flxsch";
         if (m_currentFilePath.isEmpty()) {
             m_currentFilePath = derivedPath;
             updateGeminiProjectEffect();
-            setWindowTitle(QString("Viora EDA - Schematic Editor [%1.flxsch]").arg(projectName));
+            setWindowTitle(QString("viospice - Schematic Editor [%1.flxsch]").arg(projectName));
         }
     }
 }
@@ -418,7 +430,7 @@ void SchematicEditor::onOpenSchematic() {
     
     QString filePath = QFileDialog::getOpenFileName(
         this, "Open Schematic", QString(),
-        "Viora EDA Schematic (*.flxsch *.flux *.sch);;FluxScript (*.flux);;KiCad Schematic (*.kicad_sch);;Altium Schematic (*.SchDoc);;All Files (*)"
+        "viospice Schematic (*.flxsch *.flux *.sch);;FluxScript (*.flux);;KiCad Schematic (*.kicad_sch);;Altium Schematic (*.SchDoc);;All Files (*)"
     );
     if (filePath.isEmpty()) return;
     m_navigationStack.clear();
@@ -585,7 +597,7 @@ bool SchematicEditor::openFile(const QString& filePath) {
         m_ercDock->hide();
 
         QFileInfo fileInfo(filePath);
-        setWindowTitle(QString("Viora EDA - Schematic Editor [%1]").arg(fileInfo.fileName()));
+        setWindowTitle(QString("viospice - Schematic Editor [%1]").arg(fileInfo.fileName()));
         updateBreadcrumbs();
         statusBar()->showMessage(QString("Loaded: %1").arg(filePath), 5000);
         return true;
@@ -655,7 +667,7 @@ void SchematicEditor::onSaveSchematic() {
     if (success) {
         m_isModified = false;
         QFileInfo fileInfo(m_currentFilePath);
-        setWindowTitle(QString("Viora EDA - Schematic Editor [%1]").arg(fileInfo.fileName()));
+        setWindowTitle(QString("viospice - Schematic Editor [%1]").arg(fileInfo.fileName()));
         statusBar()->showMessage(QString("Saved: %1").arg(m_currentFilePath), 3000);
         if (m_view) m_view->setProperty("filePath", m_currentFilePath);
         updateCurrentTabTitleFromFilePath(m_currentFilePath);
@@ -737,7 +749,7 @@ void SchematicEditor::onSaveSchematicAs() {
     QString filePath = QFileDialog::getSaveFileName(
         this, "Save Schematic As",
         defaultPath,
-        "Viora EDA Schematic (*.flxsch);;FluxScript (*.flux);;KiCad Schematic (*.kicad_sch);;Altium Schematic (*.SchDoc);;All Files (*)"
+        "viospice Schematic (*.flxsch);;FluxScript (*.flux);;KiCad Schematic (*.kicad_sch);;Altium Schematic (*.SchDoc);;All Files (*)"
     );
     if (filePath.isEmpty()) return;
     
@@ -765,7 +777,7 @@ void SchematicEditor::onSaveSchematicAs() {
         updateGeminiProjectEffect();
         m_isModified = false;
         QFileInfo fileInfo(filePath);
-        setWindowTitle(QString("Viora EDA - Schematic Editor [%1]").arg(fileInfo.fileName()));
+        setWindowTitle(QString("viospice - Schematic Editor [%1]").arg(fileInfo.fileName()));
         statusBar()->showMessage(QString("Saved: %1").arg(filePath), 3000);
         if (m_view) m_view->setProperty("filePath", filePath);
         updateCurrentTabTitleFromFilePath(filePath);

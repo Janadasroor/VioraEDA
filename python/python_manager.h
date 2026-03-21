@@ -7,7 +7,7 @@
 #include <QVariantMap>
 
 /**
- * @brief Manages Python script execution for the Viora EDA plugin system.
+ * @brief Manages Python script execution for the viospice plugin system.
  */
 class PythonManager : public QObject {
     Q_OBJECT

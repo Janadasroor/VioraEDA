@@ -28,6 +28,7 @@ class SchematicPageItem;
 class NetlistEditor;
 class SymbolEditor;
 class SpiceModelArchitect;
+class SourceControlPanel;
 #include "../../symbols/models/symbol_definition.h"
 using Flux::Model::SymbolDefinition;
 
@@ -234,6 +235,12 @@ private:
     Flux::ScriptPanel *m_scriptPanel;
     class LogicEditorPanel *m_logicEditorPanel;
 
+    QDockWidget *m_sourceControlDock;
+    SourceControlPanel *m_sourceControlPanel;
+
+    QDockWidget *m_terminalDock;
+    class TerminalPanel *m_terminalPanel;
+
     QDockWidget *m_oscilloscopeDock;
 
     // Title block metadata
@@ -253,6 +260,7 @@ private:
     QAction* m_runSimToolbarAction;
     QAction* m_pauseSimToolbarAction;
     QAction* m_stopSimToolbarAction;
+    QAction* m_showDetailedLogAction = nullptr;
     QWidget* m_simControlSubGroup;
 
     // Status bar

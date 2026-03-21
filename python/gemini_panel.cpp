@@ -467,7 +467,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_includeScreenshotCheck->hide();
 
     m_inputField = new QLineEdit(this);
-    m_inputField->setPlaceholderText("Ask Viora AI...");
+    m_inputField->setPlaceholderText("Ask viospice AI...");
     m_inputField->setStyleSheet(QString("QLineEdit { background: transparent; color: %1; border: none; padding: 4px 0; font-size: 13px; }").arg(fg));
     connect(m_inputField, &QLineEdit::returnPressed, this, &GeminiPanel::onSendClicked);
     composerLayout->addWidget(m_inputField);
@@ -600,7 +600,7 @@ void GeminiPanel::saveHistory() {
     if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QTextStream out(&file);
         out << "<!-- TITLE: " << m_currentChatTitle << " -->\n";
-        out << "# Viora AI - " << m_currentChatTitle << "\n\n";
+        out << "# viospice AI - " << m_currentChatTitle << "\n\n";
         for (const auto& msg : m_history) {
             QString role = msg["role"].toString();
             QString text = msg["text"].toString();

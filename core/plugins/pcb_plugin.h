@@ -7,7 +7,7 @@
 #include "../interfaces/plugin_sdk_version.h"
 
 /**
- * @brief Base class for all Viora EDA plugins.
+ * @brief Base class for all viospice plugins.
  */
 class FluxPlugin {
 public:

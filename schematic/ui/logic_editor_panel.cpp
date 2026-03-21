@@ -47,7 +47,7 @@
 LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)
     : QMainWindow(parent, Qt::Window), m_scene(scene), m_netManager(netManager) {
     
-    setWindowTitle("Viora Logic IDE");
+    setWindowTitle("viospice Logic IDE");
     resize(1100, 700);
     
     m_previewTimer = new QTimer(this);
@@ -441,7 +441,7 @@ void LogicEditorPanel::setTargetBlock(SmartSignalItem* item) {
     refreshExplorer(); 
     
     if (m_targetBlock) {
-        setWindowTitle("Viora Logic IDE - [" + m_targetBlock->reference() + "]");
+        setWindowTitle("viospice Logic IDE - [" + m_targetBlock->reference() + "]");
         m_editor->setPlainText(m_targetBlock->pythonCode());
         
         // Populate Pins

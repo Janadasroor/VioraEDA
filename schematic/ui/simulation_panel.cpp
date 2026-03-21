@@ -1259,13 +1259,9 @@ void SimulationPanel::setupUI() {
 
     QPushButton* showFullLogBtn = new QPushButton("Show Detailed Log");
     showFullLogBtn->setStyleSheet("QPushButton { background: #374151; color: white; border-radius: 3px; padding: 4px; font-size: 10px; }");
-    auto openLogDialog = [this]() {
-        SimulationLogDialog dlg(m_logOutput->toPlainText(), this);
-        dlg.exec();
-    };
-    connect(showFullLogBtn, &QPushButton::clicked, this, openLogDialog);
+    connect(showFullLogBtn, &QPushButton::clicked, this, &SimulationPanel::showDetailedLog);
     auto* logShortcut = new QShortcut(QKeySequence("Ctrl+L"), this);
-    connect(logShortcut, &QShortcut::activated, this, openLogDialog);
+    connect(logShortcut, &QShortcut::activated, this, &SimulationPanel::showDetailedLog);
     sidebarLayout->addWidget(showFullLogBtn);
 
     QLabel* issuesLabel = new QLabel("SIM ISSUES (DOUBLE-CLICK TO NAVIGATE)");
@@ -1972,6 +1968,12 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
             dlg->activateWindow();
         });
     }
+}
+
+void SimulationPanel::showDetailedLog() {
+    if (!m_logOutput) return;
+    SimulationLogDialog dlg(m_logOutput->toPlainText(), this);
+    dlg.exec();
 }
 
 void SimulationPanel::evaluateMeasStatements(const SimResults& results) {

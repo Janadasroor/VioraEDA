@@ -8,7 +8,7 @@
 using Flux::Model::SymbolDefinition;
 
 /**
- * @brief Utility to import and convert LTspice symbols (.asy) to Viora EDA format
+ * @brief Utility to import and convert LTspice symbols (.asy) to viospice format
  */
 class LtspiceSymbolImporter {
 public:

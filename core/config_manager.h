@@ -60,6 +60,10 @@ public:
     QByteArray windowGeometry(const QString& name) const;
     QByteArray windowState(const QString& name) const;
 
+    // Workspace Folders
+    QStringList workspaceFolders() const;
+    void setWorkspaceFolders(const QStringList& folders);
+
     // Grid
     bool snapToGrid() const;
     void setSnapToGrid(bool enabled);

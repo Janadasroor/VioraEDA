@@ -8,7 +8,7 @@
 using Flux::Model::SymbolDefinition;
 
 /**
- * @brief Utility to import and convert KiCad symbols (.kicad_sym) to Viora EDA format
+ * @brief Utility to import and convert KiCad symbols (.kicad_sym) to viospice format
  */
 class KicadSymbolImporter {
 public:

@@ -10,6 +10,8 @@ set(CORE_SOURCES
     core/project.h
     core/recent_projects.cpp
     core/recent_projects.h
+    core/recent_workspaces.cpp
+    core/recent_workspaces.h
     core/settings_dialog.cpp
     core/settings_dialog.h
     core/config_manager.cpp
@@ -376,6 +378,18 @@ set(UI_SOURCES
     ui/spice_model_architect.h
     ui/project_explorer_widget.cpp
     ui/project_explorer_widget.h
+    ui/git_backend.cpp
+    ui/git_backend.h
+    ui/source_control_manager.cpp
+    ui/source_control_manager.h
+    ui/source_control_panel.cpp
+    ui/source_control_panel.h
+    ui/diff_viewer_dialog.cpp
+    ui/diff_viewer_dialog.h
+    ui/branch_dialog.cpp
+    ui/branch_dialog.h
+    ui/terminal_panel.cpp
+    ui/terminal_panel.h
     core/ui/project_audit_dialog.cpp
     ui/calculator_dialog.cpp
     ui/calculator_dialog.h

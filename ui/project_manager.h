@@ -18,6 +18,9 @@
 #include <QScrollArea>
 #include <QGridLayout>
 #include <QFrame>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QMouseEvent>
 #include <QList>
 #include <QStatusBar>
@@ -36,6 +39,7 @@ public:
 private slots:
     void createNewProject();
     void openExistingProject();
+    void addFolderToWorkspace();
     void openProject(const QString& path);
     void openSchematicEditor();
     void openSymbolEditor();
@@ -43,7 +47,6 @@ private slots:
     void openPluginsManager();
     void openSpiceModelManager();
     void onSettings();
-    void onToggleSidebar();
     void showAbout();
     void showHelp();
     void showDeveloperHelp();
@@ -54,6 +57,10 @@ private slots:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     void setupUI();
@@ -61,7 +68,6 @@ private:
     void updateThemeStyle();
     void createMenuBar();
     QWidget* createProjectFilesPanel();
-    QToolBar* createVerticalToolbar();
     QWidget* createLauncherArea();
     void updateLauncherLayout();
 
@@ -71,7 +77,7 @@ private:
                          const QString& title, const QString& desc, 
                          const QString& iconPath, 
                          void (ProjectManager::*slot)());
-    QIcon createDocumentIcon(const QColor& accentColor, const QString& label, bool isActive = false) const;
+    QIcon createDocumentIcon(const QColor& accentColor, const QString& label) const;
     QIcon createFolderIcon(bool open = false) const;
     QIcon getProjectFileIcon(const QString& fileName) const;
     QString resolveProjectPath(const QString& inputPath, const QString& extension);
@@ -86,21 +92,21 @@ private:
     QWidget* m_projectPanel;
     QTreeWidget* m_projectTree;
     
-    // Vertical Toolbar
-    QToolBar* m_verticalToolbar;
-    
     // Launcher Area (Right)
     QWidget* m_launcherArea;
     QList<LauncherTile*> m_launcherTiles;
 
     // Current project state
-    QStringList m_openProjects;
-    QString m_activeProjectFile;
+    QStringList m_workspaceFolders;
+    QString m_workspaceFilePath;
+    bool m_workspaceDirty;
     
     // Core methods
     void refreshProjectTree();
-    void addProjectToTree(const QString& projectPath);
+    void addFolderToTree(const QString& folderPath);
     void updateRecentProjectsMenu();
+    void saveWorkspace();
+    void loadWorkspace(const QString& path);
 
     // UI elements
     QMenu* m_recentProjectsMenu;
@@ -108,12 +114,10 @@ private:
     // Actions
     QAction* m_newProjectAction;
     QAction* m_openProjectAction;
-    QAction* m_activateProjectAction;
+    QAction* m_addFolderAction;
     QAction* m_exitAction;
     QAction* m_aboutAction;
 
-public slots:
-    void activateProject(const QString& projectFile);
 };
 
 // Launcher Tile - Large button with icon and description

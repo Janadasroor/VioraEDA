@@ -78,7 +78,7 @@ QString NetlistGenerator::generate(QGraphicsScene* scene, const QString& project
 
     if (format == FluxJSON) {
         QJsonObject root;
-        root["generator"] = "Viora EDA";
+        root["generator"] = "viospice";
         root["date"] = QDateTime::currentDateTime().toString(Qt::ISODate);
         root["version"] = "1.0";
         

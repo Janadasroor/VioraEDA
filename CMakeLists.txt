@@ -99,6 +99,7 @@ if(BUILD_VIOSPICE_APP)
         FluxSymbols 
         FluxCore 
         FluxSimulator
+        FluxUI
     )
 
     if(NGSPICE_FOUND)

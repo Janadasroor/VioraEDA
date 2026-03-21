@@ -3394,7 +3394,7 @@ int main(int argc, char *argv[]) {
     QCoreApplication::setApplicationVersion("1.0");
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Viora EDA Command Line Interface");
+    parser.setApplicationDescription("viospice Command Line Interface");
     parser.addVersionOption();
 
     QCommandLineOption analysisOption(QStringList() << "a" << "analysis", "Analysis type (op, tran, ac)", "type", "op");

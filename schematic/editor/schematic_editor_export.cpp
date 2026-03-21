@@ -49,7 +49,7 @@ void SchematicEditor::onExportSVG() {
     generator.setFileName(file);
     generator.setSize(rect.size().toSize());
     generator.setViewBox(rect);
-    generator.setTitle("Viora EDA Schematic");
+    generator.setTitle("viospice Schematic");
 
     QPainter painter(&generator);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -94,9 +94,9 @@ void SchematicEditor::onSettings() {
 }
 
 void SchematicEditor::onAbout() {
-    QMessageBox::about(this, "About Viora EDA",
-        "<h3>Viora EDA Schematic Editor</h3>"
+    QMessageBox::about(this, "About viospice",
+        "<h3>viospice Schematic Editor</h3>"
         "<p>Version 0.1.0</p>"
         "<p>Professional Electronics Design Automation software.</p>"
-        "<p>Copyright 2026 Viora EDA Team</p>");
+        "<p>Copyright 2026 viospice Team</p>");
 }

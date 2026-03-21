@@ -11,6 +11,7 @@
 #include "csv_viewer.h"
 #include "../core/config_manager.h"
 #include "../core/settings_dialog.h"
+#include "../core/recent_workspaces.h"
 #include <QPainter>
 #include <QPixmap>
 #include "project.h"
@@ -18,6 +19,12 @@
 #include <QApplication>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QFileInfo>
+#include <QDragEnterEvent>
+#include <QMimeData>
 #include <QInputDialog>
 #include <QDir>
 #include <QStandardPaths>
@@ -42,8 +49,8 @@
 #include <QResizeEvent>
 
 ProjectManager::ProjectManager(QWidget* parent)
-    : QMainWindow(parent) {
-    setWindowTitle("Viora EDA");
+    : QMainWindow(parent), m_workspaceDirty(false), m_workspaceFilePath(QString()) {
+    setWindowTitle("viospice");
     setMinimumSize(900, 600);
     
     applyKiCadStyle();
@@ -51,23 +58,30 @@ ProjectManager::ProjectManager(QWidget* parent)
 
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, &ProjectManager::updateThemeStyle);
 
+    // Enable drag & drop
+    setAcceptDrops(true);
+
     // Try to load last project or show empty
     updateRecentProjectsMenu();
 
-    // Try to load last recent project
-    const QStringList recentProjects = RecentProjects::instance().projects();
-    if (!recentProjects.isEmpty()) {
-        QString lastPath = recentProjects.first();
-        if (QFile::exists(lastPath)) {
-            openProject(lastPath);
-        }
-    } else {
-        // Default to Documents folder if nothing else is open
-        QString docPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-        if (QDir(docPath).exists()) {
-            m_openProjects.append(docPath);
+    // Load saved workspace folders or default to Documents
+    QStringList savedFolders = ConfigManager::instance().workspaceFolders();
+    if (!savedFolders.isEmpty()) {
+        for (const QString& folder : savedFolders) {
+            if (QDir(folder).exists() && !m_workspaceFolders.contains(folder)) {
+                m_workspaceFolders.append(folder);
+            }
         }
     }
+    
+    // If no folders loaded, default to Documents
+    if (m_workspaceFolders.isEmpty()) {
+        QString docPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        if (QDir(docPath).exists()) {
+            m_workspaceFolders.append(docPath);
+        }
+    }
+    
     refreshProjectTree();
 
     // Restore UI State
@@ -80,7 +94,20 @@ ProjectManager::ProjectManager(QWidget* parent)
 ProjectManager::~ProjectManager() {}
 
 void ProjectManager::closeEvent(QCloseEvent* event) {
+    if (m_workspaceDirty && (!m_workspaceFilePath.isEmpty() || m_workspaceFolders.size() > 1)) {
+        int ret = QMessageBox::question(this, "Save Workspace",
+            "Would you like to save the workspace before closing?",
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+        if (ret == QMessageBox::Save) {
+            saveWorkspace();
+        } else if (ret == QMessageBox::Cancel) {
+            event->ignore();
+            return;
+        }
+    }
+    
     ConfigManager::instance().saveWindowState("ProjectManager", saveGeometry(), saveState());
+    ConfigManager::instance().setWorkspaceFolders(m_workspaceFolders);
     event->accept();
 }
 
@@ -93,10 +120,6 @@ void ProjectManager::setupUI() {
     QHBoxLayout* mainLayout = new QHBoxLayout(m_centralWidget);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
-
-    // Vertical toolbar on the left edge
-    m_verticalToolbar = createVerticalToolbar();
-    mainLayout->addWidget(m_verticalToolbar);
 
     // Splitter for project files and launcher area
     m_splitter = new QSplitter(Qt::Horizontal);
@@ -176,59 +199,6 @@ QWidget* ProjectManager::createProjectFilesPanel() {
     return panel;
 }
 
-QToolBar* ProjectManager::createVerticalToolbar() {
-    QToolBar* toolbar = new QToolBar;
-    toolbar->setOrientation(Qt::Vertical);
-    toolbar->setMovable(false);
-    toolbar->setObjectName("VerticalToolbar");
-    toolbar->setIconSize(QSize(22, 22));
-    toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    
-    // Toggle Sidebar Action
-    QAction* toggleSidebarAct = toolbar->addAction(QIcon(":/icons/chevron_right.svg"), "Toggle Explorer");
-    toggleSidebarAct->setCheckable(true);
-    toggleSidebarAct->setChecked(true);
-    connect(toggleSidebarAct, &QAction::triggered, this, &ProjectManager::onToggleSidebar);
-    
-    toolbar->addSeparator();
-
-    // Add quick actions
-    QAction* newAction = toolbar->addAction(QIcon(":/icons/toolbar_new.png"), "New Project");
-    newAction->setToolTip("New Project (Ctrl+N)");
-    connect(newAction, &QAction::triggered, this, &ProjectManager::createNewProject);
-    
-    QAction* openAction = toolbar->addAction(QIcon(":/icons/folder_open.svg"), "Open Project");
-    openAction->setToolTip("Open Project (Ctrl+O)");
-    connect(openAction, &QAction::triggered, this, &ProjectManager::openExistingProject);
-    
-    toolbar->addSeparator();
-    
-    QAction* schAction = toolbar->addAction(QIcon(":/icons/toolbar_schematic.png"), "Schematic Editor");
-    schAction->setToolTip("Schematic Editor");
-    connect(schAction, &QAction::triggered, this, &ProjectManager::openSchematicEditor);
-    
-    toolbar->addSeparator();
-    
-    QAction* refreshAction = toolbar->addAction(QIcon(":/icons/toolbar_refresh.png"), "Refresh");
-    refreshAction->setToolTip("Refresh Project Tree");
-    connect(refreshAction, &QAction::triggered, this, &ProjectManager::refreshProjectTree);
-
-    toolbar->addSeparator();
-    
-    QAction* themeAction = toolbar->addAction(QIcon(":/icons/tool_anchor.svg"), "Switch Theme");
-    themeAction->setToolTip("Cycle Global Theme");
-    connect(themeAction, &QAction::triggered, this, [this]() {
-        auto& tm = ThemeManager::instance();
-        if (tm.currentTheme()->type() == PCBTheme::Engineering) tm.setTheme(PCBTheme::Dark);
-        else if (tm.currentTheme()->type() == PCBTheme::Dark) tm.setTheme(PCBTheme::Light);
-        else tm.setTheme(PCBTheme::Engineering);
-        updateThemeStyle();
-        statusBar()->showMessage("Theme changed globally", 3000);
-    });
-
-    return toolbar;
-}
-
 // Helper to add a launcher tile to the grid
 void ProjectManager::addLauncherTile(QGridLayout* grid, int row, int col, 
                                      const QString& title, const QString& desc, 
@@ -256,7 +226,7 @@ QWidget* ProjectManager::createLauncherArea() {
     layout->setSpacing(24);
 
     // Welcome header
-    QLabel* welcomeLabel = new QLabel("Viora EDA");
+    QLabel* welcomeLabel = new QLabel("viospice");
     welcomeLabel->setObjectName("WelcomeTitle");
     layout->addWidget(welcomeLabel);
 
@@ -297,7 +267,7 @@ QWidget* ProjectManager::createLauncherArea() {
     layout->addStretch();
 
     // Version footer
-    QLabel* versionLabel = new QLabel("Viora EDA v0.2.0  ·  Modern Engineering Suite");
+    QLabel* versionLabel = new QLabel("viospice v0.2.0  ·  Modern Engineering Suite");
     versionLabel->setObjectName("VersionFooter");
     versionLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(versionLabel);
@@ -340,32 +310,32 @@ void ProjectManager::updateLauncherLayout() {
 void ProjectManager::refreshProjectTree() {
     m_projectTree->clear();
     
-    if (m_openProjects.isEmpty()) {
-       statusBar()->showMessage("No projects open");
+    if (m_workspaceFolders.isEmpty()) {
+       statusBar()->showMessage("No folders in workspace");
        return;
     }
 
-    for (const QString& path : m_openProjects) {
-        addProjectToTree(path);
+    for (const QString& path : m_workspaceFolders) {
+        addFolderToTree(path);
     }
     
-    if (m_openProjects.size() == 1) {
-       statusBar()->showMessage("Project: " + m_openProjects.first());
+    if (m_workspaceFolders.size() == 1) {
+       statusBar()->showMessage("Workspace: " + m_workspaceFolders.first());
     } else {
-       statusBar()->showMessage(QString("%1 projects open").arg(m_openProjects.size()));
+       statusBar()->showMessage(QString("%1 folders in workspace").arg(m_workspaceFolders.size()));
     }
 }
 
-void ProjectManager::addProjectToTree(const QString& projectPath) {
-    QDir dir(projectPath);
+void ProjectManager::addFolderToTree(const QString& folderPath) {
+    QDir dir(folderPath);
     if (!dir.exists()) return;
 
-    // Create root item for project folder
-    QTreeWidgetItem* projectRoot = new QTreeWidgetItem(m_projectTree);
-    projectRoot->setText(0, dir.dirName());
-    projectRoot->setIcon(0, createFolderIcon(true));
-    projectRoot->setData(0, Qt::UserRole, projectPath);
-    projectRoot->setExpanded(true);
+    // Create root item for folder
+    QTreeWidgetItem* folderRoot = new QTreeWidgetItem(m_projectTree);
+    folderRoot->setText(0, dir.dirName());
+    folderRoot->setIcon(0, createFolderIcon(true));
+    folderRoot->setData(0, Qt::UserRole, folderPath);
+    folderRoot->setExpanded(true);
 
     QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
     QStringList allFiles = dir.entryList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
@@ -377,11 +347,11 @@ void ProjectManager::addProjectToTree(const QString& projectPath) {
         "venv", ".qt", "footprints", "pcb", "reverse_engineering", "simulator"
     };
 
-    // Add subdirectories under projectRoot
+    // Add subdirectories under folderRoot
     for (const QString& subdir : subdirs) {
         if (skipFolders.contains(subdir)) continue;
         
-        QTreeWidgetItem* item = new QTreeWidgetItem(projectRoot);
+        QTreeWidgetItem* item = new QTreeWidgetItem(folderRoot);
         item->setText(0, subdir);
         item->setIcon(0, createFolderIcon(false));
         item->setData(0, Qt::UserRole, dir.absoluteFilePath(subdir));
@@ -394,30 +364,15 @@ void ProjectManager::addProjectToTree(const QString& projectPath) {
              fluxFiles << f;
     }
     
-    // Auto-activate logic if only one found and none active
-    if (fluxFiles.size() == 1 && m_activeProjectFile.isEmpty()) {
-        m_activeProjectFile = dir.absoluteFilePath(fluxFiles.first());
-    }
-    
     QMap<QString, QTreeWidgetItem*> projectMap;
     
-    // Add Flux Projects under projectRoot
+    // Add Flux Projects under folderRoot
     for (const QString& f : fluxFiles) {
-        QTreeWidgetItem* item = new QTreeWidgetItem(projectRoot);
+        QTreeWidgetItem* item = new QTreeWidgetItem(folderRoot);
         QString absPath = dir.absoluteFilePath(f);
         item->setData(0, Qt::UserRole, absPath);
-        
-        if (absPath == m_activeProjectFile) {
-            item->setIcon(0, createDocumentIcon(QColor("#10b981"), "F", true)); // Flux Project
-            
-            QFont font = item->font(0);
-            font.setBold(true);
-            item->setFont(0, font);
-            item->setText(0, f + " (Active)");
-        } else {
-            item->setIcon(0, createDocumentIcon(QColor("#10b981"), "F"));
-            item->setText(0, f);
-        }
+        item->setIcon(0, createDocumentIcon(QColor("#10b981"), "F"));
+        item->setText(0, f);
         item->setExpanded(true);
         projectMap[QFileInfo(f).completeBaseName()] = item;
     }
@@ -455,14 +410,14 @@ void ProjectManager::addProjectToTree(const QString& projectPath) {
         if (!parentItem) {
              if (!fluxFiles.isEmpty()) {
                  if (!miscRoot) {
-                     miscRoot = new QTreeWidgetItem(projectRoot);
+                     miscRoot = new QTreeWidgetItem(folderRoot);
                      miscRoot->setText(0, "Project Assets");
                      miscRoot->setIcon(0, createFolderIcon(true));
                      miscRoot->setExpanded(true);
                  }
                  parentItem = miscRoot;
              } else {
-                 parentItem = projectRoot; 
+                 parentItem = folderRoot; 
              }
         }
         
@@ -538,7 +493,7 @@ QIcon ProjectManager::createFolderIcon(bool open) const {
     return QIcon(pixmap);
 }
 
-QIcon ProjectManager::createDocumentIcon(const QColor& accentColor, const QString& label, bool isActive) const {
+QIcon ProjectManager::createDocumentIcon(const QColor& accentColor, const QString& label) const {
     const int size = 20;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
@@ -564,25 +519,12 @@ QIcon ProjectManager::createDocumentIcon(const QColor& accentColor, const QStrin
     painter.setBrush(accentColor);
     painter.drawRoundedRect(2, 2, 3, 16, 2, 2);
     
-    // If active, add a subtle outer glow or distinct border
-    if (isActive) {
-        QPen activePen(accentColor, 1.5);
-        painter.setPen(activePen);
-        painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(1, 1, 18, 18, 4, 4);
-        
-        // Active indicator dot
-        painter.setBrush(accentColor);
-        painter.setPen(Qt::NoPen);
-        painter.drawEllipse(15, 15, 4, 4);
-    } else {
-        painter.setPen(QPen(QColor(255, 255, 255, 20), 1));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPath(path);
-    }
+    painter.setPen(QPen(QColor(255, 255, 255, 20), 1));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPath(path);
     
     // Draw label
-    painter.setPen(isActive ? Qt::white : QColor("#a0a0a0"));
+    painter.setPen(QColor("#a0a0a0"));
     QFont font = painter.font();
     font.setPointSize(8);
     font.setBold(true);
@@ -607,11 +549,91 @@ QIcon ProjectManager::getProjectFileIcon(const QString& fileName) const {
     return createDocumentIcon(QColor("#64748b"), "D");
 }
 
-void ProjectManager::activateProject(const QString& projectFile) {
-    m_activeProjectFile = projectFile;
+void ProjectManager::addFolderToWorkspace() {
+    QString folder = QFileDialog::getExistingDirectory(this, "Add Folder to Workspace", 
+                                                     QStandardPaths::writableLocation(QStandardPaths::HomeLocation));
+    if (!folder.isEmpty() && !m_workspaceFolders.contains(folder)) {
+        m_workspaceFolders.append(folder);
+        m_workspaceDirty = true;
+        refreshProjectTree();
+    }
+}
+
+void ProjectManager::saveWorkspace() {
+    // Only save workspace file if multiple folders
+    if (m_workspaceFolders.size() <= 1) {
+        m_workspaceDirty = false;
+        return;
+    }
+    
+    QString filePath = m_workspaceFilePath;
+    if (filePath.isEmpty()) {
+        filePath = QFileDialog::getSaveFileName(this, "Save Workspace",
+            QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/untitled.viospice-workspace",
+            "viospice Workspace (*.viospice-workspace)");
+        if (filePath.isEmpty()) return;
+        if (!filePath.endsWith(".viospice-workspace")) {
+            filePath += ".viospice-workspace";
+        }
+    }
+    
+    QJsonObject root;
+    QJsonArray folders;
+    for (const QString& folder : m_workspaceFolders) {
+        QJsonObject folderObj;
+        folderObj["path"] = folder;
+        folders.append(folderObj);
+    }
+    root["folders"] = folders;
+    root["settings"] = QJsonObject();
+    
+    QFile file(filePath);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+        file.close();
+        m_workspaceFilePath = filePath;
+        m_workspaceDirty = false;
+        RecentWorkspaces::instance().addWorkspace(filePath);
+        updateRecentProjectsMenu();
+        setWindowTitle("viospice - " + QFileInfo(filePath).fileName());
+    }
+}
+
+void ProjectManager::loadWorkspace(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    
+    QByteArray data = file.readAll();
+    file.close();
+    
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isObject()) return;
+    
+    QJsonObject root = doc.object();
+    QJsonArray folders = root["folders"].toArray();
+    
+    m_workspaceFolders.clear();
+    QString workspaceDir = QFileInfo(path).absolutePath();
+    
+    for (const QJsonValue& val : folders) {
+        QString folderPath = val.toObject()["path"].toString();
+        if (!folderPath.isEmpty()) {
+            // Handle relative paths
+            if (QFileInfo(folderPath).isRelative()) {
+                folderPath = workspaceDir + "/" + folderPath;
+            }
+            if (QDir(folderPath).exists() && !m_workspaceFolders.contains(folderPath)) {
+                m_workspaceFolders.append(folderPath);
+            }
+        }
+    }
+    
+    m_workspaceFilePath = path;
+    m_workspaceDirty = false;
+    RecentWorkspaces::instance().addWorkspace(path);
+    updateRecentProjectsMenu();
+    setWindowTitle("viospice - " + QFileInfo(path).fileName());
     refreshProjectTree();
-    QMessageBox::information(this, "Viora EDA", 
-        "Project " + QFileInfo(projectFile).fileName() + " is now active.");
 }
 
 void ProjectManager::onProjectTreeItemDoubleClicked(QTreeWidgetItem* item, int column) {
@@ -646,6 +668,38 @@ void ProjectManager::onProjectTreeItemDoubleClicked(QTreeWidgetItem* item, int c
     }
 }
 
+void ProjectManager::dragEnterEvent(QDragEnterEvent* event) {
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+    }
+}
+
+void ProjectManager::dragMoveEvent(QDragMoveEvent* event) {
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+    }
+}
+
+void ProjectManager::dropEvent(QDropEvent* event) {
+    const QMimeData* mimeData = event->mimeData();
+    if (mimeData->hasUrls()) {
+        QList<QUrl> urlList = mimeData->urls();
+        for (const QUrl& url : urlList) {
+            QString path = url.toLocalFile();
+            if (QFileInfo(path).isDir()) {
+                if (!m_workspaceFolders.contains(path)) {
+                    m_workspaceFolders.append(path);
+                    m_workspaceDirty = true;
+                }
+            } else if (path.endsWith(".viospice-workspace", Qt::CaseInsensitive)) {
+                loadWorkspace(path);
+            }
+        }
+        refreshProjectTree();
+        event->acceptProposedAction();
+    }
+}
+
 void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
     QTreeWidgetItem* item = m_projectTree->itemAt(pos);
     if (!item) return;
@@ -662,7 +716,7 @@ void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
     }
     QString projectRootPath = root->data(0, Qt::UserRole).toString();
     
-    if (m_openProjects.contains(projectRootPath)) {
+    if (m_workspaceFolders.contains(projectRootPath)) {
         QString projectName;
         QDir d(projectRootPath);
         QStringList flux = d.entryList(QStringList() << "*.flux", QDir::Files);
@@ -685,40 +739,13 @@ void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
         }
     }
     
-    // Add Close Project for open projects (roots)
-    if (m_openProjects.contains(path)) {
-        QAction* closeAction = menu.addAction("Close Project");
-        closeAction->setIcon(QIcon(":/icons/close.png")); // Assuming icon exists or fallback
-        connect(closeAction, &QAction::triggered, [this, path](){
-             m_openProjects.removeAll(path);
-             // Check if active file belongs to this project
-             if (!m_activeProjectFile.isEmpty()) {
-                 QString activeDir = QFileInfo(m_activeProjectFile).absolutePath();
-                 // Compare assuming normalized paths without trailing slashes
-                 if (activeDir == path) {
-                     m_activeProjectFile.clear();
-                 }
-             }
+    // Add Remove from Workspace for workspace folders (roots)
+    if (m_workspaceFolders.contains(path)) {
+        QAction* removeAction = menu.addAction("Remove from Workspace");
+        removeAction->setIcon(QIcon(":/icons/close.png"));
+        connect(removeAction, &QAction::triggered, [this, path](){
+             m_workspaceFolders.removeAll(path);
              refreshProjectTree();
-        });
-        menu.addSeparator();
-    }
-
-    // Add Activate Action for .flux files
-    if (path.endsWith(".flux", Qt::CaseInsensitive)) {
-        QAction* activate = menu.addAction("Activate Project");
-        
-        QPixmap pix(16, 16); 
-        pix.fill(Qt::transparent);
-        QPainter p(&pix); 
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setBrush(QColor("#4CAF50")); 
-        p.setPen(Qt::NoPen); 
-        p.drawEllipse(3,3,10,10);
-        activate->setIcon(QIcon(pix));
-        
-        connect(activate, &QAction::triggered, [this, path](){
-             activateProject(path);
         });
         menu.addSeparator();
     }
@@ -770,7 +797,7 @@ void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
     menu.addSeparator();
 
     // Common file/folder operations
-    if (!m_openProjects.contains(path)) {
+    if (!m_workspaceFolders.contains(path)) {
         QAction* renameAction = menu.addAction("Rename...");
         connect(renameAction, &QAction::triggered, [this, path, info]() {
             QString newName = QInputDialog::getText(this, "Rename", "New name:", QLineEdit::Normal, info.fileName());
@@ -807,7 +834,7 @@ void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
     });
 
-    if (!m_openProjects.contains(path)) {
+    if (!m_workspaceFolders.contains(path)) {
         menu.addSeparator();
         QAction* deleteAction = menu.addAction("Delete");
         deleteAction->setIcon(QIcon(":/icons/tool_delete.svg"));
@@ -934,8 +961,24 @@ void ProjectManager::createMenuBar() {
     QMenu* fileMenu = menuBar()->addMenu("&File");
     m_newProjectAction = fileMenu->addAction("&New Project...", this, &ProjectManager::createNewProject);
     m_newProjectAction->setShortcut(QKeySequence::New);
-    m_openProjectAction = fileMenu->addAction("&Open Project...", this, &ProjectManager::openExistingProject);
+    m_openProjectAction = fileMenu->addAction("&Open...", this, &ProjectManager::openExistingProject);
     m_openProjectAction->setShortcut(QKeySequence::Open);
+    
+    QAction* openWorkspaceAction = fileMenu->addAction("&Open Workspace...", this, [this]() {
+        QString path = QFileDialog::getOpenFileName(this, "Open Workspace",
+            QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+            "viospice Workspace (*.viospice-workspace)");
+        if (!path.isEmpty()) {
+            loadWorkspace(path);
+        }
+    });
+
+    fileMenu->addSeparator();
+    m_addFolderAction = fileMenu->addAction("Add Folder to &Workspace...", this, &ProjectManager::addFolderToWorkspace);
+    m_addFolderAction->setShortcut(QKeySequence("Ctrl+Shift+O"));
+    
+    QAction* saveWorkspaceAction = fileMenu->addAction("&Save Workspace", this, &ProjectManager::saveWorkspace);
+    saveWorkspaceAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
 
     m_recentProjectsMenu = fileMenu->addMenu("Open &Recent");
     updateRecentProjectsMenu();
@@ -958,7 +1001,7 @@ void ProjectManager::createMenuBar() {
     helpMenu->addAction("&Help & Guides", this, &ProjectManager::showHelp, QKeySequence::HelpContents);
     helpMenu->addAction("&Developer Documentation", this, &ProjectManager::showDeveloperHelp, QKeySequence("Ctrl+Shift+F1"));
     helpMenu->addAction("Project &Health Audit...", this, &ProjectManager::onProjectAudit);
-    m_aboutAction = helpMenu->addAction("&About Viora EDA", this, &ProjectManager::showAbout);
+    m_aboutAction = helpMenu->addAction("&About viospice", this, &ProjectManager::showAbout);
 }
 
 void ProjectManager::createNewProject() {
@@ -983,11 +1026,18 @@ void ProjectManager::createNewProject() {
 }
 
 void ProjectManager::openExistingProject() {
-    QString fileName = QFileDialog::getOpenFileName(this, "Open Project", QString(), "Viora EDA (*.flux)");
-    if (!fileName.isEmpty()) {
-        RecentProjects::instance().addProject(fileName);
-        updateRecentProjectsMenu();
-        openProject(fileName);
+    QString path = QFileDialog::getOpenFileName(this, "Open Folder or Workspace",
+        QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
+        "viospice Workspace (*.viospice-workspace);;All Files (*)");
+    
+    if (!path.isEmpty()) {
+        if (path.endsWith(".viospice-workspace", Qt::CaseInsensitive)) {
+            loadWorkspace(path);
+        } else {
+            RecentProjects::instance().addProject(path);
+            updateRecentProjectsMenu();
+            openProject(path);
+        }
     }
 }
 
@@ -1004,13 +1054,9 @@ void ProjectManager::openProject(const QString& path) {
     // Normalize path
     dirPath = QDir(dirPath).absolutePath();
     
-    if (!m_openProjects.contains(dirPath)) {
-        m_openProjects.append(dirPath);
-    }
-    
-    if (info.isFile() && path.endsWith(".flux", Qt::CaseInsensitive)) {
-        m_activeProjectFile = info.absoluteFilePath();
-    }
+    // Only show this folder in explorer (replace workspace)
+    m_workspaceFolders.clear();
+    m_workspaceFolders.append(dirPath);
     
     refreshProjectTree();
 }
@@ -1019,11 +1065,32 @@ void ProjectManager::updateRecentProjectsMenu() {
     if (!m_recentProjectsMenu) return;
 
     m_recentProjectsMenu->clear();
-    const QStringList projects = RecentProjects::instance().projects();
     
+    // Add Recent Workspaces section
+    const QStringList workspaces = RecentWorkspaces::instance().workspaces();
+    bool hasWorkspaces = false;
+    for (const QString& path : workspaces) {
+        if (!QFile::exists(path)) continue;
+        if (!hasWorkspaces) {
+            m_recentProjectsMenu->addSection("Workspaces");
+            hasWorkspaces = true;
+        }
+        QAction* action = m_recentProjectsMenu->addAction(QFileInfo(path).fileName());
+        action->setData(path);
+        connect(action, &QAction::triggered, [this, path]() {
+            loadWorkspace(path);
+        });
+    }
+    
+    // Add Recent Projects section
+    const QStringList projects = RecentProjects::instance().projects();
+    bool hasProjects = false;
     for (const QString& path : projects) {
         if (!QFile::exists(path) && !QDir(path).exists()) continue;
-
+        if (!hasProjects) {
+            m_recentProjectsMenu->addSection("Folders");
+            hasProjects = true;
+        }
         QAction* action = m_recentProjectsMenu->addAction(QFileInfo(path).fileName());
         action->setData(path);
         connect(action, &QAction::triggered, [this, path]() {
@@ -1031,41 +1098,36 @@ void ProjectManager::updateRecentProjectsMenu() {
         });
     }
     
-    if (projects.isEmpty()) {
-        m_recentProjectsMenu->addAction("(No recent projects)")->setEnabled(false);
+    if (!hasWorkspaces && !hasProjects) {
+        m_recentProjectsMenu->addAction("(No recent items)")->setEnabled(false);
     } else {
         m_recentProjectsMenu->addSeparator();
-        QAction* clear = m_recentProjectsMenu->addAction("Clear Recent Projects");
+        QAction* clear = m_recentProjectsMenu->addAction("Clear Recent Items");
         connect(clear, &QAction::triggered, [this]() {
             RecentProjects::instance().clear();
+            RecentWorkspaces::instance().clear();
             updateRecentProjectsMenu();
         });
     }
 }
 
 void ProjectManager::openSchematicEditor() { 
-    if (m_activeProjectFile.isEmpty()) {
-        int ret = QMessageBox::question(this, "No Active Project", 
-            "No project is currently active. Do you want to create a new project?",
+    if (m_workspaceFolders.isEmpty()) {
+        int ret = QMessageBox::question(this, "No Folders in Workspace", 
+            "No folders are currently in the workspace. Do you want to add a folder?",
             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
         if (ret == QMessageBox::Yes) {
-             createNewProject();
-             if (m_activeProjectFile.isEmpty()) return;
-        } else {
-             return;
+             addFolderToWorkspace();
         }
+        if (m_workspaceFolders.isEmpty()) return;
     }
     
-    QFileInfo fi(m_activeProjectFile);
-    QString schPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".sch";
-    if (QFile::exists(schPath)) launchSchematicEditor(schPath);
-    else launchSchematicEditor();
+    launchSchematicEditor();
 }
 
 void ProjectManager::openSymbolEditor() {
     SymbolEditor* editor = new SymbolEditor(nullptr);
     editor->setAttribute(Qt::WA_DeleteOnClose);
-    editor->setProjectKey(m_activeProjectFile);
     editor->show();
 }
 
@@ -1075,8 +1137,8 @@ void ProjectManager::openCalculatorTools() {
 }
 
 void ProjectManager::showAbout() {
-    QMessageBox::about(this, "About Viora EDA",
-        "Viora EDA v0.1.0\n\n"
+    QMessageBox::about(this, "About viospice",
+        "viospice v0.1.0\n\n"
         "Professional Electronic Design Automation\n\n"
         "Open-source PCB design software");
 }
@@ -1126,6 +1188,11 @@ void ProjectManager::launchSchematicEditor(const QString& projectPath) {
         QFileInfo fi(pFile);
         pDir = fi.absolutePath();
         pName = fi.completeBaseName();
+    } else if (!m_workspaceFolders.isEmpty()) {
+        // Use first workspace folder as project directory
+        pDir = m_workspaceFolders.first();
+        QDir dir(pDir);
+        pName = dir.dirName();
     }
     
     editor->setProjectContext(pName, pDir);
@@ -1241,16 +1308,4 @@ void LauncherTile::enterEvent(QEnterEvent*) {
 
 void LauncherTile::leaveEvent(QEvent*) {
     // Leave effect handled by CSS
-}
-
-void ProjectManager::onToggleSidebar() {
-    if (!m_projectPanel || !m_splitter) return;
-    
-    bool isVisible = m_projectPanel->isVisible();
-    m_projectPanel->setVisible(!isVisible);
-    
-    if (!isVisible) {
-        // Just became visible, restore some width
-        m_splitter->setSizes({250, width() - 250});
-    }
 }

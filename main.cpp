@@ -3,6 +3,7 @@
 #include "schematic/editor/schematic_editor.h"
 #include "schematic/ui/netlist_editor.h"
 #include "ui/csv_viewer.h"
+#include "ui/project_manager.h"
 #include "symbols/symbol_editor.h"
 #include "schematic/factories/schematic_item_registry.h"
 #include "schematic/tools/schematic_tool_registry_builtin.h"
@@ -146,26 +147,9 @@ int main(int argc, char *argv[])
         qDebug() << "Opening requested file:" << fileToOpen;
         openFile(fileToOpen);
     } else {
-        QString lastRecent = RecentProjects::instance().mostRecent();
-        qDebug() << "Checking most recent project:" << lastRecent;
-        if (!lastRecent.isEmpty()) {
-            if (QFile::exists(lastRecent)) {
-                qDebug() << "Auto-loading most recent project:" << lastRecent;
-                openFile(lastRecent);
-            } else {
-                qWarning() << "Most recent project file does not exist:" << lastRecent;
-                // Launch default empty schematic editor
-                SchematicEditor* schematicEditor = new SchematicEditor;
-                schematicEditor->setWindowTitle("viospice - Schematic Editor");
-                schematicEditor->show();
-            }
-        } else {
-            qDebug() << "No recent project to auto-load.";
-            // Launch default empty schematic editor
-            SchematicEditor* schematicEditor = new SchematicEditor;
-            schematicEditor->setWindowTitle("viospice - Schematic Editor");
-            schematicEditor->show();
-        }
+        ProjectManager* projectManager = new ProjectManager;
+        projectManager->setAttribute(Qt::WA_DeleteOnClose);
+        projectManager->show();
     }
 
     return a.exec();

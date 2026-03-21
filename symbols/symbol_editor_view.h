@@ -41,6 +41,10 @@ signals:
     void rightClicked();
     void contextMenuRequested(const QPoint& pos);
     void itemErased(QGraphicsItem* item);
+    void penPointAdded(QPointF scenePos);
+    void penHandleDragged(QPointF handlePos);
+    void penPointFinished();
+    void penPathClosed();
     
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -70,6 +74,9 @@ private:
     bool m_showHGuide = false;
     qreal m_vGuideX = 0.0;
     qreal m_hGuideY = 0.0;
+    QPointF m_penPressPos;
+    bool m_penIsDragging = false;
+    static constexpr qreal PEN_DRAG_THRESHOLD = 5.0;
 };
 
 #endif // SYMBOL_EDITOR_VIEW_H

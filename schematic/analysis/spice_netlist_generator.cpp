@@ -236,7 +236,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     if (!scene) return "* Missing scene\n";
 
     QString netlist;
-    netlist += "* Viora EDA Automated Hierarchical SPICE Netlist\n";
+    netlist += "* viospice Automated Hierarchical SPICE Netlist\n";
     netlist += "* Generated on " + QDateTime::currentDateTime().toString() + "\n\n";
 
     // 0. Append SPICE Directives from schematic at the TOP 

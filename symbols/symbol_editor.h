@@ -84,6 +84,13 @@ private slots:
     void onZoomOut();
     void onZoomFit();
     void onZoomSelection();
+    void onPenPointAdded(QPointF pos);
+    void onPenHandleDragged(QPointF handlePos);
+    void onPenPointFinished();
+    void onPenPathClosed();
+    void finalizePenPath();
+    void clearPenState();
+    void updatePenPreview();
     void onCopy();
     void onPaste();
     void onDuplicate();
@@ -135,6 +142,7 @@ private:
     void createWizardPanel();
     void createPinTable();
     void updatePinTable();
+    QWidget* createSymbolMetadataWidget();
     void populateLibraryTree();
     void updateCodePreview();
     void updatePinPreview(QPointF pos);
@@ -161,8 +169,22 @@ protected:
     void showEvent(QShowEvent* event) override;
 
     // Current editing state
-    enum Tool { Select, Line, Rect, Circle, Arc, Text, Pin, Polygon, Erase, ZoomArea, Anchor, Bezier, Image };
+    enum Tool { Select, Line, Rect, Circle, Arc, Text, Pin, Polygon, Erase, ZoomArea, Anchor, Bezier, Image, Pen };
     Tool m_currentTool = Select;
+    
+    // Pen tool state - Figma-style bezier path editing
+    struct PenPoint {
+        QPointF pos;           // Main anchor point
+        QPointF handleIn;      // Control handle coming INTO this point (relative)
+        QPointF handleOut;     // Control handle going OUT of this point (relative)
+        bool smooth;           // Whether handles are locked (smooth curve)
+    };
+    QList<PenPoint> m_penPoints;
+    int m_selectedPenPoint = -1;  // Index of selected point for dragging
+    QGraphicsPathItem* m_penPreviewItem = nullptr;
+    QList<QGraphicsEllipseItem*> m_penPointMarkers;
+    QList<QGraphicsLineItem*> m_penHandleLines;
+    bool m_penFinalizing = false;  // Guard against double finalization
     
     // UI Components
     QGraphicsScene* m_scene = nullptr;
@@ -194,6 +216,10 @@ protected:
     QComboBox* m_modelSourceCombo = nullptr;
     QLineEdit* m_modelPathEdit = nullptr;
     QLineEdit* m_modelNameEdit = nullptr;
+    
+    // Properties panel
+    class QTabWidget* m_propsTabWidget = nullptr;
+    QDockWidget* m_propsDock = nullptr;
     
     // Library Browser
     QLineEdit* m_libSearchEdit = nullptr;

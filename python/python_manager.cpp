@@ -56,7 +56,7 @@ void PythonManager::runScript(const QString& scriptName, const QStringList& args
 
     // Use venv python if available, otherwise fallback to system python3
     QString scriptsDir = getScriptsPath();
-    // Path: Viora EDA/python/scripts -> ../venv/bin/python -> Viora EDA/python/venv/bin/python
+    // Path: viospice/python/scripts -> ../venv/bin/python -> viospice/python/venv/bin/python
     QString venvPython = QDir(scriptsDir).absoluteFilePath("../venv/bin/python");
     QString pythonExec = "python3";
     

@@ -81,7 +81,7 @@ namespace pybind11 { namespace detail {
 }}
 
 PYBIND11_EMBEDDED_MODULE(flux, m) {
-    m.doc() = "VioraEDA Embedded API";
+    m.doc() = "viospice Embedded API";
 
     // Bind QPointF
     py::class_<QPointF>(m, "Point")

@@ -374,7 +374,7 @@ void SchematicEditor::onCopy() {
     if (itemsArray.isEmpty()) return;
 
     QJsonObject clipboardData;
-    clipboardData["application"] = "Viora EDA";
+    clipboardData["application"] = "viospice";
     clipboardData["type"] = "schematic-items";
     clipboardData["items"] = itemsArray;
 
@@ -397,7 +397,7 @@ void SchematicEditor::onPaste() {
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonObject clipboardData = doc.object();
 
-    if (clipboardData["application"].toString() != "Viora EDA" ||
+    if (clipboardData["application"].toString() != "viospice" ||
         clipboardData["type"].toString() != "schematic-items") return;
 
     QJsonArray itemsArray = clipboardData["items"].toArray();

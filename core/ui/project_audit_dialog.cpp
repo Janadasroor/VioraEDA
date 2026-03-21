@@ -10,7 +10,7 @@
 ProjectAuditDialog::ProjectAuditDialog(QWidget *parent)
     : QDialog(parent)
 {
-    setWindowTitle("Viora EDA - Project Health & Audit");
+    setWindowTitle("viospice - Project Health & Audit");
     resize(700, 500);
     
     setupUi();
@@ -120,7 +120,7 @@ void ProjectAuditDialog::updateMemoryStats() {
             new QTreeWidgetItem(root, {label, val});
         };
         
-        setChild(m_memRoot, "Viora Process Memory (RSS)", QString::number(mb, 'f', 1) + " MB");
+        setChild(m_memRoot, "viospice Process Memory (RSS)", QString::number(mb, 'f', 1) + " MB");
         setChild(m_memRoot, "PID", QString::number(qApp->applicationPid()));
     } else {
         new QTreeWidgetItem(m_memRoot, {"Memory Usage", "Unavailable"});

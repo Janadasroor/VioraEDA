@@ -75,6 +75,7 @@
         <file>icons/view_zoom_components.svg</file>
         <file>icons/tool_polygon.svg</file>
         <file>icons/tool_bezier.svg</file>
+        <file>icons/tool_pen.svg</file>
         <file>icons/tool_image.svg</file>
         <file>icons/tool_3d.svg</file>
         <file>icons/tool_anchor.svg</file>

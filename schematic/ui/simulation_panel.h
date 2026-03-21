@@ -59,6 +59,7 @@ public:
     void removeTabState(QGraphicsScene* scene);
     QWidget* getOscilloscopeContainer() const;
     bool hasResults() const { return m_hasLastResults; }
+    void showDetailedLog();
 
     struct TabOscilloscopeState {
         SimResults lastResults;

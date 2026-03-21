@@ -102,6 +102,15 @@ QByteArray ConfigManager::windowState(const QString& name) const {
     return m_settings.value("ui/" + name + "/state").toByteArray();
 }
 
+QStringList ConfigManager::workspaceFolders() const {
+    return m_settings.value("workspaceFolders").toStringList();
+}
+
+void ConfigManager::setWorkspaceFolders(const QStringList& folders) {
+    m_settings.setValue("workspaceFolders", folders);
+    m_settings.sync();
+}
+
 bool ConfigManager::snapToGrid() const { return m_snapToGrid; }
 void ConfigManager::setSnapToGrid(bool enabled) { m_snapToGrid = enabled; }
 bool ConfigManager::autoFocusOnCrossProbe() const { return m_autoFocusOnCrossProbe; }

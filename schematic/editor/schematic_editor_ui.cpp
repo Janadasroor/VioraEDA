@@ -13,6 +13,7 @@
 #include "../ui/schematic_hierarchy_panel.h"
 #include "../ui/simulation_panel.h"
 #include "../ui/logic_analyzer_window.h"
+#include "../../ui/source_control_panel.h"
 #include "../../symbols/symbol_library.h"
 #include "../dialogs/simulation_debugger_dialog.h"
 #include "../dialogs/spice_directive_dialog.h"
@@ -26,6 +27,8 @@ using Flux::Model::SymbolPrimitive;
 #include "../ui/logic_editor_panel.h"
 #include "../items/schematic_waveform_marker.h"
 #include "../../simulator/bridge/sim_schematic_bridge.h"
+#include "../../ui/source_control_panel.h"
+#include "../../ui/terminal_panel.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QActionGroup>
@@ -666,6 +669,12 @@ void SchematicEditor::createToolBar() {
     viewMenu->addAction(getThemeIcon(":/icons/view_zoom_components.svg"), "Zoom to Components", this, &SchematicEditor::onZoomAllComponents, QKeySequence("Alt+F"));
     viewMenu->addSeparator();
     viewMenu->addAction(getThemeIcon(":/icons/toolbar_new.png"), "Show Netlist", this, &SchematicEditor::onOpenNetlistEditor, QKeySequence("Ctrl+G"));
+    m_showDetailedLogAction = viewMenu->addAction("Show Detailed Log", this, [this]() {
+        if (m_simulationPanel) m_simulationPanel->showDetailedLog();
+    }, QKeySequence("Ctrl+L"));
+    if (m_showDetailedLogAction) {
+        m_showDetailedLogAction->setEnabled(m_workspaceTabs->currentWidget() == m_simulationPanel);
+    }
 
     viewMenu->addSeparator();
 
@@ -709,6 +718,8 @@ void SchematicEditor::createToolBar() {
     addToggle(m_hierarchyDock, "Sheet Hierarchy");
     addToggle(m_ercDock, "ERC Results");
     addToggle(m_oscilloscopeDock, "Analog Oscilloscope");
+    addToggle(m_sourceControlDock, "Source Control");
+    addToggle(m_terminalDock, "Terminal");
 
     // Simulation Menu
     QMenu* simMenu = mainAppMenu->addMenu("&Simulation");
@@ -1313,7 +1324,6 @@ void SchematicEditor::createDockWidgets() {
     m_projectExplorerDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     
     m_projectExplorer = new ProjectExplorerWidget(this);
-    m_projectExplorer->setRootPath(QDir::currentPath());
     
     connect(m_projectExplorer, &ProjectExplorerWidget::fileDoubleClicked, this, &SchematicEditor::openFile);
     
@@ -1399,7 +1409,7 @@ void SchematicEditor::createDockWidgets() {
     connect(clearIgnoredBtn, &QPushButton::clicked, this, &SchematicEditor::onClearErcExclusions);
     
     // === Gemini AI Dock ===
-    m_geminiDock = new QDockWidget("Viora AI Co-Pilot", this);
+    m_geminiDock = new QDockWidget("viospice AI Co-Pilot", this);
     m_geminiDock->setObjectName("GeminiDock");
     m_geminiDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
     m_geminiPanel = new GeminiPanel(m_scene, this);
@@ -1594,11 +1604,48 @@ void SchematicEditor::createDockWidgets() {
     m_scriptDock->hide();
     m_componentDock->raise(); // Show components by default
 
+    // === Source Control Dock ===
+    m_sourceControlDock = new QDockWidget("Source Control", this);
+    m_sourceControlDock->setObjectName("SourceControlDock");
+    m_sourceControlDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
+    m_sourceControlPanel = new SourceControlPanel(this);
+    m_sourceControlDock->setWidget(m_sourceControlPanel);
+    addDockWidget(Qt::RightDockWidgetArea, m_sourceControlDock);
+    tabifyDockWidget(m_ercDock, m_sourceControlDock);
+    m_sourceControlDock->raise();
+
+    if (ThemeManager::theme()) {
+        m_sourceControlDock->setStyleSheet(QString(
+            "QDockWidget { border: none; }"
+            "QDockWidget::title { background: %1; color: %2; padding: 6px; border-bottom: 1px solid %3; font-weight: bold; }"
+        ).arg(ThemeManager::theme()->panelBackground().name(),
+              ThemeManager::theme()->textColor().name(),
+              ThemeManager::theme()->panelBorder().name()));
+    }
+
+    // === Terminal Dock ===
+    m_terminalDock = new QDockWidget("Terminal", this);
+    m_terminalDock->setObjectName("TerminalDock");
+    m_terminalDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
+    m_terminalPanel = new TerminalPanel(this);
+    m_terminalDock->setWidget(m_terminalPanel);
+    addDockWidget(Qt::RightDockWidgetArea, m_terminalDock);
+    tabifyDockWidget(m_sourceControlDock, m_terminalDock);
+    m_terminalDock->raise();
+
+    if (ThemeManager::theme()) {
+        m_terminalDock->setStyleSheet(QString(
+            "QDockWidget { border: none; }"
+            "QDockWidget::title { background: %1; color: %2; padding: 6px; border-bottom: 1px solid %3; font-weight: bold; }"
+        ).arg(ThemeManager::theme()->panelBackground().name(),
+              ThemeManager::theme()->textColor().name(),
+              ThemeManager::theme()->panelBorder().name()));
+    }
+
     // Stack the left docks
     tabifyDockWidget(m_componentDock, m_hierarchyDock);
     tabifyDockWidget(m_hierarchyDock, m_geminiDock);
     tabifyDockWidget(m_geminiDock, m_scriptDock);
-    
     m_componentDock->raise();
 
     // === Oscilloscope Dock ===
@@ -1616,7 +1663,7 @@ void SchematicEditor::createDockWidgets() {
     }
     
     m_oscilloscopeDock->setMinimumHeight(300);
-    m_oscilloscopeDock->setMinimumWidth(700);
+    m_oscilloscopeDock->setMinimumWidth(0);
     m_oscilloscopeDock->hide();
     addDockWidget(Qt::BottomDockWidgetArea, m_oscilloscopeDock);
 
