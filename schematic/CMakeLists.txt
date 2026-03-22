@@ -1,0 +1,18 @@
+set(FLUXSCHEMATIC_SOURCES ${SCHEMATIC_SOURCES})
+list(TRANSFORM FLUXSCHEMATIC_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/../")
+
+add_library(FluxSchematic STATIC ${FLUXSCHEMATIC_SOURCES})
+set_target_properties(FluxSchematic PROPERTIES AUTOMOC ON)
+vioraeda_configure_module_target(FluxSchematic)
+target_link_libraries(FluxSchematic PUBLIC FluxCore FluxSymbols FluxSimulator Qt${QT_VERSION_MAJOR}::Concurrent)
+target_include_directories(FluxSchematic PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/bridge
+)
+if(NGSPICE_FOUND)
+    target_include_directories(FluxSchematic PRIVATE ${NGSPICE_INCLUDE_DIRS})
+endif()
+
+# For backward compatibility if other modules use FluxSchematicCore or FluxSchematicUI
+add_library(FluxSchematicCore ALIAS FluxSchematic)
+add_library(FluxSchematicUI ALIAS FluxSchematic)
