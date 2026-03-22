@@ -135,10 +135,10 @@ private:
     bool m_simulationRunning = false;
     bool m_probingEnabled = false;
     QPointF m_cursorScenePos;
-    QUndoStack* m_undoStack;
+    QUndoStack* m_undoStack = nullptr;
     class NetManager* m_netManager = nullptr;
 
-    SchematicTool* m_currentTool;
+    SchematicTool* m_currentTool = nullptr;
     SchematicItem* m_lastHoveredItem = nullptr;
     QMap<SchematicItem*, QSet<int>> m_hoverHighlightedPins;
     QList<QGraphicsItem*> m_liveErcMarkers;

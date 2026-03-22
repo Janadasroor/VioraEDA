@@ -31,6 +31,7 @@ public:
     virtual SchematicItem* clone() const override;
 
     SymbolDefinition symbol() const { return m_symbol; }
+    void setSymbol(const SymbolDefinition& symbol);
     
     virtual QList<QPointF> connectionPoints() const override;
     virtual QList<PinElectricalType> pinElectricalTypes() const override;

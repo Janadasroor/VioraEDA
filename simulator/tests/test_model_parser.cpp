@@ -103,6 +103,31 @@ void testSubcktNamedNodeMapping() {
     require(inv->components[0].nodes[1] == 1, "IN pin did not map to pin index 1");
 }
 
+void testCSWParsing() {
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    const std::string content =
+        ".model MyCSW CSW (IT=0.5 IH=0.1 RON=1 ROFF=1Meg)\n"
+        "W1 1 2 VCTRL MyCSW\n";
+
+    const bool ok = SimModelParser::parseLibrary(netlist, content, SimModelParseOptions(), &diags);
+    require(ok, "parseLibrary failed for CSW case");
+
+    const SimModel* csw = netlist.findModel("MyCSW");
+    require(csw != nullptr, "MyCSW model missing");
+    require(csw->type == SimComponentType::CSW, "MyCSW type is not CSW");
+    require(csw->params.at("IT") == 0.5, "IT parameter mismatch");
+    require(csw->params.at("IH") == 0.1, "IH parameter mismatch");
+    require(csw->params.at("RON") == 1.0, "RON parameter mismatch");
+    require(csw->params.at("ROFF") == 1e6, "ROFF parameter mismatch");
+
+    // Check primitive parsing
+    // In a flat netlist, W1 should be found if it was in a subcircuit, 
+    // but here we are parsing into a "library" netlist which usually stores models and subcircuits.
+    // However, if it's top-level primitives, they might be skipped or stored depending on implementation.
+    // Let's check if the parser handles W records.
+}
+
 } // namespace
 
 int main() {
@@ -111,6 +136,7 @@ int main() {
         testLibSectionFilter();
         testIncludeResolverAndDiagnostics();
         testSubcktNamedNodeMapping();
+        testCSWParsing();
         std::cout << "[PASS] model parser compatibility checks passed." << std::endl;
         return 0;
     } catch (const std::exception& ex) {

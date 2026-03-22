@@ -168,13 +168,16 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     applyTheme();
 
     // Set default tool
-    m_view->setCurrentTool("Select");
+    qDebug() << "DBG: before setCurrentTool, m_view=" << m_view;
+    if (m_view) m_view->setCurrentTool("Select");
+    qDebug() << "DBG: after setCurrentTool";
 
     // Smart Cross-Probing from PCB
     connect(&SyncManager::instance(), &SyncManager::crossProbeReceived, this, &SchematicEditor::onCrossProbeReceived);
     
     // ECO / Netlist Synchronization from PCB or Reverse Engineering
     connect(&SyncManager::instance(), &SyncManager::ecoAvailable, this, &SchematicEditor::handleIncomingECO);
+    qDebug() << "DBG: after signal connections";
 
     // Auto-Save Setup
     if (ConfigManager::instance().autoSaveEnabled()) {
@@ -182,9 +185,11 @@ SchematicEditor::SchematicEditor(QWidget *parent)
         connect(timer, &QTimer::timeout, this, &SchematicEditor::onSaveSchematic);
         timer->start(ConfigManager::instance().autoSaveInterval() * 60000);
     }
+    qDebug() << "DBG: after auto-save";
 
     // Restore Session
     QStringList openFiles = ConfigManager::instance().toolProperty("SchematicEditor", "openFiles").toStringList();
+    qDebug() << "DBG: session openFiles=" << openFiles;
     if (!openFiles.isEmpty()) {
         for (const QString& path : openFiles) {
             if (QFile::exists(path)) openFile(path);
@@ -194,6 +199,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
             m_workspaceTabs->setCurrentIndex(activeIdx);
         }
     }
+    qDebug() << "DBG: constructor done";
 }
 
 SchematicEditor::~SchematicEditor() {

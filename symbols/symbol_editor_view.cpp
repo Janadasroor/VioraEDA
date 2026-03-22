@@ -75,53 +75,92 @@ void SymbolEditorView::drawBackground(QPainter* painter, const QRectF& rect) {
     qreal startX = std::floor(rect.left() / (drawFine ? fineGrid : majorGrid)) * (drawFine ? fineGrid : majorGrid);
     qreal startY = std::floor(rect.top() / (drawFine ? fineGrid : majorGrid)) * (drawFine ? fineGrid : majorGrid);
     
+    // Detect dark vs light theme by canvas luminance
+    bool isDark = bgColor.lightnessF() < 0.5;
+
     QColor subColor = theme ? theme->gridSecondary() : QColor(120, 120, 130);
-    subColor.setAlpha(110);
     QColor mainColor = theme ? theme->gridPrimary() : QColor(180, 180, 190);
-    mainColor.setAlpha(200);
+    subColor.setAlpha(isDark ? 200 : 180);
+    mainColor.setAlpha(isDark ? 255 : 230);
+
+    QColor dotColor = mainColor;
+    dotColor.setAlpha(isDark ? 255 : 255);
 
     QPen minorPen(subColor, 0.0);
     QPen majorPen(mainColor, 0.0);
     minorPen.setCosmetic(true);
     majorPen.setCosmetic(true);
 
-    // Draw horizontal grid lines
-    for (qreal y = startY; y < rect.bottom(); y += (drawFine ? fineGrid : majorGrid)) {
-        if (qFuzzyIsNull(std::fmod(std::abs(y), majorGrid))) {
-            painter->setPen(majorPen);
-        } else {
-            painter->setPen(minorPen);
+    // ---- Minor grid lines ----
+    if (drawFine) {
+        painter->setPen(minorPen);
+        for (qreal y = startY; y < rect.bottom(); y += fineGrid) {
+            if (!qFuzzyIsNull(std::fmod(std::abs(y), majorGrid)))
+                painter->drawLine(QLineF(rect.left(), y, rect.right(), y));
         }
-        painter->drawLine(QLineF(rect.left(), y, rect.right(), y));
-    }
-    
-    // Draw vertical grid lines
-    for (qreal x = startX; x < rect.right(); x += (drawFine ? fineGrid : majorGrid)) {
-        if (qFuzzyIsNull(std::fmod(std::abs(x), majorGrid))) {
-            painter->setPen(majorPen);
-        } else {
-            painter->setPen(minorPen);
+        for (qreal x = startX; x < rect.right(); x += fineGrid) {
+            if (!qFuzzyIsNull(std::fmod(std::abs(x), majorGrid)))
+                painter->drawLine(QLineF(x, rect.top(), x, rect.bottom()));
         }
-        painter->drawLine(QLineF(x, rect.top(), x, rect.bottom()));
     }
 
-    // Draw Origin Crosshair
+    // ---- Major grid lines (thicker, fully opaque) ----
+    QPen majorThickPen(mainColor, 0.0);
+    majorThickPen.setCosmetic(true);
+    painter->setPen(majorThickPen);
+    qreal majorStartX = std::floor(rect.left() / majorGrid) * majorGrid;
+    qreal majorStartY = std::floor(rect.top()  / majorGrid) * majorGrid;
+    for (qreal y = majorStartY; y < rect.bottom(); y += majorGrid)
+        painter->drawLine(QLineF(rect.left(), y, rect.right(), y));
+    for (qreal x = majorStartX; x < rect.right(); x += majorGrid)
+        painter->drawLine(QLineF(x, rect.top(), x, rect.bottom()));
+
+    // ---- Dots at every grid intersection ----
+    {
+        QPen dotPen(dotColor, 0);
+        dotPen.setCosmetic(true);
+        painter->setPen(dotPen);
+        painter->setBrush(Qt::NoBrush);
+
+        const qreal viewScale = std::abs(transform().m11());
+        const qreal gridPixelSpacing = fineGrid * viewScale;
+
+        if (gridPixelSpacing >= 10.0) {
+            // Draw dots at minor intersections
+            painter->setPen(QPen(subColor, 2.5, Qt::SolidLine, Qt::RoundCap));
+            for (qreal x = startX; x < rect.right(); x += fineGrid) {
+                if (qFuzzyIsNull(std::fmod(std::abs(x), majorGrid))) continue;
+                for (qreal y = startY; y < rect.bottom(); y += fineGrid) {
+                    if (qFuzzyIsNull(std::fmod(std::abs(y), majorGrid))) continue;
+                    painter->drawPoint(QPointF(x, y));
+                }
+            }
+            // Larger dots at major intersections
+            painter->setPen(QPen(mainColor, 4.0, Qt::SolidLine, Qt::RoundCap));
+            for (qreal x = majorStartX; x < rect.right(); x += majorGrid) {
+                for (qreal y = majorStartY; y < rect.bottom(); y += majorGrid) {
+                    painter->drawPoint(QPointF(x, y));
+                }
+            }
+        }
+    }
+
+    // ---- Origin crosshair (bright, visible) ----
     QColor originColor = theme ? theme->accentColor() : QColor(0, 200, 255);
-    originColor.setAlpha(160);
-    QPen originPen(originColor);
-    originPen.setWidth(0);
+    originColor.setAlpha(isDark ? 220 : 200);
+    QPen originPen(originColor, 0);
     originPen.setCosmetic(true);
     painter->setPen(originPen);
-    
-    qreal crossSize = majorGrid / 2.0;
+
+    qreal crossSize = majorGrid * 0.75;
     painter->drawLine(QLineF(-crossSize, 0, crossSize, 0));
     painter->drawLine(QLineF(0, -crossSize, 0, crossSize));
-    
-    // Draw a small circle at origin
+
+    // Circle at origin
     QColor originFill = originColor;
-    originFill.setAlpha(80);
+    originFill.setAlpha(isDark ? 120 : 80);
     painter->setBrush(originFill);
-    painter->drawEllipse(QPointF(0, 0), fineGrid/2.0, fineGrid/2.0);
+    painter->drawEllipse(QPointF(0, 0), fineGrid * 0.75, fineGrid * 0.75);
 }
 
 QPointF SymbolEditorView::snapToGrid(QPointF pos) const {
@@ -131,57 +170,69 @@ QPointF SymbolEditorView::snapToGrid(QPointF pos) const {
 }
 
 void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
-    if (event->button() == Qt::MiddleButton) {
-        m_isPanning    = true;
-        m_lastPanPoint = event->pos();
-        setCursor(Qt::ClosedHandCursor);
-        event->accept();
-        return;
-    }
+     if (event->button() == Qt::MiddleButton) {
+         m_isPanning    = true;
+         m_lastPanPoint = event->pos();
+         setCursor(Qt::ClosedHandCursor);
+         event->accept();
+         return;
+     }
 
-    if (event->button() == Qt::RightButton) {
-        emit rightClicked();
-        event->accept();
-        return;
-    }
+     if (event->button() == Qt::RightButton) {
+         emit rightClicked();
+         event->accept();
+         return;
+     }
 
-    if (event->button() == Qt::LeftButton) {
-        if (m_currentTool > 0) {
-            if (m_currentTool == 8) { // Erase tool
-                QGraphicsItem* hit = itemAt(event->pos());
-                if (hit) {
-                    emit itemErased(hit);
-                }
-                event->accept();
-                return;
-            }
-            if (m_currentTool == 13) { // Pen tool
-                m_penIsDragging = false;
-                m_penPressPos = snapToGrid(mapToScene(event->pos()));
-                m_isDrawing = true;
-                event->accept();
-                return;
-            }
-            m_isDrawing = true;
-            m_drawStart = snapToGrid(mapToScene(event->pos()));
-            emit pointClicked(m_drawStart);
-            event->accept();
-            return;
-        } else {
-            m_snapPressPos  = snapToGrid(mapToScene(event->pos()));
-            QGraphicsItem* hit = itemAt(event->pos());
-            bool isReal = false;
-            QGraphicsItem* p = hit;
-            while (p) {
-                if (p->data(1).isValid()) { isReal = true; break; }
-                p = p->parentItem();
-            }
-            setDragMode(isReal ? QGraphicsView::NoDrag
-                               : QGraphicsView::RubberBandDrag);
-        }
-    }
+      if (event->button() == Qt::LeftButton) {
+          if (m_currentTool > 0) {
+              if (m_currentTool == 8) { // Erase tool
+                  QGraphicsItem* hit = itemAt(event->pos());
+                  if (hit) {
+                      emit itemErased(hit);
+                  }
+                  event->accept();
+                  return;
+              }
+              if (m_currentTool == 13) { // Pen tool - allow point/handle selection & manipulation
+                  m_penIsDragging = false;
+                  m_penPressPos = snapToGrid(mapToScene(event->pos()));
+                  m_isDrawing = true;
+                  
+                  // Check for Alt key to toggle smooth/corner mode
+                  bool isAltPressed = (event->modifiers() & Qt::AltModifier);
+                  
+                  // Emit signal with position and metadata for editor to handle point selection
+                  emit penClicked(m_penPressPos, -1, isAltPressed ? 1 : 0);
+                  
+                  event->accept();
+                  return;
+              }
+              m_isDrawing = true;
+              m_drawStart = snapToGrid(mapToScene(event->pos()));
+              emit pointClicked(m_drawStart);
+              event->accept();
+              return;
+          } else {
+              // Select tool - check for bezier edit point clicks
+              m_bezierEditPressPos = snapToGrid(mapToScene(event->pos()));
+              emit bezierEditPointClicked(m_bezierEditPressPos);
+              m_bezierEditIsDragging = false;
+              
+              m_snapPressPos  = snapToGrid(mapToScene(event->pos()));
+              QGraphicsItem* hit = itemAt(event->pos());
+              bool isReal = false;
+              QGraphicsItem* p = hit;
+              while (p) {
+                  if (p->data(1).isValid()) { isReal = true; break; }
+                  p = p->parentItem();
+              }
+              setDragMode(isReal ? QGraphicsView::NoDrag
+                                 : QGraphicsView::RubberBandDrag);
+          }
+      }
 
-    QGraphicsView::mousePressEvent(event);
+      QGraphicsView::mousePressEvent(event);
 }
 
 void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
@@ -203,8 +254,10 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
         if (m_currentTool == 13 && m_penIsDragging) { // Pen tool dragging
             emit penHandleDragged(snapToGrid(mapToScene(event->pos())));
         } else if (m_currentTool != 13) {
-            clearPinAlignmentGuides();
-            emit lineDragged(m_drawStart, snapToGrid(mapToScene(event->pos())));
+            QPointF rawPos = mapToScene(event->pos());
+            QPointF snapped = snapToGrid(rawPos);
+            updateDrawGuides(rawPos);
+            emit lineDragged(m_drawStart, snapped);
         }
         event->accept();
         return;
@@ -218,6 +271,20 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
             emit penHandleDragged(snapToGrid(currentPos));
         }
     }
+    
+    // Check if we should start bezier edit dragging (Select mode)
+    if (m_currentTool == 0 && (event->buttons() & Qt::LeftButton)) {
+        QPointF currentPos = mapToScene(event->pos());
+        if (QLineF(m_bezierEditPressPos, snapToGrid(currentPos)).length() > PEN_DRAG_THRESHOLD) {
+            m_bezierEditIsDragging = true;
+            emit bezierEditPointDragged(snapToGrid(currentPos));
+        }
+    } else if (m_bezierEditIsDragging) {
+        // Continue dragging if button still pressed
+        if (event->buttons() & Qt::LeftButton) {
+            emit bezierEditPointDragged(snapToGrid(mapToScene(event->pos())));
+        }
+    }
 
     if (m_currentTool == 0 && (event->buttons() & Qt::LeftButton)) {
         updatePinAlignmentGuides();
@@ -228,7 +295,7 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
     QGraphicsView::mouseMoveEvent(event);
 }
 
-void SymbolEditorView::mouseReleaseEvent(QMouseEvent* event) {
+ void SymbolEditorView::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::MiddleButton) {
         m_isPanning = false;
         setCursor(Qt::ArrowCursor);
@@ -251,6 +318,9 @@ void SymbolEditorView::mouseReleaseEvent(QMouseEvent* event) {
             event->accept();
             return;
         }
+
+        // Reset bezier edit dragging state
+        m_bezierEditIsDragging = false;
 
         if (m_currentTool == 0 && dragMode() != QGraphicsView::RubberBandDrag) {
             QPointF snapEnd = snapToGrid(mapToScene(event->pos()));
@@ -285,14 +355,47 @@ void SymbolEditorView::drawForeground(QPainter* painter, const QRectF& rect) {
     QGraphicsView::drawForeground(painter, rect);
     if (!m_showVGuide && !m_showHGuide) return;
 
-    QPen guidePen(QColor(59, 130, 246, 110), 0.0, Qt::DashLine);
+    PCBTheme* theme = ThemeManager::theme();
+    QColor guideColor = QColor(239, 68, 68); // Red for high visibility
+    guideColor.setAlpha(220);
+
+    QPen guidePen(guideColor, 0.0, Qt::SolidLine);
     guidePen.setCosmetic(true);
-    painter->setPen(guidePen);
+
+    const qreal markerR = 3.5;
+    const QPointF cursor = m_guideCursorPos;
+
     if (m_showVGuide) {
+        painter->setPen(guidePen);
         painter->drawLine(QLineF(m_vGuideX, rect.top(), m_vGuideX, rect.bottom()));
+
+        // Mark anchor points on this vertical guide
+        painter->setBrush(guideColor);
+        for (const QPointF& anchor : m_guideAnchors) {
+            if (qAbs(anchor.x() - m_vGuideX) < 0.01)
+                painter->drawEllipse(anchor, markerR, markerR);
+        }
+
+        // Draw cursor cross-mark on guide
+        if (!cursor.isNull()) {
+            painter->setPen(QPen(guideColor, 0));
+            painter->drawEllipse(QPointF(m_vGuideX, cursor.y()), markerR * 1.2, markerR * 1.2);
+        }
     }
     if (m_showHGuide) {
+        painter->setPen(guidePen);
         painter->drawLine(QLineF(rect.left(), m_hGuideY, rect.right(), m_hGuideY));
+
+        painter->setBrush(guideColor);
+        for (const QPointF& anchor : m_guideAnchors) {
+            if (qAbs(anchor.y() - m_hGuideY) < 0.01)
+                painter->drawEllipse(anchor, markerR, markerR);
+        }
+
+        if (!cursor.isNull()) {
+            painter->setPen(QPen(guideColor, 0));
+            painter->drawEllipse(QPointF(cursor.x(), m_hGuideY), markerR * 1.2, markerR * 1.2);
+        }
     }
 }
 
@@ -357,5 +460,58 @@ void SymbolEditorView::clearPinAlignmentGuides() {
     if (!m_showVGuide && !m_showHGuide) return;
     m_showVGuide = false;
     m_showHGuide = false;
+    m_guideCursorPos = QPointF();
+    viewport()->update();
+}
+
+void SymbolEditorView::setGuideAnchorPoints(const QList<QPointF>& points) {
+    m_guideAnchors = points;
+}
+
+void SymbolEditorView::updateDrawGuides(const QPointF& rawCursor) {
+    m_showVGuide = false;
+    m_showHGuide = false;
+    m_guideCursorPos = rawCursor;
+
+    if (m_guideAnchors.isEmpty()) {
+        viewport()->update();
+        return;
+    }
+
+    // Use a generous threshold in scene units — equivalent to ~6px on screen
+    const qreal viewScale = std::abs(transform().m11());
+    const qreal threshold = (viewScale > 0.01) ? (6.0 / viewScale) : m_gridSize;
+
+    // Best match for vertical / horizontal alignment
+    qreal bestDistX = threshold;
+    qreal bestDistY = threshold;
+    bool foundX = false;
+    bool foundY = false;
+    qreal guideX = 0.0;
+    qreal guideY = 0.0;
+
+    for (const QPointF& anchor : m_guideAnchors) {
+        // Skip anchors that are the draw start point (avoid self-alignment)
+        if (m_isDrawing && QLineF(rawCursor, anchor).length() < m_gridSize * 0.3)
+            continue;
+
+        const qreal distX = qAbs(rawCursor.x() - anchor.x());
+        if (distX < bestDistX) {
+            bestDistX = distX;
+            guideX = anchor.x();
+            foundX = true;
+        }
+        const qreal distY = qAbs(rawCursor.y() - anchor.y());
+        if (distY < bestDistY) {
+            bestDistY = distY;
+            guideY = anchor.y();
+            foundY = true;
+        }
+    }
+
+    m_showVGuide = foundX;
+    m_showHGuide = foundY;
+    if (foundX) m_vGuideX = guideX;
+    if (foundY) m_hGuideY = guideY;
     viewport()->update();
 }

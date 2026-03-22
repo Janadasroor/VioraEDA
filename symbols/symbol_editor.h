@@ -60,7 +60,10 @@ private slots:
     void onUndo();
     void onRedo();
     void onDelete();
-    void onSelectionChanged();
+     void onSelectionChanged();
+     void onBezierEditPointClicked(QPointF pos);
+     void onBezierEditPointDragged(QPointF newPos);
+     void updateBezierEditPreview();
     void onNewSymbol();
     void onCloneSymbol(class QTreeWidgetItem* item, int column);
     void onRotateCW();
@@ -84,13 +87,15 @@ private slots:
     void onZoomOut();
     void onZoomFit();
     void onZoomSelection();
-    void onPenPointAdded(QPointF pos);
-    void onPenHandleDragged(QPointF handlePos);
-    void onPenPointFinished();
-    void onPenPathClosed();
-    void finalizePenPath();
-    void clearPenState();
-    void updatePenPreview();
+      void onPenPointAdded(QPointF pos);
+      void onPenHandleDragged(QPointF handlePos);
+      void onPenPointFinished();
+      void onPenPathClosed();
+      void onPenClicked(QPointF pos, int pointIndex = -1, int handleIndex = -1);
+      void onPenDoubleClicked(QPointF pos, int pointIndex = -1);
+      void finalizePenPath();
+      void clearPenState();
+      void updatePenPreview();
     void onCopy();
     void onPaste();
     void onDuplicate();
@@ -143,10 +148,10 @@ private:
     void createPinTable();
     void updatePinTable();
     QWidget* createSymbolMetadataWidget();
-    void populateLibraryTree();
-    void updateCodePreview();
-    void updatePinPreview(QPointF pos);
-    
+     void populateLibraryTree();
+      void updateCodePreview();
+      void updatePinPreview(QPointF pos);
+      
     // Scene & Visual Helpers
     QColor themeLineColor() const;
     QColor themeTextColor() const;
@@ -158,6 +163,7 @@ private:
     void applyShapeStyle(QAbstractGraphicsShapeItem* shape, const SymbolPrimitive& prim) const;
     QGraphicsItem* buildVisual(const SymbolPrimitive& prim, int index) const;
     void updateVisualForPrimitive(int index, const SymbolPrimitive& prim);
+    void updateGuideAnchors();
     
     // Pin Table Helpers
     QList<int> selectedPinRows() const;
@@ -178,14 +184,36 @@ protected:
         QPointF handleIn;      // Control handle coming INTO this point (relative)
         QPointF handleOut;     // Control handle going OUT of this point (relative)
         bool smooth;           // Whether handles are locked (smooth curve)
+        bool corner;           // True = corner point, False = curve point
     };
     QList<PenPoint> m_penPoints;
-    int m_selectedPenPoint = -1;  // Index of selected point for dragging
+    int m_selectedPenPoint = -1;           // Index of selected point
+    int m_selectedPenHandle = -1;          // -1=none, 0=in, 1=out (for the selected point)
+    int m_selectedPenMidpoint = -1;        // Index of selected midpoint (segment edge point)
     QGraphicsPathItem* m_penPreviewItem = nullptr;
     QList<QGraphicsEllipseItem*> m_penPointMarkers;
     QList<QGraphicsLineItem*> m_penHandleLines;
+    QList<QGraphicsEllipseItem*> m_penHandleDots;
+    QList<QGraphicsEllipseItem*> m_penMidpointDots;   // Midpoint dots on segment edges
     bool m_penFinalizing = false;  // Guard against double finalization
-    
+    QPointF m_penLastClickPos;     // Track for detecting double-click
+    double m_penDoubleClickTimeout = 300.0;  // milliseconds
+     double m_penLastClickTime = 0.0;
+     
+     // Pen tool helpers - must be after PenPoint definition
+     QPointF calculateBezierPoint(const PenPoint& p1, const PenPoint& p2, qreal t) const;
+     
+     // Select mode bezier editing - allows editing bezier curves while in Select tool
+     int m_editingBezierIndex = -1;                    // Index of bezier primitive being edited (-1 = none)
+     struct BezierEditPoint {
+         int pointType;  // 0=start, 1=cp1, 2=cp2, 3=end
+         QPointF pos;
+     };
+     QList<BezierEditPoint> m_bezierEditPoints;        // Current bezier edit points for visualization
+     QList<QGraphicsEllipseItem*> m_bezierEditMarkers; // Visual edit point markers
+     QList<QGraphicsLineItem*> m_bezierEditLines;      // Handle lines
+     int m_selectedBezierPoint = -1;                   // Which point is selected for dragging
+     
     // UI Components
     QGraphicsScene* m_scene = nullptr;
     SymbolEditorView* m_view = nullptr;

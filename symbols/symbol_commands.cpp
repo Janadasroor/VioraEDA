@@ -34,6 +34,7 @@ void AddPrimitiveCommand::redo() {
     m_editor->m_drawnItems.append(m_visual);
     m_editor->updateOverlayLabels();
     m_editor->updateCodePreview();
+    m_editor->updateGuideAnchors();
 }
 
 void AddPrimitiveCommand::undo() {
@@ -47,6 +48,7 @@ void AddPrimitiveCommand::undo() {
     }
     m_editor->updateOverlayLabels();
     m_editor->updateCodePreview();
+    m_editor->updateGuideAnchors();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

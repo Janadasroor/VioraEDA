@@ -34,7 +34,7 @@ private slots:
 
 private:
     void setupUi();
-    void applyTheme();
+    Q_INVOKABLE void applyTheme();
     void deleteItem(const QString& path, bool isDir);
     void undoLastDelete();
     QString trashDir() const;

@@ -5,10 +5,12 @@
 #include "../../schematic/items/smart_signal_item.h"
 #include "../core/sim_model_parser.h"
 #include "../core/sim_value_parser.h"
+#include "../../core/config_manager.h"
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QDirIterator>
 
 #include <QRegularExpression>
 #include <QHash>
@@ -46,6 +48,68 @@ bool isPowerNet(const QString& name) {
     if (okNum && val != 0.0) return true;
 
     return false;
+}
+
+QString extractRefPrefix(const QString& ref) {
+    QString out;
+    const QString t = ref.trimmed().toUpper();
+    for (const QChar& c : t) {
+        if (!c.isLetter()) break;
+        out.append(c);
+    }
+    return out;
+}
+
+QSet<QString> ltspiceRootBuiltinNames() {
+    static const QSet<QString> names = {
+        "FerriteBead",
+        "FerriteBead2",
+        "LED",
+        "TVSdiode",
+        "bi",
+        "bi2",
+        "bv",
+        "cap",
+        "csw",
+        "current",
+        "diode",
+        "e",
+        "e2",
+        "f",
+        "g",
+        "g2",
+        "h",
+        "ind",
+        "ind2",
+        "load",
+        "load2",
+        "lpnp",
+        "ltline",
+        "mesfet",
+        "njf",
+        "nmos",
+        "nmos4",
+        "npn",
+        "npn2",
+        "npn3",
+        "npn4",
+        "pjf",
+        "pmos",
+        "pmos4",
+        "pnp",
+        "pnp2",
+        "pnp4",
+        "polcap",
+        "res",
+        "res2",
+        "schottky",
+        "sw",
+        "tline",
+        "varactor",
+        "voltage",
+        "zener"
+    };
+    return names;
 }
 
 double inferSupplyVoltageFromName(const QString& name) {
@@ -315,14 +379,13 @@ void loadProjectModelLibraries(SimNetlist& netlist, QStringList& mappingWarnings
         "models.cir"
     };
 
-    for (const QString& relPath : candidates) {
-        const QString absPath = cwd.absoluteFilePath(relPath);
-        if (!QFileInfo::exists(absPath)) continue;
+    auto loadLibraryFile = [&](const QString& absPath) {
+        if (!QFileInfo::exists(absPath)) return;
 
         QFile f(absPath);
         if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
             mappingWarnings.append(QString("model library '%1' could not be opened: %2").arg(absPath, f.errorString()));
-            continue;
+            return;
         }
 
         const std::string content = QString::fromUtf8(f.readAll()).toStdString();
@@ -345,6 +408,32 @@ void loadProjectModelLibraries(SimNetlist& netlist, QStringList& mappingWarnings
                     .arg(lineInfo, diagnosticPrefix(d.severity), QString::fromStdString(d.message))
             );
         }
+    };
+
+    auto scanModelPath = [&](const QString& path) {
+        const QFileInfo info(path);
+        if (info.isDir()) {
+            QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp",
+                            QDir::Files, QDirIterator::Subdirectories);
+            while (it.hasNext()) {
+                loadLibraryFile(it.next());
+            }
+        } else if (info.isFile()) {
+            loadLibraryFile(info.absoluteFilePath());
+        }
+    };
+
+    for (const QString& relPath : candidates) {
+        const QString absPath = cwd.absoluteFilePath(relPath);
+        loadLibraryFile(absPath);
+    }
+
+    // Also load configured model libraries (e.g., ~/ViospiceLib).
+    const QStringList modelPaths = ConfigManager::instance().modelPaths();
+    for (const QString& p : modelPaths) {
+        if (p.trimmed().isEmpty()) continue;
+        const QString resolved = QFileInfo(p).isAbsolute() ? p : cwd.absoluteFilePath(p);
+        scanModelPath(resolved);
     }
 }
 
@@ -421,9 +510,24 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 r.type = SimComponentType::SubcircuitInstance;
                 return r;
             }
-            if (comp.typeName == "Switch" || comp.typeName == "PushButton") {
+            if (comp.typeName == "Switch" ||
+                comp.typeName == "PushButton" ||
+                comp.typeName.compare("Voltage Controlled Switch", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("sw", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("vcsw", Qt::CaseInsensitive) == 0) {
                 r.supported = true;
                 r.type = SimComponentType::Switch;
+                return r;
+            }
+            if (comp.typeName.compare("csw", Qt::CaseInsensitive) == 0) {
+                r.supported = true;
+                r.type = SimComponentType::CSW;
+                return r;
+            }
+            if (comp.typeName.compare("e", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("vcvs", Qt::CaseInsensitive) == 0) {
+                r.supported = true;
+                r.type = SimComponentType::VCVS;
                 return r;
             }
             if (comp.typeName == "Transformer") {
@@ -500,6 +604,77 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 r.type = SimComponentType::Resistor; // High-Z probe mapping
                 return r;
             }
+            if (comp.type == SchematicItem::CustomType) {
+                const QSet<QString> ltBuiltins = ltspiceRootBuiltinNames();
+                if (!ltBuiltins.isEmpty() && ltBuiltins.contains(comp.typeName)) {
+                    const QString refPrefix = extractRefPrefix(comp.reference);
+                    const QString nameLower = comp.typeName.toLower();
+                    if (refPrefix == "R") { r.supported = true; r.type = SimComponentType::Resistor; return r; }
+                    if (refPrefix == "C") { r.supported = true; r.type = SimComponentType::Capacitor; return r; }
+                    if (refPrefix == "L") { r.supported = true; r.type = SimComponentType::Inductor; return r; }
+                    if (refPrefix == "D") { r.supported = true; r.type = SimComponentType::Diode; return r; }
+                    if (nameLower.contains("pnp")) { r.supported = true; r.type = SimComponentType::BJT_PNP; return r; }
+                    if (nameLower.contains("npn")) { r.supported = true; r.type = SimComponentType::BJT_NPN; return r; }
+                    if (refPrefix == "QN") { r.supported = true; r.type = SimComponentType::BJT_NPN; return r; }
+                    if (refPrefix == "QP") { r.supported = true; r.type = SimComponentType::BJT_PNP; return r; }
+                    if (refPrefix == "Q") { r.supported = true; r.type = SimComponentType::BJT_NPN; return r; }
+                    if (nameLower.contains("pmos")) { r.supported = true; r.type = SimComponentType::MOSFET_PMOS; return r; }
+                    if (nameLower.contains("nmos")) { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
+                    if (refPrefix == "MN") { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
+                    if (refPrefix == "MP") { r.supported = true; r.type = SimComponentType::MOSFET_PMOS; return r; }
+                    if (refPrefix == "M") { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
+                    if (refPrefix == "V") { r.supported = true; r.type = SimComponentType::VoltageSource; return r; }
+                    if (refPrefix == "I") { r.supported = true; r.type = SimComponentType::CurrentSource; return r; }
+                    if (refPrefix == "S") { r.supported = true; r.type = SimComponentType::Switch; return r; }
+                    if (refPrefix == "W") { r.supported = true; r.type = SimComponentType::Switch; return r; }
+                    if (refPrefix == "E") { r.supported = true; r.type = SimComponentType::VCVS; return r; }
+                    if (refPrefix == "G") { r.supported = true; r.type = SimComponentType::VCCS; return r; }
+                    if (refPrefix == "F") { r.supported = true; r.type = SimComponentType::CCCS; return r; }
+                    if (refPrefix == "H") { r.supported = true; r.type = SimComponentType::CCVS; return r; }
+                    if (refPrefix == "T") { r.supported = true; r.type = SimComponentType::TransmissionLine; return r; }
+                    if (refPrefix == "B") {
+                        r.supported = true;
+                        r.type = nameLower.startsWith("bi") ? SimComponentType::B_CurrentSource : SimComponentType::B_VoltageSource;
+                        return r;
+                    }
+                    if (refPrefix == "A") {
+                        r.supported = true;
+                        if (nameLower.contains("nand")) r.type = SimComponentType::LOGIC_NAND;
+                        else if (nameLower.contains("nor")) r.type = SimComponentType::LOGIC_NOR;
+                        else if (nameLower.contains("xor")) r.type = SimComponentType::LOGIC_XOR;
+                        else if (nameLower.contains("and")) r.type = SimComponentType::LOGIC_AND;
+                        else if (nameLower.contains("or")) r.type = SimComponentType::LOGIC_OR;
+                        else if (nameLower.contains("inv") || nameLower.contains("not")) r.type = SimComponentType::LOGIC_NOT;
+                        else r.type = SimComponentType::LOGIC_OR;
+                        return r;
+                    }
+                }
+
+                QString subcktName;
+                if (!comp.spiceModel.trimmed().isEmpty()) {
+                    subcktName = comp.spiceModel.trimmed();
+                } else if (extractSubcircuitName(comp.value, subcktName)) {
+                    // explicit "SUBCKT: name" or "X name"
+                } else {
+                    const QString v = comp.value.trimmed();
+                    if (!v.isEmpty() && v.compare(comp.typeName, Qt::CaseInsensitive) == 0) {
+                        subcktName = v;
+                    } else if (!v.isEmpty() && !v.contains(' ') && !v.contains('=')) {
+                        subcktName = v;
+                    }
+                }
+
+                if (!subcktName.isEmpty()) {
+                    r.supported = true;
+                    r.type = SimComponentType::SubcircuitInstance;
+                    r.subcircuitName = subcktName;
+                    return r;
+                }
+
+                // Generic D-prefix fallback for user-created diode symbols
+                const QString refPrefix = extractRefPrefix(comp.reference);
+                if (refPrefix == "D") { r.supported = true; r.type = SimComponentType::Diode; return r; }
+            }
             r.reason = QString("generic component type '%1' (enum %2) has no simulator mapping").arg(comp.typeName).arg(comp.type);
             return r;
         case SchematicItem::ICType:
@@ -530,7 +705,6 @@ QString normalizePinToken(const QString& pin) {
 using PinRoleAliases = QList<QStringList>;
 
 PinRoleAliases pinOrderAliasesFor(const SimComponentInstance& inst, const ECOComponent& comp) {
-    Q_UNUSED(comp)
     if (inst.type == SimComponentType::Diode) {
         // [Anode, Cathode]
         return {
@@ -577,6 +751,36 @@ PinRoleAliases pinOrderAliasesFor(const SimComponentInstance& inst, const ECOCom
         return {
             {"1", "P", "POS", "+", "ANODE"},
             {"2", "N", "NEG", "-", "CATHODE"}
+        };
+    }
+    if (inst.type == SimComponentType::Switch) {
+        const bool want4 = (comp.typeName.compare("Voltage Controlled Switch", Qt::CaseInsensitive) == 0) ||
+                           (comp.typeName.compare("sw", Qt::CaseInsensitive) == 0) ||
+                           (comp.typeName.compare("vcsw", Qt::CaseInsensitive) == 0) ||
+                           comp.paramExpressions.contains("switch.vt") ||
+                           comp.paramExpressions.contains("switch.vh");
+        if (want4) {
+            // [P, N, Ctrl+, Ctrl-]
+            return {
+                {"1", "P", "POS", "A", "ANODE"},
+                {"2", "N", "NEG", "B", "CATHODE"},
+                {"3", "CP", "CTRL+", "CONTROL+", "NC+", "IN+", "G"},
+                {"4", "CN", "CTRL-", "CONTROL-", "NC-", "IN-"}
+            };
+        }
+        // 2-pin interactive switch
+        return {
+            {"1", "P", "POS", "A", "ANODE"},
+            {"2", "N", "NEG", "B", "CATHODE"}
+        };
+    }
+    if (inst.type == SimComponentType::VCVS || inst.type == SimComponentType::VCCS) {
+        // [Out+, Out-, Ctrl+, Ctrl-]
+        return {
+            {"1", "P", "POS", "+", "OUT+", "OP", "OUTP"},
+            {"2", "N", "NEG", "-", "OUT-", "ON", "OUTN"},
+            {"3", "CP", "CTRL+", "IN+", "IP", "CTRL_P"},
+            {"4", "CN", "CTRL-", "IN-", "IN", "CTRL_N"}
         };
     }
     return {};
@@ -1043,7 +1247,7 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
             else if (inst.type == SimComponentType::VoltageSource && !inst.params.count("voltage")) inst.params["voltage"] = val;
             else if (inst.type == SimComponentType::Capacitor) inst.params["capacitance"] = val;
             else if (inst.type == SimComponentType::Inductor) inst.params["inductance"] = val;
-            else if (inst.type == SimComponentType::Switch) {
+            else if (inst.type == SimComponentType::Switch || inst.type == SimComponentType::CSW) {
                 // Schematic switch item stores open/closed state as resistance in value.
                 // For a 2-pin switch, stamp() uses roff as the branch resistance.
                 if (val > 0.0) {
@@ -1051,11 +1255,42 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
                     inst.params["roff"] = r;
                     inst.params["ron"] = r;
                 }
+            } else if (inst.type == SimComponentType::VCVS || inst.type == SimComponentType::VCCS ||
+                       inst.type == SimComponentType::CCVS || inst.type == SimComponentType::CCCS) {
+                // Gain for dependent sources
+                if (isExpression(comp.value)) {
+                    inst.paramExpressions["gain"] = comp.value.trimmed().toStdString();
+                } else {
+                    inst.params["gain"] = val;
+                }
             } else if (inst.type == SimComponentType::TransmissionLine) {
-                // Transformer symbols currently map to a quasi-static 4-node element.
-                // Allow numeric values (e.g. "75") to override default characteristic impedance.
                 const double z0 = (val > 1e-6) ? val : 50.0;
                 inst.params["z0"] = z0;
+            } else if (inst.type == SimComponentType::Diode ||
+                       inst.type == SimComponentType::BJT_NPN ||
+                       inst.type == SimComponentType::BJT_PNP ||
+                       inst.type == SimComponentType::MOSFET_NMOS ||
+                       inst.type == SimComponentType::MOSFET_PMOS ||
+                       inst.type == SimComponentType::CSW) {
+                inst.modelName = comp.value.trimmed().toStdString();
+                
+                // Validate model existence
+                if (!inst.modelName.empty()) {
+                    if (!netlist.findModel(inst.modelName)) {
+                        // Optional for M/D/Q as per user request, but required for CSW
+                        if (inst.type == SimComponentType::CSW) {
+                            netlist.addDiagnostic(QString("[error] Model '%1' for component '%2' not found. Please define it using a .model directive.")
+                                .arg(QString::fromStdString(inst.modelName), comp.reference).toStdString());
+                        } else {
+                            // Informational warn for optional models
+                            netlist.addDiagnostic(QString("[info] Model '%1' for component '%2' not defined; using SPICE defaults.")
+                                .arg(QString::fromStdString(inst.modelName), comp.reference).toStdString());
+                        }
+                    }
+                } else if (inst.type == SimComponentType::CSW) {
+                    netlist.addDiagnostic(QString("[error] Component '%1' (CSW) requires a model name in its value field (e.g. 'MySwitch').")
+                        .arg(comp.reference).toStdString());
+                }
             }
         }
 

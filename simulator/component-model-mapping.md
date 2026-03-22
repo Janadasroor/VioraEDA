@@ -23,6 +23,7 @@ This document defines the deterministic mapping from schematic `ECOComponent` en
 | `ICType` | value starts `B_V` | `B_VoltageSource` | behavioral voltage source |
 | `ICType` | value starts `B_I` | `B_CurrentSource` | behavioral current source |
 | `ICType` | otherwise | `VoltageSource` | macro/subckt fallback |
+| `CustomType` | `spiceModel` set, or `value`/`typeName` indicates subckt | `SubcircuitInstance` | uses subckt name from `spiceModel` or `value` |
 
 ## Unsupported Components Policy
 

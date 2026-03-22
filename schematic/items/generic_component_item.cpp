@@ -57,6 +57,15 @@ GenericComponentItem::~GenericComponentItem() {
     for (auto* item : m_primitiveItems) delete item;
 }
 
+void GenericComponentItem::setSymbol(const SymbolDefinition& symbol) {
+    m_symbol = symbol;
+    rebuildPrimitives();
+    QRectF b = boundingRect();
+    createLabels(b.topLeft() + QPointF(0, -5), b.bottomLeft() + QPointF(0, 15));
+    updateLabelText();
+    update();
+}
+
 QJsonObject GenericComponentItem::toJson() const {
     // Start with all base class fields (spiceModel, excludeFromSim/Pcb, paramExpressions,
     // tolerances, isLocked, isMirroredX/Y, refLabel/valLabel positions, etc.)

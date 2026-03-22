@@ -17,7 +17,7 @@ enum class SimComponentType {
     VCVS, VCCS, CCVS, CCCS,
     B_VoltageSource, B_CurrentSource,
     LOGIC_AND, LOGIC_OR, LOGIC_XOR, LOGIC_NAND, LOGIC_NOR, LOGIC_NOT,
-    FluxScript
+    FluxScript, CSW
 };
 
 struct SimNode {

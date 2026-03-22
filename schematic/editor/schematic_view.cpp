@@ -49,9 +49,7 @@ SchematicView::SchematicView(QWidget *parent)
     m_snapToGrid(true),
     m_snapToPin(true),
     m_showCrosshair(true),
-    m_cursorScenePos(0, 0),
-    m_undoStack(nullptr),
-    m_currentTool(nullptr) {
+    m_cursorScenePos(0, 0) {
     setRenderHint(QPainter::Antialiasing);
     
     m_autoScrollTimer = new QTimer(this);
@@ -712,14 +710,24 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
 }
 
 void SchematicView::keyPressEvent(QKeyEvent *event) {
-    if (m_currentTool) m_currentTool->ensureView(this);
-    if (event->matches(QKeySequence::Undo)) {
+    qDebug() << "DEBUG: keyPressEvent" << event->key() << "text()" << event->text() << "modifiers" << event->modifiers() << "nativeScanCode" << event->nativeScanCode();
+    
+    // Handle Undo/Redo via QShortcut - try manual check
+    Qt::KeyboardModifiers mods = event->modifiers();
+    int key = event->key();
+    bool isCtrlZ = (key == Qt::Key_Z || key == Qt::Key_unknown) && (mods & Qt::ControlModifier) && !(mods & Qt::ShiftModifier);
+    bool isCtrlShiftZ = (key == Qt::Key_Z) && (mods & Qt::ControlModifier) && (mods & Qt::ShiftModifier);
+    
+    if (isCtrlZ) {
+        qDebug() << "DEBUG: Undo detected, m_undoStack:" << m_undoStack << "canUndo:" << (m_undoStack ? m_undoStack->canUndo() : false);
         if (m_undoStack && m_undoStack->canUndo()) {
             m_undoStack->undo();
             event->accept();
             return;
         }
-    } else if (event->matches(QKeySequence::Redo)) {
+    }
+    if (isCtrlShiftZ) {
+        qDebug() << "DEBUG: Redo detected, m_undoStack:" << m_undoStack << "canRedo:" << (m_undoStack ? m_undoStack->canRedo() : false);
         if (m_undoStack && m_undoStack->canRedo()) {
             m_undoStack->redo();
             event->accept();
@@ -727,6 +735,7 @@ void SchematicView::keyPressEvent(QKeyEvent *event) {
         }
     }
 
+    if (m_currentTool) m_currentTool->ensureView(this);
     // Smart Context-Aware Delete: Hover takes precedence
     if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
         // 1. Check if we are hovering over a specific item
@@ -863,6 +872,9 @@ QString SchematicView::getNextReference(const QString& prefix) {
 #include "../dialogs/switch_properties_dialog.h"
 #include "../dialogs/voltage_controlled_switch_dialog.h"
 #include "../dialogs/behavioral_current_source_dialog.h"
+#include "../dialogs/diode_model_picker_dialog.h"
+#include "../dialogs/diode_properties_dialog.h"
+#include "flux/symbols/symbol_library.h"
 #include "../items/voltage_controlled_switch_item.h"
 #include "../items/behavioral_current_source_item.h"
 #include "../items/switch_item.h"
@@ -926,6 +938,56 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
             dlg.exec();
             return;
         }
+    }
+
+    // SPECIAL: Diode properties dialog on right-click
+    if (targetSItem && targetSItem->referencePrefix() == "D") {
+        DiodePropertiesDialog dlg(targetSItem, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            if (m_undoStack) {
+                m_undoStack->beginMacro("Update Diode Properties");
+                const QString newName = dlg.modelName();
+                const QString oldName = targetSItem->value();
+                if (newName != oldName) {
+                    m_undoStack->push(new ChangePropertyCommand(
+                        scene(), targetSItem, "value",
+                        oldName, newName, QString()));
+                }
+                // Save param expressions
+                const auto newPE = dlg.paramExpressions();
+                const auto oldPE = targetSItem->paramExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    if (oldPE.value(it.key()) != it.value()) {
+                        targetSItem->setParamExpression(it.key(), it.value());
+                    }
+                }
+                // Auto-switch symbol if type changed
+                const QString newSym = dlg.newSymbolName();
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(targetSItem)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
+                m_undoStack->endMacro();
+            } else {
+                targetSItem->setValue(dlg.modelName());
+                const auto pe = dlg.paramExpressions();
+                for (auto it = pe.constBegin(); it != pe.constEnd(); ++it) {
+                    targetSItem->setParamExpression(it.key(), it.value());
+                }
+                const QString newSym = dlg.newSymbolName();
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(targetSItem)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
+            }
+        }
+        return;
     }
 
     // SPECIAL: Direct dialog for Switches (LTspice style)

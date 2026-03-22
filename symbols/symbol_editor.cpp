@@ -672,6 +672,80 @@ void SymbolEditor::applyShapeStyle(QAbstractGraphicsShapeItem* shape,
     }
 }
 
+void SymbolEditor::updateGuideAnchors() {
+    QList<QPointF> anchors;
+
+    for (const auto& prim : m_symbol.primitives()) {
+        switch (prim.type) {
+        case SymbolPrimitive::Pin:
+            anchors.append(QPointF(prim.data["x"].toDouble(),
+                                   prim.data["y"].toDouble()));
+            break;
+        case SymbolPrimitive::Line:
+            anchors.append(QPointF(prim.data["x1"].toDouble(),
+                                   prim.data["y1"].toDouble()));
+            anchors.append(QPointF(prim.data["x2"].toDouble(),
+                                   prim.data["y2"].toDouble()));
+            break;
+        case SymbolPrimitive::Rect: {
+            double x  = prim.data["x"].toDouble();
+            double y  = prim.data["y"].toDouble();
+            double w  = prim.data["w"].toDouble();
+            double h  = prim.data["h"].toDouble();
+            double x2 = x + w, y2 = y + h;
+            double mx = x + w / 2.0, my = y + h / 2.0;
+            // 4 corners
+            anchors.append(QPointF(x,  y));
+            anchors.append(QPointF(x2, y));
+            anchors.append(QPointF(x,  y2));
+            anchors.append(QPointF(x2, y2));
+            // 4 edge midpoints + center
+            anchors.append(QPointF(mx, y));
+            anchors.append(QPointF(mx, y2));
+            anchors.append(QPointF(x,  my));
+            anchors.append(QPointF(x2, my));
+            anchors.append(QPointF(mx, my));
+            break;
+        }
+        case SymbolPrimitive::Circle:
+            anchors.append(QPointF(prim.data["cx"].toDouble(),
+                                   prim.data["cy"].toDouble()));
+            break;
+        case SymbolPrimitive::Arc: {
+            double x  = prim.data["x"].toDouble();
+            double y  = prim.data["y"].toDouble();
+            double w  = prim.data["w"].toDouble();
+            double h  = prim.data["h"].toDouble();
+            anchors.append(QPointF(x + w / 2.0, y + h / 2.0));
+            break;
+        }
+        case SymbolPrimitive::Bezier:
+            anchors.append(QPointF(prim.data["x1"].toDouble(),
+                                   prim.data["y1"].toDouble()));
+            anchors.append(QPointF(prim.data["x4"].toDouble(),
+                                   prim.data["y4"].toDouble()));
+            break;
+        case SymbolPrimitive::Text:
+            anchors.append(QPointF(prim.data["x"].toDouble(),
+                                   prim.data["y"].toDouble()));
+            break;
+        case SymbolPrimitive::Polygon: {
+            QJsonArray pts = prim.data["points"].toArray();
+            for (const auto& v : pts) {
+                QJsonObject p = v.toObject();
+                anchors.append(QPointF(p["x"].toDouble(),
+                                       p["y"].toDouble()));
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    if (m_view) m_view->setGuideAnchorPoints(anchors);
+}
+
 QGraphicsItem* SymbolEditor::buildVisual(const SymbolPrimitive& prim, int index) const {
     QGraphicsItem* visual = nullptr;
     const QColor lineColor = themeLineColor();
@@ -1111,6 +1185,7 @@ void SymbolEditor::applySymbolDefinition(const SymbolDefinition& def) {
     updateOverlayLabels();
     updateCodePreview();
     updatePinTable();
+    updateGuideAnchors();
 }
 
 SymbolDefinition SymbolEditor::symbolDefinition() const {
@@ -1464,6 +1539,77 @@ void SymbolEditor::setupUI() {
     tabifyDockWidget(pinDock, codeDock);
     setStatusBar(m_statusBar);
     createStatusBar();
+
+    // Panel toggle icons (match schematic editor panel toggles)
+    auto makePanelIcon = [](const QString& type) -> QIcon {
+        QPixmap px(32, 32);
+        px.fill(Qt::transparent);
+        QPainter p(&px);
+        p.setRenderHint(QPainter::Antialiasing);
+        QColor color = Qt::white;
+        if (ThemeManager::theme()) {
+            color = ThemeManager::theme()->textColor();
+        }
+        p.setPen(QPen(color, 2));
+        p.drawRect(6, 8, 20, 16);
+        p.setBrush(color);
+        if (type == "left") {
+            p.drawRect(6, 8, 6, 16);
+        } else if (type == "bottom") {
+            p.drawRect(6, 18, 20, 6);
+        } else if (type == "right") {
+            p.drawRect(20, 8, 6, 16);
+        }
+        p.end();
+        return QIcon(px);
+    };
+
+    m_toolbar->addSeparator();
+
+    // Left sidebar toggle (hides both Library + Wizard docks)
+    {
+        QAction* leftToggle = new QAction(makePanelIcon("left"), "Toggle Left Sidebar", this);
+        leftToggle->setToolTip("Toggle Left Sidebar");
+        leftToggle->setCheckable(true);
+        leftToggle->setChecked(true);
+        m_toolbar->addAction(leftToggle);
+        connect(leftToggle, &QAction::toggled, this, [libDock, wizDock](bool visible) {
+            if (libDock) libDock->setVisible(visible);
+            if (wizDock) wizDock->setVisible(visible);
+        });
+        // Sync check state if dock is closed externally
+        auto syncLeft = [leftToggle, libDock]() {
+            if (libDock) leftToggle->setChecked(libDock->isVisible());
+        };
+        if (libDock) connect(libDock, &QDockWidget::visibilityChanged, this, syncLeft);
+    }
+
+    // Bottom panel toggle (hides Pin + JSON Source + Rule Checker docks)
+    {
+        QAction* bottomToggle = new QAction(makePanelIcon("bottom"), "Toggle Bottom Panel", this);
+        bottomToggle->setToolTip("Toggle Bottom Panel");
+        bottomToggle->setCheckable(true);
+        bottomToggle->setChecked(true);
+        m_toolbar->addAction(bottomToggle);
+        connect(bottomToggle, &QAction::toggled, this, [pinDock, codeDock, srcDock](bool visible) {
+            if (pinDock) pinDock->setVisible(visible);
+            if (codeDock) codeDock->setVisible(visible);
+            if (srcDock) srcDock->setVisible(visible);
+        });
+        auto syncBottom = [bottomToggle, pinDock]() {
+            if (pinDock) bottomToggle->setChecked(pinDock->isVisible());
+        };
+        if (pinDock) connect(pinDock, &QDockWidget::visibilityChanged, this, syncBottom);
+    }
+
+    // Right sidebar toggle
+    if (m_propsDock) {
+        QAction* propsToggle = m_propsDock->toggleViewAction();
+        propsToggle->setIcon(makePanelIcon("right"));
+        propsToggle->setText("Toggle Right Sidebar");
+        propsToggle->setToolTip("Toggle Right Sidebar");
+        m_toolbar->addAction(propsToggle);
+    }
 }
 
 #include <QApplication>
@@ -1522,11 +1668,17 @@ void SymbolEditor::connectViewSignals() {
     connect(m_view, &SymbolEditorView::coordinatesChanged, this, &SymbolEditor::updateCoordinates);
     connect(m_view, &SymbolEditorView::itemErased,         this, &SymbolEditor::onItemErased);
     
-    // Pen tool signals
-    connect(m_view, &SymbolEditorView::penPointAdded, this, &SymbolEditor::onPenPointAdded);
-    connect(m_view, &SymbolEditorView::penHandleDragged, this, &SymbolEditor::onPenHandleDragged);
-    connect(m_view, &SymbolEditorView::penPointFinished, this, &SymbolEditor::onPenPointFinished);
-    connect(m_view, &SymbolEditorView::penPathClosed, this, &SymbolEditor::onPenPathClosed);
+     // Pen tool signals
+     connect(m_view, &SymbolEditorView::penPointAdded, this, &SymbolEditor::onPenPointAdded);
+     connect(m_view, &SymbolEditorView::penHandleDragged, this, &SymbolEditor::onPenHandleDragged);
+     connect(m_view, &SymbolEditorView::penPointFinished, this, &SymbolEditor::onPenPointFinished);
+     connect(m_view, &SymbolEditorView::penPathClosed, this, &SymbolEditor::onPenPathClosed);
+     connect(m_view, &SymbolEditorView::penClicked, this, &SymbolEditor::onPenClicked);
+     connect(m_view, &SymbolEditorView::penDoubleClicked, this, &SymbolEditor::onPenDoubleClicked);
+     
+     // Bezier edit signals (Select mode)
+     connect(m_view, &SymbolEditorView::bezierEditPointClicked, this, &SymbolEditor::onBezierEditPointClicked);
+     connect(m_view, &SymbolEditorView::bezierEditPointDragged, this, &SymbolEditor::onBezierEditPointDragged);
 
     // Items dragged in Select mode → move primitives via undo command
     connect(m_view, &SymbolEditorView::itemsMoved, this, [this](QPointF delta) {
@@ -1631,7 +1783,12 @@ void SymbolEditor::connectViewSignals() {
         pos = m_view->snapToGrid(pos);
 
         if (m_currentTool == Pin) {
-            int pinNum = m_drawnItems.size() + 1;
+            // Count existing pins in the symbol, not all primitives
+            int pinCount = 0;
+            for (const auto& p : m_symbol.primitives()) {
+                if (p.type == SymbolPrimitive::Pin) ++pinCount;
+            }
+            int pinNum = pinCount + 1;
             SymbolPrimitive prim = SymbolPrimitive::createPin(pos, pinNum,
                                                               QString::number(pinNum),
                                                               m_previewOrientation);
@@ -2139,131 +2296,11 @@ void SymbolEditor::createToolBar() {
     connect(flipV, &QAction::triggered, this, &SymbolEditor::onFlipV);
     this->addAction(flipV);
 
-    m_toolbar->addSeparator();
-
-    // ── Unit Selector ──
-    m_toolbar->addWidget(new QLabel("  Unit: "));
-    m_unitCombo = new QComboBox();
-    m_unitCombo->setFixedWidth(90);
-    m_unitCombo->addItem("Shared", 0);
-    m_unitCombo->addItem("Unit A", 1);
-    m_unitCombo->addItem("Unit B", 2);
-    m_unitCombo->setCurrentIndex(1); // Default to Unit A
-    connect(m_unitCombo, &QComboBox::currentIndexChanged, this, &SymbolEditor::onUnitChanged);
-    m_toolbar->addWidget(m_unitCombo);
-
-    m_toolbar->addSeparator();
-
-    // ── Body Style Selector ──
-    m_toolbar->addWidget(new QLabel("  Style: "));
-    m_styleCombo = new QComboBox();
-    m_styleCombo->setFixedWidth(110);
-    m_styleCombo->addItem("Shared / All", 0);
-    m_styleCombo->addItem("Standard", 1);
-    m_styleCombo->addItem("Alternate", 2);
-    m_styleCombo->setCurrentIndex(1); // Default to Standard
-    connect(m_styleCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
-        m_currentStyle = m_styleCombo->itemData(index).toInt();
-        applySymbolDefinition(m_symbol);
-        statusBar()->showMessage(QString("Switched to %1 Style").arg(m_styleCombo->currentText()), 2000);
-    });
-    m_toolbar->addWidget(m_styleCombo);
-
-    m_toolbar->addSeparator();
-
-    // ── Color Preset ──
-    m_toolbar->addWidget(new QLabel("  Colors: "));
-    m_colorPresetCombo = new QComboBox();
-    m_colorPresetCombo->setFixedWidth(150);
-    m_colorPresetCombo->addItem("Theme", 0);
-    m_colorPresetCombo->addItem("High Contrast", 1);
-    m_colorPresetCombo->addItem("Emerald", 2);
-    m_colorPresetCombo->addItem("Amber CAD", 3);
-    m_colorPresetCombo->addItem("Mono Print", 4);
-    m_colorPresetCombo->setCurrentIndex(0);
-    connect(m_colorPresetCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
-        m_colorPreset = m_colorPresetCombo->itemData(index).toInt();
-        applySymbolDefinition(m_symbol);
-        statusBar()->showMessage(QString("Color preset: %1").arg(m_colorPresetCombo->currentText()), 2000);
-    });
-    m_toolbar->addWidget(m_colorPresetCombo);
-
-    m_toolbar->addSeparator();
-
-    // ── Grid Controls ──
-    m_toolbar->addWidget(new QLabel("  Grid: "));
-    auto* gridCombo = new QComboBox();
-    gridCombo->addItems({"5", "10", "15", "25", "50", "100"});
-    gridCombo->setCurrentText("15");
-    gridCombo->setFixedWidth(60);
-    connect(gridCombo, &QComboBox::currentTextChanged, this, &SymbolEditor::onGridSizeChanged);
-    m_toolbar->addWidget(gridCombo);
-
-    auto* snapToggle = new QAction(getThemeIcon(":/icons/snap_grid.svg"), "Magnet Pull", this);
-    snapToggle->setCheckable(true);
-    snapToggle->setChecked(true);
-    connect(snapToggle, &QAction::toggled, this, [this](bool on) {
-        if (m_view) m_view->setSnapToGrid(on);
-    });
-    m_toolbar->addAction(snapToggle);
-
-    m_toolbar->addSeparator();
-    m_toolbar->addWidget(new QLabel("  Unit: "));
-    m_unitCombo = new QComboBox();
-    m_unitCombo->setFixedWidth(100);
-    m_unitCombo->addItem("All Units", 0);
-    connect(m_unitCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
-        m_currentUnit = m_unitCombo->itemData(index).toInt();
-        applySymbolDefinition(m_symbol); 
-    });
-    m_toolbar->addWidget(m_unitCombo);
-
-    m_toolbar->addSeparator();
-    m_toolbar->addWidget(new QLabel("  Style: "));
-    m_styleCombo = new QComboBox();
-    m_styleCombo->setFixedWidth(100);
-    m_styleCombo->addItem("All Styles", 0);
-    m_styleCombo->addItem("Standard", 1);
-    m_styleCombo->addItem("De Morgan", 2);
-    connect(m_styleCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
-        m_currentStyle = m_styleCombo->itemData(index).toInt();
-        applySymbolDefinition(m_symbol);
-    });
-    m_toolbar->addWidget(m_styleCombo);
-
     auto* srcAct = m_toolbar->addAction(getThemeIcon(":/icons/toolbar_refresh.png"), "Run SRC");
     srcAct->setToolTip("Run Symbol Rule Checker (F7)");
     srcAct->setShortcut(QKeySequence("F7"));
     connect(srcAct, &QAction::triggered, this, &SymbolEditor::onRunSRC);
 
-    m_toolbar->addSeparator();
-
-    // Alignment Tools
-    auto* alignLabel = new QLabel("  Align: ");
-    m_toolbar->addWidget(alignLabel);
-
-    auto addAlignAct = [&](const QString& text, const QString& tooltip, auto slot) {
-        auto* act = m_toolbar->addAction(text);
-        act->setToolTip(tooltip);
-        connect(act, &QAction::triggered, this, slot);
-    };
-
-    addAlignAct("⭠", "Align Left",       &SymbolEditor::onAlignLeft);
-    addAlignAct("⭢", "Align Right",      &SymbolEditor::onAlignRight);
-    addAlignAct("⭡", "Align Top",        &SymbolEditor::onAlignTop);
-    addAlignAct("⭣", "Align Bottom",     &SymbolEditor::onAlignBottom);
-    addAlignAct("⥓", "Center Horizontal", &SymbolEditor::onAlignCenterX);
-    addAlignAct("⥑", "Center Vertical",  &SymbolEditor::onAlignCenterY);
-    addAlignAct("⋮⋮", "Distribute Horizontal", &SymbolEditor::onDistributeH);
-    addAlignAct("≡", "Distribute Vertical",   &SymbolEditor::onDistributeV);
-    addAlignAct("↔", "Match Spacing",         &SymbolEditor::onMatchSpacing);
-    addAlignAct("⌗", "Snap to Grid",          &SymbolEditor::onSnapToGrid);
-
-    m_toolbar->addSeparator();
-
-    auto* clearAct = m_toolbar->addAction(getThemeIcon(":/icons/tool_clear.svg"), "Clear All");
-    clearAct->setToolTip("Clear All Primitives");
-    connect(clearAct, &QAction::triggered, this, &SymbolEditor::onClear);
 }
 
 void SymbolEditor::createStatusBar() {
@@ -2378,6 +2415,7 @@ void SymbolEditor::onCopyToAlternateStyle() {
 }
 
 void SymbolEditor::onUnitChanged(int index) {
+    if (!m_unitCombo) return;
     m_currentUnit = m_unitCombo->itemData(index).toInt();
     applySymbolDefinition(m_symbol);
     statusBar()->showMessage(QString("Switched to %1").arg(m_unitCombo->currentText()), 2000);
@@ -2952,69 +2990,93 @@ void SymbolEditor::onSaveToLibrary() {
     m_symbol.setModelPath(m_modelPathEdit->text());
     m_symbol.setModelName(m_modelNameEdit->text());
 
-    QStringList libNames;
+    const QString symBaseDir = QDir::homePath() + "/ViospiceLib/sym";
+    QDir symDir(symBaseDir);
+    if (!symDir.exists()) symDir.mkpath(".");
+
+    // Collect subdirectories (category folders)
+    QStringList subDirs;
+    for (const QFileInfo& fi : QDir(symBaseDir).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        subDirs.append(fi.fileName());
+    }
+    subDirs.sort();
+
+    // Collect existing .sclib libraries
+    QStringList sclibNames;
     for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries())
-        if (!lib->isBuiltIn()) libNames.append(lib->name());
+        if (!lib->isBuiltIn()) sclibNames.append(lib->name());
 
-    QString libName;
-    if (libNames.isEmpty()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(this, "No Library Found",
-            "You don't have any user libraries yet. Would you like to create one now?",
-            QMessageBox::Yes | QMessageBox::No);
-        
-        if (reply == QMessageBox::Yes) {
-            bool ok;
-            libName = QInputDialog::getText(this, "New Library", "Enter library name:", QLineEdit::Normal, "User", &ok);
-            if (!ok || libName.isEmpty()) return;
-
-            auto* userLib = new SymbolLibrary(libName, false);
-            userLib->setPath(QDir::homePath() + "/ViospiceLib/sym/" + libName.toLower().replace(" ", "_") + ".sclib");
-            SymbolLibraryManager::instance().addLibrary(userLib);
-        } else {
-            return;
-        }
-    } else {
-        bool ok;
-        QStringList options = libNames;
-        options.prepend("[ Create New Library... ]");
-        
-        QString selection = QInputDialog::getItem(this, "Save to Library",
-                                        "Select library:", options, 1, false, &ok);
-        if (!ok) return;
-
-        if (selection == "[ Create New Library... ]") {
-            bool ok2;
-            libName = QInputDialog::getText(this, "New Library", "Enter library name:", QLineEdit::Normal, "", &ok2);
-            if (!ok2 || libName.isEmpty()) return;
-
-            auto* userLib = new SymbolLibrary(libName, false);
-            userLib->setPath(QDir::homePath() + "/ViospiceLib/sym/" + libName.toLower().replace(" ", "_") + ".sclib");
-            SymbolLibraryManager::instance().addLibrary(userLib);
-        } else {
-            libName = selection;
-        }
+    // Build selection list
+    QStringList options;
+    options << "[ Create New Category... ]";
+    for (const QString& d : subDirs)
+        options << QString("\xF0\x9F\x93\x81  %1").arg(d);  // folder icon
+    if (!sclibNames.isEmpty()) {
+        options << "──── .sclib Libraries ────";
+        for (const QString& n : sclibNames)
+            options << QString("\xF0\x9F\x93\x84  %1").arg(n);  // file icon
     }
 
+    bool ok;
+    QString selection = QInputDialog::getItem(this, "Save to Library",
+                            "Select category folder:", options, 1, false, &ok);
+    if (!ok || selection.isEmpty()) return;
+
+    // ── Create new subdirectory ──
+    if (selection == "[ Create New Category... ]") {
+        bool ok2;
+        QString dirName = QInputDialog::getText(this, "New Category",
+                                "Category name (used as folder):",
+                                QLineEdit::Normal, "", &ok2);
+        if (!ok2 || dirName.trimmed().isEmpty()) return;
+        dirName = dirName.trimmed();
+        QDir(symBaseDir).mkpath(dirName);
+        selection = QString("\xF0\x9F\x93\x81  %1").arg(dirName);
+    }
+
+    // ── Save into subdirectory (.viosym) ──
+    if (selection.startsWith("\xF0\x9F\x93\x81")) {
+        QString dirName = selection.mid(4).trimmed();  // strip folder emoji
+        QString dirPath = symBaseDir + "/" + dirName;
+        QDir().mkpath(dirPath);
+
+        m_symbol.setCategory(dirName);
+
+        QString symFile = dirPath + "/" + m_symbol.name() + ".viosym";
+        QJsonDocument doc(m_symbol.toJson());
+        QFile file(symFile);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QMessageBox::warning(this, "Error",
+                QString("Failed to write:\n%1").arg(symFile));
+            return;
+        }
+        file.write(doc.toJson(QJsonDocument::Indented));
+
+        LibraryIndex::instance().addSymbol(m_symbol.name(), dirName, dirName);
+        QMessageBox::information(this, "Saved",
+            QString("'%1' \xE2\x86\x92 %2/").arg(m_symbol.name(), dirName));
+        emit symbolSaved(m_symbol);
+        if (m_undoStack) m_undoStack->setClean();
+        populateLibraryTree();
+        return;
+    }
+
+    // ── Skip separator line ──
+    if (selection.startsWith("────")) return;
+
+    // ── Save into existing .sclib library (legacy) ──
+    QString libName = selection.mid(4).trimmed();  // strip file emoji
     SymbolLibrary* lib = SymbolLibraryManager::instance().findLibrary(libName);
     if (!lib) return;
 
     lib->addSymbol(m_symbol);
-    QDir dir(QDir::homePath() + "/ViospiceLib/sym");
-    if (!dir.exists()) dir.mkpath(".");
-
     if (lib->save()) {
-        // Update library index for fast search
         LibraryIndex::instance().addSymbol(m_symbol.name(), lib->name(), m_symbol.category());
-
         QMessageBox::information(this, "Saved",
-            QString("Symbol '%1' saved to library '%2'.")
-                .arg(m_symbol.name(), libName));
+            QString("Symbol '%1' saved to library '%2'.").arg(m_symbol.name(), libName));
         emit symbolSaved(m_symbol);
-        
-        // Mark as not modified after successful save
         if (m_undoStack) m_undoStack->setClean();
-    } else {
-        QMessageBox::critical(this, "Error", "Failed to save library file.");
+        populateLibraryTree();
     }
 }
 
@@ -4066,20 +4128,74 @@ void SymbolEditor::onPenPointAdded(QPointF pos) {
 }
 
 void SymbolEditor::onPenHandleDragged(QPointF handlePos) {
-    if (m_currentTool != Pen || m_penPoints.isEmpty()) return;
-    
-    PenPoint& lastPoint = m_penPoints.last();
-    QPointF delta = handlePos - lastPoint.pos;
-    
-    // Set handleOut (going out of this point)
-    lastPoint.handleOut = delta;
-    
-    // If smooth mode, mirror the handle
-    if (lastPoint.smooth) {
-        lastPoint.handleIn = -delta;
-    }
-    
-    updatePenPreview();
+     if (m_currentTool != Pen || m_penPoints.isEmpty()) return;
+     
+     // If dragging a midpoint, split the segment at that point
+     if (m_selectedPenMidpoint != -1) {
+         int segIdx = m_selectedPenMidpoint;
+         if (segIdx >= 0 && segIdx < m_penPoints.size()) {
+             PenPoint& p1 = m_penPoints[segIdx];
+             PenPoint& p2 = m_penPoints[(segIdx + 1) % m_penPoints.size()];
+             
+             // When dragging midpoint, we need to find which "part" of the segment is closer
+             // and split there, creating a new anchor point
+             QPointF midpoint = calculateBezierPoint(p1, p2, 0.5);
+             qreal dragDist = QLineF(handlePos, midpoint).length();
+             
+             // Only perform split if we've dragged significantly (2+ pixels)
+             if (dragDist > 2.0) {
+                 // Insert new point at dragged position between p1 and p2
+                 PenPoint newPoint;
+                 newPoint.pos = handlePos;
+                 newPoint.handleIn = QPointF(0, 0);
+                 newPoint.handleOut = QPointF(0, 0);
+                 newPoint.smooth = false;
+                 newPoint.corner = true;
+                 
+                 // Insert after p1 (segIdx) and before p2
+                 m_penPoints.insert(segIdx + 1, newPoint);
+                 m_selectedPenMidpoint = -1;  // Clear midpoint selection
+                 updatePenPreview();
+             }
+         }
+     } else if (m_selectedPenPoint == -1) {
+         // Original behavior: drag handle out of the last point
+         PenPoint& lastPoint = m_penPoints.last();
+         QPointF delta = handlePos - lastPoint.pos;
+         
+         // Set handleOut (going out of this point)
+         lastPoint.handleOut = delta;
+         
+         // If smooth mode, mirror the handle
+         if (lastPoint.smooth) {
+             lastPoint.handleIn = -delta;
+         }
+     } else if (m_selectedPenPoint >= 0 && m_selectedPenPoint < m_penPoints.size()) {
+         PenPoint& selectedPoint = m_penPoints[m_selectedPenPoint];
+         QPointF delta = handlePos - selectedPoint.pos;
+         
+         if (m_selectedPenHandle == 0) {
+             // Dragging handleIn
+             selectedPoint.handleIn = delta;
+             if (selectedPoint.smooth) {
+                 selectedPoint.handleOut = -delta;
+             }
+         } else if (m_selectedPenHandle == 1) {
+             // Dragging handleOut
+             selectedPoint.handleOut = delta;
+             if (selectedPoint.smooth) {
+                 selectedPoint.handleIn = -delta;
+             }
+         } else {
+             // No specific handle selected, treat as handleOut drag
+             selectedPoint.handleOut = delta;
+             if (selectedPoint.smooth) {
+                 selectedPoint.handleIn = -delta;
+             }
+         }
+     }
+     
+     updatePenPreview();
 }
 
 void SymbolEditor::onPenPointFinished() {
@@ -4141,48 +4257,72 @@ void SymbolEditor::finalizePenPath() {
     clearPenState();
 }
 
-void SymbolEditor::clearPenState() {
-    m_penPoints.clear();
-    m_selectedPenPoint = -1;
-    
-    if (m_penPreviewItem) {
-        m_scene->removeItem(m_penPreviewItem);
-        delete m_penPreviewItem;
-        m_penPreviewItem = nullptr;
-    }
-    
-    for (auto* marker : m_penPointMarkers) {
-        m_scene->removeItem(marker);
-        delete marker;
-    }
-    m_penPointMarkers.clear();
-    
-    for (auto* line : m_penHandleLines) {
-        m_scene->removeItem(line);
-        delete line;
-    }
-    m_penHandleLines.clear();
-}
+ void SymbolEditor::clearPenState() {
+      m_penPoints.clear();
+      m_selectedPenPoint = -1;
+      m_selectedPenHandle = -1;
+      m_selectedPenMidpoint = -1;
+      
+      if (m_penPreviewItem) {
+          m_scene->removeItem(m_penPreviewItem);
+          delete m_penPreviewItem;
+          m_penPreviewItem = nullptr;
+      }
+      
+      for (auto* marker : m_penPointMarkers) {
+          m_scene->removeItem(marker);
+          delete marker;
+      }
+      m_penPointMarkers.clear();
+      
+      for (auto* line : m_penHandleLines) {
+          m_scene->removeItem(line);
+          delete line;
+      }
+      m_penHandleLines.clear();
+      
+      for (auto* dot : m_penHandleDots) {
+          m_scene->removeItem(dot);
+          delete dot;
+      }
+      m_penHandleDots.clear();
+      
+      for (auto* midDot : m_penMidpointDots) {
+          m_scene->removeItem(midDot);
+          delete midDot;
+      }
+      m_penMidpointDots.clear();
+ }
 
 void SymbolEditor::updatePenPreview() {
-    if (m_currentTool != Pen) return;
-    
-    // Clear previous preview
-    if (m_penPreviewItem) {
-        m_scene->removeItem(m_penPreviewItem);
-        delete m_penPreviewItem;
-        m_penPreviewItem = nullptr;
-    }
-    for (auto* marker : m_penPointMarkers) {
-        m_scene->removeItem(marker);
-        delete marker;
-    }
-    m_penPointMarkers.clear();
-    for (auto* line : m_penHandleLines) {
-        m_scene->removeItem(line);
-        delete line;
-    }
-    m_penHandleLines.clear();
+     if (m_currentTool != Pen) return;
+     
+      // Clear previous preview
+      if (m_penPreviewItem) {
+          m_scene->removeItem(m_penPreviewItem);
+          delete m_penPreviewItem;
+          m_penPreviewItem = nullptr;
+      }
+      for (auto* marker : m_penPointMarkers) {
+          m_scene->removeItem(marker);
+          delete marker;
+      }
+      m_penPointMarkers.clear();
+      for (auto* line : m_penHandleLines) {
+          m_scene->removeItem(line);
+          delete line;
+      }
+      m_penHandleLines.clear();
+      for (auto* dot : m_penHandleDots) {
+          m_scene->removeItem(dot);
+          delete dot;
+      }
+      m_penHandleDots.clear();
+      for (auto* midDot : m_penMidpointDots) {
+          m_scene->removeItem(midDot);
+          delete midDot;
+      }
+      m_penMidpointDots.clear();
     
     if (m_penPoints.isEmpty()) return;
     
@@ -4208,41 +4348,248 @@ void SymbolEditor::updatePenPreview() {
     m_penPreviewItem = m_scene->addPath(path, QPen(Qt::cyan, 1.5, Qt::DashLine), QBrush());
     m_penPreviewItem->setZValue(1000);
     
-    // Draw anchor points and handles
+     // Draw anchor points and handles
+     for (int i = 0; i < m_penPoints.size(); ++i) {
+         PenPoint& p = m_penPoints[i];
+         
+         // Anchor point marker - highlight if selected
+         QColor anchorColor;
+         if (i == m_selectedPenPoint) {
+             anchorColor = QColor(66, 165, 245);  // Blue for selected
+         } else if (i == 0) {
+             anchorColor = Qt::green;  // Green for start point
+         } else {
+             anchorColor = Qt::yellow;  // Yellow for others
+         }
+         
+         // Add indicator for smooth vs corner mode
+         int size = (i == m_selectedPenPoint) ? 10 : 8;
+         int offset = size / 2;
+         auto* marker = m_scene->addEllipse(p.pos.x() - offset, p.pos.y() - offset, size, size, 
+                                           QPen(anchorColor, 1.5), QBrush(anchorColor));
+         marker->setZValue(1001);
+         m_penPointMarkers.append(marker);
+         
+         // Handle lines and dots
+         if (p.handleIn != QPointF(0, 0)) {
+             QPointF handlePos = p.pos + p.handleIn;
+             
+             // Color based on selection: blue if selected, orange otherwise
+             QColor handleColor = (i == m_selectedPenPoint && m_selectedPenHandle == 0) 
+                                 ? QColor(255, 152, 0)  // Orange for selected handleIn
+                                 : QColor(156, 39, 176);  // Purple for inactive
+             
+             auto* handleLine = m_scene->addLine(QLineF(p.pos, handlePos), QPen(handleColor, 1.5));
+             handleLine->setZValue(1001);
+             m_penHandleLines.append(handleLine);
+             
+             auto* handleDot = m_scene->addEllipse(handlePos.x() - 3, handlePos.y() - 3, 6, 6,
+                                                   QPen(handleColor, 1.5), QBrush(handleColor));
+             handleDot->setZValue(1001);
+             m_penHandleDots.append(handleDot);
+         }
+         
+         if (p.handleOut != QPointF(0, 0)) {
+             QPointF handlePos = p.pos + p.handleOut;
+             
+             // Color based on selection: blue if selected, orange otherwise
+             QColor handleColor = (i == m_selectedPenPoint && m_selectedPenHandle == 1) 
+                                 ? QColor(255, 152, 0)  // Orange for selected handleOut
+                                 : QColor(156, 39, 176);  // Purple for inactive
+             
+             auto* handleLine = m_scene->addLine(QLineF(p.pos, handlePos), QPen(handleColor, 1.5));
+             handleLine->setZValue(1001);
+             m_penHandleLines.append(handleLine);
+             
+              auto* handleDot = m_scene->addEllipse(handlePos.x() - 3, handlePos.y() - 3, 6, 6,
+                                                    QPen(handleColor, 1.5), QBrush(handleColor));
+              handleDot->setZValue(1001);
+              m_penHandleDots.append(handleDot);
+           }
+       }
+       
+       // Draw midpoint dots on each segment (for Figma-style edge editing)
+       for (int i = 0; i < m_penPoints.size(); ++i) {
+           PenPoint& p1 = m_penPoints[i];
+           PenPoint& p2 = m_penPoints[(i + 1) % m_penPoints.size()];
+           
+           // Calculate midpoint of segment
+           QPointF midpoint = calculateBezierPoint(p1, p2, 0.5);
+           
+           // Color: cyan for regular, bright cyan if selected
+           QColor midpointColor = (i == m_selectedPenMidpoint) 
+                                 ? QColor(0, 255, 255)    // Bright cyan for selected
+                                 : QColor(0, 200, 200);   // Darker cyan for inactive
+           
+           auto* midpointDot = m_scene->addEllipse(midpoint.x() - 4, midpoint.y() - 4, 8, 8,
+                                                   QPen(midpointColor, 1.5), QBrush(midpointColor));
+           midpointDot->setZValue(1000);  // Slightly below handles
+           m_penMidpointDots.append(midpointDot);
+       }
+   }
+   
+   // Calculate point on cubic bezier curve at parameter t [0,1]
+   // B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+   QPointF SymbolEditor::calculateBezierPoint(const PenPoint& p1, const PenPoint& p2, qreal t) const {
+      if (t < 0.0) t = 0.0;
+      if (t > 1.0) t = 1.0;
+      
+      qreal mt = 1.0 - t;
+      qreal mt2 = mt * mt;
+      qreal mt3 = mt2 * mt;
+      qreal t2 = t * t;
+      qreal t3 = t2 * t;
+      
+      QPointF p0 = p1.pos;
+      QPointF p3 = p2.pos;
+      QPointF cp1 = p1.pos + p1.handleOut;
+      QPointF cp2 = p2.pos + p2.handleIn;
+      
+      return mt3 * p0 + 3 * mt2 * t * cp1 + 3 * mt * t2 * cp2 + t3 * p3;
+  }
+
+void SymbolEditor::onPenClicked(QPointF pos, int pointIndex, int handleIndex) {
+     if (m_currentTool != Pen) return;
+     
+     // Check distance to existing points/handles to enable selection & editing
+     const qreal HIT_RADIUS = 10.0;
+     int closestPoint = -1;
+     int closestHandle = -1;
+     int closestMidpoint = -1;  // Segment index for midpoint
+     qreal closestDist = HIT_RADIUS + 1;
+     
+     // Check anchor points
+     for (int i = 0; i < m_penPoints.size(); ++i) {
+         qreal distToPos = QLineF(pos, m_penPoints[i].pos).length();
+         if (distToPos < closestDist) {
+             closestDist = distToPos;
+             closestPoint = i;
+             closestHandle = -1;
+             closestMidpoint = -1;
+         }
+         
+         // Check handleIn
+         if (m_penPoints[i].handleIn != QPointF(0, 0)) {
+             QPointF handlePos = m_penPoints[i].pos + m_penPoints[i].handleIn;
+             qreal dist = QLineF(pos, handlePos).length();
+             if (dist < closestDist) {
+                 closestDist = dist;
+                 closestPoint = i;
+                 closestHandle = 0;  // handleIn
+                 closestMidpoint = -1;
+             }
+         }
+         
+         // Check handleOut
+         if (m_penPoints[i].handleOut != QPointF(0, 0)) {
+             QPointF handlePos = m_penPoints[i].pos + m_penPoints[i].handleOut;
+             qreal dist = QLineF(pos, handlePos).length();
+             if (dist < closestDist) {
+                 closestDist = dist;
+                 closestPoint = i;
+                 closestHandle = 1;  // handleOut
+                 closestMidpoint = -1;
+             }
+         }
+     }
+     
+     // Check midpoints on segments (only if already have at least 2 points)
+     if (m_penPoints.size() >= 2) {
+         for (int i = 0; i < m_penPoints.size(); ++i) {
+             PenPoint& p1 = m_penPoints[i];
+             PenPoint& p2 = m_penPoints[(i + 1) % m_penPoints.size()];
+             
+             // Calculate midpoint of segment at t=0.5
+             QPointF midpoint = calculateBezierPoint(p1, p2, 0.5);
+             qreal dist = QLineF(pos, midpoint).length();
+             
+             if (dist < closestDist) {
+                 closestDist = dist;
+                 closestPoint = -1;
+                 closestHandle = -1;
+                 closestMidpoint = i;  // Segment index
+             }
+         }
+     }
+     
+     if (closestMidpoint != -1) {
+         // Midpoint hit - split the segment by dragging
+         m_selectedPenMidpoint = closestMidpoint;
+         updatePenPreview();
+     } else if (closestPoint == -1) {
+         // No point/handle/midpoint hit, add new point
+         if (m_penPoints.size() > 2) {
+             if (QLineF(pos, m_penPoints.first().pos).length() < 8.0) {
+                 onPenPathClosed();
+                 return;
+             }
+         }
+         
+         PenPoint newPoint;
+         newPoint.pos = pos;
+         newPoint.handleIn = QPointF(0, 0);
+         newPoint.handleOut = QPointF(0, 0);
+         newPoint.smooth = false;
+         newPoint.corner = true;  // New points are corners by default
+         m_penPoints.append(newPoint);
+         updatePenPreview();
+     } else {
+         // Point or handle hit
+         bool isAltPressed = (handleIndex == 1);  // handleIndex=1 indicates Alt was pressed
+         
+         if (closestHandle == -1) {
+             // Anchor point hit
+             if (isAltPressed) {
+                 // Alt+click toggles smooth/corner mode
+                 m_penPoints[closestPoint].smooth = !m_penPoints[closestPoint].smooth;
+                 m_penPoints[closestPoint].corner = !m_penPoints[closestPoint].corner;
+                 
+                 // If toggling to smooth, and no handles exist yet, mirror them
+                 if (m_penPoints[closestPoint].smooth && 
+                     m_penPoints[closestPoint].handleOut != QPointF(0, 0)) {
+                     m_penPoints[closestPoint].handleIn = -m_penPoints[closestPoint].handleOut;
+                 }
+             } else {
+                 // Regular click toggles selection
+                 if (m_selectedPenPoint == closestPoint) {
+                     m_selectedPenPoint = -1;  // Deselect
+                 } else {
+                     m_selectedPenPoint = closestPoint;  // Select this point
+                     m_selectedPenHandle = -1;  // Clear handle selection
+                 }
+             }
+         } else {
+             // Handle hit - mark for dragging
+             m_selectedPenPoint = closestPoint;
+             m_selectedPenHandle = closestHandle;
+         }
+         updatePenPreview();
+     }
+}
+
+void SymbolEditor::onPenDoubleClicked(QPointF pos, int pointIndex) {
+    if (m_currentTool != Pen) return;
+    
+    // Find closest point for deletion
+    const qreal HIT_RADIUS = 10.0;
+    int closestPoint = -1;
+    qreal closestDist = HIT_RADIUS + 1;
+    
     for (int i = 0; i < m_penPoints.size(); ++i) {
-        PenPoint& p = m_penPoints[i];
-        
-        // Anchor point marker
-        QColor anchorColor = (i == 0) ? Qt::green : Qt::yellow;
-        auto* marker = m_scene->addEllipse(p.pos.x() - 4, p.pos.y() - 4, 8, 8, 
-                                          QPen(anchorColor, 1.5), QBrush(anchorColor));
-        marker->setZValue(1001);
-        m_penPointMarkers.append(marker);
-        
-        // Handle lines and dots
-        if (p.handleIn != QPointF(0, 0)) {
-            QPointF handlePos = p.pos + p.handleIn;
-            auto* handleLine = m_scene->addLine(QLineF(p.pos, handlePos), QPen(Qt::red, 1));
-            handleLine->setZValue(1001);
-            m_penHandleLines.append(handleLine);
-            
-            auto* handleDot = m_scene->addEllipse(handlePos.x() - 3, handlePos.y() - 3, 6, 6,
-                                                  QPen(Qt::red, 1), QBrush(Qt::red));
-            handleDot->setZValue(1001);
-            m_penPointMarkers.append(handleDot);
+        qreal dist = QLineF(pos, m_penPoints[i].pos).length();
+        if (dist < closestDist) {
+            closestDist = dist;
+            closestPoint = i;
         }
-        
-        if (p.handleOut != QPointF(0, 0)) {
-            QPointF handlePos = p.pos + p.handleOut;
-            auto* handleLine = m_scene->addLine(QLineF(p.pos, handlePos), QPen(Qt::red, 1));
-            handleLine->setZValue(1001);
-            m_penHandleLines.append(handleLine);
-            
-            auto* handleDot = m_scene->addEllipse(handlePos.x() - 3, handlePos.y() - 3, 6, 6,
-                                                  QPen(Qt::red, 1), QBrush(Qt::red));
-            handleDot->setZValue(1001);
-            m_penPointMarkers.append(handleDot);
+    }
+    
+    // Double-click removes point (but keep at least 2 points for a path)
+    if (closestPoint != -1 && m_penPoints.size() > 2) {
+        m_penPoints.removeAt(closestPoint);
+        if (m_selectedPenPoint == closestPoint) {
+            m_selectedPenPoint = -1;
         }
+        updatePenPreview();
     }
 }
 
@@ -4312,6 +4659,35 @@ void SymbolEditor::onSelectionChanged() {
     }
     
     updatePropertiesPanel();
+    
+    // Check if a single bezier primitive is selected for editing in Select mode
+    if (m_currentTool == Select) {
+        m_editingBezierIndex = -1;
+        m_selectedBezierPoint = -1;
+        
+        // Look for a single selected bezier primitive
+        int selectedBezierIndex = -1;
+        int selectedCount = 0;
+        
+        for (QGraphicsItem* item : m_scene->selectedItems()) {
+            bool isPrimitive = item->data(1).isValid();
+            if (isPrimitive) {
+                selectedCount++;
+                int primIndex = primitiveIndex(item);
+                if (primIndex >= 0 && primIndex < m_symbol.primitives().size()) {
+                    if (m_symbol.primitives()[primIndex].type == SymbolPrimitive::Bezier) {
+                        selectedBezierIndex = primIndex;
+                    }
+                }
+            }
+        }
+        
+        // Only enable bezier editing if exactly one item is selected and it's a bezier
+        if (selectedCount == 1 && selectedBezierIndex >= 0) {
+            m_editingBezierIndex = selectedBezierIndex;
+            updateBezierEditPreview();
+        }
+    }
 
     // Visual selection highlighting (Glow effect)
     for (QGraphicsItem* item : m_scene->items()) {
@@ -5016,6 +5392,148 @@ void SymbolEditor::tryAutoDetectModelName() {
     const QString detected = detectModelNameFromFile(resolved, prefix);
     if (!detected.isEmpty()) {
         m_modelNameEdit->setText(detected);
+    }
+}
+
+// Select mode bezier editing - show edit points when bezier is selected
+void SymbolEditor::updateBezierEditPreview() {
+    // Clear previous bezier edit visualization
+    for (auto* marker : m_bezierEditMarkers) {
+        m_scene->removeItem(marker);
+        delete marker;
+    }
+    m_bezierEditMarkers.clear();
+    for (auto* line : m_bezierEditLines) {
+        m_scene->removeItem(line);
+        delete line;
+    }
+    m_bezierEditLines.clear();
+    
+    // If no bezier being edited, we're done
+    if (m_editingBezierIndex < 0 || m_editingBezierIndex >= m_symbol.primitives().size()) {
+        m_editingBezierIndex = -1;
+        m_selectedBezierPoint = -1;
+        return;
+    }
+    
+    // Get the bezier primitive
+    const SymbolPrimitive& prim = m_symbol.primitives()[m_editingBezierIndex];
+    if (prim.type != SymbolPrimitive::Bezier) {
+        m_editingBezierIndex = -1;
+        return;
+    }
+    
+     // Extract bezier points from data
+     auto getPoint = [&](const QString& x_key, const QString& y_key) -> QPointF {
+         double x = prim.data.contains(x_key) ? prim.data.value(x_key).toDouble() : 0.0;
+         double y = prim.data.contains(y_key) ? prim.data.value(y_key).toDouble() : 0.0;
+         return QPointF(x, y);
+     };
+    
+    QPointF p1 = getPoint("x1", "y1");  // Start point
+    QPointF cp1 = getPoint("x2", "y2"); // Control point 1
+    QPointF cp2 = getPoint("x3", "y3"); // Control point 2
+    QPointF p4 = getPoint("x4", "y4");  // End point
+    
+    m_bezierEditPoints.clear();
+    m_bezierEditPoints.append({0, p1});   // Start anchor
+    m_bezierEditPoints.append({1, cp1});  // Control 1
+    m_bezierEditPoints.append({2, cp2});  // Control 2
+    m_bezierEditPoints.append({3, p4});   // End anchor
+    
+    // Draw handle lines (anchor to control point)
+    auto drawHandle = [&](QPointF anchor, QPointF control) {
+        auto* line = m_scene->addLine(QLineF(anchor, control), 
+                                     QPen(QColor(150, 150, 150), 1.5, Qt::DashLine));
+        line->setZValue(1000);
+        m_bezierEditLines.append(line);
+    };
+    
+    drawHandle(p1, cp1);
+    drawHandle(p4, cp2);
+    
+    // Draw edit point markers (anchors + control points)
+    for (int i = 0; i < m_bezierEditPoints.size(); ++i) {
+        const BezierEditPoint& bp = m_bezierEditPoints[i];
+        
+        // Determine color and size based on point type and selection
+        QColor color;
+        int size;
+        
+        if (i == m_selectedBezierPoint) {
+            // Selected point - bright blue
+            color = QColor(66, 165, 245);
+            size = 10;
+        } else if (i == 0) {
+            // Start anchor - green
+            color = Qt::green;
+            size = 8;
+        } else if (i == 3) {
+            // End anchor - blue
+            color = QColor(33, 150, 243);
+            size = 8;
+        } else {
+            // Control points - purple
+            color = QColor(156, 39, 176);
+            size = 6;
+        }
+        
+        int offset = size / 2;
+        auto* marker = m_scene->addEllipse(bp.pos.x() - offset, bp.pos.y() - offset, size, size,
+                                          QPen(color, 1.5), QBrush(color));
+        marker->setZValue(1001);
+        m_bezierEditMarkers.append(marker);
+    }
+}
+
+// Detect and handle clicks on bezier edit points
+void SymbolEditor::onBezierEditPointClicked(QPointF pos) {
+    if (m_editingBezierIndex < 0 || m_bezierEditPoints.isEmpty()) return;
+    
+    const double HIT_RADIUS = 10.0;
+    
+    // Find which point was clicked
+    int clickedPoint = -1;
+    for (int i = 0; i < m_bezierEditPoints.size(); ++i) {
+        QPointF delta = m_bezierEditPoints[i].pos - pos;
+        double dist = std::sqrt(delta.x() * delta.x() + delta.y() * delta.y());
+        if (dist <= HIT_RADIUS) {
+            clickedPoint = i;
+            break;
+        }
+    }
+    
+    if (clickedPoint >= 0) {
+        m_selectedBezierPoint = clickedPoint;
+        updateBezierEditPreview();
+    } else {
+        m_selectedBezierPoint = -1;
+        updateBezierEditPreview();
+    }
+}
+
+// Handle dragging of bezier edit points
+void SymbolEditor::onBezierEditPointDragged(QPointF newPos) {
+    if (m_editingBezierIndex < 0 || m_selectedBezierPoint < 0) return;
+    if (m_editingBezierIndex >= m_symbol.primitives().size()) return;
+    
+    // Get mutable reference to the primitive
+    SymbolPrimitive& prim = m_symbol.primitives()[m_editingBezierIndex];
+    
+    // Map point type to data keys
+    const QStringList keys = {"x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"};
+    int pointType = m_selectedBezierPoint;
+    
+    if (pointType >= 0 && pointType < 4) {
+        int x_idx = pointType * 2;
+        int y_idx = pointType * 2 + 1;
+        
+        prim.data[keys[x_idx]] = newPos.x();
+        prim.data[keys[y_idx]] = newPos.y();
+        
+        // Update visual representation
+        updateVisualForPrimitive(m_editingBezierIndex, prim);
+        updateBezierEditPreview();
     }
 }
 

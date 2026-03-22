@@ -22,6 +22,8 @@ public:
     
     bool snapToGridEnabled() const { return m_snapToGrid; }
     void setSnapToGrid(bool enable) { m_snapToGrid = enable; }
+
+    void setGuideAnchorPoints(const QList<QPointF>& points);
     
     enum GridStyle { Dots, Lines };
     GridStyle gridStyle() const { return m_gridStyle; }
@@ -45,6 +47,10 @@ signals:
     void penHandleDragged(QPointF handlePos);
     void penPointFinished();
     void penPathClosed();
+    void penClicked(QPointF scenePos, int pointIndex = -1, int handleIndex = -1);
+    void penDoubleClicked(QPointF scenePos, int pointIndex = -1);
+    void bezierEditPointClicked(QPointF scenePos);
+    void bezierEditPointDragged(QPointF newPos);
     
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -58,6 +64,7 @@ protected:
  
 private:
     void updatePinAlignmentGuides();
+    void updateDrawGuides(const QPointF& cursor);
     void clearPinAlignmentGuides();
 
     int m_currentTool = 0;
@@ -77,6 +84,14 @@ private:
     QPointF m_penPressPos;
     bool m_penIsDragging = false;
     static constexpr qreal PEN_DRAG_THRESHOLD = 5.0;
+    
+    // Bezier editing state (Select mode)
+    bool m_bezierEditIsDragging = false;
+    QPointF m_bezierEditPressPos;
+
+    // Smart guide anchor points (pins, endpoints, etc.)
+    QList<QPointF> m_guideAnchors;
+    QPointF m_guideCursorPos;
 };
 
 #endif // SYMBOL_EDITOR_VIEW_H

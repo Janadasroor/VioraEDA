@@ -151,73 +151,73 @@ private:
     void parseCommandText(const QString& command);
     void updateCommandDisplay();
 
-    QGraphicsScene* m_scene;
-    NetManager* m_netManager;
+    QGraphicsScene* m_scene = nullptr;
+    NetManager* m_netManager = nullptr;
     QString m_projectDir;
     bool m_acceptRealTimeStream = false;
 
     // Signal Selection
-    QListWidget* m_signalList;
-    QListWidget* m_issueList;
-    QTableWidget* m_measurementsTable;
+    QListWidget* m_signalList = nullptr;
+    QListWidget* m_issueList = nullptr;
+    QTableWidget* m_measurementsTable = nullptr;
     
     // UI Elements
-    QComboBox* m_analysisType;
-    QWidget* m_paramWidget;
-    QLineEdit* m_commandLine;
-    QLineEdit* m_param1; // e.g., Start Time / Start Freq
-    QLineEdit* m_param2; // e.g., Stop Time / Stop Freq
-    QLineEdit* m_param3; // e.g., Step Size / Points
-    QLineEdit* m_param4; 
-    QLineEdit* m_param5; 
+    QComboBox* m_analysisType = nullptr;
+    QWidget* m_paramWidget = nullptr;
+    QLineEdit* m_commandLine = nullptr;
+    QLineEdit* m_param1 = nullptr; // e.g., Start Time / Start Freq
+    QLineEdit* m_param2 = nullptr; // e.g., Stop Time / Stop Freq
+    QLineEdit* m_param3 = nullptr; // e.g., Step Size / Points
+    QLineEdit* m_param4 = nullptr; 
+    QLineEdit* m_param5 = nullptr; 
 
     // Source generator controls
-    QComboBox* m_generatorType;
-    QComboBox* m_generatorPresetCombo;
-    QLabel* m_genLabel1;
-    QLabel* m_genLabel2;
-    QLabel* m_genLabel3;
-    QLabel* m_genLabel4;
-    QLabel* m_genLabel5;
-    QLabel* m_genLabel6;
-    QLineEdit* m_genParam1;
-    QLineEdit* m_genParam2;
-    QLineEdit* m_genParam3;
-    QLineEdit* m_genParam4;
-    QLineEdit* m_genParam5;
-    QLineEdit* m_genParam6;
+    QComboBox* m_generatorType = nullptr;
+    QComboBox* m_generatorPresetCombo = nullptr;
+    QLabel* m_genLabel1 = nullptr;
+    QLabel* m_genLabel2 = nullptr;
+    QLabel* m_genLabel3 = nullptr;
+    QLabel* m_genLabel4 = nullptr;
+    QLabel* m_genLabel5 = nullptr;
+    QLabel* m_genLabel6 = nullptr;
+    QLineEdit* m_genParam1 = nullptr;
+    QLineEdit* m_genParam2 = nullptr;
+    QLineEdit* m_genParam3 = nullptr;
+    QLineEdit* m_genParam4 = nullptr;
+    QLineEdit* m_genParam5 = nullptr;
+    QLineEdit* m_genParam6 = nullptr;
     QVector<QPair<QString, QString>> m_pwlPoints;
     QMap<QString, QVariantMap> m_generatorTemplates;
     QMap<QString, QVariantMap> m_userGeneratorPresets;
     
-    QTextEdit* m_logOutput;
-    QPushButton* m_runButton;
+    QTextEdit* m_logOutput = nullptr;
+    QPushButton* m_runButton = nullptr;
     QTimer* m_logFlushTimer = nullptr;
     QStringList m_logBuffer;
     
     // Timeline / Time-Travel
-    QSlider* m_timelineSlider;
-    QLabel* m_timelineLabel;
+    QSlider* m_timelineSlider = nullptr;
+    QLabel* m_timelineLabel = nullptr;
     
     // Plotting
-    QChartView* m_plotView;
-    QChart* m_chart;
+    QChartView* m_plotView = nullptr;
+    QChart* m_chart = nullptr;
     
-    QChartView* m_spectrumView;
-    QChart* m_spectrumChart;
+    QChartView* m_spectrumView = nullptr;
+    QChart* m_spectrumChart = nullptr;
     
     // Virtual Instruments
-    class WaveformViewer* m_waveformViewer;
-    class LogicAnalyzerWidget* m_logicAnalyzer;
-    class VoltmeterWidget* m_voltmeter;
-    class AmmeterWidget* m_ammeter;
-    class WattmeterWidget* m_wattmeter;
-    class FrequencyCounterWidget* m_freqCounter;
-    class LogicProbeWidget* m_logicProbe;
-    class QDoubleSpinBox* m_scopeTimeDiv;
-    class QDoubleSpinBox* m_scopeVoltDiv;
-    QComboBox* m_scopeChannelCombo;
-    QWidget* m_scopeContainer;
+    class WaveformViewer* m_waveformViewer = nullptr;
+    class LogicAnalyzerWidget* m_logicAnalyzer = nullptr;
+    class VoltmeterWidget* m_voltmeter = nullptr;
+    class AmmeterWidget* m_ammeter = nullptr;
+    class WattmeterWidget* m_wattmeter = nullptr;
+    class FrequencyCounterWidget* m_freqCounter = nullptr;
+    class LogicProbeWidget* m_logicProbe = nullptr;
+    class QDoubleSpinBox* m_scopeTimeDiv = nullptr;
+    class QDoubleSpinBox* m_scopeVoltDiv = nullptr;
+    QComboBox* m_scopeChannelCombo = nullptr;
+    QWidget* m_scopeContainer = nullptr;
     
     QString m_lastNetlistPath;
     QCheckBox* m_overlayPreviousRun;
@@ -238,20 +238,20 @@ private:
     void evaluateMeasStatements(const SimResults& results);
 
     // .meas editor UI
-    QComboBox* m_measAnalysisType;
-    QComboBox* m_measFunction;
-    QLineEdit* m_measName;
-    QLineEdit* m_measSignal;
-    QLineEdit* m_measTrigSignal;
-    QLineEdit* m_measTrigVal;
-    QComboBox* m_measTrigEdge;
-    QLineEdit* m_measTargSignal;
-    QLineEdit* m_measTargVal;
-    QComboBox* m_measTargEdge;
-    QTableWidget* m_measListTable;
-    QPushButton* m_measAddBtn;
-    QPushButton* m_measRemoveBtn;
-    QWidget* m_measTrigTargWidget;
+    QComboBox* m_measAnalysisType = nullptr;
+    QComboBox* m_measFunction = nullptr;
+    QLineEdit* m_measName = nullptr;
+    QLineEdit* m_measSignal = nullptr;
+    QLineEdit* m_measTrigSignal = nullptr;
+    QLineEdit* m_measTrigVal = nullptr;
+    QComboBox* m_measTrigEdge = nullptr;
+    QLineEdit* m_measTargSignal = nullptr;
+    QLineEdit* m_measTargVal = nullptr;
+    QComboBox* m_measTargEdge = nullptr;
+    QTableWidget* m_measListTable = nullptr;
+    QPushButton* m_measAddBtn = nullptr;
+    QPushButton* m_measRemoveBtn = nullptr;
+    QWidget* m_measTrigTargWidget = nullptr;
     void rebuildMeasFromTable();
     QString generateMeasLine(int row) const;
 

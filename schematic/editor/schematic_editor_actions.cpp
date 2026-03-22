@@ -38,8 +38,14 @@
 #include "../dialogs/voltage_source_ltspice_dialog.h"
 #include "../dialogs/spice_directive_dialog.h"
 #include "../dialogs/signal_generator_properties_dialog.h"
+#include "../dialogs/csw_properties_dialog.h"
+#include "../dialogs/vcvs_properties_dialog.h"
+#include "../dialogs/diode_model_picker_dialog.h"
+#include "../dialogs/diode_properties_dialog.h"
+#include "../items/generic_component_item.h"
 #include "../dialogs/oscilloscope_properties_dialog.h"
 #include "../dialogs/erc_rules_dialog.h"
+#include "../ui/simulation_panel.h"
 #include "../dialogs/find_replace_dialog.h"
 #include "../../core/assignment_validator.h"
 #include "../../core/ui/command_palette.h"
@@ -732,6 +738,83 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                item->itemType() == SchematicItem::DiodeType ||
                item->itemType() == SchematicItem::CustomType ||
                item->itemType() == SchematicItem::PowerType) {
+        
+        if (item->itemTypeName().compare("csw", Qt::CaseInsensitive) == 0) {
+            CSWPropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                m_undoStack->beginMacro("Update CSW Properties");
+                if (item->value() != dlg.modelName()) {
+                    m_undoStack->push(new ChangePropertyCommand(m_scene, item, "Value", item->value(), dlg.modelName(), m_projectDir));
+                }
+                m_undoStack->endMacro();
+
+                if (m_simulationPanel) {
+                    QString prefix = ".model " + dlg.modelName() + " ";
+                    SchematicSpiceDirectiveItem* targetDirective = nullptr;
+                    for (auto* gi : m_scene->items()) {
+                        if (auto* existing = dynamic_cast<SchematicSpiceDirectiveItem*>(gi)) {
+                            // Support ".model MySwitch" or ".model MySwitch CSW..."
+                            if (existing->text().startsWith(prefix, Qt::CaseInsensitive)) {
+                                targetDirective = existing;
+                                break;
+                            }
+                        }
+                    }
+                    if (targetDirective) {
+                        m_undoStack->push(new ChangePropertyCommand(m_scene, targetDirective, "Text", targetDirective->text(), dlg.commandText(), m_projectDir));
+                    } else {
+                        m_simulationPanel->updateSchematicDirectiveFromCommand(dlg.commandText());
+                    }
+                }
+            }
+            return;
+        }
+
+        if (item->itemTypeName().compare("e", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("vcvs", Qt::CaseInsensitive) == 0) {
+            VCVSPropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                m_undoStack->beginMacro("Update VCVS Properties");
+                if (item->value() != dlg.gainValue()) {
+                    m_undoStack->push(new ChangePropertyCommand(m_scene, item, "value", item->value(), dlg.gainValue(), m_projectDir));
+                }
+                m_undoStack->endMacro();
+            }
+            return;
+        }
+
+        // Diode properties dialog (auto-detect type from symbol name)
+        if (item->referencePrefix() == "D") {
+            DiodePropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                m_undoStack->beginMacro("Update Diode Properties");
+                const QString newName = dlg.modelName();
+                if (item->value() != newName) {
+                    m_undoStack->push(new ChangePropertyCommand(
+                        m_scene, item, "value",
+                        item->value(), newName, m_projectDir));
+                }
+                const auto newPE = dlg.paramExpressions();
+                const auto oldPE = item->paramExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    if (oldPE.value(it.key()) != it.value()) {
+                        item->setParamExpression(it.key(), it.value());
+                    }
+                }
+                // Auto-switch symbol if type changed
+                const QString newSym = dlg.newSymbolName();
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(item)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
+                m_undoStack->endMacro();
+            }
+            return;
+        }
+
         GenericSymbolPropertiesDialog dlg(item, m_undoStack, m_scene, this);
         dlg.exec();
         return;

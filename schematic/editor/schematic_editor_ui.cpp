@@ -649,8 +649,12 @@ void SchematicEditor::createToolBar() {
 
     // Edit Menu
     QMenu* editMenu = mainAppMenu->addMenu("&Edit");
-    editMenu->addAction(m_undoStack->createUndoAction(this));
-    editMenu->addAction(m_undoStack->createRedoAction(this));
+    QAction* menuUndoAct = m_undoStack->createUndoAction(this);
+    menuUndoAct->setShortcut(QKeySequence());  // Toolbar owns Ctrl+Z shortcut
+    editMenu->addAction(menuUndoAct);
+    QAction* menuRedoAct = m_undoStack->createRedoAction(this);
+    menuRedoAct->setShortcut(QKeySequence());  // Toolbar owns Ctrl+Shift+Z shortcut
+    editMenu->addAction(menuRedoAct);
     editMenu->addSeparator();
     editMenu->addAction(getThemeIcon(":/icons/tool_cut.svg"), "Cut", this, &SchematicEditor::onCut, QKeySequence::Cut);
     editMenu->addAction(getThemeIcon(":/icons/tool_copy.svg"), "Copy", this, &SchematicEditor::onCopy, QKeySequence::Copy);
@@ -820,10 +824,9 @@ void SchematicEditor::createToolBar() {
 
     mainToolbar->addSeparator();
 
-    // Quick Undo button (shared with Ctrl+Z)
+    // Quick Undo button (shortcuts handled in SchematicView::keyPressEvent)
     QAction* undoAct = m_undoStack->createUndoAction(this);
     undoAct->setIcon(getThemeIcon(":/icons/undo.svg"));
-    undoAct->setShortcut(QKeySequence::Undo);
     undoAct->setToolTip("Undo last action (Ctrl+Z)");
     mainToolbar->addAction(undoAct);
 

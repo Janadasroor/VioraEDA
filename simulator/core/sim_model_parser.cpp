@@ -94,6 +94,7 @@ SimComponentType inferModelType(const std::string& typeToken, bool& ok) {
     if (typeStr == "NMOS") return SimComponentType::MOSFET_NMOS;
     if (typeStr == "PMOS") return SimComponentType::MOSFET_PMOS;
     if (typeStr == "SW") return SimComponentType::Switch;
+    if (typeStr == "CSW") return SimComponentType::CSW;
     ok = false;
     return SimComponentType::Resistor;
 }
@@ -198,8 +199,6 @@ bool SimModelParser::parseModelLine(
         double parsed = 0.0;
         if (parseNumeric(valStr, parsed)) {
             model.params[key] = parsed;
-        } else {
-            addDiag(diagnostics, Severity::Warning, lineNumber, sourceName, "invalid numeric model parameter '" + key + "=" + valStr + "'", tLine);
         }
     }
 
@@ -516,6 +515,7 @@ bool SimModelParser::parseLibrary(
                 case 'F': inst.type = SimComponentType::CCCS; nodeCount = 2; break;
                 case 'H': inst.type = SimComponentType::CCVS; nodeCount = 2; break;
                 case 'S': inst.type = SimComponentType::Switch; nodeCount = 4; break;
+                case 'W': inst.type = SimComponentType::CSW; nodeCount = 4; break;
                 case 'B': inst.type = SimComponentType::B_VoltageSource; nodeCount = 2; break;
                 case 'A': {
                     // XSPICE: Logic gates. Find the type at the end of node list.

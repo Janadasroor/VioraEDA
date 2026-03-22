@@ -23,6 +23,38 @@
 using Flux::Model::SymbolDefinition;
 
 namespace {
+
+QString spicetypeToString(SimComponentType type) {
+    switch (type) {
+        case SimComponentType::Diode:           return "D";
+        case SimComponentType::BJT_NPN:         return "NPN";
+        case SimComponentType::BJT_PNP:         return "PNP";
+        case SimComponentType::MOSFET_NMOS:     return "NMOS";
+        case SimComponentType::MOSFET_PMOS:     return "PMOS";
+        case SimComponentType::Switch:          return "SW";
+        case SimComponentType::CSW:             return "CSW";
+        default: return "";
+    }
+}
+
+QString modelToSpiceLine(const SimModel& model) {
+    const QString typeStr = spicetypeToString(model.type);
+    if (typeStr.isEmpty()) return QString();
+
+    QString line = QString(".model %1 %2(").arg(
+        QString::fromStdString(model.name), typeStr);
+    bool first = true;
+    for (const auto& [key, val] : model.params) {
+        if (!first) line += " ";
+        line += QString("%1=%2").arg(
+            QString::fromStdString(key),
+            QString::number(val, 'g', 12));
+        first = false;
+    }
+    line += ")";
+    return line;
+}
+
 QString pickPowerNetName(const QMap<QString, QString>& pins, const QString& fallbackValue) {
     QString netName = pins.value("1").trimmed();
     if (!netName.isEmpty()) return netName;
@@ -242,12 +274,21 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     // 0. Append SPICE Directives from schematic at the TOP 
     // This ensures .params and .model are defined before use
     netlist += "* Custom SPICE Directives\n";
+    QSet<QString> switchModelsAdded;
     for (QGraphicsItem* item : scene->items()) {
         if (auto* si = dynamic_cast<SchematicItem*>(item)) {
             if (si->itemType() == SchematicItem::SpiceDirectiveType) {
                 if (auto* dir = dynamic_cast<SchematicSpiceDirectiveItem*>(si)) {
                     QString cmd = dir->text().trimmed();
                     if (!cmd.isEmpty()) {
+                        if (cmd.startsWith(".model", Qt::CaseInsensitive)) {
+                            // Extract model name to prevent auto-generator duplicates
+                            QStringList parts = cmd.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                            if (parts.size() >= 2) {
+                                switchModelsAdded.insert(parts[1].toLower());
+                            }
+                        }
+                        
                         if (cmd.startsWith(".mean", Qt::CaseInsensitive)) {
                             const QString converted = normalizeMeanDirective(cmd);
                             if (converted != cmd) {
@@ -287,7 +328,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
     }
 
-    // Collect include paths from symbol metadata
+    // Collect include paths from symbol metadata (subcircuit .inc/.lib)
     for (const auto& comp : pkg.components) {
         SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(comp.typeName);
         if (!sym) continue;
@@ -297,18 +338,89 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
     }
 
+    // Auto-embed .model lines for referenced component models
+    QStringList embeddedModelLines;
+    for (const auto& comp : pkg.components) {
+        if (comp.excludeFromSim) continue;
+        const QString modelName = comp.value.trimmed();
+        if (modelName.isEmpty()) continue;
+        if (switchModelsAdded.contains(modelName.toLower())) continue;
+
+        const SimModel* mdl = ModelLibraryManager::instance().findModel(modelName);
+        if (mdl) {
+            const QString line = modelToSpiceLine(*mdl);
+            if (!line.isEmpty()) {
+                embeddedModelLines.append(line);
+                switchModelsAdded.insert(modelName.toLower());
+            }
+        } else if (comp.reference.startsWith("D", Qt::CaseInsensitive)) {
+            // Generate .model from component paramExpressions for user-customized diodes
+            const auto& pe = comp.paramExpressions;
+            if (!pe.isEmpty()) {
+                QString line = QString(".model %1 D(").arg(modelName);
+                QStringList params;
+                auto addParam = [&](const QString& key) {
+                    QString val = pe.value(key).trimmed();
+                    if (!val.isEmpty()) {
+                        params.append(QString("%1=%2").arg(key, val));
+                    }
+                };
+                addParam("diode.Is");
+                addParam("diode.N");
+                addParam("diode.Rs");
+                addParam("diode.Vj");
+                addParam("diode.Cjo");
+                addParam("diode.M");
+                addParam("diode.tt");
+                addParam("diode.BV");
+                addParam("diode.IBV");
+
+                // Strip "diode." prefix for SPICE format
+                for (int i = 0; i < params.size(); ++i) {
+                    params[i].replace("diode.", "");
+                }
+
+                line += params.join(" ") + ")";
+                embeddedModelLines.append(line);
+                switchModelsAdded.insert(modelName.toLower());
+            }
+        }
+    }
+
+    // Write .include directives (subcircuit/model files from symbol metadata)
     if (!includePaths.isEmpty()) {
         QStringList includeList = includePaths.values();
         includeList.sort();
+
+        QStringList libRoots = ConfigManager::instance().libraryRoots();
+
         netlist += "* Model Includes\n";
         for (const QString& inc : includeList) {
-            netlist += QString(".include \"%1\"\n").arg(inc);
+            QString relPath = inc;
+            for (const QString& root : libRoots) {
+                if (!root.isEmpty() && inc.startsWith(root, Qt::CaseInsensitive)) {
+                    relPath = QDir(root).relativeFilePath(inc);
+                    break;
+                }
+            }
+            if (QDir::isAbsolutePath(relPath)) {
+                relPath = QFileInfo(inc).fileName();
+            }
+            netlist += QString(".include \"%1\"\n").arg(relPath);
+        }
+        netlist += "\n";
+    }
+
+    // Write embedded .model lines
+    if (!embeddedModelLines.isEmpty()) {
+        netlist += "* Embedded Models\n";
+        for (const QString& ml : embeddedModelLines) {
+            netlist += ml + "\n";
         }
         netlist += "\n";
     }
 
     // 3. Export components
-    QSet<QString> switchModelsAdded;
     QMap<QString, QString> powerNetVoltages;
     for (const auto& comp : pkg.components) {
         if (comp.excludeFromSim) {
@@ -385,7 +497,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         // use the reference as-is to avoid invalid X-lines.
         if (line.startsWith("X") && !ref.isEmpty()) {
             const QChar p = ref.at(0).toUpper();
-            const QString known = "RCLVIDQMB";
+            const QString known = "RCLVIDQMBEGFH";
             if (known.contains(p)) {
                 line = ref;
             }
@@ -405,23 +517,32 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
             if (!sym->modelName().isEmpty() && comp.spiceModel.isEmpty()) {
                 if (line.startsWith("X") || line.startsWith("D") || line.startsWith("Q")) {
-                    value = sym->modelName();
+                    // Don't use modelName if it's just the device prefix (e.g., "D", "Q", "X")
+                    const QString mn = sym->modelName();
+                    if (mn.length() > 1 || mn.toLower() != line.left(1).toLower()) {
+                        value = mn;
+                    }
                 }
             }
 
             if (!sym->modelName().isEmpty()) {
-                const SimModel* mdl = ModelLibraryManager::instance().findModel(sym->modelName());
-                const SimSubcircuit* sub = ModelLibraryManager::instance().findSubcircuit(sym->modelName());
-                if (!mdl && !sub) {
-                    netlist += QString("* Warning: Model '%1' not found for %2\n").arg(sym->modelName(), ref);
-                } else if (sub) {
-                    const int symPins = sym->connectionPoints().size();
-                    const int subPins = static_cast<int>(sub->pinNames.size());
-                    if (symPins > 0 && subPins > 0 && symPins != subPins) {
-                        netlist += QString("* Warning: Pin count mismatch for %1 (symbol %2 vs subckt %3)\n")
-                                       .arg(ref)
-                                       .arg(symPins)
-                                       .arg(subPins);
+                // Skip warning if modelName is just the device prefix letter
+                const QString mn = sym->modelName();
+                bool isPrefixOnly = (mn.length() == 1 && mn.toLower() == line.left(1).toLower());
+                if (!isPrefixOnly) {
+                    const SimModel* mdl = ModelLibraryManager::instance().findModel(mn);
+                    const SimSubcircuit* sub = ModelLibraryManager::instance().findSubcircuit(mn);
+                    if (!mdl && !sub) {
+                        netlist += QString("* Warning: Model '%1' not found for %2\n").arg(mn, ref);
+                    } else if (sub) {
+                        const int symPins = sym->connectionPoints().size();
+                        const int subPins = static_cast<int>(sub->pinNames.size());
+                        if (symPins > 0 && subPins > 0 && symPins != subPins) {
+                            netlist += QString("* Warning: Pin count mismatch for %1 (symbol %2 vs subckt %3)\n")
+                                               .arg(ref)
+                                               .arg(symPins)
+                                               .arg(subPins);
+                        }
                     }
                 }
             }
@@ -429,11 +550,18 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             auto mapping = sym->spiceNodeMapping();
             if (!mapping.isEmpty()) {
                 // Mapping is Node Index -> Pin Name
+                // But componentPins uses pin NUMBER as key, not pin name
+                // So we try both: first the name, then the number as fallback
                 QList<int> sortedIndices = mapping.keys();
                 std::sort(sortedIndices.begin(), sortedIndices.end());
                 for (int idx : sortedIndices) {
                     QString pinName = mapping[idx];
+                    // Try pin name first
                     QString net = pins.value(pinName, "0").replace(" ", "_");
+                    if (net == "0") {
+                        // Fallback: try numeric pin number
+                        net = pins.value(QString::number(idx), "0").replace(" ", "_");
+                    }
                     nodes.append(net);
                 }
             }
@@ -530,6 +658,68 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             continue;
         }
 
+        const bool isVCVS = (comp.typeName.compare("e", Qt::CaseInsensitive) == 0) ||
+                            (comp.typeName.compare("vcvs", Qt::CaseInsensitive) == 0) ||
+                            ref.startsWith("E", Qt::CaseInsensitive);
+        const bool isVCCS = (comp.typeName.compare("g", Qt::CaseInsensitive) == 0) ||
+                            (comp.typeName.compare("vccs", Qt::CaseInsensitive) == 0) ||
+                            ref.startsWith("G", Qt::CaseInsensitive);
+
+        if ((isVCVS || isVCCS)) {
+            // Build nodes from pin numbers (pins map uses numeric keys "1","2","3","4")
+            QStringList vcNodes;
+            for (int i = 1; i <= 4; i++) {
+                vcNodes.append(pins.value(QString::number(i), "0").replace(" ", "_"));
+            }
+
+            QString gain = value.trimmed();
+            // Reject non-numeric default values like "E", "G"
+            if (gain.isEmpty() || gain == comp.typeName) gain = "1";
+
+            QString eref = ref;
+            const QString pref = isVCVS ? "E" : "G";
+            if (!eref.startsWith(pref, Qt::CaseInsensitive)) eref = pref + ref;
+            netlist += QString("%1 %2 %3 %4 %5 %6\n").arg(eref, vcNodes[0], vcNodes[1], vcNodes[2], vcNodes[3], gain);
+            continue;
+        }
+
+        const bool isCCCS = (comp.typeName.compare("f", Qt::CaseInsensitive) == 0) ||
+                            (comp.typeName.compare("cccs", Qt::CaseInsensitive) == 0) ||
+                            ref.startsWith("F", Qt::CaseInsensitive);
+        const bool isCCVS = (comp.typeName.compare("h", Qt::CaseInsensitive) == 0) ||
+                            (comp.typeName.compare("ccvs", Qt::CaseInsensitive) == 0) ||
+                            ref.startsWith("H", Qt::CaseInsensitive);
+
+        if ((isCCCS || isCCVS) && nodes.size() >= 2) {
+            const QString n1 = nodes.at(0);
+            const QString n2 = nodes.at(1);
+
+            // Expecting value to be "VSOURCE GAIN" or similar
+            QString controlSource;
+            QString gainVal = "1";
+            
+            QStringList parts = value.split(" ", Qt::SkipEmptyParts);
+            if (parts.size() >= 1) {
+                controlSource = parts[0];
+                if (parts.size() >= 2) gainVal = parts[1];
+            } else {
+                controlSource = "V_UNKNOWN_CTRL"; 
+            }
+
+            // Apply V-prefix rule for control source
+            if (!controlSource.startsWith("V", Qt::CaseInsensitive)) {
+                controlSource = "V" + controlSource;
+            } else {
+                controlSource = "V" + controlSource;
+            }
+
+            QString eref = ref;
+            const QString pref = isCCCS ? "F" : "H";
+            if (!eref.startsWith(pref, Qt::CaseInsensitive)) eref = pref + ref;
+            netlist += QString("%1 %2 %3 %4 %5\n").arg(eref, n1, n2, controlSource, gainVal);
+            continue;
+        }
+
         const bool isVoltageControlledSwitch = (comp.typeName.compare("Voltage Controlled Switch", Qt::CaseInsensitive) == 0);
         if (isVoltageControlledSwitch) {
             const QString n1 = nodes.value(0, "0");
@@ -561,17 +751,19 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             continue;
         }
 
+        const bool isCSW = (comp.typeName.compare("csw", Qt::CaseInsensitive) == 0) || ref.startsWith("W", Qt::CaseInsensitive);
         const bool isSwitch = (comp.typeName.compare("Switch", Qt::CaseInsensitive) == 0) ||
                               (comp.typeName.compare("sw", Qt::CaseInsensitive) == 0) ||
                               ref.startsWith("SW", Qt::CaseInsensitive) ||
-                              ref.startsWith("S", Qt::CaseInsensitive);
+                              ref.startsWith("S", Qt::CaseInsensitive) ||
+                              isCSW;
         if (isSwitch) {
             // If the symbol provides control pins, treat it as a voltage-controlled switch.
-            if (nodes.size() >= 4) {
-                const QString n1 = nodes.value(0, "0");
-                const QString n2 = nodes.value(1, "0");
-                const QString ctrlp = nodes.value(2, "0");
-                const QString ctrln = nodes.value(3, "0");
+            if (nodes.size() >= 4 && !isCSW) {
+                const QString n1 = nodes.at(0);
+                const QString n2 = nodes.at(1);
+                const QString ctrlp = nodes.at(2);
+                const QString ctrln = nodes.at(3);
 
                 QString modelName = comp.paramExpressions.value("switch.model_name").trimmed();
                 if (modelName.isEmpty()) modelName = QString("SW_%1").arg(ref);
@@ -599,6 +791,63 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
             const QString n1 = nodes.value(0, "0");
             const QString n2 = nodes.value(1, "0");
+            if (isCSW) {
+                QString modelName = comp.paramExpressions.value("switch.model_name").trimmed();
+                QString controlSource = comp.paramExpressions.value("switch.control_source").trimmed();
+
+                if (modelName.isEmpty() && !value.isEmpty()) {
+                    QStringList parts = value.split(" ", Qt::SkipEmptyParts);
+                    if (parts.size() >= 2 && parts[0].startsWith("V", Qt::CaseInsensitive)) {
+                        if (controlSource.isEmpty()) controlSource = parts[0];
+                        modelName = parts[1];
+                    } else if (parts.size() >= 1) {
+                        modelName = parts[0];
+                    }
+                }
+
+                if (modelName.isEmpty()) modelName = QString("CSW_%1").arg(ref);
+
+                QString ron = comp.paramExpressions.value("switch.ron").trimmed();
+                if (ron.isEmpty()) ron = comp.paramExpressions.value("csw.ron").trimmed();
+                if (ron.isEmpty()) ron = "1";
+                
+                QString roff = comp.paramExpressions.value("switch.roff").trimmed();
+                if (roff.isEmpty()) roff = comp.paramExpressions.value("csw.roff").trimmed();
+                if (roff.isEmpty()) roff = "1Meg";
+                
+                QString it = comp.paramExpressions.value("switch.it").trimmed();
+                if (it.isEmpty()) it = comp.paramExpressions.value("csw.it").trimmed();
+                if (it.isEmpty()) it = "1m";
+                
+                QString ih = comp.paramExpressions.value("switch.ih").trimmed();
+                if (ih.isEmpty()) ih = comp.paramExpressions.value("csw.ih").trimmed();
+                if (ih.isEmpty()) ih = "0.2m";
+
+                if (!switchModelsAdded.contains(modelName.toLower())) {
+                    netlist += QString(".model %1 CSW(Ron=%2 Roff=%3 It=%4 Ih=%5)\n")
+                                   .arg(modelName, ron, roff, it, ih);
+                    switchModelsAdded.insert(modelName.toLower());
+                }
+
+                if (controlSource.isEmpty()) {
+                    controlSource = "V_UNKNOWN_CTRL"; // Placeholder if user didn't specify
+                } else if (!controlSource.startsWith("V", Qt::CaseInsensitive)) {
+                    // Prepend V because SpiceNetlistGenerator prepends V to all voltage source refs
+                    controlSource = "V" + controlSource;
+                } else {
+                    // If user typed 'V3', they mean the component V3.
+                    // But our generator turns component V3 into 'VV3'.
+                    // So we must prepend 'V' even if it already starts with 'V' 
+                    // to match the 'V' + ref rule for voltage sources.
+                    controlSource = "V" + controlSource;
+                }
+
+                QString switchRef = ref;
+                if (!switchRef.startsWith("W", Qt::CaseInsensitive)) switchRef = "W" + ref;
+                netlist += QString("%1 %2 %3 %4 %5\n").arg(switchRef, n1, n2, controlSource, modelName);
+                continue;
+            }
+
             const QString useModelExpr = comp.paramExpressions.value("switch.use_model").trimmed();
             const bool useModel = (useModelExpr == "1" || useModelExpr.compare("true", Qt::CaseInsensitive) == 0);
 
@@ -658,7 +907,17 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
 
         // Add value
-        if (value.isEmpty()) value = "1k"; // Default
+        if (value.isEmpty()) {
+            if (line.startsWith("D")) {
+                // Generate default .model for diodes with no model specified
+                QString defaultModel = QString("D_DEFAULT_%1").arg(ref);
+                netlist += QString(".model %1 D(Is=2.52n N=1.752 Rs=0.568 Vj=0.7 Cjo=4p M=0.4 tt=20n)\n")
+                    .arg(defaultModel);
+                value = defaultModel;
+            } else {
+                value = "1k"; // Default for R/C/L
+            }
+        }
         line += " " + value;
         if (!value.endsWith("\n")) line += "\n";
         

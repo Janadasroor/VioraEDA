@@ -46,6 +46,8 @@ private slots:
     void openCalculatorTools();
     void openPluginsManager();
     void openSpiceModelManager();
+    void importLtspiceBatch();
+    void importLtspiceDiodeModels();
     void onSettings();
     void showAbout();
     void showHelp();

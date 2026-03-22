@@ -12,6 +12,9 @@
 #include "../core/config_manager.h"
 #include "../core/settings_dialog.h"
 #include "../core/recent_workspaces.h"
+#include "../symbols/ltspice_symbol_importer.h"
+#include "../simulator/bridge/model_library_manager.h"
+#include "../symbols/symbol_library.h"
 #include <QPainter>
 #include <QPixmap>
 #include "project.h"
@@ -47,6 +50,8 @@
 #include <QFileInfo>
 #include <QTimer>
 #include <QResizeEvent>
+#include <QDirIterator>
+#include <QProgressDialog>
 
 ProjectManager::ProjectManager(QWidget* parent)
     : QMainWindow(parent), m_workspaceDirty(false), m_workspaceFilePath(QString()) {
@@ -258,6 +263,8 @@ QWidget* ProjectManager::createLauncherArea() {
 
     createAndStoreTile("Schematic Editor", "Capture and edit circuit schematics", ":/icons/schematic_editor.png", &ProjectManager::openSchematicEditor);
     createAndStoreTile("Symbol Editor", "Create and manage schematic symbol libraries", ":/icons/symbol_editor.png", &ProjectManager::openSymbolEditor);
+    createAndStoreTile("LTspice Batch Import", "Import LTspice .asy symbols to .viosym", ":/icons/toolbar_file.png", &ProjectManager::importLtspiceBatch);
+    createAndStoreTile("Diode Model Import", "Import LTspice .dio model libraries by type", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceDiodeModels);
     createAndStoreTile("SPICE Model Manager", "Manage simulation models and subcircuit libraries", ":/icons/toolbar_netlist.png", &ProjectManager::openSpiceModelManager);
     createAndStoreTile("Calculator Tools", "Resistance, trace width, and impedance calculators", ":/icons/calculator_tools.png", &ProjectManager::openCalculatorTools);
     createAndStoreTile("Plugins Manager", "Manage extensions, importers, and add-ons", ":/icons/plugins_manager.png", &ProjectManager::openPluginsManager);
@@ -1170,6 +1177,181 @@ void ProjectManager::openSpiceModelManager() {
     dlg.exec();
 }
 
+void ProjectManager::importLtspiceBatch() {
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/sym";
+    QString srcDir = QFileDialog::getExistingDirectory(this, "Select LTspice Symbol Folder", defaultSrc);
+    if (srcDir.isEmpty()) return;
+
+    const QString defaultDst = QDir::homePath() + "/ViospiceLib/sym/LTspice";
+    QString dstDir = QFileDialog::getExistingDirectory(this, "Select Destination Viospice Symbol Folder", defaultDst);
+    if (dstDir.isEmpty()) return;
+
+    QDir().mkpath(dstDir);
+
+    QList<QString> failures;
+    int total = 0;
+    int imported = 0;
+
+    QProgressDialog progress("Importing LTspice symbols...", "Cancel", 0, 0, this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(300);
+    progress.show();
+
+    QDirIterator it(srcDir, QStringList() << "*.asy", QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        if (progress.wasCanceled()) break;
+        const QString path = it.next();
+        total++;
+
+        const auto result = LtspiceSymbolImporter::importSymbolDetailed(path);
+        if (!result.success || !result.symbol.isValid()) {
+            QString err = result.errorMessage.trimmed();
+            if (err.isEmpty()) err = "import failed";
+            failures.append(QFileInfo(path).fileName() + ": " + err);
+            continue;
+        }
+
+        SymbolDefinition def = result.symbol;
+        const QString rel = QDir(srcDir).relativeFilePath(path);
+        const QString relDir = QFileInfo(rel).path();
+        QString outDir = dstDir;
+        if (!relDir.isEmpty() && relDir != ".") {
+            outDir = QDir(dstDir).filePath(relDir);
+            QDir().mkpath(outDir);
+            def.setCategory(QFileInfo(relDir).fileName());
+        }
+
+        QString name = def.name().trimmed();
+        if (name.isEmpty()) name = QFileInfo(path).baseName();
+        def.setName(name);
+
+        const QString outPath = QDir(outDir).filePath(name + ".viosym");
+        QFile file(outPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            failures.append(QFileInfo(path).fileName() + ": write failed");
+            continue;
+        }
+        QJsonDocument doc(def.toJson());
+        file.write(doc.toJson(QJsonDocument::Indented));
+        file.close();
+        imported++;
+    }
+
+    SymbolLibraryManager::instance().reloadUserLibraries();
+
+    QString msg = QString("Imported %1 / %2 symbols into:\n%3")
+                      .arg(imported)
+                      .arg(total)
+                      .arg(dstDir);
+    if (!failures.isEmpty()) {
+        const int shown = qMin(10, failures.size());
+        msg += QString("\n\nFailures (%1):\n").arg(failures.size());
+        for (int i = 0; i < shown; ++i) msg += " - " + failures[i] + "\n";
+        if (failures.size() > shown) msg += " - ...\n";
+    }
+
+    QMessageBox::information(this, "LTspice Import", msg);
+}
+
+void ProjectManager::importLtspiceDiodeModels() {
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
+    QString srcFile = QFileDialog::getOpenFileName(this, "Select LTspice Diode Model File", defaultSrc, "LTspice Model Files (*.dio *.lib);;All Files (*)");
+    if (srcFile.isEmpty()) return;
+
+    const QString defaultDst = QDir::homePath() + "/ViospiceLib/lib";
+    QDir().mkpath(defaultDst);
+
+    // Read source file
+    QFile file(srcFile);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Import Error", "Cannot open file:\n" + srcFile);
+        return;
+    }
+    const QString content = QString::fromUtf8(file.readAll());
+    file.close();
+
+    // Parse models grouped by type
+    QMap<QString, QStringList> typeToModels;
+    QMap<QString, int> typeCounts;
+    int total = 0;
+
+    for (const QString& line : content.split('\n')) {
+        QString trimmed = line.trimmed();
+        if (!trimmed.startsWith(".model", Qt::CaseInsensitive)) continue;
+
+        // Extract type= parameter
+        QString type = "uncategorized";
+        QRegularExpression typeRe(R"(type\s*=\s*(\w+))", QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatch m = typeRe.match(trimmed);
+        if (m.hasMatch()) {
+            type = m.captured(1);
+            type = type.toLower();
+            // Normalize type names
+            if (type == "silicon")        type = "silicon";
+            else if (type == "schottky")  type = "schottky";
+            else if (type == "zener")     type = "zener";
+            else if (type == "led")       type = "led";
+            else if (type == "varactor")  type = "varactor";
+            else if (type == "rectifier") type = "rectifier";
+            else if (type == "fastrecovery") type = "fast_recovery";
+            else if (type == "switching") type = "switching";
+            else if (type == "tvs")       type = "tvs";
+        }
+
+        typeToModels[type].append(trimmed);
+        typeCounts[type]++;
+        total++;
+    }
+
+    if (total == 0) {
+        QMessageBox::information(this, "Diode Model Import", "No .model lines found in file.");
+        return;
+    }
+
+    // Write .lib files per type
+    QStringList written;
+    QProgressDialog progress("Importing diode models...", "Cancel", 0, typeToModels.size(), this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(200);
+
+    int step = 0;
+    for (auto it = typeToModels.constBegin(); it != typeToModels.constEnd(); ++it) {
+        if (progress.wasCanceled()) break;
+        progress.setValue(step++);
+        progress.setLabelText(QString("Writing %1 models (%2)...").arg(it.key()).arg(it.value().size()));
+
+        const QString libName = QString("diodes_%1.lib").arg(it.key());
+        const QString libPath = QDir(defaultDst).filePath(libName);
+
+        QFile out(libPath);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            continue;
+        }
+
+        QTextStream ts(&out);
+        ts << "* " << libName << " - Imported from " << QFileInfo(srcFile).fileName() << "\n";
+        ts << "* Type: " << it.key() << "\n";
+        ts << "* Count: " << it.value().size() << " models\n";
+        ts << "*\n";
+        for (const QString& model : it.value()) {
+            ts << model << "\n";
+        }
+        out.close();
+        written.append(QString("%1 (%2 models)").arg(libName).arg(it.value().size()));
+    }
+    progress.setValue(typeToModels.size());
+
+    // Reload model library
+    ModelLibraryManager::instance().reload();
+
+    // Report
+    QString msg = QString("Imported %1 models from:\n%2\n\nInto:\n%3\n\nFiles created:\n")
+        .arg(total).arg(QFileInfo(srcFile).fileName()).arg(defaultDst);
+    for (const QString& w : written) msg += "  " + w + "\n";
+
+    QMessageBox::information(this, "Diode Model Import", msg);
+}
+
 void ProjectManager::onSettings() {
     SettingsDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) {
@@ -1179,6 +1361,7 @@ void ProjectManager::onSettings() {
 }
 
 void ProjectManager::launchSchematicEditor(const QString& projectPath) {
+    qDebug() << "DBG: launchSchematicEditor start";
     SchematicEditor* editor = new SchematicEditor;
     
     QString pFile = resolveProjectPath(projectPath, "sch");
@@ -1195,12 +1378,18 @@ void ProjectManager::launchSchematicEditor(const QString& projectPath) {
         pName = dir.dirName();
     }
     
+    qDebug() << "DBG: before setProjectContext";
     editor->setProjectContext(pName, pDir);
+    qDebug() << "DBG: after setProjectContext";
 
     if (QFile::exists(pFile)) {
+        qDebug() << "DBG: before openFile";
         editor->openFile(pFile);
+        qDebug() << "DBG: after openFile";
     }
+    qDebug() << "DBG: before show";
     editor->show();
+    qDebug() << "DBG: after show";
 }
 
 QString ProjectManager::resolveProjectPath(const QString& inputPath, const QString& extension) {

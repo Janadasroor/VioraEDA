@@ -133,6 +133,14 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/led_properties_dialog.h
     schematic/dialogs/switch_properties_dialog.cpp
     schematic/dialogs/switch_properties_dialog.h
+    schematic/dialogs/csw_properties_dialog.cpp
+    schematic/dialogs/csw_properties_dialog.h
+    schematic/dialogs/vcvs_properties_dialog.cpp
+    schematic/dialogs/vcvs_properties_dialog.h
+    schematic/dialogs/diode_model_picker_dialog.cpp
+    schematic/dialogs/diode_model_picker_dialog.h
+    schematic/dialogs/diode_properties_dialog.cpp
+    schematic/dialogs/diode_properties_dialog.h
     schematic/dialogs/voltage_controlled_switch_dialog.cpp
     schematic/dialogs/voltage_controlled_switch_dialog.h
     schematic/dialogs/behavioral_current_source_dialog.cpp

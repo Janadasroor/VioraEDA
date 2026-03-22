@@ -340,6 +340,19 @@ LtspiceSymbolImporter::ImportResult LtspiceSymbolImporter::importSymbolDetailed(
     }
 
     // Process Pins and detect orientation/stubs
+    // Preserve LTspice SpiceOrder -> pin-name mapping for deterministic netlist order.
+    if (!rawPins.isEmpty()) {
+        QMap<int, QString> mapping;
+        for (const auto& rp : rawPins) {
+            if (rp.number > 0 && !rp.name.trimmed().isEmpty()) {
+                mapping[rp.number] = rp.name.trimmed();
+            }
+        }
+        if (!mapping.isEmpty()) {
+            symbol.setSpiceNodeMapping(mapping);
+        }
+    }
+
     QSet<int> usedLineIndices;
     for (const auto& rawPin : rawPins) {
         QString orient = rawPin.orientation.isEmpty() ? QString("Right") : rawPin.orientation;

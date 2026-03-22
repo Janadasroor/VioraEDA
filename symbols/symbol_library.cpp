@@ -414,12 +414,20 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
                 sym.setName(QFileInfo(filePath).completeBaseName());
             }
 
+            // If the .viosym is inside a subdirectory, use that directory name as category
+            const QString parentDir = QFileInfo(filePath).absolutePath();
+            if (parentDir != path) {
+                sym.setCategory(QFileInfo(parentDir).fileName());
+            }
+
             SymbolLibrary* lib = nullptr;
-            const QString libKey = QFileInfo(filePath).absolutePath();
+            const QString libKey = parentDir;
             if (looseLibs.contains(libKey)) {
                 lib = looseLibs.value(libKey);
             } else {
-                const QString libName = QString("Symbols: %1").arg(QFileInfo(libKey).fileName());
+                // Use directory name as library name (no "Symbols:" prefix for subdirs)
+                const QString dirName = QFileInfo(libKey).fileName();
+                const QString libName = dirName;
                 lib = new SymbolLibrary(libName, false);
                 lib->setPath(libKey);
                 addLibrary(lib);

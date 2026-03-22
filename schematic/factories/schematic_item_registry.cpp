@@ -428,4 +428,21 @@ void SchematicItemRegistry::registerBuiltInItems() {
         if (!properties.isEmpty()) item->fromJson(properties);
         return item;
     });
+
+    // Register E (VCVS - Voltage-Controlled Voltage Source)
+    factory.registerItemType("E", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("e", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("E", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("VCVS", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("e", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("E", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
 }

@@ -525,7 +525,9 @@ void SimulationPanel::clearAllProbes() {
     if (m_waveformViewer) {
         m_waveformViewer->clear();
     }
-    m_logOutput->append(QString("Cleared %1 probe(s).").arg(count));
+    if (m_logOutput) {
+        m_logOutput->append(QString("Cleared %1 probe(s).").arg(count));
+    }
 }
 
 void SimulationPanel::clearAllProbesPreserveX() {
@@ -577,7 +579,6 @@ void SimulationPanel::setTargetScene(QGraphicsScene* scene, NetManager* netManag
 
     if (clearState) {
         clearAllProbes();
-        if (m_signalList) m_signalList->clear();
         if (m_issueList) m_issueList->clear();
         if (m_chart) m_chart->removeAllSeries();
         if (m_spectrumChart) m_spectrumChart->removeAllSeries();

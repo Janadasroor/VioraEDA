@@ -1,5 +1,5 @@
 # FindNGSPICE.cmake
-# Find the ngspice shared library and headers for Android build
+# Find the ngspice shared library and headers
 
 # First check if we're building for Android and have an ABI
 if(ANDROID AND ANDROID_ABI)
@@ -23,10 +23,13 @@ else()
     set(_ngspice_search_path "${NGSPICE_ROOT}")
 endif()
 
-# Check for library
+# Check for library - custom build paths first, then system paths
 set(_possible_lib_paths
     "${_ngspice_search_path}/shared/src/.libs/libngspice.so"
     "${NGSPICE_ROOT}/android-arm64/shared/src/.libs/libngspice.so"
+    "/usr/lib/x86_64-linux-gnu/libngspice.so"
+    "/usr/lib/libngspice.so"
+    "/usr/local/lib/libngspice.so"
 )
 
 foreach(_lib_path IN LISTS _possible_lib_paths)
@@ -35,10 +38,12 @@ foreach(_lib_path IN LISTS _possible_lib_paths)
     endif()
 endforeach()
 
-# Check for include directory
+# Check for include directory - custom build paths first, then system paths
 set(_possible_include_paths
     "${_ngspice_search_path}/../../src/include"
     "${NGSPICE_ROOT}/android-arm64/../../src/include"
+    "/usr/include"
+    "/usr/local/include"
 )
 
 foreach(_inc_path IN LISTS _possible_include_paths)
