@@ -135,16 +135,30 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/switch_properties_dialog.h
     schematic/dialogs/csw_properties_dialog.cpp
     schematic/dialogs/csw_properties_dialog.h
+    schematic/dialogs/cccs_properties_dialog.cpp
+    schematic/dialogs/cccs_properties_dialog.h
+    schematic/dialogs/ccvs_properties_dialog.cpp
+    schematic/dialogs/ccvs_properties_dialog.h
+    schematic/dialogs/transmission_line_properties_dialog.cpp
+    schematic/dialogs/transmission_line_properties_dialog.h
     schematic/dialogs/vcvs_properties_dialog.cpp
     schematic/dialogs/vcvs_properties_dialog.h
     schematic/dialogs/diode_model_picker_dialog.cpp
     schematic/dialogs/diode_model_picker_dialog.h
     schematic/dialogs/diode_properties_dialog.cpp
     schematic/dialogs/diode_properties_dialog.h
+    schematic/dialogs/jfet_model_picker_dialog.cpp
+    schematic/dialogs/jfet_model_picker_dialog.h
+    schematic/dialogs/jfet_properties_dialog.cpp
+    schematic/dialogs/jfet_properties_dialog.h
     schematic/dialogs/voltage_controlled_switch_dialog.cpp
     schematic/dialogs/voltage_controlled_switch_dialog.h
     schematic/dialogs/behavioral_current_source_dialog.cpp
     schematic/dialogs/behavioral_current_source_dialog.h
+    schematic/dialogs/current_source_properties_dialog.cpp
+    schematic/dialogs/current_source_properties_dialog.h
+    schematic/dialogs/current_source_ltspice_dialog.cpp
+    schematic/dialogs/current_source_ltspice_dialog.h
     schematic/dialogs/oscilloscope_properties_dialog.cpp
     schematic/dialogs/oscilloscope_properties_dialog.h
     schematic/dialogs/voltage_source_properties_dialog.cpp
@@ -195,6 +209,8 @@ set(SCHEMATIC_SOURCES
     schematic/items/switch_item.cpp
     schematic/items/voltage_controlled_switch_item.h
     schematic/items/voltage_controlled_switch_item.cpp
+    schematic/items/current_source_item.h
+    schematic/items/current_source_item.cpp
     schematic/items/behavioral_current_source_item.h
     schematic/items/behavioral_current_source_item.cpp
     schematic/items/push_button_item.h
@@ -396,8 +412,7 @@ set(UI_SOURCES
     ui/diff_viewer_dialog.h
     ui/branch_dialog.cpp
     ui/branch_dialog.h
-    ui/terminal_panel.cpp
-    ui/terminal_panel.h
+
     core/ui/project_audit_dialog.cpp
     ui/calculator_dialog.cpp
     ui/calculator_dialog.h

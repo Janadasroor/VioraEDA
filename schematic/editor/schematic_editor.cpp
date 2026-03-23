@@ -157,9 +157,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     if (m_ercDock && m_sourceControlDock) {
         addDockWidget(Qt::RightDockWidgetArea, m_ercDock);
         addDockWidget(Qt::RightDockWidgetArea, m_sourceControlDock);
-        if (m_terminalDock) addDockWidget(Qt::RightDockWidgetArea, m_terminalDock);
         tabifyDockWidget(m_ercDock, m_sourceControlDock);
-        if (m_terminalDock) tabifyDockWidget(m_sourceControlDock, m_terminalDock);
         m_sourceControlDock->raise();
     }
     
@@ -236,6 +234,10 @@ void SchematicEditor::closeEvent(QCloseEvent* event) {
     // Save UI State
     ConfigManager::instance().saveWindowState("SchematicEditor", saveGeometry(), saveState());
     
+    disconnect(&ThemeManager::instance(), nullptr, this, nullptr);
+    disconnect(&SyncManager::instance(), nullptr, this, nullptr);
+    disconnect(&SimManager::instance(), nullptr, this, nullptr);
+    
     event->accept();
 }
 
@@ -261,7 +263,7 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     view->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
     view->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     view->setResizeAnchor(QGraphicsView::AnchorUnderMouse);
-    view->setViewportUpdateMode(QGraphicsView::SmartViewportUpdate);
+    view->setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
     view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     view->setFocusPolicy(Qt::StrongFocus);
@@ -269,6 +271,8 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     auto* netManager = new NetManager(this);
     view->setNetManager(netManager);
     view->setUndoStack(m_undoStack);
+
+    connect(m_undoStack, &QUndoStack::indexChanged, this, &SchematicEditor::onUndoStackIndexChanged);
 
     connect(view, &SchematicView::pageTitleBlockDoubleClicked, this, &SchematicEditor::onEditTitleBlock);
     connect(view, &SchematicView::coordinatesChanged, this, &SchematicEditor::updateCoordinates);
@@ -717,7 +721,8 @@ void SchematicEditor::updatePropertyBar() {
         if (!sItem) return;
 
         if (sItem->itemType() == SchematicItem::WireType) {
-            WireItem* wire = static_cast<WireItem*>(sItem);
+            WireItem* wire = dynamic_cast<WireItem*>(sItem);
+            if (!wire) return;
             m_propertyBar->addWidget(new QLabel(" WIRE: "));
             
             // Width
@@ -940,11 +945,15 @@ void SchematicEditor::runLiveERC(const QList<SchematicItem*>& items) {
 
 void SchematicEditor::clearSimulationOverlays() {
     if (!m_scene) return;
+    QList<QGraphicsItem*> toDelete;
     for (auto* item : m_scene->items()) {
         if (dynamic_cast<SimulationOverlayItem*>(item)) {
-            m_scene->removeItem(item);
-            delete item;
+            toDelete.append(item);
         }
+    }
+    for (auto* item : toDelete) {
+        m_scene->removeItem(item);
+        delete item;
     }
 }
 
@@ -1132,10 +1141,8 @@ void SchematicEditor::onToggleRightSidebar() {
     bool visible = false;
     if (m_ercDock && m_ercDock->isVisible()) visible = true;
     else if (m_sourceControlDock && m_sourceControlDock->isVisible()) visible = true;
-    else if (m_terminalDock && m_terminalDock->isVisible()) visible = true;
 
     if (m_ercDock) m_ercDock->setVisible(!visible);
     if (m_sourceControlDock) m_sourceControlDock->setVisible(!visible);
-    if (m_terminalDock) m_terminalDock->setVisible(!visible);
     ConfigManager::instance().saveWindowState("SchematicEditor", saveGeometry(), saveState());
 }

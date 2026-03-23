@@ -89,8 +89,8 @@ void ProjectExplorerWidget::setupUi() {
 
     layout->addWidget(header);
 
-    // Ctrl+Z shortcut for undo delete
-    QShortcut* undoShortcut = new QShortcut(QKeySequence::Undo, this);
+    // Ctrl+Z shortcut for undo delete - restricted to widget so it doesn't steal schematic undo
+    QShortcut* undoShortcut = new QShortcut(QKeySequence::Undo, this, nullptr, nullptr, Qt::WidgetShortcut);
     connect(undoShortcut, &QShortcut::activated, this, [this]() { undoLastDelete(); });
 
     // Search bar container for better padding

@@ -32,7 +32,7 @@ void SchematicSpiceDirectiveItem::contextMenuEvent(QGraphicsSceneContextMenuEven
         if (QGraphicsScene* s = scene()) {
             s->removeItem(this);
         }
-        delete this;
+        deleteLater();
     } else if (selectedAction == copyAction) {
         QApplication::clipboard()->setText(text());
     }

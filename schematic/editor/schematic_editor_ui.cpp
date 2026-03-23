@@ -28,7 +28,7 @@ using Flux::Model::SymbolPrimitive;
 #include "../items/schematic_waveform_marker.h"
 #include "../../simulator/bridge/sim_schematic_bridge.h"
 #include "../../ui/source_control_panel.h"
-#include "../../ui/terminal_panel.h"
+
 #include <QMenuBar>
 #include <QMenu>
 #include <QActionGroup>
@@ -723,7 +723,7 @@ void SchematicEditor::createToolBar() {
     addToggle(m_ercDock, "ERC Results");
     addToggle(m_oscilloscopeDock, "Analog Oscilloscope");
     addToggle(m_sourceControlDock, "Source Control");
-    addToggle(m_terminalDock, "Terminal");
+
 
     // Simulation Menu
     QMenu* simMenu = mainAppMenu->addMenu("&Simulation");
@@ -824,9 +824,10 @@ void SchematicEditor::createToolBar() {
 
     mainToolbar->addSeparator();
 
-    // Quick Undo button (shortcuts handled in SchematicView::keyPressEvent)
+    // Quick Undo button (Primary Ctrl+Z handler)
     QAction* undoAct = m_undoStack->createUndoAction(this);
     undoAct->setIcon(getThemeIcon(":/icons/undo.svg"));
+    undoAct->setShortcut(QKeySequence::Undo);
     undoAct->setToolTip("Undo last action (Ctrl+Z)");
     mainToolbar->addAction(undoAct);
 
@@ -1626,24 +1627,6 @@ void SchematicEditor::createDockWidgets() {
               ThemeManager::theme()->panelBorder().name()));
     }
 
-    // === Terminal Dock ===
-    m_terminalDock = new QDockWidget("Terminal", this);
-    m_terminalDock->setObjectName("TerminalDock");
-    m_terminalDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
-    m_terminalPanel = new TerminalPanel(this);
-    m_terminalDock->setWidget(m_terminalPanel);
-    addDockWidget(Qt::RightDockWidgetArea, m_terminalDock);
-    tabifyDockWidget(m_sourceControlDock, m_terminalDock);
-    m_terminalDock->raise();
-
-    if (ThemeManager::theme()) {
-        m_terminalDock->setStyleSheet(QString(
-            "QDockWidget { border: none; }"
-            "QDockWidget::title { background: %1; color: %2; padding: 6px; border-bottom: 1px solid %3; font-weight: bold; }"
-        ).arg(ThemeManager::theme()->panelBackground().name(),
-              ThemeManager::theme()->textColor().name(),
-              ThemeManager::theme()->panelBorder().name()));
-    }
 
     // Stack the left docks
     tabifyDockWidget(m_componentDock, m_hierarchyDock);

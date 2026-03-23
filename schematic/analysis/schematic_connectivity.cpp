@@ -4,6 +4,7 @@
 #include "netlist_engine.h"
 #include "../items/schematic_item.h"
 #include "net_manager.h"
+#include <QApplication>
 #include <QGraphicsItem>
 #include <QLineF>
 #include <QUuid>
@@ -54,6 +55,7 @@ void SchematicConnectivity::updateVisualConnections(QGraphicsScene* scene) {
     for (SchematicItem* item : conductiveItems) {
         const QList<QPointF> pts = item->connectionPoints();
         if (pts.size() < 2) continue;
+        // Only count true endpoints (first and last points), not intermediate vertices
         const QString kStart = NetlistEngine::pointKey(pts.first());
         const QString kEnd = NetlistEngine::pointKey(pts.last());
         connectionCounts[kStart]++;
@@ -97,7 +99,10 @@ void SchematicConnectivity::updateVisualConnections(QGraphicsScene* scene) {
                         // Tolerance check: must be strictly inside the segment (not at endpoints)
                         if (u > 0.01 && u < 0.99) { 
                             QPointF proj = p1 + u * vec;
-                            if (QLineF(end, proj).length() < 1.0) {
+                            const qreal baseTolerance = 2.0;
+                            const qreal pixelRatio = qApp ? qApp->devicePixelRatio() : 1.0;
+                            const qreal tolerance = baseTolerance * pixelRatio;
+                            if (QLineF(end, proj).length() < tolerance) {
                                 addJunction(item, proj); // Dot on the segment
                                 addJunction(other, end); // Dot on the connecting endpoint
                             }

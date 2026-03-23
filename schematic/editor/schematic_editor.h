@@ -74,6 +74,7 @@ private slots:
     void onPageSizeChanged(const QString& size);
     void onUndo();
     void onRedo();
+    void onUndoStackIndexChanged();
     void onDuplicate();
     void onDelete();
     void onCut();
@@ -237,9 +238,6 @@ private:
 
     QDockWidget *m_sourceControlDock;
     SourceControlPanel *m_sourceControlPanel;
-
-    QDockWidget *m_terminalDock;
-    class TerminalPanel *m_terminalPanel;
 
     QDockWidget *m_oscilloscopeDock;
 

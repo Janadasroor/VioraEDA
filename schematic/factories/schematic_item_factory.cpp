@@ -28,10 +28,18 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
         "Power", "GND", "VCC", "VDD", "VSS", "VBAT", "3.3V", "5V", "12V"
     };
     const bool isPowerItem = powerTypes.contains(typeName);
-    const bool isVoltageSource = typeName.startsWith("Voltage_Source", Qt::CaseInsensitive);
+    const bool isVoltageSource = typeName.startsWith("Voltage_Source", Qt::CaseInsensitive) ||
+                                 typeName.compare("voltage", Qt::CaseInsensitive) == 0 ||
+                                 typeName.compare("bv", Qt::CaseInsensitive) == 0;
+    const bool isCurrentSource = typeName.startsWith("Current_Source", Qt::CaseInsensitive) ||
+                                   typeName.compare("current", Qt::CaseInsensitive) == 0 ||
+                                   typeName.compare("bi", Qt::CaseInsensitive) == 0 ||
+                                   typeName.compare("bi2", Qt::CaseInsensitive) == 0;
+    const bool isJfet = typeName.compare("njf", Qt::CaseInsensitive) == 0 ||
+                        typeName.compare("pjf", Qt::CaseInsensitive) == 0;
 
-    // Prefer external symbols if they exist (override built-ins), except for power items.
-    if (!isPowerItem && !isVoltageSource) {
+    // Prefer external symbols if they exist (override built-ins), except for power, source and explicit JFET types.
+    if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet) {
         if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(typeName)) {
             item = new GenericComponentItem(*def, parent);
             item->setPos(pos);

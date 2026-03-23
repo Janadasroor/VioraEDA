@@ -311,8 +311,10 @@ QJsonArray SchematicFileIO::serializeItems(QGraphicsScene* scene) {
         SchematicItem* schematicItem = dynamic_cast<SchematicItem*>(item);
         if (schematicItem && !schematicItem->isSubItem()) {
             QJsonObject itemJson = schematicItem->toJson();
-            // rotation is already serialized by each item's own toJson()
-            itemsArray.append(itemJson);
+            // Skip degenerate items that return empty JSON (e.g. single-point wires)
+            if (!itemJson.isEmpty()) {
+                itemsArray.append(itemJson);
+            }
         }
     }
     
@@ -331,6 +333,33 @@ bool SchematicFileIO::deserializeItems(QGraphicsScene* scene, const QJsonArray& 
         }
         
         QJsonObject itemJson = itemValue.toObject();
+        if (itemJson.isEmpty()) continue; // Skip blanked-out items
+        
+        // Skip wire entries that are degenerate (fewer than 2 points)
+        if (itemJson["type"].toString() == "Wire") {
+            QJsonArray pts = itemJson["points"].toArray();
+            if (pts.isEmpty()) {
+                qDebug() << "Skipping wire with empty points array";
+                continue;
+            }
+            if (pts.size() < 2) {
+                qDebug() << "Skipping degenerate wire with" << pts.size() << "points";
+                continue;
+            }
+            // Check for zero-length (all points identical)
+            QJsonObject first = pts[0].toObject();
+            bool allSame = true;
+            for (int pi = 1; pi < pts.size(); ++pi) {
+                QJsonObject p = pts[pi].toObject();
+                if (p["x"].toDouble() != first["x"].toDouble() || p["y"].toDouble() != first["y"].toDouble()) {
+                    allSame = false; break;
+                }
+            }
+            if (allSame) {
+                qDebug() << "Skipping zero-length wire";
+                continue;
+            }
+        }
         SchematicItem* item = createItemFromJson(itemJson);
         
         if (item) {

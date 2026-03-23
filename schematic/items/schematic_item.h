@@ -31,6 +31,7 @@ public:
         TransformerType,
         PowerType,
         VoltageSourceType,
+        CurrentSourceType,
         SmartSignalType,
         SpiceDirectiveType,
         CustomType = QGraphicsItem::UserType + 100

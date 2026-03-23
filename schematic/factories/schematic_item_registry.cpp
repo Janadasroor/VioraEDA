@@ -14,6 +14,7 @@
 #include "hierarchical_port_item.h"
 #include "schematic_sheet_item.h"
 #include "voltage_source_item.h"
+#include "current_source_item.h"
 #include "schematic_shape_item.h"
 #include "symbol_library.h"
 #include "generic_component_item.h"
@@ -151,6 +152,19 @@ void SchematicItemRegistry::registerBuiltInItems() {
     factory.registerItemType("Transistor_PMOS", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         const QString value = properties.value("value").toString("BS250");
         if (auto* item = makeGenericFromLibrary("Transistor_PMOS", pos, value, parent)) return item;
+        return new TransistorItem(pos, value, TransistorItem::PMOS, parent);
+    });
+
+    // Register LTspice JFET symbols
+    factory.registerItemType("njf", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("NJF");
+        if (auto* item = makeGenericFromLibrary("njf", pos, value, parent)) return item;
+        return new TransistorItem(pos, value, TransistorItem::NMOS, parent);
+    });
+
+    factory.registerItemType("pjf", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("PJF");
+        if (auto* item = makeGenericFromLibrary("pjf", pos, value, parent)) return item;
         return new TransistorItem(pos, value, TransistorItem::PMOS, parent);
     });
 
@@ -325,7 +339,20 @@ void SchematicItemRegistry::registerBuiltInItems() {
         return item;
     });
 
+    factory.registerItemType("voltage", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        QString value = properties.value("value").toString("5V");
+        auto* item = new VoltageSourceItem(pos, value, VoltageSourceItem::DC, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
     factory.registerItemType("BV", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new VoltageSourceItem(pos, "V=V(1)*2", VoltageSourceItem::Behavioral, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("bv", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         auto* item = new VoltageSourceItem(pos, "V=V(1)*2", VoltageSourceItem::Behavioral, parent);
         if (!properties.isEmpty()) item->fromJson(properties);
         return item;
@@ -333,12 +360,55 @@ void SchematicItemRegistry::registerBuiltInItems() {
 
     factory.registerItemType("Current_Source_Behavioral", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         auto* item = new BehavioralCurrentSourceItem(pos, parent);
+        item->setArrowDirection(BehavioralCurrentSourceItem::ArrowDown);
         if (!properties.isEmpty()) item->fromJson(properties);
         return item;
     });
 
     factory.registerItemType("BI", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         auto* item = new BehavioralCurrentSourceItem(pos, parent);
+        item->setArrowDirection(BehavioralCurrentSourceItem::ArrowDown);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("bi", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new BehavioralCurrentSourceItem(pos, parent);
+        item->setArrowDirection(BehavioralCurrentSourceItem::ArrowDown);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("bi2", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new BehavioralCurrentSourceItem(pos, parent);
+        item->setArrowDirection(BehavioralCurrentSourceItem::ArrowUp);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    // Independent Current Sources
+    factory.registerItemType("Current_Source_DC", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        QString value = properties.value("value").toString("1mA");
+        auto* item = new CurrentSourceItem(pos, value, CurrentSourceItem::DC, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("Current_Source_Sine", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new CurrentSourceItem(pos, "SINE(0 1m 1k)", CurrentSourceItem::Sine, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("Current_Source_Pulse", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new CurrentSourceItem(pos, "PULSE(0 1m 0 1u 1u 0.5m 1m)", CurrentSourceItem::Pulse, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("current", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        QString value = properties.value("value").toString("1mA");
+        auto* item = new CurrentSourceItem(pos, value, CurrentSourceItem::DC, parent);
         if (!properties.isEmpty()) item->fromJson(properties);
         return item;
     });
@@ -438,11 +508,127 @@ void SchematicItemRegistry::registerBuiltInItems() {
         return nullptr;
     });
 
+    factory.registerItemType("e", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("e", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("E", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("e2", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("e2", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("e", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("E", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
     factory.registerItemType("VCVS", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         const QString value = properties.value("value").toString("1");
         if (auto* item = makeGenericFromLibrary("e", pos, value, parent)) return item;
         if (auto* item = makeGenericFromLibrary("E", pos, value, parent)) return item;
         if (auto* item = makeGenericFromLibrary("VCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    // Register G (VCCS - Voltage-Controlled Current Source)
+    factory.registerItemType("G", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("g", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("G", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCCS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("g", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("g", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("G", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCCS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("g2", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("g2", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("g", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("G", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCCS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("VCCS", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("1");
+        if (auto* item = makeGenericFromLibrary("g", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("G", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("VCCS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    // Register F (CCCS - Current-Controlled Current Source)
+    factory.registerItemType("F", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("V1 1");
+        if (auto* item = makeGenericFromLibrary("f", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("F", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("CCCS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("f", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("V1 1");
+        if (auto* item = makeGenericFromLibrary("f", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("F", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("CCCS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("CCCS", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("V1 1");
+        if (auto* item = makeGenericFromLibrary("f", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("F", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("CCCS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    // Register H (CCVS - Current-Controlled Voltage Source)
+    factory.registerItemType("H", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("V1 1");
+        if (auto* item = makeGenericFromLibrary("h", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("H", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("CCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("h", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("V1 1");
+        if (auto* item = makeGenericFromLibrary("h", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("H", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("CCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("CCVS", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("V1 1");
+        if (auto* item = makeGenericFromLibrary("h", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("H", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("CCVS", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    // Transmission lines (lossless/lossy)
+    factory.registerItemType("tline", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("Td=50n Z0=50");
+        if (auto* item = makeGenericFromLibrary("tline", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("TLINE", pos, value, parent)) return item;
+        return nullptr;
+    });
+
+    factory.registerItemType("ltline", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        const QString value = properties.value("value").toString("LTRAmod");
+        if (auto* item = makeGenericFromLibrary("ltline", pos, value, parent)) return item;
+        if (auto* item = makeGenericFromLibrary("LTRA", pos, value, parent)) return item;
         return nullptr;
     });
 }

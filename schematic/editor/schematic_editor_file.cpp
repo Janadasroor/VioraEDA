@@ -8,7 +8,7 @@
 #include "schematic_page_item.h"
 #include "../items/schematic_sheet_item.h"
 #include "schematic_erc.h"
-#include "../../ui/terminal_panel.h"
+
 #include "netlist_generator.h"
 #include "../ui/netlist_editor.h"
 #include "../ui/bom_dialog.h"
@@ -393,10 +393,7 @@ void SchematicEditor::setProjectContext(const QString& projectName, const QStrin
         SourceControlManager::instance().setProjectDir(projectDir);
     }
 
-    // Set terminal working directory
-    if (m_terminalPanel && !projectDir.isEmpty()) {
-        m_terminalPanel->setWorkingDirectory(projectDir);
-    }
+
 
     // Auto-derive file path from project
     if (!projectName.isEmpty() && !projectDir.isEmpty()) {
@@ -1581,7 +1578,7 @@ void SchematicEditor::onCreateSymbolFromSchematic() {
         if (!bodyLines.isEmpty()) {
             ts << bodyLines.join("\n").trimmed() << "\n";
         } else {
-            ts << "* TODO: add your netlist here\n";
+            ts << "* Warning: No component items were found in the schematic to generate a netlist body.\n";
         }
         ts << ".ends " << symbolName << "\n";
         subFile.close();

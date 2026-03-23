@@ -307,18 +307,37 @@ void SchematicWireTool::finishWire() {
         allWires.append(cutWires);
     }
             
-    // Add wires to undo stack
-    if (!allWires.isEmpty()) {
+    // Final validation and adding wires to undo stack
+    QList<WireItem*> validWires;
+    for (WireItem* w : allWires) {
+        if (w->points().size() >= 2) {
+            bool allSame = true;
+            QPointF first = w->points().first();
+            for (const QPointF& p : w->points()) {
+                if (QLineF(p, first).length() > 0.1) {
+                    allSame = false;
+                    break;
+                }
+            }
+            if (!allSame) {
+                validWires.append(w);
+                continue;
+            }
+        }
+        delete w;
+    }
+
+    if (!validWires.isEmpty()) {
         if (view()->undoStack()) {
             view()->undoStack()->beginMacro("Draw Wire");
-            for (WireItem* wire : allWires) {
+            for (WireItem* wire : validWires) {
                 if (wire->scene()) view()->scene()->removeItem(wire);
                 AddItemCommand* cmd = new AddItemCommand(view()->scene(), wire);
                 view()->undoStack()->push(cmd);
             }
             view()->undoStack()->endMacro();
         } else {
-            for (WireItem* wire : allWires) {
+            for (WireItem* wire : validWires) {
                 if (!wire->scene()) view()->scene()->addItem(wire);
             }
         }
@@ -458,9 +477,7 @@ QList<WireItem*> SchematicWireTool::handleComponentIntersections(WireItem* wire)
     }
     
     if (result.size() == 1) {
-        // Double check it's not the exact same wire
         if (result.first()->points() == points) {
-            delete result.first();
             return {wire};
         }
     }
@@ -535,7 +552,10 @@ QPointF SchematicWireTool::snapToConnection(QPointF pos) {
         if (!item || !item->isVisible()) continue;
 
         WireItem* wItem = dynamic_cast<WireItem*>(item);
-        if (!wItem || wItem == m_currentWire) continue;
+        if (!wItem) continue;
+
+        const bool isCurrentWire = (wItem == m_currentWire);
+        if (isCurrentWire && m_committedPoints.isEmpty()) continue;
 
         const QList<QPointF> wPoints = wItem->points();
         if (wPoints.isEmpty()) continue;
@@ -549,8 +569,9 @@ QPointF SchematicWireTool::snapToConnection(QPointF pos) {
         };
 
         // Snap to wire vertices.
-        for (const QPointF& p : wPoints) {
-            const QPointF sceneP = toScene(p);
+        for (int vi = 0; vi < wPoints.size(); ++vi) {
+            if (isCurrentWire && vi == wPoints.size() - 1) continue;
+            const QPointF sceneP = toScene(wPoints[vi]);
             const qreal distSq = distSqToPos(sceneP);
             if (distSq < closestDistSq) {
                 closestDistSq = distSq;
@@ -579,7 +600,6 @@ QPointF SchematicWireTool::snapToConnection(QPointF pos) {
             const qreal distSq = distSqToPos(proj);
             if (distSq < closestDistSq) {
                 QPointF gridProj = view()->snapToGrid(proj);
-                // Keep snapped point on the segment axis while quantizing movement to grid.
                 if (qAbs(vx) >= qAbs(vy)) {
                     gridProj.setY(p1.y());
                 } else {

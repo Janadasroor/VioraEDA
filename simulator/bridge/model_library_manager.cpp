@@ -6,8 +6,56 @@
 #include <QTextStream>
 #include <QDirIterator>
 #include <QDebug>
+#include <QVector>
 
 namespace {
+QString decodeSpiceText(const QByteArray& raw) {
+    if (raw.isEmpty()) return QString();
+
+    auto decodeUtf16Le = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = static_cast<ushort>(static_cast<unsigned char>(bytes[i])) |
+                              (static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1])) << 8);
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    auto decodeUtf16Be = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = (static_cast<ushort>(static_cast<unsigned char>(bytes[i])) << 8) |
+                               static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1]));
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    if (raw.size() >= 2) {
+        const unsigned char b0 = static_cast<unsigned char>(raw[0]);
+        const unsigned char b1 = static_cast<unsigned char>(raw[1]);
+        if (b0 == 0xFF && b1 == 0xFE) return decodeUtf16Le(raw, 2);
+        if (b0 == 0xFE && b1 == 0xFF) return decodeUtf16Be(raw, 2);
+    }
+
+    int oddZeros = 0;
+    int evenZeros = 0;
+    const int n = raw.size();
+    for (int i = 0; i < n; ++i) {
+        if (raw[i] == '\0') {
+            if (i % 2 == 0) ++evenZeros;
+            else ++oddZeros;
+        }
+    }
+    if (oddZeros > n / 8) return decodeUtf16Le(raw, 0);
+    if (evenZeros > n / 8) return decodeUtf16Be(raw, 0);
+
+    return QString::fromUtf8(raw);
+}
+
 QString typeToString(SimComponentType type) {
     switch (type) {
         case SimComponentType::Diode: return "Diode";
@@ -15,6 +63,8 @@ QString typeToString(SimComponentType type) {
         case SimComponentType::BJT_PNP: return "PNP";
         case SimComponentType::MOSFET_NMOS: return "NMOS";
         case SimComponentType::MOSFET_PMOS: return "PMOS";
+        case SimComponentType::JFET_NJF: return "NJF";
+        case SimComponentType::JFET_PJF: return "PJF";
         case SimComponentType::SubcircuitInstance: return "Subcircuit";
         default: return "Model";
     }
@@ -75,7 +125,7 @@ const SimSubcircuit* ModelLibraryManager::findSubcircuit(const QString& name) co
 }
 
 void ModelLibraryManager::scanDirectory(const QString& path) {
-    QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp",
+    QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp" << "*.jft",
                     QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         loadLibraryFile(it.next());
@@ -89,7 +139,7 @@ void ModelLibraryManager::loadLibraryFile(const QString& path) {
         return;
     }
     
-    QString content = file.readAll();
+    const QString content = decodeSpiceText(file.readAll());
     file.close();
     
     SimModelParseOptions options;

@@ -14,12 +14,60 @@
 
 #include <QRegularExpression>
 #include <QHash>
+#include <QVector>
 #include <algorithm>
 #include <cmath>
 #include <map>
 #include <vector>
 
 namespace {
+QString decodeSpiceText(const QByteArray& raw) {
+    if (raw.isEmpty()) return QString();
+
+    auto decodeUtf16Le = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = static_cast<ushort>(static_cast<unsigned char>(bytes[i])) |
+                              (static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1])) << 8);
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    auto decodeUtf16Be = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = (static_cast<ushort>(static_cast<unsigned char>(bytes[i])) << 8) |
+                               static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1]));
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    if (raw.size() >= 2) {
+        const unsigned char b0 = static_cast<unsigned char>(raw[0]);
+        const unsigned char b1 = static_cast<unsigned char>(raw[1]);
+        if (b0 == 0xFF && b1 == 0xFE) return decodeUtf16Le(raw, 2);
+        if (b0 == 0xFE && b1 == 0xFF) return decodeUtf16Be(raw, 2);
+    }
+
+    int oddZeros = 0;
+    int evenZeros = 0;
+    const int n = raw.size();
+    for (int i = 0; i < n; ++i) {
+        if (raw[i] == '\0') {
+            if (i % 2 == 0) ++evenZeros;
+            else ++oddZeros;
+        }
+    }
+    if (oddZeros > n / 8) return decodeUtf16Le(raw, 0);
+    if (evenZeros > n / 8) return decodeUtf16Be(raw, 0);
+
+    return QString::fromUtf8(raw);
+}
+
 bool isGroundNet(const QString& name) {
     static const QSet<QString> gndAliases = {
         "GND", "AGND", "DGND", "PGND", "0", "VSS", "COM", "GROUND",
@@ -388,7 +436,7 @@ void loadProjectModelLibraries(SimNetlist& netlist, QStringList& mappingWarnings
             return;
         }
 
-        const std::string content = QString::fromUtf8(f.readAll()).toStdString();
+        const std::string content = decodeSpiceText(f.readAll()).toStdString();
         SimModelParseOptions opts;
         opts.sourceName = absPath.toStdString();
 
@@ -413,8 +461,8 @@ void loadProjectModelLibraries(SimNetlist& netlist, QStringList& mappingWarnings
     auto scanModelPath = [&](const QString& path) {
         const QFileInfo info(path);
         if (info.isDir()) {
-            QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp",
-                            QDir::Files, QDirIterator::Subdirectories);
+            QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp" << "*.jft",
+                           QDir::Files, QDirIterator::Subdirectories);
             while (it.hasNext()) {
                 loadLibraryFile(it.next());
             }
@@ -471,9 +519,17 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 r.type = SimComponentType::VoltageSource;
             }
             return r;
+        case SchematicItem::CurrentSourceType:
+            r.supported = true;
+            if (comp.value.trimmed().startsWith("I=", Qt::CaseInsensitive)) {
+                r.type = SimComponentType::B_CurrentSource;
+            } else {
+                r.type = SimComponentType::CurrentSource;
+            }
+            return r;
         case SchematicItem::TransformerType:
             r.supported = true;
-            r.type = SimComponentType::TransmissionLine;
+            r.type = SimComponentType::SubcircuitInstance;
             return r;
         case SchematicItem::PowerType:
             if (isGroundNet(comp.value) || isGroundNet(comp.reference)) {
@@ -525,14 +581,28 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 return r;
             }
             if (comp.typeName.compare("e", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("e2", Qt::CaseInsensitive) == 0 ||
                 comp.typeName.compare("vcvs", Qt::CaseInsensitive) == 0) {
                 r.supported = true;
                 r.type = SimComponentType::VCVS;
                 return r;
             }
-            if (comp.typeName == "Transformer") {
+            if (comp.typeName.compare("g", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("g2", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("vccs", Qt::CaseInsensitive) == 0) {
+                r.supported = true;
+                r.type = SimComponentType::VCCS;
+                return r;
+            }
+            if (comp.typeName.compare("tline", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("ltline", Qt::CaseInsensitive) == 0) {
                 r.supported = true;
                 r.type = SimComponentType::TransmissionLine;
+                return r;
+            }
+            if (comp.typeName == "Transformer") {
+                r.supported = true;
+                r.type = SimComponentType::SubcircuitInstance;
                 return r;
             }
             if (comp.typeName == "Diode" || comp.typeName == "Zener Diode") {
@@ -551,9 +621,24 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 else r.type = SimComponentType::BJT_NPN;
                 return r;
             }
+            if (comp.typeName.compare("njf", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("pjf", Qt::CaseInsensitive) == 0) {
+                r.supported = true;
+                r.type = comp.typeName.compare("pjf", Qt::CaseInsensitive) == 0
+                    ? SimComponentType::MOSFET_PMOS
+                    : SimComponentType::MOSFET_NMOS;
+                return r;
+            }
             if (comp.typeName == "Voltage_Source_Behavioral" || comp.typeName == "Behavioral Voltage Source") {
                 r.supported = true;
                 r.type = SimComponentType::B_VoltageSource;
+                return r;
+            }
+            if (comp.typeName == "Current_Source_Behavioral" || comp.typeName == "Behavioral Current Source" ||
+                comp.typeName.compare("bi", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("bi2", Qt::CaseInsensitive) == 0) {
+                r.supported = true;
+                r.type = SimComponentType::B_CurrentSource;
                 return r;
             }
             if (comp.typeName == "Gate_AND") {
@@ -620,9 +705,14 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                     if (refPrefix == "Q") { r.supported = true; r.type = SimComponentType::BJT_NPN; return r; }
                     if (nameLower.contains("pmos")) { r.supported = true; r.type = SimComponentType::MOSFET_PMOS; return r; }
                     if (nameLower.contains("nmos")) { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
+                    if (nameLower == "pjf") { r.supported = true; r.type = SimComponentType::MOSFET_PMOS; return r; }
+                    if (nameLower == "njf") { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
                     if (refPrefix == "MN") { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
                     if (refPrefix == "MP") { r.supported = true; r.type = SimComponentType::MOSFET_PMOS; return r; }
                     if (refPrefix == "M") { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
+                    if (refPrefix == "JN") { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
+                    if (refPrefix == "JP") { r.supported = true; r.type = SimComponentType::MOSFET_PMOS; return r; }
+                    if (refPrefix == "J") { r.supported = true; r.type = SimComponentType::MOSFET_NMOS; return r; }
                     if (refPrefix == "V") { r.supported = true; r.type = SimComponentType::VoltageSource; return r; }
                     if (refPrefix == "I") { r.supported = true; r.type = SimComponentType::CurrentSource; return r; }
                     if (refPrefix == "S") { r.supported = true; r.type = SimComponentType::Switch; return r; }
@@ -631,7 +721,7 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                     if (refPrefix == "G") { r.supported = true; r.type = SimComponentType::VCCS; return r; }
                     if (refPrefix == "F") { r.supported = true; r.type = SimComponentType::CCCS; return r; }
                     if (refPrefix == "H") { r.supported = true; r.type = SimComponentType::CCVS; return r; }
-                    if (refPrefix == "T") { r.supported = true; r.type = SimComponentType::TransmissionLine; return r; }
+                    if (refPrefix == "T" || refPrefix == "O") { r.supported = true; r.type = SimComponentType::TransmissionLine; return r; }
                     if (refPrefix == "B") {
                         r.supported = true;
                         r.type = nameLower.startsWith("bi") ? SimComponentType::B_CurrentSource : SimComponentType::B_VoltageSource;
@@ -1264,8 +1354,45 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
                     inst.params["gain"] = val;
                 }
             } else if (inst.type == SimComponentType::TransmissionLine) {
-                const double z0 = (val > 1e-6) ? val : 50.0;
+                const QString v = comp.value.trimmed();
+                double z0 = 50.0;
+                double td = 50e-9;
+                
+                QRegularExpression reZ0("\\bZ0\\s*=\\s*([^\\s]+)", QRegularExpression::CaseInsensitiveOption);
+                QRegularExpression reTd("\\bTd\\s*=\\s*([^\\s]+)", QRegularExpression::CaseInsensitiveOption);
+                auto mz = reZ0.match(v);
+                auto mt = reTd.match(v);
+                if (mz.hasMatch()) SimValueParser::parseSpiceNumber(mz.captured(1), z0);
+                if (mt.hasMatch()) SimValueParser::parseSpiceNumber(mt.captured(1), td);
+
+                // Fallback: if value is just a number, it's Z0
+                if (!mz.hasMatch() && !mt.hasMatch()) {
+                    SimValueParser::parseSpiceNumber(v, z0);
+                }
+
                 inst.params["z0"] = z0;
+                inst.params["td"] = td;
+
+                // Handle lossy parameters (LTRA) from paramExpressions
+                auto extractLtra = [&](const QString& key, const std::string& target) {
+                    if (comp.paramExpressions.contains(key)) {
+                        double lval = 0.0;
+                        if (SimValueParser::parseSpiceNumber(comp.paramExpressions[key], lval)) {
+                            inst.params[target] = lval;
+                        }
+                    }
+                };
+                extractLtra("ltra.R", "r");
+                extractLtra("ltra.L", "l");
+                extractLtra("ltra.G", "g");
+                extractLtra("ltra.C", "c");
+                extractLtra("ltra.LEN", "len");
+
+                // If it's explicitly lossy, use the value as model name
+                if (comp.typeName.compare("ltline", Qt::CaseInsensitive) == 0 ||
+                    comp.reference.startsWith("O", Qt::CaseInsensitive)) {
+                    inst.modelName = v.toStdString();
+                }
             } else if (inst.type == SimComponentType::Diode ||
                        inst.type == SimComponentType::BJT_NPN ||
                        inst.type == SimComponentType::BJT_PNP ||

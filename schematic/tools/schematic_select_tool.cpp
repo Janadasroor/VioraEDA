@@ -545,6 +545,8 @@ void orthogonalizeFromOriginal(QList<QPointF>& pts, const QList<QPointF>& origin
     const int n = std::min(pts.size(), original.size());
     if (n < 2) return;
     for (int i = 0; i < n - 1; ++i) {
+        Q_ASSERT(i >= 0 && i < pts.size());
+        Q_ASSERT(i + 1 < pts.size());
         const QPointF& oa = original[i];
         const QPointF& ob = original[i + 1];
         const bool h = qAbs(oa.y() - ob.y()) < 1.0;
@@ -1042,8 +1044,8 @@ void SchematicSelectTool::mousePressEvent(QMouseEvent* event) {
                 }
 
                 const int bestSeg = findWireSegmentAt(clickedWire, scenePos);
-                if (bestSeg != -1) {
-                    const QList<QPointF> pts = clickedWire->points();
+                const QList<QPointF> pts = clickedWire->points();
+                if (bestSeg >= 0 && bestSeg < pts.size() - 1) {
                     const QPointF a = pts[bestSeg];
                     const QPointF b = pts[bestSeg + 1];
                     m_segmentDragActive = true;
@@ -1538,13 +1540,12 @@ void SchematicSelectTool::mouseMoveEvent(QMouseEvent* event) {
                         }
                         if (aw.anchor == m_segmentWire && aw.wire->itemType() == SchematicItem::WireType) {
                             int myIdx = aw.anchorPointIndex;
-                            if (m_segmentIsHorizontal && aw.isHorizontal) {
-                                if (myIdx == 0) anchor0 = true;
-                                else if (myIdx == original.size() - 1) anchor1 = true;
-                            }
-                            if (m_segmentIsVertical && aw.isVertical) {
-                                if (myIdx == 0) anchor0 = true;
-                                else if (myIdx == original.size() - 1) anchor1 = true;
+                            if (myIdx == i0) {
+                                if (m_segmentIsHorizontal && aw.isHorizontal) anchor0 = true;
+                                if (m_segmentIsVertical && aw.isVertical) anchor0 = true;
+                            } else if (myIdx == i1) {
+                                if (m_segmentIsHorizontal && aw.isHorizontal) anchor1 = true;
+                                if (m_segmentIsVertical && aw.isVertical) anchor1 = true;
                             }
                         }
                     }
@@ -1795,57 +1796,7 @@ void SchematicSelectTool::mouseReleaseEvent(QMouseEvent* event) {
     
     if (m_isDragging && (!m_initialPositions.isEmpty() || !m_initialWirePoints.isEmpty())) {
         // --- FINAL CONNECTION RECONCILIATION ---
-        const bool realtimeWireUpdate = ConfigManager::instance().isRealtimeWireUpdateEnabled();
-
         if (!m_attachedWires.isEmpty()) {
-            // In ghost-drag mode, apply endpoint updates once on release.
-            if (!realtimeWireUpdate) {
-                for (const AttachedWire& aw : m_attachedWires) {
-                    if (m_segmentDragActive && aw.wire == m_segmentWire) continue;
-                    if (m_vertexDragActive && aw.wire == m_vertexWire) continue;
-
-                    const QPointF pinScene = aw.anchor->mapToScene(aw.anchor->connectionPoints()[aw.anchorPointIndex]);
-                    QList<QPointF> pts;
-                    if (m_topologyLockedWires.contains(aw.wire)) {
-                        pts = moveAttachedWireEndpointPreserveTopology(
-                            aw.wire,
-                            aw.isStartPoint,
-                            pinScene,
-                            aw.isHorizontal,
-                            aw.isVertical
-                        );
-                    } else {
-                        const bool keepNeighborFixed = aw.neighborExternallyAnchored;
-                        QPointF fixedNeighborScene = aw.neighborExternallyAnchored ? aw.externalAnchorScenePos : aw.neighborScenePos;
-                        bool isH = aw.isHorizontal;
-                        bool isV = aw.isVertical;
-                        adjustEndpointOrientationForDrag(aw, pinScene, keepNeighborFixed, isH, isV);
-                        fixedNeighborScene = adjustFixedNeighborSceneForSliding(aw, pinScene, fixedNeighborScene);
-                        pts = moveAttachedWireEndpoint(
-                            aw.wire,
-                            aw.isStartPoint,
-                            pinScene,
-                            isH,
-                            isV,
-                            keepNeighborFixed,
-                            fixedNeighborScene
-                        );
-                    }
-                    if (m_initialWirePoints.contains(aw.wire)) {
-                        const QList<QPointF>& orig = m_initialWirePoints.value(aw.wire);
-                        if (isOrthogonalWire(orig) && orig.size() <= 3) {
-                            pts = rebuildSimpleOrthogonal(pts, orig, view());
-                        }
-                        if (isOrthogonalWire(orig)) {
-                            orthogonalizeFromOriginal(pts, orig);
-                        } else if (isMostlyOrthogonalWire(pts)) {
-                            forceOrthogonal(pts);
-                        }
-                    }
-                    aw.wire->setPoints(pts);
-                }
-            }
-
             // Propagate moved vertices to neighboring unselected wire endpoints.
             for (const AttachedWire& aw : m_attachedWires) {
                 if (m_segmentDragActive && aw.wire == m_segmentWire) continue;

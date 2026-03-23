@@ -36,7 +36,7 @@ GenericComponentItem::GenericComponentItem(const SymbolDefinition& symbol, QGrap
     setFlags(ItemIsSelectable | ItemIsMovable | ItemSendsGeometryChanges);
     
     // Optimization: Cache complex vector graphics to speed up rendering
-    setCacheMode(QGraphicsItem::DeviceCoordinateCache);
+    setCacheMode(QGraphicsItem::NoCache);
 
     // Power symbols should never require PCB footprint assignment.
     if (m_symbol.isPowerSymbol()) {

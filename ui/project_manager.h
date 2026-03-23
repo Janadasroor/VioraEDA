@@ -48,6 +48,7 @@ private slots:
     void openSpiceModelManager();
     void importLtspiceBatch();
     void importLtspiceDiodeModels();
+    void importLtspiceJfetModels();
     void onSettings();
     void showAbout();
     void showHelp();

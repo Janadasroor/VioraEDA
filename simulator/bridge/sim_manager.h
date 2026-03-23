@@ -11,6 +11,7 @@
 class SimManager : public QObject {
     Q_OBJECT
 public:
+    virtual ~SimManager();
     static SimManager& instance();
 
     void runDCOP(QGraphicsScene* scene, NetManager* netMgr);
