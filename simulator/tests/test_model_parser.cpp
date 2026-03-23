@@ -146,6 +146,24 @@ void testJfetModelParsing() {
     require(pjf->type == SimComponentType::JFET_PJF, "PJF type parse mismatch");
 }
 
+void testVdmosModelParsing() {
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    const std::string content =
+        ".model MN_A VDMOS (VTO=2 KP=100u)\n"
+        ".model MP_A VDMOS (pchan VTO=-2 KP=80u)\n";
+
+    const bool ok = SimModelParser::parseLibrary(netlist, content, SimModelParseOptions(), &diags);
+    require(ok, "parseLibrary failed for VDMOS model case");
+
+    const SimModel* mn = netlist.findModel("MN_A");
+    const SimModel* mp = netlist.findModel("MP_A");
+    require(mn != nullptr, "VDMOS NMOS model missing");
+    require(mp != nullptr, "VDMOS PMOS model missing");
+    require(mn->type == SimComponentType::MOSFET_NMOS, "VDMOS default type parse mismatch");
+    require(mp->type == SimComponentType::MOSFET_PMOS, "VDMOS pchan type parse mismatch");
+}
+
 } // namespace
 
 int main() {
@@ -156,6 +174,7 @@ int main() {
         testSubcktNamedNodeMapping();
         testCSWParsing();
         testJfetModelParsing();
+        testVdmosModelParsing();
         std::cout << "[PASS] model parser compatibility checks passed." << std::endl;
         return 0;
     } catch (const std::exception& ex) {

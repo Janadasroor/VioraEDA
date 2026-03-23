@@ -157,16 +157,48 @@ void SchematicItemRegistry::registerBuiltInItems() {
 
     // Register LTspice JFET symbols
     factory.registerItemType("njf", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
-        const QString value = properties.value("value").toString("NJF");
+        const QString value = properties.value("value").toString("2N3819");
         if (auto* item = makeGenericFromLibrary("njf", pos, value, parent)) return item;
         return new TransistorItem(pos, value, TransistorItem::NMOS, parent);
     });
 
     factory.registerItemType("pjf", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
-        const QString value = properties.value("value").toString("PJF");
+        const QString value = properties.value("value").toString("2N5460");
         if (auto* item = makeGenericFromLibrary("pjf", pos, value, parent)) return item;
         return new TransistorItem(pos, value, TransistorItem::PMOS, parent);
     });
+
+    // Register LTspice BJT aliases
+    auto addBjtAlias = [&](const QString& alias, bool pnp, const QString& defaultModel) {
+        factory.registerItemType(alias, [makeGenericFromLibrary, alias, pnp, defaultModel](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+            const QString value = properties.value("value").toString(defaultModel);
+            if (auto* item = makeGenericFromLibrary(alias, pos, value, parent)) return item;
+            return new TransistorItem(pos, value, pnp ? TransistorItem::PNP : TransistorItem::NPN, parent);
+        });
+    };
+
+    addBjtAlias("npn", false, "2N2222");
+    addBjtAlias("npn2", false, "2N2222");
+    addBjtAlias("npn3", false, "2N2222");
+    addBjtAlias("npn4", false, "2N2222");
+    addBjtAlias("pnp", true, "2N3906");
+    addBjtAlias("pnp2", true, "2N3906");
+    addBjtAlias("pnp4", true, "2N3906");
+    addBjtAlias("lpnp", true, "2N3906");
+
+    // Register LTspice MOSFET aliases
+    auto addMosAlias = [&](const QString& alias, bool pmos, const QString& defaultModel) {
+        factory.registerItemType(alias, [makeGenericFromLibrary, alias, pmos, defaultModel](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+            const QString value = properties.value("value").toString(defaultModel);
+            if (auto* item = makeGenericFromLibrary(alias, pos, value, parent)) return item;
+            return new TransistorItem(pos, value, pmos ? TransistorItem::PMOS : TransistorItem::NMOS, parent);
+        });
+    };
+
+    addMosAlias("nmos", false, "2N7000");
+    addMosAlias("nmos4", false, "2N7000");
+    addMosAlias("pmos", true, "BS250");
+    addMosAlias("pmos4", true, "BS250");
 
     // Register Resistor US
     factory.registerItemType("Resistor_US", [makeGenericFromLibrary](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {

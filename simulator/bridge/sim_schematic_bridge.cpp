@@ -461,7 +461,7 @@ void loadProjectModelLibraries(SimNetlist& netlist, QStringList& mappingWarnings
     auto scanModelPath = [&](const QString& path) {
         const QFileInfo info(path);
         if (info.isDir()) {
-            QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp" << "*.jft",
+            QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp" << "*.jft" << "*.bjt" << "*.mos",
                            QDir::Files, QDirIterator::Subdirectories);
             while (it.hasNext()) {
                 loadLibraryFile(it.next());
@@ -618,7 +618,21 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 else if (comp.value.contains("PNP", Qt::CaseInsensitive)) r.type = SimComponentType::BJT_PNP;
                 else if (comp.value.contains("NMOS", Qt::CaseInsensitive)) r.type = SimComponentType::MOSFET_NMOS;
                 else if (comp.value.contains("PMOS", Qt::CaseInsensitive)) r.type = SimComponentType::MOSFET_PMOS;
+                else if (comp.reference.startsWith("MN", Qt::CaseInsensitive)) r.type = SimComponentType::MOSFET_NMOS;
+                else if (comp.reference.startsWith("MP", Qt::CaseInsensitive)) r.type = SimComponentType::MOSFET_PMOS;
                 else r.type = SimComponentType::BJT_NPN;
+                return r;
+            }
+            if (comp.typeName.compare("nmos", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("nmos4", Qt::CaseInsensitive) == 0) {
+                r.supported = true;
+                r.type = SimComponentType::MOSFET_NMOS;
+                return r;
+            }
+            if (comp.typeName.compare("pmos", Qt::CaseInsensitive) == 0 ||
+                comp.typeName.compare("pmos4", Qt::CaseInsensitive) == 0) {
+                r.supported = true;
+                r.type = SimComponentType::MOSFET_PMOS;
                 return r;
             }
             if (comp.typeName.compare("njf", Qt::CaseInsensitive) == 0 ||

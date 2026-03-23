@@ -23,6 +23,7 @@
 #include "../analysis/spice_netlist_generator.h"
 #include "../ui/simulation_panel.h"
 #include "../../ui/source_control_manager.h"
+#include "../../core/config_manager.h"
 #include <QMessageBox>
 #include <QRegularExpression>
 #include "../../core/theme_manager.h"
@@ -380,12 +381,34 @@ QPlainTextEdit* createTextEditor(QWidget* parent, const QString& content, const 
 }
 }
 
-void SchematicEditor::setProjectContext(const QString& projectName, const QString& projectDir) {
+void SchematicEditor::setProjectContext(const QString& projectName, const QString& projectDir, const QStringList& workspaceFolders) {
     m_projectName = projectName;
     m_projectDir = projectDir;
 
     if (m_projectExplorer && !projectDir.isEmpty()) {
-        m_projectExplorer->setRootPath(projectDir);
+        // Use the live workspace folders passed from ProjectManager (never stale)
+        QStringList folders = workspaceFolders;
+        
+        // If no explicit folders provided, fall back to ConfigManager (disk read)
+        if (folders.isEmpty()) {
+            folders = ConfigManager::instance().workspaceFolders();
+        }
+        
+        // Check if current project dir belongs to the workspace
+        bool inWorkspace = false;
+        for (const QString& wf : folders) {
+            if (projectDir == wf || projectDir.startsWith(wf + "/")) {
+                inWorkspace = true; break;
+            }
+        }
+        
+        if (inWorkspace && folders.size() > 1) {
+            m_projectExplorer->setWorkspaceFolders(folders);
+        } else if (!folders.isEmpty() && folders.size() == 1) {
+            m_projectExplorer->setRootPath(folders.first());
+        } else {
+            m_projectExplorer->setRootPath(projectDir);
+        }
     }
 
     // Initialize source control for this project

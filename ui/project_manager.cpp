@@ -317,6 +317,8 @@ QWidget* ProjectManager::createLauncherArea() {
     createAndStoreTile("LTspice Batch Import", "Import LTspice .asy symbols to .viosym", ":/icons/toolbar_file.png", &ProjectManager::importLtspiceBatch);
     createAndStoreTile("Diode/JFET Import", "Import LTspice .dio/.jft model libraries by type", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceDiodeModels);
     createAndStoreTile("JFET Model Import", "Import LTspice .jft model libraries (NJF/PJF)", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceJfetModels);
+    createAndStoreTile("BJT Model Import", "Import LTspice .bjt model libraries (NPN/PNP)", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceBjtModels);
+    createAndStoreTile("MOS Model Import", "Import LTspice .mos model libraries (NMOS/PMOS)", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceMosModels);
     createAndStoreTile("SPICE Model Manager", "Manage simulation models and subcircuit libraries", ":/icons/toolbar_netlist.png", &ProjectManager::openSpiceModelManager);
     createAndStoreTile("Calculator Tools", "Resistance, trace width, and impedance calculators", ":/icons/calculator_tools.png", &ProjectManager::openCalculatorTools);
     createAndStoreTile("Plugins Manager", "Manage extensions, importers, and add-ons", ":/icons/plugins_manager.png", &ProjectManager::openPluginsManager);
@@ -374,8 +376,25 @@ void ProjectManager::refreshProjectTree() {
        return;
     }
 
+    QTreeWidgetItem* parentItem = nullptr;
+    bool isWorkspace = !m_workspaceFilePath.isEmpty() || m_workspaceFolders.size() > 1;
+    
+    if (isWorkspace) {
+        QString workspaceName = "Untitled";
+        if (!m_workspaceFilePath.isEmpty()) {
+            workspaceName = QFileInfo(m_workspaceFilePath).completeBaseName();
+        } else if (!m_workspaceFolders.isEmpty()) {
+            workspaceName = QDir(m_workspaceFolders.first()).dirName();
+        }
+        
+        parentItem = new QTreeWidgetItem(m_projectTree);
+        parentItem->setText(0, workspaceName + " (Workspace)");
+        parentItem->setIcon(0, createFolderIcon(true)); // Optional, add icon for workspace
+        parentItem->setExpanded(true);
+    }
+
     for (const QString& path : m_workspaceFolders) {
-        addFolderToTree(path);
+        addFolderToTree(path, parentItem);
     }
     
     if (m_workspaceFolders.size() == 1) {
@@ -385,12 +404,12 @@ void ProjectManager::refreshProjectTree() {
     }
 }
 
-void ProjectManager::addFolderToTree(const QString& folderPath) {
+void ProjectManager::addFolderToTree(const QString& folderPath, QTreeWidgetItem* parent) {
     QDir dir(folderPath);
     if (!dir.exists()) return;
 
     // Create root item for folder
-    QTreeWidgetItem* folderRoot = new QTreeWidgetItem(m_projectTree);
+    QTreeWidgetItem* folderRoot = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(m_projectTree);
     folderRoot->setText(0, dir.dirName());
     folderRoot->setIcon(0, createFolderIcon(true));
     folderRoot->setData(0, Qt::UserRole, folderPath);
@@ -1524,6 +1543,205 @@ void ProjectManager::importLtspiceJfetModels() {
     QMessageBox::information(this, "JFET Model Import", msg);
 }
 
+void ProjectManager::importLtspiceBjtModels() {
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
+    QString srcFile = QFileDialog::getOpenFileName(this, "Select LTspice BJT Model File", defaultSrc, "LTspice Model Files (*.bjt *.lib);;All Files (*)");
+    if (srcFile.isEmpty()) return;
+
+    const QString defaultDst = QDir::homePath() + "/ViospiceLib/lib";
+    QDir().mkpath(defaultDst);
+
+    QFile file(srcFile);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Import Error", "Cannot open file:\n" + srcFile);
+        return;
+    }
+    const QString content = decodeSpiceText(file.readAll());
+    file.close();
+
+    QStringList logicalLines;
+    for (const QString& raw : content.split('\n')) {
+        const QString t = raw.trimmed();
+        if (!logicalLines.isEmpty() && t.startsWith('+')) {
+            logicalLines.last().append(' ' + t.mid(1).trimmed());
+        } else {
+            logicalLines.append(raw);
+        }
+    }
+
+    QMap<QString, QStringList> typeToModels;
+    int total = 0;
+    int modelLines = 0;
+    const QRegularExpression modelHeadRe(
+        R"(^\s*[\x{FEFF}]*\.model\s+(\S+)\s+([^\s(]+))",
+        QRegularExpression::CaseInsensitiveOption);
+
+    for (const QString& line : logicalLines) {
+        const QString trimmed = line.trimmed();
+        const QRegularExpressionMatch headMatch = modelHeadRe.match(trimmed);
+        if (!headMatch.hasMatch()) continue;
+        modelLines++;
+
+        const QString modelTypeToken = headMatch.captured(2).trimmed().toLower();
+        if (modelTypeToken != "npn" && modelTypeToken != "pnp") continue;
+
+        typeToModels[modelTypeToken].append(trimmed);
+        total++;
+    }
+
+    if (total == 0) {
+        QMessageBox::information(
+            this,
+            "BJT Model Import",
+            QString("No NPN/PNP .model lines found in file.\n\nDetected .model lines: %1")
+                .arg(modelLines));
+        return;
+    }
+
+    QStringList written;
+    QProgressDialog progress("Importing BJT models...", "Cancel", 0, typeToModels.size(), this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(200);
+
+    int step = 0;
+    for (auto it = typeToModels.constBegin(); it != typeToModels.constEnd(); ++it) {
+        if (progress.wasCanceled()) break;
+        progress.setValue(step++);
+        progress.setLabelText(QString("Writing %1 models (%2)...").arg(it.key().toUpper()).arg(it.value().size()));
+
+        const QString libName = QString("bjts_%1.lib").arg(it.key());
+        const QString libPath = QDir(defaultDst).filePath(libName);
+
+        QFile out(libPath);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            continue;
+        }
+
+        QTextStream ts(&out);
+        ts << "* " << libName << " - Imported from " << QFileInfo(srcFile).fileName() << "\n";
+        ts << "* Type: " << it.key().toUpper() << "\n";
+        ts << "* Count: " << it.value().size() << " models\n";
+        ts << "*\n";
+        for (const QString& model : it.value()) {
+            ts << model << "\n";
+        }
+        out.close();
+        written.append(QString("%1 (%2 models)").arg(libName).arg(it.value().size()));
+    }
+    progress.setValue(typeToModels.size());
+
+    ModelLibraryManager::instance().reload();
+
+    QString msg = QString("Imported %1 BJT models from:\n%2\n\nInto:\n%3\n\nFiles created:\n")
+        .arg(total).arg(QFileInfo(srcFile).fileName()).arg(defaultDst);
+    for (const QString& w : written) msg += "  " + w + "\n";
+
+    QMessageBox::information(this, "BJT Model Import", msg);
+}
+
+void ProjectManager::importLtspiceMosModels() {
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
+    QString srcFile = QFileDialog::getOpenFileName(this, "Select LTspice MOS Model File", defaultSrc, "LTspice Model Files (*.mos *.lib);;All Files (*)");
+    if (srcFile.isEmpty()) return;
+
+    const QString defaultDst = QDir::homePath() + "/ViospiceLib/lib";
+    QDir().mkpath(defaultDst);
+
+    QFile file(srcFile);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Import Error", "Cannot open file:\n" + srcFile);
+        return;
+    }
+    const QString content = decodeSpiceText(file.readAll());
+    file.close();
+
+    QStringList logicalLines;
+    for (const QString& raw : content.split('\n')) {
+        const QString t = raw.trimmed();
+        if (!logicalLines.isEmpty() && t.startsWith('+')) {
+            logicalLines.last().append(' ' + t.mid(1).trimmed());
+        } else {
+            logicalLines.append(raw);
+        }
+    }
+
+    QMap<QString, QStringList> typeToModels;
+    int total = 0;
+    int modelLines = 0;
+    const QRegularExpression modelHeadRe(
+        R"(^\s*[\x{FEFF}]*\.model\s+(\S+)\s+([^\s(]+))",
+        QRegularExpression::CaseInsensitiveOption);
+
+    for (const QString& line : logicalLines) {
+        const QString trimmed = line.trimmed();
+        const QRegularExpressionMatch headMatch = modelHeadRe.match(trimmed);
+        if (!headMatch.hasMatch()) continue;
+        modelLines++;
+
+        const QString modelTypeToken = headMatch.captured(2).trimmed().toLower();
+        QString bucket;
+        if (modelTypeToken == "nmos") bucket = "nmos";
+        else if (modelTypeToken == "pmos") bucket = "pmos";
+        else if (modelTypeToken == "vdmos") {
+            bucket = trimmed.contains(QRegularExpression(R"(\bpchan\b)", QRegularExpression::CaseInsensitiveOption)) ? "pmos" : "nmos";
+        } else {
+            continue;
+        }
+
+        typeToModels[bucket].append(trimmed);
+        total++;
+    }
+
+    if (total == 0) {
+        QMessageBox::information(
+            this,
+            "MOS Model Import",
+            QString("No NMOS/PMOS/VDMOS .model lines found in file.\n\nDetected .model lines: %1")
+                .arg(modelLines));
+        return;
+    }
+
+    QStringList written;
+    QProgressDialog progress("Importing MOS models...", "Cancel", 0, typeToModels.size(), this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(200);
+
+    int step = 0;
+    for (auto it = typeToModels.constBegin(); it != typeToModels.constEnd(); ++it) {
+        if (progress.wasCanceled()) break;
+        progress.setValue(step++);
+        progress.setLabelText(QString("Writing %1 models (%2)...").arg(it.key().toUpper()).arg(it.value().size()));
+
+        const QString libName = QString("mosfets_%1.lib").arg(it.key());
+        const QString libPath = QDir(defaultDst).filePath(libName);
+
+        QFile out(libPath);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            continue;
+        }
+
+        QTextStream ts(&out);
+        ts << "* " << libName << " - Imported from " << QFileInfo(srcFile).fileName() << "\n";
+        ts << "* Type: " << it.key().toUpper() << "\n";
+        ts << "* Count: " << it.value().size() << " models\n";
+        ts << "*\n";
+        for (const QString& model : it.value()) {
+            ts << model << "\n";
+        }
+        out.close();
+        written.append(QString("%1 (%2 models)").arg(libName).arg(it.value().size()));
+    }
+    progress.setValue(typeToModels.size());
+
+    ModelLibraryManager::instance().reload();
+
+    QString msg = QString("Imported %1 MOS models from:\n%2\n\nInto:\n%3\n\nFiles created:\n")
+        .arg(total).arg(QFileInfo(srcFile).fileName()).arg(defaultDst);
+    for (const QString& w : written) msg += "  " + w + "\n";
+
+    QMessageBox::information(this, "MOS Model Import", msg);
+}
+
 void ProjectManager::onSettings() {
     SettingsDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) {
@@ -1552,7 +1770,7 @@ void ProjectManager::launchSchematicEditor(const QString& projectPath) {
     }
     
     qDebug() << "DBG: before setProjectContext";
-    editor->setProjectContext(pName, pDir);
+    editor->setProjectContext(pName, pDir, m_workspaceFolders);
     qDebug() << "DBG: after setProjectContext";
 
     if (QFile::exists(pFile)) {

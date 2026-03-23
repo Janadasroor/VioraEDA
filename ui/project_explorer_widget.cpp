@@ -15,22 +15,123 @@
 #include <QProcess>
 #include <QDateTime>
 #include <QShortcut>
+#include <QStyledItemDelegate>
+#include <QPainter>
+
+class ProjectExplorerDelegate : public QStyledItemDelegate {
+    QFileSystemModel* m_fsModel;
+    QSortFilterProxyModel* m_proxy;
+    const QHash<QString, QString>* m_statusMap;
+public:
+    explicit ProjectExplorerDelegate(QFileSystemModel* fsModel, QSortFilterProxyModel* proxy, const QHash<QString, QString>* statusMap, QObject* parent = nullptr)
+        : QStyledItemDelegate(parent), m_fsModel(fsModel), m_proxy(proxy), m_statusMap(statusMap) {}
+
+protected:
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
+        QStyledItemDelegate::initStyleOption(option, index);
+        
+        QModelIndex srcIndex = m_proxy->mapToSource(index);
+        QString path = m_fsModel->filePath(srcIndex);
+        
+        if (!m_statusMap->value(path).isEmpty()) {
+            option->text = ""; // clear text to prevent base paint from drawing it
+        }
+    }
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        // Base paint will use our initStyleOption and draw everything EXCEPT text
+        QStyledItemDelegate::paint(painter, option, index);
+        
+        QModelIndex srcIndex = m_proxy->mapToSource(index);
+        QString path = m_fsModel->filePath(srcIndex);
+        
+        QString status = m_statusMap->value(path);
+        QColor color;
+        if (!status.isEmpty()) {
+            bool isLight = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
+            if (status.contains("U") || status.contains("A") || status == "?") {
+                color = isLight ? QColor("#16825D") : QColor("#73C991");
+            } else if (status.contains("M")) {
+                color = isLight ? QColor("#895503") : QColor("#E2C08D");
+            } else if (status.contains("D")) {
+                color = isLight ? QColor("#AD322D") : QColor("#F14C4C");
+            }
+        }
+        
+        if (color.isValid()) {
+            QStyleOptionViewItem opt = option;
+            QStyledItemDelegate::initStyleOption(&opt, index); // Formally retrieve the real text
+            
+            painter->save();
+            painter->setPen(color);
+            
+            QStyle *style = opt.widget ? opt.widget->style() : QApplication::style();
+            QRect textRect = style->subElementRect(QStyle::SE_ItemViewItemText, &opt, opt.widget);
+            
+            // Ensure proper font rendering without artificial margins
+            painter->setFont(opt.font);
+            painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, opt.text);
+            painter->restore();
+        }
+    }
+};
 
 class FileFilterProxyModel : public QSortFilterProxyModel {
 public:
     explicit FileFilterProxyModel(QObject* parent = nullptr) : QSortFilterProxyModel(parent) {}
+    QString m_rootPath;
+    QStringList m_workspaceFolders;
+
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override {
+        if (role == Qt::DisplayRole && !m_rootPath.isEmpty()) {
+            QFileSystemModel* fs = qobject_cast<QFileSystemModel*>(sourceModel());
+            if (fs) {
+                QString path = fs->filePath(mapToSource(index));
+                if (path == m_rootPath && m_workspaceFolders.size() <= 1) {
+                    return QFileInfo(m_rootPath).fileName() + " (Workspace)";
+                } else if (path == m_rootPath) {
+                    return QString("Workspace (%1 Folders)").arg(m_workspaceFolders.size());
+                }
+            }
+        }
+        return QSortFilterProxyModel::data(index, role);
+    }
+
 protected:
     bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override {
         QModelIndex index = sourceModel()->index(source_row, 0, source_parent);
-        if (sourceModel()->hasChildren(index)) {
-            // Hide .trash directory
-            QString dirName = sourceModel()->data(index).toString();
-            if (dirName == ".trash") return false;
-            return true; // Always show other directories
+        
+        QFileSystemModel* fs = qobject_cast<QFileSystemModel*>(sourceModel());
+        if (!fs) return true;
+        
+        QString path = fs->filePath(index);
+
+        // Determine if path belongs to designated workspace branches
+        bool isWorkspaceChain = false;
+        if (!m_workspaceFolders.isEmpty()) {
+            const QString pathWithSlash = (path == "/") ? "/" : (path + "/");
+            for (const QString& wf : m_workspaceFolders) {
+                if (path == wf || path.startsWith(wf + "/")) {
+                    isWorkspaceChain = true; break; // Path is inside a workspace folder
+                }
+                if (wf.startsWith(pathWithSlash) || path == "/") {
+                    isWorkspaceChain = true; break; // Path is an ancestor leading to a workspace folder
+                }
+            }
+            const QString rootWithSlash = (path == "/") ? "/" : (path + "/");
+            if (!isWorkspaceChain && path != m_rootPath && !m_rootPath.startsWith(rootWithSlash)) {
+                return false;
+            }
+        }
+
+        QFileInfo currentFileInfo(path);
+        if (currentFileInfo.isDir()) {
+            QString dirName = currentFileInfo.fileName();
+            if (dirName == ".trash" || dirName == ".git" || dirName == "build" || dirName == "cmake" || dirName == "CMakeFiles" || dirName == "_deps") return false;
+            return true; 
         }
         
-        QString fileName = sourceModel()->data(index).toString().toLower();
-        // Only show relevant engineering files
+        QString fileName = fs->data(index).toString().toLower();
         return fileName.endsWith(".sch") || fileName.endsWith(".sym") ||
                fileName.endsWith(".flxsch") ||
                fileName.endsWith(".lib") || fileName.endsWith(".sclib") ||
@@ -50,6 +151,9 @@ ProjectExplorerWidget::ProjectExplorerWidget(QWidget *parent)
 
     setupUi();
     applyTheme();
+
+    connect(&SourceControlManager::instance(), &SourceControlManager::statusUpdated, this, &ProjectExplorerWidget::onGitStatusUpdated);
+    onGitStatusUpdated();
 }
 
 void ProjectExplorerWidget::setupUi() {
@@ -123,6 +227,7 @@ void ProjectExplorerWidget::setupUi() {
     m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
     m_treeView->setUniformRowHeights(true);
     m_treeView->setAlternatingRowColors(true);
+    m_treeView->setItemDelegate(new ProjectExplorerDelegate(m_model, m_proxyModel, &m_gitStatusMap, this));
     
     // Hide size, type, date columns
     for (int i = 1; i < 4; ++i) m_treeView->hideColumn(i);
@@ -137,8 +242,39 @@ void ProjectExplorerWidget::setupUi() {
 void ProjectExplorerWidget::onRefreshRequested() {
     if (!m_rootPath.isEmpty()) {
         m_model->setRootPath("");
-        m_model->setRootPath(m_rootPath);
+        m_model->setRootPath(QFileInfo(m_rootPath).absolutePath());
     }
+}
+
+void ProjectExplorerWidget::onGitStatusUpdated() {
+    m_gitStatusMap.clear();
+    
+    QString projDir = SourceControlManager::instance().projectDir();
+    if (projDir.isEmpty()) {
+        m_treeView->viewport()->update();
+        return;
+    }
+    
+    auto statuses = SourceControlManager::instance().fileStatuses();
+    for (const auto& st : statuses) {
+        QString absPath = QDir::cleanPath(projDir + "/" + st.path);
+        QString code = !st.worktreeStatus.isEmpty() && st.worktreeStatus != "?" ? st.worktreeStatus : st.indexStatus;
+        if (code.isEmpty() && st.isUntracked) code = "U";
+        
+        if (!code.isEmpty()) {
+            m_gitStatusMap[absPath] = code;
+            
+            // Bubble up to parents so directories turn yellow
+            QDir d = QFileInfo(absPath).absoluteDir();
+            while (d.absolutePath() != projDir && d.absolutePath().length() >= projDir.length()) {
+                if (!m_gitStatusMap.contains(d.absolutePath())) {
+                    m_gitStatusMap[d.absolutePath()] = "M"; // Mark parent dirs as modified
+                }
+                if (!d.cdUp()) break;
+            }
+        }
+    }
+    m_treeView->viewport()->update();
 }
 
 void ProjectExplorerWidget::onCollapseAllRequested() {
@@ -148,9 +284,66 @@ void ProjectExplorerWidget::onCollapseAllRequested() {
 }
 
 void ProjectExplorerWidget::setRootPath(const QString& path) {
-    m_rootPath = path;
-    m_model->setRootPath(path);
-    m_treeView->setRootIndex(m_proxyModel->mapFromSource(m_model->index(path)));
+    if (path.isEmpty()) return;
+    setWorkspaceFolders(QStringList() << path);
+}
+
+void ProjectExplorerWidget::setWorkspaceFolders(const QStringList& folders) {
+    if (folders.isEmpty()) return;
+    
+    m_workspaceFolders = folders;
+    
+    qDebug() << "[Explorer] setWorkspaceFolders called with" << folders.size() << "folders:" << folders;
+    
+    // Determine the Longest Common Ancestor among disjoint workspace directories
+    QString commonPath = QDir::cleanPath(folders[0]);
+    for (int i = 1; i < folders.size(); ++i) {
+        QString p2 = QDir::cleanPath(folders[i]);
+        while (!commonPath.isEmpty() && p2 != commonPath && !p2.startsWith(commonPath + "/")) {
+            int lastSlash = commonPath.lastIndexOf('/');
+            if (lastSlash <= 0) { commonPath = "/"; break; }
+            commonPath = commonPath.left(lastSlash);
+        }
+    }
+    
+    qDebug() << "[Explorer] Common ancestor path:" << commonPath;
+    
+    m_rootPath = commonPath;
+    
+    FileFilterProxyModel* filterModel = static_cast<FileFilterProxyModel*>(m_proxyModel);
+    filterModel->m_rootPath = commonPath;
+    filterModel->m_workspaceFolders = m_workspaceFolders;
+    
+    // Tell QFileSystemModel to start loading the common ancestor path
+    m_model->setRootPath(commonPath);
+    
+    // Disconnect any existing directoryLoaded connection to avoid duplicate handlers
+    disconnect(m_model, &QFileSystemModel::directoryLoaded, this, nullptr);
+    
+    // IMPORTANT: QFileSystemModel is async. We cannot call mapFromSource immediately after
+    // setRootPath because the directory hasn't been scanned yet and the proxy returns invalid.
+    // Instead, defer setRootIndex to the directoryLoaded signal.
+    connect(m_model, &QFileSystemModel::directoryLoaded, this, [this](const QString& loadedPath) {
+        QString cleaned = QDir::cleanPath(loadedPath);
+        
+        // Once the common ancestor is loaded, set the tree root and expand workspace folders
+        if (cleaned == QDir::cleanPath(m_rootPath)) {
+            QModelIndex sourceIndex = m_model->index(m_rootPath);
+            if (sourceIndex.isValid()) {
+                QModelIndex proxyIndex = m_proxyModel->mapFromSource(sourceIndex);
+                qDebug() << "[Explorer] directoryLoaded - setting root. proxyIndex valid:" << proxyIndex.isValid();
+                m_treeView->setRootIndex(proxyIndex);
+                
+                // Expand each top-level workspace folder
+                for (const QString& wf : m_workspaceFolders) {
+                    QModelIndex wfSource = m_model->index(wf);
+                    if (wfSource.isValid()) {
+                        m_treeView->expand(m_proxyModel->mapFromSource(wfSource));
+                    }
+                }
+            }
+        }
+    });
 }
 
 void ProjectExplorerWidget::onDoubleClicked(const QModelIndex& index) {
@@ -386,6 +579,28 @@ void ProjectExplorerWidget::applyTheme() {
     QString altRow = (theme->type() == PCBTheme::Light) ? "#eef2f7" : "#202025";
     QString selectionBg = (theme->type() == PCBTheme::Light) ? "#cfe2ff" : "#1f2a44";
 
+    // Generate SVGs for branch arrows and save them to temp files to bypass Qt's stylesheet URI parser bugs
+    QString tempPath = QDir::tempPath();
+    QString rightPath = tempPath + "/viospice_tree_right.svg";
+    QString downPath = tempPath + "/viospice_tree_down.svg";
+
+    QString rightSvg = QString("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='9 18 15 12 9 6'/></svg>").arg(fg);
+    QString downSvg = QString("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>").arg(fg);
+    
+    QFile rightFile(rightPath);
+    if (rightFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&rightFile);
+        out << rightSvg;
+        rightFile.close();
+    }
+    
+    QFile downFile(downPath);
+    if (downFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&downFile);
+        out << downSvg;
+        downFile.close();
+    }
+
     setStyleSheet(QString(
         "QWidget { background-color: %1; color: %2; }"
         "QWidget#ExplorerHeader { background-color: %1; border-bottom: 1px solid %3; }"
@@ -395,9 +610,9 @@ void ProjectExplorerWidget::applyTheme() {
         "QTreeView::item { padding: 4px 6px; border-radius: 4px; margin: 0px 4px; height: 24px; }"
         "QTreeView::item:hover { background-color: %7; }"
         "QTreeView::item:selected { background-color: %8; color: %2; }"
-        "QTreeView::branch:has-children:!has-siblings:closed, QTreeView::branch:closed:has-children:has-siblings { image: url(:/icons/chevron_right.svg); }"
-        "QTreeView::branch:open:has-children:!has-siblings, QTreeView::branch:open:has-children:has-siblings { image: url(:/icons/chevron_down.svg); }"
-    ).arg(bg, fg, border, accent, inputBg, altRow, hoverBg, selectionBg));
+        "QTreeView::branch:has-children:!has-siblings:closed, QTreeView::branch:closed:has-children:has-siblings { image: url(%9); }"
+        "QTreeView::branch:open:has-children:!has-siblings, QTreeView::branch:open:has-children:has-siblings { image: url(%10); }"
+    ).arg(bg, fg, border, accent, inputBg, altRow, hoverBg, selectionBg, rightPath, downPath));
 
     if (m_titleLabel) {
         m_titleLabel->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1; text-transform: uppercase; letter-spacing: 0.5px;")

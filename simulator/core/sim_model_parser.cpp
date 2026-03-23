@@ -94,6 +94,7 @@ SimComponentType inferModelType(const std::string& typeToken, bool& ok) {
     if (typeStr == "D") return SimComponentType::Diode;
     if (typeStr == "NMOS") return SimComponentType::MOSFET_NMOS;
     if (typeStr == "PMOS") return SimComponentType::MOSFET_PMOS;
+    if (typeStr == "VDMOS") return SimComponentType::MOSFET_NMOS;
     if (typeStr == "NJF") return SimComponentType::JFET_NJF;
     if (typeStr == "PJF") return SimComponentType::JFET_PJF;
     if (typeStr == "SW") return SimComponentType::Switch;
@@ -191,9 +192,18 @@ bool SimModelParser::parseModelLine(
         model.params = base->params;
     }
 
+    bool vdmosPchan = false;
     for (size_t i = 3; i < tokens.size(); ++i) {
         std::string token = stripParensComma(tokens[i]);
         if (token.empty()) continue;
+
+        std::string tokenLower = token;
+        std::transform(tokenLower.begin(), tokenLower.end(), tokenLower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (tokenLower == "pchan") {
+            vdmosPchan = true;
+            continue;
+        }
+
         const size_t eq = token.find('=');
         if (eq == std::string::npos) continue;
 
@@ -205,6 +215,12 @@ bool SimModelParser::parseModelLine(
         if (parseNumeric(valStr, parsed)) {
             model.params[key] = parsed;
         }
+    }
+
+    std::string typeUpper = typeOrBase;
+    std::transform(typeUpper.begin(), typeUpper.end(), typeUpper.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    if (typeUpper == "VDMOS" && vdmosPchan) {
+        model.type = SimComponentType::MOSFET_PMOS;
     }
 
     outModels[model.name] = model;

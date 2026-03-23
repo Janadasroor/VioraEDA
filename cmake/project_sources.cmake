@@ -147,6 +147,14 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/diode_model_picker_dialog.h
     schematic/dialogs/diode_properties_dialog.cpp
     schematic/dialogs/diode_properties_dialog.h
+    schematic/dialogs/bjt_model_picker_dialog.cpp
+    schematic/dialogs/bjt_model_picker_dialog.h
+    schematic/dialogs/bjt_properties_dialog.cpp
+    schematic/dialogs/bjt_properties_dialog.h
+    schematic/dialogs/mos_model_picker_dialog.cpp
+    schematic/dialogs/mos_model_picker_dialog.h
+    schematic/dialogs/mos_properties_dialog.cpp
+    schematic/dialogs/mos_properties_dialog.h
     schematic/dialogs/jfet_model_picker_dialog.cpp
     schematic/dialogs/jfet_model_picker_dialog.h
     schematic/dialogs/jfet_properties_dialog.cpp

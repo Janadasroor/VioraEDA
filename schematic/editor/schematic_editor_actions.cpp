@@ -50,7 +50,9 @@
 #include "../dialogs/transmission_line_properties_dialog.h"
 #include "../dialogs/diode_model_picker_dialog.h"
 #include "../dialogs/diode_properties_dialog.h"
+#include "../dialogs/bjt_properties_dialog.h"
 #include "../dialogs/jfet_properties_dialog.h"
+#include "../dialogs/mos_properties_dialog.h"
 #include "../items/generic_component_item.h"
 #include "../dialogs/oscilloscope_properties_dialog.h"
 #include "../dialogs/erc_rules_dialog.h"
@@ -956,6 +958,76 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 }
                 newState["paramExpressions"] = peObj;
                 m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
+            }
+            return;
+        }
+
+        // BJT properties dialog
+        if (item->itemTypeName().compare("Transistor", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("Transistor_PNP", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("npn", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("npn2", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("npn3", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("npn4", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("pnp", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("pnp2", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("pnp4", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("lpnp", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("QN", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("QP", Qt::CaseInsensitive) == 0) {
+            BjtPropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                QJsonObject newState = item->toJson();
+                newState["value"] = dlg.modelName();
+                QJsonObject peObj;
+                const auto newPE = dlg.paramExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    peObj[it.key()] = it.value();
+                }
+                newState["paramExpressions"] = peObj;
+                m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
+
+                const QString newSym = dlg.newSymbolName();
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(item)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // MOSFET properties dialog
+        if (item->itemTypeName().compare("Transistor_NMOS", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("Transistor_PMOS", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("nmos", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("nmos4", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("pmos", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("pmos4", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("MN", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("MP", Qt::CaseInsensitive) == 0) {
+            MosPropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                QJsonObject newState = item->toJson();
+                newState["value"] = dlg.modelName();
+                QJsonObject peObj;
+                const auto newPE = dlg.paramExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    peObj[it.key()] = it.value();
+                }
+                newState["paramExpressions"] = peObj;
+                m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
+
+                const QString newSym = dlg.newSymbolName();
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(item)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
             }
             return;
         }

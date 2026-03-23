@@ -119,7 +119,7 @@ void JfetPropertiesDialog::loadValues() {
     if (!m_item) return;
 
     const bool pch = isPChannel();
-    const QString defaultModel = pch ? "PJF" : "NJF";
+    const QString defaultModel = pch ? "2N5460" : "2N3819";
 
     QString modelName = m_item->value().trimmed();
     if (modelName.isEmpty()) modelName = defaultModel;
@@ -170,7 +170,7 @@ void JfetPropertiesDialog::fillFromModel(const QString& modelName) {
 
 void JfetPropertiesDialog::updateCommandPreview() {
     QString model = modelName();
-    if (model.isEmpty()) model = isPChannel() ? "PJF" : "NJF";
+    if (model.isEmpty()) model = isPChannel() ? "2N5460" : "2N3819";
 
     QStringList params;
     auto addIf = [&](const QString& key, QLineEdit* edit) {

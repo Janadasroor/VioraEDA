@@ -96,12 +96,12 @@ if(BUILD_VIOSPICE_APP)
     )
 
     target_link_libraries(viospice PRIVATE 
+        FluxUI
         FluxSchematicUI 
         FluxSchematicCore 
         FluxSymbols 
-        FluxCore 
         FluxSimulator
-        FluxUI
+        FluxCore 
     )
 
     if(NGSPICE_FOUND)

@@ -48,6 +48,13 @@ int SourceControlManager::untrackedCount() const {
 }
 
 void SourceControlManager::refresh() {
+    bool wasRepo = m_isRepo;
+    m_isRepo = m_backend.isGitRepo();
+    
+    if (wasRepo != m_isRepo) {
+        emit repoChanged(m_isRepo);
+    }
+
     if (!m_isRepo) return;
 
     m_fileStatuses = m_backend.status();
@@ -77,6 +84,8 @@ void SourceControlManager::runAsync(const QString& opName, std::function<bool()>
         // Refresh after any mutating operation
         refresh();
     });
+    
+    watcher->setFuture(future);
 }
 
 void SourceControlManager::stageFile(const QString& path) {

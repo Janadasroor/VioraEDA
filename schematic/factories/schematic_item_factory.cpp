@@ -37,9 +37,21 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
                                    typeName.compare("bi2", Qt::CaseInsensitive) == 0;
     const bool isJfet = typeName.compare("njf", Qt::CaseInsensitive) == 0 ||
                         typeName.compare("pjf", Qt::CaseInsensitive) == 0;
+    const bool isBjtAlias = typeName.compare("npn", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("npn2", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("npn3", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("npn4", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("pnp", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("pnp2", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("pnp4", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("lpnp", Qt::CaseInsensitive) == 0;
+    const bool isMosAlias = typeName.compare("nmos", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("nmos4", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("pmos", Qt::CaseInsensitive) == 0 ||
+                            typeName.compare("pmos4", Qt::CaseInsensitive) == 0;
 
     // Prefer external symbols if they exist (override built-ins), except for power, source and explicit JFET types.
-    if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet) {
+    if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet && !isBjtAlias && !isMosAlias) {
         if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(typeName)) {
             item = new GenericComponentItem(*def, parent);
             item->setPos(pos);
