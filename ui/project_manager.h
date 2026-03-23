@@ -49,6 +49,8 @@ private slots:
     void importLtspiceBatch();
     void importLtspiceDiodeModels();
     void importLtspiceJfetModels();
+    void importLtspiceBjtModels();
+    void importLtspiceMosModels();
     void onSettings();
     void showAbout();
     void showHelp();
@@ -106,7 +108,7 @@ private:
     
     // Core methods
     void refreshProjectTree();
-    void addFolderToTree(const QString& folderPath);
+    void addFolderToTree(const QString& folderPath, class QTreeWidgetItem* parent = nullptr);
     void updateRecentProjectsMenu();
     void saveWorkspace();
     void loadWorkspace(const QString& path);

@@ -43,13 +43,36 @@ QString modelToSpiceLine(const SimModel& model) {
     const QString typeStr = spicetypeToString(model.type);
     if (typeStr.isEmpty()) return QString();
 
+    QSet<QString> allowed;
+    switch (model.type) {
+        case SimComponentType::Diode:
+            allowed = {"IS", "N", "RS", "VJ", "CJO", "M", "TT", "BV", "IBV"};
+            break;
+        case SimComponentType::BJT_NPN:
+        case SimComponentType::BJT_PNP:
+            allowed = {"IS", "BF", "BR", "VAF", "VAR", "CJE", "CJC", "TF", "TR", "RB", "RE", "RC"};
+            break;
+        case SimComponentType::MOSFET_NMOS:
+        case SimComponentType::MOSFET_PMOS:
+            allowed = {"VTO", "KP", "LAMBDA", "RD", "RS", "RG", "CGSO", "CGDO", "CGBO", "CBD", "CBS", "PB", "GAMMA", "PHI", "LEVEL"};
+            break;
+        case SimComponentType::JFET_NJF:
+        case SimComponentType::JFET_PJF:
+            allowed = {"BETA", "VTO", "LAMBDA", "RD", "RS", "CGS", "CGD", "IS", "PB", "FC"};
+            break;
+        default:
+            break;
+    }
+
     QString line = QString(".model %1 %2(").arg(
         QString::fromStdString(model.name), typeStr);
     bool first = true;
     for (const auto& [key, val] : model.params) {
+        const QString qkey = QString::fromStdString(key).toUpper();
+        if (!allowed.isEmpty() && !allowed.contains(qkey)) continue;
         if (!first) line += " ";
         line += QString("%1=%2").arg(
-            QString::fromStdString(key),
+            qkey,
             QString::number(val, 'g', 12));
         first = false;
     }
@@ -353,8 +376,25 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         const QString typeLower = comp.typeName.trimmed().toLower();
         const bool isJfet = (typeLower == "njf" || typeLower == "pjf") ||
                             comp.reference.startsWith("J", Qt::CaseInsensitive);
+        const bool isMos = (typeLower == "transistor_nmos" || typeLower == "transistor_pmos" ||
+                            typeLower == "nmos" || typeLower == "nmos4" ||
+                            typeLower == "pmos" || typeLower == "pmos4") ||
+                           comp.reference.startsWith("M", Qt::CaseInsensitive);
+        const bool isBjt = (typeLower == "transistor" || typeLower == "transistor_pnp" ||
+                            typeLower == "npn" || typeLower == "npn2" || typeLower == "npn3" || typeLower == "npn4" ||
+                            typeLower == "pnp" || typeLower == "pnp2" || typeLower == "pnp4" || typeLower == "lpnp") ||
+                           comp.reference.startsWith("Q", Qt::CaseInsensitive);
         if (modelName.isEmpty() && isJfet) {
             modelName = (typeLower == "pjf" || comp.reference.startsWith("JP", Qt::CaseInsensitive)) ? "PJF" : "NJF";
+        }
+        if (modelName.isEmpty() && isBjt) {
+            modelName = (typeLower == "transistor_pnp" || typeLower == "pnp" || typeLower == "pnp2" ||
+                         typeLower == "pnp4" || typeLower == "lpnp" ||
+                         comp.reference.startsWith("QP", Qt::CaseInsensitive)) ? "2N3906" : "2N2222";
+        }
+        if (modelName.isEmpty() && isMos) {
+            modelName = (typeLower == "transistor_pmos" || typeLower == "pmos" || typeLower == "pmos4" ||
+                         comp.reference.startsWith("MP", Qt::CaseInsensitive)) ? "BS250" : "2N7000";
         }
         if (modelName.isEmpty()) continue;
         if (switchModelsAdded.contains(modelName.toLower())) continue;
@@ -421,6 +461,73 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
                 for (int i = 0; i < params.size(); ++i) {
                     params[i].replace("jfet.", "");
+                }
+
+                line += params.join(" ") + ")";
+                embeddedModelLines.append(line);
+                switchModelsAdded.insert(modelName.toLower());
+            }
+        } else if (isBjt) {
+            // Generate .model from component paramExpressions for user-customized BJTs
+            const auto& pe = comp.paramExpressions;
+            if (!pe.isEmpty()) {
+                const QString bjtTypeExpr = pe.value("bjt.type").trimmed();
+                const bool pnpFromExpr = bjtTypeExpr.compare("PNP", Qt::CaseInsensitive) == 0;
+                const QString modelType = (pnpFromExpr ||
+                                           typeLower == "transistor_pnp" || typeLower == "pnp" || typeLower == "pnp2" ||
+                                           typeLower == "pnp4" || typeLower == "lpnp" ||
+                                           comp.reference.startsWith("QP", Qt::CaseInsensitive)) ? "PNP" : "NPN";
+                QString line = QString(".model %1 %2(").arg(modelName, modelType);
+                QStringList params;
+                auto addParam = [&](const QString& key) {
+                    const QString val = pe.value(key).trimmed();
+                    if (!val.isEmpty()) {
+                        params.append(QString("%1=%2").arg(key, val));
+                    }
+                };
+                addParam("bjt.Is");
+                addParam("bjt.Bf");
+                addParam("bjt.Vaf");
+                addParam("bjt.Cje");
+                addParam("bjt.Cjc");
+                addParam("bjt.Tf");
+                addParam("bjt.Tr");
+
+                for (int i = 0; i < params.size(); ++i) {
+                    params[i].replace("bjt.", "");
+                }
+
+                line += params.join(" ") + ")";
+                embeddedModelLines.append(line);
+                switchModelsAdded.insert(modelName.toLower());
+            }
+        } else if (isMos) {
+            // Generate .model from component paramExpressions for user-customized MOSFETs
+            const auto& pe = comp.paramExpressions;
+            if (!pe.isEmpty()) {
+                const QString mosTypeExpr = pe.value("mos.type").trimmed();
+                const bool pmosFromExpr = mosTypeExpr.compare("PMOS", Qt::CaseInsensitive) == 0;
+                const QString modelType = (pmosFromExpr ||
+                                           typeLower == "transistor_pmos" || typeLower == "pmos" || typeLower == "pmos4" ||
+                                           comp.reference.startsWith("MP", Qt::CaseInsensitive)) ? "PMOS" : "NMOS";
+                QString line = QString(".model %1 %2(").arg(modelName, modelType);
+                QStringList params;
+                auto addParam = [&](const QString& key) {
+                    const QString val = pe.value(key).trimmed();
+                    if (!val.isEmpty()) {
+                        params.append(QString("%1=%2").arg(key, val));
+                    }
+                };
+                addParam("mos.Vto");
+                addParam("mos.Kp");
+                addParam("mos.Lambda");
+                addParam("mos.Rd");
+                addParam("mos.Rs");
+                addParam("mos.Cgso");
+                addParam("mos.Cgdo");
+
+                for (int i = 0; i < params.size(); ++i) {
+                    params[i].replace("mos.", "");
                 }
 
                 line += params.join(" ") + ")";
@@ -852,7 +959,15 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
             QString model = value.trimmed();
             if (model.isEmpty() || model.compare("njf", Qt::CaseInsensitive) == 0 || model.compare("pjf", Qt::CaseInsensitive) == 0) {
-                model = isPJF ? "PJF" : "NJF";
+                model = isPJF ? "2N5460" : "2N3819";
+            }
+
+            if (!switchModelsAdded.contains(model.toLower()) && !ModelLibraryManager::instance().findModel(model)) {
+                const QString typeToken = isPJF ? "PJF" : "NJF";
+                const QString vto = isPJF ? "2" : "-2";
+                netlist += QString(".model %1 %2(Beta=1m Vto=%3 Lambda=0.02 Rd=1 Rs=1 Cgs=2p Cgd=1p Is=1e-14)\n")
+                    .arg(model, typeToken, vto);
+                switchModelsAdded.insert(model.toLower());
             }
 
             const QString d = nodes.at(0);
@@ -1040,6 +1155,11 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             line += " " + node;
         }
 
+        // ngspice MOSFET requires 4 nodes: D G S B. For 3-pin symbols, tie body to source.
+        if (line.startsWith("M", Qt::CaseInsensitive) && nodes.size() == 3) {
+            line += " " + nodes.at(2);
+        }
+
         // Add value
         if (value.isEmpty()) {
             if (line.startsWith("D")) {
@@ -1048,9 +1168,62 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 netlist += QString(".model %1 D(Is=2.52n N=1.752 Rs=0.568 Vj=0.7 Cjo=4p M=0.4 tt=20n)\n")
                     .arg(defaultModel);
                 value = defaultModel;
+            } else if (line.startsWith("M", Qt::CaseInsensitive)) {
+                const QString mosTypeExpr = comp.paramExpressions.value("mos.type").trimmed();
+                const bool pmosAlias = mosTypeExpr.compare("PMOS", Qt::CaseInsensitive) == 0 ||
+                                       comp.typeName.compare("Transistor_PMOS", Qt::CaseInsensitive) == 0 ||
+                                       comp.typeName.compare("pmos", Qt::CaseInsensitive) == 0 ||
+                                       comp.typeName.compare("pmos4", Qt::CaseInsensitive) == 0 ||
+                                       ref.startsWith("MP", Qt::CaseInsensitive);
+                value = pmosAlias ? "BS250" : "2N7000";
+            } else if (line.startsWith("Q")) {
+                const QString bjtTypeExpr = comp.paramExpressions.value("bjt.type").trimmed();
+                const bool pnpAlias = bjtTypeExpr.compare("PNP", Qt::CaseInsensitive) == 0 ||
+                                      comp.typeName.compare("transistor_pnp", Qt::CaseInsensitive) == 0 ||
+                                      comp.typeName.compare("pnp", Qt::CaseInsensitive) == 0 ||
+                                      comp.typeName.compare("pnp2", Qt::CaseInsensitive) == 0 ||
+                                      comp.typeName.compare("pnp4", Qt::CaseInsensitive) == 0 ||
+                                      comp.typeName.compare("lpnp", Qt::CaseInsensitive) == 0 ||
+                                      ref.startsWith("QP", Qt::CaseInsensitive);
+                value = pnpAlias ? "2N3906" : "2N2222";
             } else {
                 value = "1k"; // Default for R/C/L
             }
+        } else if (line.startsWith("M", Qt::CaseInsensitive) && (value.compare("NMOS", Qt::CaseInsensitive) == 0 || value.compare("PMOS", Qt::CaseInsensitive) == 0)) {
+            value = (value.compare("PMOS", Qt::CaseInsensitive) == 0) ? "BS250" : "2N7000";
+        } else if (line.startsWith("Q") && (value.compare("NPN", Qt::CaseInsensitive) == 0 || value.compare("PNP", Qt::CaseInsensitive) == 0)) {
+            value = (value.compare("PNP", Qt::CaseInsensitive) == 0) ? "2N3906" : "2N2222";
+        }
+
+        if (line.startsWith("M", Qt::CaseInsensitive) && !switchModelsAdded.contains(value.toLower()) && !ModelLibraryManager::instance().findModel(value)) {
+            const QString mosTypeExpr = comp.paramExpressions.value("mos.type").trimmed();
+            const bool pmosModel = mosTypeExpr.compare("PMOS", Qt::CaseInsensitive) == 0 ||
+                                   value.compare("BS250", Qt::CaseInsensitive) == 0 ||
+                                   comp.typeName.compare("Transistor_PMOS", Qt::CaseInsensitive) == 0 ||
+                                   comp.typeName.compare("pmos", Qt::CaseInsensitive) == 0 ||
+                                   comp.typeName.compare("pmos4", Qt::CaseInsensitive) == 0 ||
+                                   ref.startsWith("MP", Qt::CaseInsensitive);
+            const QString mosType = pmosModel ? "PMOS" : "NMOS";
+            const QString vto = pmosModel ? "-2" : "2";
+            netlist += QString(".model %1 %2(Vto=%3 Kp=100u Lambda=0.02 Rd=1 Rs=1 Cgso=50p Cgdo=50p)\n")
+                .arg(value, mosType, vto);
+            switchModelsAdded.insert(value.toLower());
+        }
+
+        if (line.startsWith("Q") && !switchModelsAdded.contains(value.toLower()) && !ModelLibraryManager::instance().findModel(value)) {
+            const QString bjtTypeExpr = comp.paramExpressions.value("bjt.type").trimmed();
+            const bool pnpModel = bjtTypeExpr.compare("PNP", Qt::CaseInsensitive) == 0 ||
+                                  value.compare("2N3906", Qt::CaseInsensitive) == 0 ||
+                                  comp.typeName.compare("transistor_pnp", Qt::CaseInsensitive) == 0 ||
+                                  comp.typeName.compare("pnp", Qt::CaseInsensitive) == 0 ||
+                                  comp.typeName.compare("pnp2", Qt::CaseInsensitive) == 0 ||
+                                  comp.typeName.compare("pnp4", Qt::CaseInsensitive) == 0 ||
+                                  comp.typeName.compare("lpnp", Qt::CaseInsensitive) == 0 ||
+                                  ref.startsWith("QP", Qt::CaseInsensitive);
+            const QString bjtType = pnpModel ? "PNP" : "NPN";
+            netlist += QString(".model %1 %2(Is=1e-14 Bf=100 Vaf=100 Cje=8p Cjc=3p Tf=400p Tr=50n)\n")
+                .arg(value, bjtType);
+            switchModelsAdded.insert(value.toLower());
         }
         line += " " + value;
         if (!value.endsWith("\n")) line += "\n";

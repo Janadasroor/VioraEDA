@@ -13,7 +13,9 @@
 #include "../dialogs/cccs_properties_dialog.h"
 #include "../dialogs/ccvs_properties_dialog.h"
 #include "../dialogs/transmission_line_properties_dialog.h"
+#include "../dialogs/bjt_properties_dialog.h"
 #include "../dialogs/jfet_properties_dialog.h"
+#include "../dialogs/mos_properties_dialog.h"
 #include "../items/voltage_source_item.h"
 #include "../items/current_source_item.h"
 #include "../items/schematic_spice_directive_item.h"
@@ -1004,6 +1006,108 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
                 targetSItem->clearParamExpressions();
                 for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
                     targetSItem->setParamExpression(it.key(), it.value());
+                }
+                targetSItem->update();
+            }
+        }
+        return;
+    }
+
+    // SPECIAL: BJT properties dialog on right-click
+    if (targetSItem && (targetSItem->itemTypeName().compare("Transistor", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("Transistor_PNP", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("npn", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("npn2", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("npn3", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("npn4", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("pnp", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("pnp2", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("pnp4", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("lpnp", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("QN", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("QP", Qt::CaseInsensitive) == 0)) {
+        BjtPropertiesDialog dlg(targetSItem, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString newName = dlg.modelName();
+            const auto newPE = dlg.paramExpressions();
+            const QString newSym = dlg.newSymbolName();
+            if (m_undoStack) {
+                QJsonObject newState = targetSItem->toJson();
+                newState["value"] = newName;
+                QJsonObject peObj;
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    peObj[it.key()] = it.value();
+                }
+                newState["paramExpressions"] = peObj;
+                m_undoStack->push(new BulkChangePropertyCommand(scene(), targetSItem, newState));
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(targetSItem)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
+            } else {
+                targetSItem->setValue(newName);
+                targetSItem->clearParamExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    targetSItem->setParamExpression(it.key(), it.value());
+                }
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(targetSItem)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
+                targetSItem->update();
+            }
+        }
+        return;
+    }
+
+    // SPECIAL: MOSFET properties dialog on right-click
+    if (targetSItem && (targetSItem->itemTypeName().compare("Transistor_NMOS", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("Transistor_PMOS", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("nmos", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("nmos4", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("pmos", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("pmos4", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("MN", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("MP", Qt::CaseInsensitive) == 0)) {
+        MosPropertiesDialog dlg(targetSItem, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString newName = dlg.modelName();
+            const auto newPE = dlg.paramExpressions();
+            const QString newSym = dlg.newSymbolName();
+            if (m_undoStack) {
+                QJsonObject newState = targetSItem->toJson();
+                newState["value"] = newName;
+                QJsonObject peObj;
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    peObj[it.key()] = it.value();
+                }
+                newState["paramExpressions"] = peObj;
+                m_undoStack->push(new BulkChangePropertyCommand(scene(), targetSItem, newState));
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(targetSItem)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
+                }
+            } else {
+                targetSItem->setValue(newName);
+                targetSItem->clearParamExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    targetSItem->setParamExpression(it.key(), it.value());
+                }
+                if (!newSym.isEmpty()) {
+                    if (auto* gen = dynamic_cast<GenericComponentItem*>(targetSItem)) {
+                        if (SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(newSym)) {
+                            gen->setSymbol(*sym);
+                        }
+                    }
                 }
                 targetSItem->update();
             }

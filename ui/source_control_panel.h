@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QCheckBox>
+#include <QComboBox>
 #include "source_control_manager.h"
 #include "git_backend.h"
 
@@ -38,18 +39,21 @@ private slots:
     void onFileDoubleClicked(QListWidgetItem* item);
     void onFileContextMenu(const QPoint& pos);
     void onFilterChanged(const QString& text);
+    void onWorkspaceChanged(int index);
 
 private:
     void setupUi();
     void applyTheme();
     void updateFileList();
     void updateCommitList();
+    void updateWorkspaceCombo();
     void showNotRepoView();
     void showRepoView();
 
     SourceControlManager& m_mgr;
 
     // Header
+    QComboBox* m_workspaceCombo;
     QLabel* m_branchLabel;
     QPushButton* m_refreshBtn;
     QLabel* m_summaryLabel;

@@ -8,6 +8,9 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QStack>
+#include <QHash>
+
+#include "source_control_manager.h"
 
 struct DeletedEntry {
     QString originalPath;
@@ -21,6 +24,7 @@ class ProjectExplorerWidget : public QWidget {
 public:
     explicit ProjectExplorerWidget(QWidget *parent = nullptr);
     void setRootPath(const QString& path);
+    void setWorkspaceFolders(const QStringList& folders);
 
 signals:
     void fileDoubleClicked(const QString& filePath);
@@ -31,6 +35,7 @@ private slots:
     void onContextMenuRequested(const QPoint& pos);
     void onRefreshRequested();
     void onCollapseAllRequested();
+    void onGitStatusUpdated();
 
 private:
     void setupUi();
@@ -46,7 +51,9 @@ private:
     QLabel* m_titleLabel;
     QToolButton* m_undoBtn;
     QString m_rootPath;
+    QStringList m_workspaceFolders;
     QStack<DeletedEntry> m_deleteHistory;
+    QHash<QString, QString> m_gitStatusMap;
 };
 
 #endif // PROJECT_EXPLORER_WIDGET_H

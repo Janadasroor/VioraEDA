@@ -41,7 +41,7 @@ public:
     ~SchematicEditor();
 
     bool openFile(const QString& filePath);
-    void setProjectContext(const QString& projectName, const QString& projectDir);
+    void setProjectContext(const QString& projectName, const QString& projectDir, const QStringList& workspaceFolders = QStringList());
 
     void showSimulationResults(const class SimResults& results);
     class NetManager* netManager() const { return m_netManager; }

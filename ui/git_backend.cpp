@@ -115,6 +115,17 @@ bool GitBackend::push(const QString& remote, const QString& branch, QString* out
     if (!remote.isEmpty()) args << remote;
     if (!branch.isEmpty()) args << branch;
     auto r = run(args, 60000);
+    
+    // Automatically set upstream if missing
+    if (r.exitCode != 0 && (r.stderrData.contains("has no upstream branch") || r.stderrData.contains("--set-upstream"))) {
+        QString current = currentBranch();
+        QString targetRemote = remote.isEmpty() ? "origin" : remote;
+        
+        if (!current.isEmpty() && remotes().contains(targetRemote)) {
+            r = run({"push", "--set-upstream", targetRemote, current}, 60000);
+        }
+    }
+    
     if (output) *output = r.stderrData;
     return r.exitCode == 0;
 }

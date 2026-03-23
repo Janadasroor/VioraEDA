@@ -2,6 +2,7 @@
 #include "diff_viewer_dialog.h"
 #include "branch_dialog.h"
 #include "theme_manager.h"
+#include "core/config_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -17,6 +18,79 @@
 #include <QClipboard>
 #include <QLineEdit>
 #include <QCheckBox>
+#include <QStyledItemDelegate>
+#include <QPainter>
+#include <QFileInfo>
+
+class SCFileDelegate : public QStyledItemDelegate {
+    SourceControlManager& m_mgr;
+public:
+    explicit SCFileDelegate(SourceControlManager& mgr, QObject* parent = nullptr) 
+        : QStyledItemDelegate(parent), m_mgr(mgr) {}
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        if (!index.data(Qt::UserRole).isValid() || index.data(Qt::UserRole).toString().isEmpty()) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+
+        painter->save();
+
+        QStyle* style = option.widget ? option.widget->style() : QApplication::style();
+        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &option, painter, option.widget);
+
+        bool isSelected = option.state & QStyle::State_Selected;
+        QString path = index.data(Qt::UserRole).toString();
+        QString projName = index.data(Qt::UserRole + 2).toString();
+        QString statusChar = index.data(Qt::UserRole + 3).toString();
+        QColor statusColor = index.data(Qt::UserRole + 4).value<QColor>();
+
+        QFileInfo fi(path);
+        QString fileName = fi.fileName();
+        QString dir = fi.path();
+        if (dir == ".") dir = ""; 
+        else dir = " • " + dir;
+
+        QRect r = option.rect.adjusted(8, 2, -8, -2);
+
+        painter->setPen(isSelected ? option.palette.highlightedText().color() : option.palette.text().color());
+        QFont font = option.font;
+        painter->setFont(font);
+        
+        QFontMetrics fm(font);
+        int textY = r.top() + (r.height() - fm.height()) / 2 + fm.ascent();
+        
+        painter->drawText(r.left(), textY, fileName);
+        int fnWidth = fm.horizontalAdvance(fileName);
+        
+        if (!isSelected) {
+            painter->setPen(QColor(136, 136, 136));
+        }
+        QFont pathFont = font;
+        pathFont.setPointSize(qMax(8, font.pointSize() - 1));
+        painter->setFont(pathFont);
+        painter->drawText(r.left() + fnWidth + 8, textY, projName + dir);
+
+        if (!isSelected) {
+           painter->setPen(statusColor);
+        }
+        QFont stFont = font;
+        stFont.setBold(true);
+        painter->setFont(stFont);
+        int stWidth = QFontMetrics(stFont).horizontalAdvance(statusChar);
+        painter->drawText(r.right() - stWidth, textY, statusChar);
+
+        painter->restore();
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        QSize s = QStyledItemDelegate::sizeHint(option, index);
+        if (index.data(Qt::UserRole).isValid() && !index.data(Qt::UserRole).toString().isEmpty()) {
+            s.setHeight(s.height() + 4);
+        }
+        return s;
+    }
+};
 
 SourceControlPanel::SourceControlPanel(QWidget* parent)
     : QWidget(parent), m_mgr(SourceControlManager::instance())
@@ -54,15 +128,25 @@ SourceControlPanel::SourceControlPanel(QWidget* parent)
         m_commitPushBtn->setEnabled(canCommit);
     });
 
+    connect(m_workspaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SourceControlPanel::onWorkspaceChanged);
+
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this]() {
         applyTheme();
     });
+
+    updateWorkspaceCombo();
 }
 
 void SourceControlPanel::setupUi() {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
+
+    // === Workspace Selector ===
+    m_workspaceCombo = new QComboBox(this);
+    m_workspaceCombo->setStyleSheet("QComboBox { padding: 4px; border: none; font-weight: bold; }");
+    m_workspaceCombo->hide(); // Hidden by default, shown via updateWorkspaceCombo if > 1 folder
+    mainLayout->addWidget(m_workspaceCombo);
 
     // === Header ===
     QWidget* header = new QWidget(this);
@@ -165,6 +249,7 @@ void SourceControlPanel::setupUi() {
     m_fileList = new QListWidget(changesSection);
     m_fileList->setContextMenuPolicy(Qt::CustomContextMenu);
     m_fileList->setAlternatingRowColors(true);
+    m_fileList->setItemDelegate(new SCFileDelegate(m_mgr, m_fileList));
     changesLayout->addWidget(m_fileList, 1);
 
     QWidget* stageBar = new QWidget(changesSection);
@@ -245,6 +330,7 @@ void SourceControlPanel::setupUi() {
 }
 
 void SourceControlPanel::refresh() {
+    updateWorkspaceCombo();
     m_mgr.refresh();
 }
 
@@ -282,7 +368,46 @@ void SourceControlPanel::onStatusUpdated() {
 }
 
 void SourceControlPanel::onBranchChanged(const QString& branch) {
-    m_branchLabel->setText("  " + branch + "  ");
+    QString displayBranch = branch.isEmpty() ? "No Branch" : branch;
+    m_branchLabel->setText(QString("<a href='#' style='text-decoration:none; color:inherit;'>  %1  </a>").arg(displayBranch));
+}
+
+void SourceControlPanel::updateWorkspaceCombo() {
+    QStringList folders = ConfigManager::instance().workspaceFolders();
+    
+    // Disconnect so we don't trigger updates during population
+    disconnect(m_workspaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SourceControlPanel::onWorkspaceChanged);
+    
+    m_workspaceCombo->clear();
+    
+    if (folders.size() > 1) {
+        m_workspaceCombo->show();
+        for (const QString& folder : folders) {
+            QFileInfo fi(folder);
+            m_workspaceCombo->addItem(fi.fileName(), folder);
+        }
+        
+        // Try to select the currently managed project
+        QString currentProject = m_mgr.projectDir();
+        int idx = m_workspaceCombo->findData(currentProject);
+        if (idx >= 0) {
+            m_workspaceCombo->setCurrentIndex(idx);
+        } else {
+            m_workspaceCombo->setCurrentIndex(0);
+        }
+    } else {
+        m_workspaceCombo->hide();
+    }
+    
+    // Reconnect
+    connect(m_workspaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SourceControlPanel::onWorkspaceChanged);
+}
+
+void SourceControlPanel::onWorkspaceChanged(int index) {
+    if (index < 0) return;
+    QString folderPath = m_workspaceCombo->itemData(index).toString();
+    m_mgr.setProjectDir(folderPath);
+    refresh();
 }
 
 void SourceControlPanel::updateFileList() {
@@ -330,14 +455,35 @@ void SourceControlPanel::updateFileList() {
         m_fileList->addItem(header);
     };
 
-    auto addFileItem = [&](const GitFileStatus& f, const QColor& color, const QString& statusText) {
-        QString status = f.staged ? f.indexStatus : (f.isUntracked ? "U" : f.worktreeStatus);
-        QString display = QString("%1  %2").arg(status, f.path);
-        QListWidgetItem* item = new QListWidgetItem(display);
+    auto addFileItem = [&](const GitFileStatus& f, const QColor& /* groupColor */, const QString& statusText) {
+        QListWidgetItem* item = new QListWidgetItem();
         item->setToolTip(QString("%1: %2").arg(statusText, f.path));
         item->setData(Qt::UserRole, f.path);
         item->setData(Qt::UserRole + 1, f.staged);
-        item->setForeground(color);
+        
+        QString projName = QFileInfo(m_mgr.projectDir()).fileName();
+        if (projName.isEmpty()) projName = "repo";
+        item->setData(Qt::UserRole + 2, projName);
+        
+        QString statusChar = f.staged ? f.indexStatus : (f.isUntracked ? "U" : f.worktreeStatus);
+        if (statusChar.length() > 1) statusChar = statusChar.left(1);
+        if (statusChar.isEmpty()) statusChar = "M";
+        if (statusChar == "?") statusChar = "U";
+        item->setData(Qt::UserRole + 3, statusChar);
+        
+        // Apply precise VS Code color mapping
+        QColor letterColor;
+        if (statusChar == "U" || statusChar == "A") {
+            letterColor = isLight ? QColor("#1ca040") : QColor("#73c991"); // Green
+        } else if (statusChar == "M") {
+            letterColor = isLight ? QColor("#895503") : QColor("#e2c08d"); // Orange/Yellow
+        } else if (statusChar == "D") {
+            letterColor = isLight ? QColor("#c33828") : QColor("#c74e39"); // Red
+        } else {
+            letterColor = isLight ? QColor("#64748b") : QColor("#808080"); // Grey
+        }
+        item->setData(Qt::UserRole + 4, letterColor);
+        
         m_fileList->addItem(item);
     };
 

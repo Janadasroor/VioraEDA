@@ -1,4 +1,5 @@
 #include "branch_dialog.h"
+#include "theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -60,6 +61,7 @@ void BranchDialog::setupUi() {
     QGroupBox* newBranchGroup = new QGroupBox("Create New Branch", this);
     QHBoxLayout* newBranchLayout = new QHBoxLayout(newBranchGroup);
     m_newBranchEdit = new QLineEdit(this);
+    m_newBranchEdit->setText("main");
     m_newBranchEdit->setPlaceholderText("Branch name...");
     QPushButton* newBranchBtn = new QPushButton("Create & Switch", this);
     newBranchLayout->addWidget(m_newBranchEdit);
@@ -73,6 +75,7 @@ void BranchDialog::setupUi() {
     QVBoxLayout* remoteLayout = new QVBoxLayout(remoteGroup);
     QHBoxLayout* remoteInputs = new QHBoxLayout();
     m_remoteNameEdit = new QLineEdit(this);
+    m_remoteNameEdit->setText("origin");
     m_remoteNameEdit->setPlaceholderText("Name (e.g. origin)");
     m_remoteUrlEdit = new QLineEdit(this);
     m_remoteUrlEdit->setPlaceholderText("URL (e.g. https://github.com/user/repo.git)");
@@ -155,16 +158,35 @@ void BranchDialog::onAddRemoteClicked() {
 }
 
 void BranchDialog::applyTheme() {
-    setStyleSheet(
-        "QDialog { background-color: #1e1e1e; color: #d4d4d4; }"
-        "QListWidget { background-color: #252526; color: #d4d4d4; border: 1px solid #3c3c3c; }"
-        "QListWidget::item:selected { background-color: #094771; }"
-        "QGroupBox { color: #cccccc; border: 1px solid #3c3c3c; border-radius: 4px; margin-top: 8px; padding-top: 16px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; }"
-        "QPushButton { background-color: #0e639c; color: white; border: none; padding: 6px 12px; border-radius: 4px; }"
-        "QPushButton:hover { background-color: #1177bb; }"
-        "QLineEdit { background-color: #3c3c3c; color: #d4d4d4; border: 1px solid #3c3c3c; padding: 4px 8px; border-radius: 4px; }"
-        "QLineEdit:focus { border: 1px solid #0e639c; }"
-        "QLabel { color: #cccccc; }"
-    );
+    bool isLight = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
+
+    if (isLight) {
+        setStyleSheet(
+            "QDialog { background-color: #f8fafc; color: #1e293b; }"
+            "QListWidget { background-color: #ffffff; color: #1e293b; border: 1px solid #e2e8f0; border-radius: 6px; }"
+            "QListWidget::item { padding: 4px 8px; border-radius: 4px; margin: 1px 4px; }"
+            "QListWidget::item:selected { background-color: #dbeafe; color: #1e40af; }"
+            "QGroupBox { color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; margin-top: 8px; padding-top: 16px; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 8px; }"
+            "QPushButton { background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 6px; font-weight: 500; }"
+            "QPushButton:hover { background-color: #f1f5f9; border-color: #94a3b8; }"
+            "QPushButton:pressed { background-color: #e2e8f0; border-color: #64748b; }"
+            "QLineEdit { background-color: #ffffff; color: #1e293b; border: 1px solid #cbd5e1; padding: 6px 8px; border-radius: 6px; }"
+            "QLineEdit:focus { border-color: #3b82f6; }"
+            "QLabel { color: #334155; }"
+        );
+    } else {
+        setStyleSheet(
+            "QDialog { background-color: #1e1e1e; color: #d4d4d4; }"
+            "QListWidget { background-color: #252526; color: #d4d4d4; border: 1px solid #3c3c3c; }"
+            "QListWidget::item:selected { background-color: #094771; }"
+            "QGroupBox { color: #cccccc; border: 1px solid #3c3c3c; border-radius: 4px; margin-top: 8px; padding-top: 16px; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 8px; }"
+            "QPushButton { background-color: #0e639c; color: white; border: none; padding: 6px 12px; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #1177bb; }"
+            "QLineEdit { background-color: #3c3c3c; color: #d4d4d4; border: 1px solid #3c3c3c; padding: 6px 8px; border-radius: 4px; }"
+            "QLineEdit:focus { border-color: #0e639c; }"
+            "QLabel { color: #cccccc; }"
+        );
+    }
 }
