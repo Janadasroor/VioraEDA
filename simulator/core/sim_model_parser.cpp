@@ -4,6 +4,7 @@
 
 #include <QString>
 #include <QRegularExpression>
+#include <QDebug>
 
 #include <sstream>
 #include <algorithm>
@@ -93,6 +94,8 @@ SimComponentType inferModelType(const std::string& typeToken, bool& ok) {
     if (typeStr == "D") return SimComponentType::Diode;
     if (typeStr == "NMOS") return SimComponentType::MOSFET_NMOS;
     if (typeStr == "PMOS") return SimComponentType::MOSFET_PMOS;
+    if (typeStr == "NJF") return SimComponentType::JFET_NJF;
+    if (typeStr == "PJF") return SimComponentType::JFET_PJF;
     if (typeStr == "SW") return SimComponentType::Switch;
     if (typeStr == "CSW") return SimComponentType::CSW;
     ok = false;
@@ -114,7 +117,9 @@ int mapSubcktNodeToken(
     try {
         const int n = std::stoi(token);
         if (n >= 0) return n;
-    } catch (...) {}
+    } catch (...) {
+        qDebug() << "Token" << QString::fromStdString(token) << "is not a valid integer, treating as node name";
+    }
 
     auto it = localNodeToId.find(token);
     if (it != localNodeToId.end()) return it->second;

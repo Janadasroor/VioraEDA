@@ -8,6 +8,7 @@ class ThemeManager : public QObject {
     Q_OBJECT
 
 public:
+    virtual ~ThemeManager();
     static ThemeManager& instance();
     static PCBTheme* theme();
 
@@ -20,7 +21,6 @@ signals:
 
 private:
     ThemeManager();
-    ~ThemeManager();
 
     PCBTheme* m_theme;
 };

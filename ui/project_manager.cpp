@@ -52,6 +52,57 @@
 #include <QResizeEvent>
 #include <QDirIterator>
 #include <QProgressDialog>
+#include <QRegularExpression>
+#include <QVector>
+
+namespace {
+QString decodeSpiceText(const QByteArray& raw) {
+    if (raw.isEmpty()) return QString();
+
+    auto decodeUtf16Le = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = static_cast<ushort>(static_cast<unsigned char>(bytes[i])) |
+                              (static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1])) << 8);
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    auto decodeUtf16Be = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = (static_cast<ushort>(static_cast<unsigned char>(bytes[i])) << 8) |
+                               static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1]));
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    if (raw.size() >= 2) {
+        const unsigned char b0 = static_cast<unsigned char>(raw[0]);
+        const unsigned char b1 = static_cast<unsigned char>(raw[1]);
+        if (b0 == 0xFF && b1 == 0xFE) return decodeUtf16Le(raw, 2);
+        if (b0 == 0xFE && b1 == 0xFF) return decodeUtf16Be(raw, 2);
+    }
+
+    int oddZeros = 0;
+    int evenZeros = 0;
+    const int n = raw.size();
+    for (int i = 0; i < n; ++i) {
+        if (raw[i] == '\0') {
+            if (i % 2 == 0) ++evenZeros;
+            else ++oddZeros;
+        }
+    }
+    if (oddZeros > n / 8) return decodeUtf16Le(raw, 0);
+    if (evenZeros > n / 8) return decodeUtf16Be(raw, 0);
+
+    return QString::fromUtf8(raw);
+}
+}
 
 ProjectManager::ProjectManager(QWidget* parent)
     : QMainWindow(parent), m_workspaceDirty(false), m_workspaceFilePath(QString()) {
@@ -264,7 +315,8 @@ QWidget* ProjectManager::createLauncherArea() {
     createAndStoreTile("Schematic Editor", "Capture and edit circuit schematics", ":/icons/schematic_editor.png", &ProjectManager::openSchematicEditor);
     createAndStoreTile("Symbol Editor", "Create and manage schematic symbol libraries", ":/icons/symbol_editor.png", &ProjectManager::openSymbolEditor);
     createAndStoreTile("LTspice Batch Import", "Import LTspice .asy symbols to .viosym", ":/icons/toolbar_file.png", &ProjectManager::importLtspiceBatch);
-    createAndStoreTile("Diode Model Import", "Import LTspice .dio model libraries by type", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceDiodeModels);
+    createAndStoreTile("Diode/JFET Import", "Import LTspice .dio/.jft model libraries by type", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceDiodeModels);
+    createAndStoreTile("JFET Model Import", "Import LTspice .jft model libraries (NJF/PJF)", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceJfetModels);
     createAndStoreTile("SPICE Model Manager", "Manage simulation models and subcircuit libraries", ":/icons/toolbar_netlist.png", &ProjectManager::openSpiceModelManager);
     createAndStoreTile("Calculator Tools", "Resistance, trace width, and impedance calculators", ":/icons/calculator_tools.png", &ProjectManager::openCalculatorTools);
     createAndStoreTile("Plugins Manager", "Manage extensions, importers, and add-ons", ":/icons/plugins_manager.png", &ProjectManager::openPluginsManager);
@@ -1255,7 +1307,7 @@ void ProjectManager::importLtspiceBatch() {
 
 void ProjectManager::importLtspiceDiodeModels() {
     const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
-    QString srcFile = QFileDialog::getOpenFileName(this, "Select LTspice Diode Model File", defaultSrc, "LTspice Model Files (*.dio *.lib);;All Files (*)");
+    QString srcFile = QFileDialog::getOpenFileName(this, "Select LTspice Diode/JFET Model File", defaultSrc, "LTspice Model Files (*.dio *.jft *.lib);;All Files (*)");
     if (srcFile.isEmpty()) return;
 
     const QString defaultDst = QDir::homePath() + "/ViospiceLib/lib";
@@ -1267,36 +1319,56 @@ void ProjectManager::importLtspiceDiodeModels() {
         QMessageBox::warning(this, "Import Error", "Cannot open file:\n" + srcFile);
         return;
     }
-    const QString content = QString::fromUtf8(file.readAll());
+    const QString content = decodeSpiceText(file.readAll());
     file.close();
+
+    // Build logical lines with SPICE continuation support ('+' at line start)
+    QStringList logicalLines;
+    for (const QString& raw : content.split('\n')) {
+        const QString t = raw.trimmed();
+        if (!logicalLines.isEmpty() && t.startsWith('+')) {
+            logicalLines.last().append(' ' + t.mid(1).trimmed());
+        } else {
+            logicalLines.append(raw);
+        }
+    }
 
     // Parse models grouped by type
     QMap<QString, QStringList> typeToModels;
     QMap<QString, int> typeCounts;
     int total = 0;
 
-    for (const QString& line : content.split('\n')) {
-        QString trimmed = line.trimmed();
-        if (!trimmed.startsWith(".model", Qt::CaseInsensitive)) continue;
+    const QRegularExpression modelHeadRe(
+        R"(^\s*[\x{FEFF}]*\.model\s+(\S+)\s+([^\s(]+))",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpression diodeTypeParamRe(R"(\btype\s*=\s*(\w+))", QRegularExpression::CaseInsensitiveOption);
 
-        // Extract type= parameter
+    for (const QString& line : logicalLines) {
+        QString trimmed = line.trimmed();
+
         QString type = "uncategorized";
-        QRegularExpression typeRe(R"(type\s*=\s*(\w+))", QRegularExpression::CaseInsensitiveOption);
-        QRegularExpressionMatch m = typeRe.match(trimmed);
-        if (m.hasMatch()) {
-            type = m.captured(1);
-            type = type.toLower();
-            // Normalize type names
-            if (type == "silicon")        type = "silicon";
-            else if (type == "schottky")  type = "schottky";
-            else if (type == "zener")     type = "zener";
-            else if (type == "led")       type = "led";
-            else if (type == "varactor")  type = "varactor";
-            else if (type == "rectifier") type = "rectifier";
-            else if (type == "fastrecovery") type = "fast_recovery";
-            else if (type == "switching") type = "switching";
-            else if (type == "tvs")       type = "tvs";
+
+        const QRegularExpressionMatch headMatch = modelHeadRe.match(trimmed);
+        if (headMatch.hasMatch()) {
+            QString modelTypeToken = headMatch.captured(2).trimmed().toLower();
+
+            if (modelTypeToken == "njf" || modelTypeToken == "pjf") {
+                type = modelTypeToken;
+            } else if (modelTypeToken == "d") {
+                const QRegularExpressionMatch m = diodeTypeParamRe.match(trimmed);
+                if (m.hasMatch()) {
+                    type = m.captured(1).toLower();
+                } else {
+                    type = "silicon";
+                }
+            }
         }
+
+        // Normalize names
+        if (type == "fastrecovery") type = "fast_recovery";
+        else if (type == "switching") type = "switching";
+        else if (type == "njf") type = "njf";
+        else if (type == "pjf") type = "pjf";
 
         typeToModels[type].append(trimmed);
         typeCounts[type]++;
@@ -1304,13 +1376,13 @@ void ProjectManager::importLtspiceDiodeModels() {
     }
 
     if (total == 0) {
-        QMessageBox::information(this, "Diode Model Import", "No .model lines found in file.");
+        QMessageBox::information(this, "Diode/JFET Model Import", "No .model lines found in file.");
         return;
     }
 
     // Write .lib files per type
     QStringList written;
-    QProgressDialog progress("Importing diode models...", "Cancel", 0, typeToModels.size(), this);
+    QProgressDialog progress("Importing diode/JFET models...", "Cancel", 0, typeToModels.size(), this);
     progress.setWindowModality(Qt::ApplicationModal);
     progress.setMinimumDuration(200);
 
@@ -1320,7 +1392,10 @@ void ProjectManager::importLtspiceDiodeModels() {
         progress.setValue(step++);
         progress.setLabelText(QString("Writing %1 models (%2)...").arg(it.key()).arg(it.value().size()));
 
-        const QString libName = QString("diodes_%1.lib").arg(it.key());
+        const bool isJfetType = (it.key() == "njf" || it.key() == "pjf");
+        const QString libName = isJfetType
+            ? QString("jfets_%1.lib").arg(it.key())
+            : QString("diodes_%1.lib").arg(it.key());
         const QString libPath = QDir(defaultDst).filePath(libName);
 
         QFile out(libPath);
@@ -1349,7 +1424,104 @@ void ProjectManager::importLtspiceDiodeModels() {
         .arg(total).arg(QFileInfo(srcFile).fileName()).arg(defaultDst);
     for (const QString& w : written) msg += "  " + w + "\n";
 
-    QMessageBox::information(this, "Diode Model Import", msg);
+    QMessageBox::information(this, "Diode/JFET Model Import", msg);
+}
+
+void ProjectManager::importLtspiceJfetModels() {
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
+    QString srcFile = QFileDialog::getOpenFileName(this, "Select LTspice JFET Model File", defaultSrc, "LTspice Model Files (*.jft *.lib);;All Files (*)");
+    if (srcFile.isEmpty()) return;
+
+    const QString defaultDst = QDir::homePath() + "/ViospiceLib/lib";
+    QDir().mkpath(defaultDst);
+
+    QFile file(srcFile);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Import Error", "Cannot open file:\n" + srcFile);
+        return;
+    }
+    const QString content = decodeSpiceText(file.readAll());
+    file.close();
+
+    QStringList logicalLines;
+    for (const QString& raw : content.split('\n')) {
+        const QString t = raw.trimmed();
+        if (!logicalLines.isEmpty() && t.startsWith('+')) {
+            logicalLines.last().append(' ' + t.mid(1).trimmed());
+        } else {
+            logicalLines.append(raw);
+        }
+    }
+
+    QMap<QString, QStringList> typeToModels;
+    int total = 0;
+    int modelLines = 0;
+    const QRegularExpression modelHeadRe(
+        R"(^\s*[\x{FEFF}]*\.model\s+(\S+)\s+([^\s(]+))",
+        QRegularExpression::CaseInsensitiveOption);
+
+    for (const QString& line : logicalLines) {
+        const QString trimmed = line.trimmed();
+
+        const QRegularExpressionMatch headMatch = modelHeadRe.match(trimmed);
+        if (!headMatch.hasMatch()) continue;
+        modelLines++;
+
+        QString modelTypeToken = headMatch.captured(2).trimmed().toLower();
+
+        if (modelTypeToken != "njf" && modelTypeToken != "pjf") continue;
+        typeToModels[modelTypeToken].append(trimmed);
+        total++;
+    }
+
+    if (total == 0) {
+        QMessageBox::information(
+            this,
+            "JFET Model Import",
+            QString("No NJF/PJF .model lines found in file.\n\nDetected .model lines: %1")
+                .arg(modelLines));
+        return;
+    }
+
+    QStringList written;
+    QProgressDialog progress("Importing JFET models...", "Cancel", 0, typeToModels.size(), this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(200);
+
+    int step = 0;
+    for (auto it = typeToModels.constBegin(); it != typeToModels.constEnd(); ++it) {
+        if (progress.wasCanceled()) break;
+        progress.setValue(step++);
+        progress.setLabelText(QString("Writing %1 models (%2)...").arg(it.key().toUpper()).arg(it.value().size()));
+
+        const QString libName = QString("jfets_%1.lib").arg(it.key());
+        const QString libPath = QDir(defaultDst).filePath(libName);
+
+        QFile out(libPath);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            continue;
+        }
+
+        QTextStream ts(&out);
+        ts << "* " << libName << " - Imported from " << QFileInfo(srcFile).fileName() << "\n";
+        ts << "* Type: " << it.key().toUpper() << "\n";
+        ts << "* Count: " << it.value().size() << " models\n";
+        ts << "*\n";
+        for (const QString& model : it.value()) {
+            ts << model << "\n";
+        }
+        out.close();
+        written.append(QString("%1 (%2 models)").arg(libName).arg(it.value().size()));
+    }
+    progress.setValue(typeToModels.size());
+
+    ModelLibraryManager::instance().reload();
+
+    QString msg = QString("Imported %1 JFET models from:\n%2\n\nInto:\n%3\n\nFiles created:\n")
+        .arg(total).arg(QFileInfo(srcFile).fileName()).arg(defaultDst);
+    for (const QString& w : written) msg += "  " + w + "\n";
+
+    QMessageBox::information(this, "JFET Model Import", msg);
 }
 
 void ProjectManager::onSettings() {
@@ -1363,6 +1535,7 @@ void ProjectManager::onSettings() {
 void ProjectManager::launchSchematicEditor(const QString& projectPath) {
     qDebug() << "DBG: launchSchematicEditor start";
     SchematicEditor* editor = new SchematicEditor;
+    editor->setAttribute(Qt::WA_DeleteOnClose);
     
     QString pFile = resolveProjectPath(projectPath, "sch");
     

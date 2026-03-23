@@ -86,7 +86,7 @@ void SchematicComponentTool::clearPreviewWires() {
     if (!view() || !view()->scene()) return;
     for (WireItem* wire : m_previewWires) {
         if (wire->scene()) view()->scene()->removeItem(wire);
-        delete wire;
+        wire->deleteLater();
     }
     m_previewWires.clear();
 }

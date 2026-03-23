@@ -178,6 +178,15 @@ void WireItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, 
 }
 
 QJsonObject WireItem::toJson() const {
+    // Don't serialize degenerate wires with fewer than 2 distinct points
+    if (m_points.size() < 2) return QJsonObject();
+    // Also skip zero-length wires where all points are the same
+    bool allSame = true;
+    for (const QPointF& p : m_points) {
+        if (p != m_points.first()) { allSame = false; break; }
+    }
+    if (allSame) return QJsonObject();
+
     QJsonObject json;
     json["type"] = "Wire";
     json["wireType"] = static_cast<int>(m_wireType);
@@ -203,6 +212,5 @@ SchematicItem* WireItem::clone() const {
 }
 
 QList<QPointF> WireItem::connectionPoints() const {
-    if (m_points.isEmpty()) return {};
-    return {m_points.first(), m_points.last()};
+    return m_points;
 }

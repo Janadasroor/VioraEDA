@@ -12,6 +12,7 @@
 #include "../items/schematic_sheet_item.h"
 #include "../items/power_item.h"
 #include "../items/voltage_source_item.h"
+#include "../items/current_source_item.h"
 #include "../items/net_label_item.h"
 #include "../items/oscilloscope_item.h"
 #include "../items/signal_generator_item.h"
@@ -36,12 +37,20 @@
 #include "../dialogs/schematic_text_properties_dialog.h"
 #include "../dialogs/voltage_source_properties_dialog.h"
 #include "../dialogs/voltage_source_ltspice_dialog.h"
+#include "../dialogs/current_source_properties_dialog.h"
+#include "../dialogs/behavioral_current_source_dialog.h"
+#include "../items/behavioral_current_source_item.h"
+#include "../dialogs/current_source_ltspice_dialog.h"
 #include "../dialogs/spice_directive_dialog.h"
 #include "../dialogs/signal_generator_properties_dialog.h"
 #include "../dialogs/csw_properties_dialog.h"
 #include "../dialogs/vcvs_properties_dialog.h"
+#include "../dialogs/cccs_properties_dialog.h"
+#include "../dialogs/ccvs_properties_dialog.h"
+#include "../dialogs/transmission_line_properties_dialog.h"
 #include "../dialogs/diode_model_picker_dialog.h"
 #include "../dialogs/diode_properties_dialog.h"
+#include "../dialogs/jfet_properties_dialog.h"
 #include "../items/generic_component_item.h"
 #include "../dialogs/oscilloscope_properties_dialog.h"
 #include "../dialogs/erc_rules_dialog.h"
@@ -334,6 +343,26 @@ void SchematicEditor::onRedo() {
     }
 }
 
+void SchematicEditor::onUndoStackIndexChanged() {
+    if (!m_scene) return;
+    
+    QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    QList<QGraphicsItem*> validSelected;
+    
+    for (QGraphicsItem* item : selected) {
+        if (m_scene->items().contains(item)) {
+            validSelected.append(item);
+        }
+    }
+    
+    if (validSelected.size() != selected.size()) {
+        for (QGraphicsItem* item : selected) {
+            item->setSelected(m_scene->items().contains(item));
+        }
+        updatePropertyBar();
+    }
+}
+
 void SchematicEditor::onDelete() {
     QList<QGraphicsItem*> selectedItems = m_scene->selectedItems();
     if (selectedItems.isEmpty()) {
@@ -355,6 +384,7 @@ void SchematicEditor::onDelete() {
     }
 
     if (!schematicItems.isEmpty()) {
+        m_scene->clearSelection();
         RemoveItemCommand* cmd = new RemoveItemCommand(m_scene, schematicItems);
         m_undoStack->push(cmd);
         statusBar()->showMessage(QString("Deleted %1 item(s)").arg(schematicItems.size()), 2000);
@@ -726,6 +756,20 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             }
             return;
         }
+    } else if (item->itemType() == SchematicItem::CurrentSourceType) {
+        if (auto* cSrc = dynamic_cast<CurrentSourceItem*>(item)) {
+            CurrentSourceLTSpiceDialog dlg(cSrc, m_undoStack, m_scene, m_projectDir, this);
+            dlg.exec();
+            return;
+        }
+    } else if (item->itemTypeName().compare("Current_Source_Behavioral", Qt::CaseInsensitive) == 0 ||
+               item->itemTypeName().compare("bi", Qt::CaseInsensitive) == 0 ||
+               item->itemTypeName().compare("bi2", Qt::CaseInsensitive) == 0) {
+        if (auto* bi = dynamic_cast<BehavioralCurrentSourceItem*>(item)) {
+            BehavioralCurrentSourceDialog dlg(bi, m_scene, this);
+            dlg.exec();
+            return;
+        }
     } else if (item->itemType() == SchematicItem::SpiceDirectiveType) {
         if (auto* spice = dynamic_cast<SchematicSpiceDirectiveItem*>(item)) {
             SpiceDirectiveDialog dlg(spice, m_undoStack, m_scene, this);
@@ -771,12 +815,93 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
         }
 
         if (item->itemTypeName().compare("e", Qt::CaseInsensitive) == 0 ||
-            item->itemTypeName().compare("vcvs", Qt::CaseInsensitive) == 0) {
+            item->itemTypeName().compare("e2", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("vcvs", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("g", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("g2", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("vccs", Qt::CaseInsensitive) == 0) {
             VCVSPropertiesDialog dlg(item, this);
             if (dlg.exec() == QDialog::Accepted) {
-                m_undoStack->beginMacro("Update VCVS Properties");
+                m_undoStack->beginMacro("Update Controlled Source Properties");
                 if (item->value() != dlg.gainValue()) {
                     m_undoStack->push(new ChangePropertyCommand(m_scene, item, "value", item->value(), dlg.gainValue(), m_projectDir));
+                }
+                m_undoStack->endMacro();
+            }
+            return;
+        }
+
+        if (item->itemTypeName().compare("f", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("cccs", Qt::CaseInsensitive) == 0) {
+            CCCSPropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                const QString newValue = dlg.controlSource() + " " + dlg.gainValue();
+                m_undoStack->beginMacro("Update CCCS Properties");
+                if (item->value() != newValue) {
+                    m_undoStack->push(new ChangePropertyCommand(m_scene, item, "value", item->value(), newValue, m_projectDir));
+                }
+                m_undoStack->endMacro();
+            }
+            return;
+        }
+
+        if (item->itemTypeName().compare("h", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("ccvs", Qt::CaseInsensitive) == 0) {
+            CCVSPropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                const QString newValue = dlg.controlSource() + " " + dlg.transresistance();
+                m_undoStack->beginMacro("Update CCVS Properties");
+                if (item->value() != newValue) {
+                    m_undoStack->push(new ChangePropertyCommand(m_scene, item, "value", item->value(), newValue, m_projectDir));
+                }
+                m_undoStack->endMacro();
+            }
+            return;
+        }
+
+        if (item->itemTypeName().compare("tline", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("ltline", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("T", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("O", Qt::CaseInsensitive) == 0) {
+            TransmissionLinePropertiesDialog dlg(item, m_scene, m_undoStack, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                const QString newValue = dlg.valueString();
+                m_undoStack->beginMacro("Update Transmission Line Properties");
+                QJsonObject newState = item->toJson();
+                newState["value"] = newValue;
+                if (item->itemTypeName().compare("ltline", Qt::CaseInsensitive) == 0 ||
+                    item->referencePrefix().compare("O", Qt::CaseInsensitive) == 0) {
+                    QJsonObject peObj = newState["paramExpressions"].toObject();
+                    const auto newPE = dlg.ltraParams();
+                    for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                        peObj[it.key()] = it.value();
+                    }
+                    newState["paramExpressions"] = peObj;
+                }
+                m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
+                
+                if (dlg.wantsDirectiveUpdate()) {
+                    const QString directiveText = dlg.directiveText();
+                    const QString origModel = dlg.originalModelName();
+                    const QRegularExpression exactRe(
+                        QString("^\\s*\\.model\\s+%1\\s+LTRA\\(.*\\)\\s*$").arg(QRegularExpression::escape(origModel)),
+                        QRegularExpression::CaseInsensitiveOption);
+                        
+                    bool updated = false;
+                    for (QGraphicsItem* gi : m_scene->items()) {
+                        if (auto* dir = dynamic_cast<SchematicSpiceDirectiveItem*>(gi)) {
+                            if (exactRe.match(dir->text()).hasMatch()) {
+                                m_undoStack->push(new ChangePropertyCommand(m_scene, dir, "Text", dir->text(), directiveText, m_projectDir));
+                                updated = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!updated) {
+                        QPointF at = item->scenePos() + QPointF(120, -40);
+                        auto* dirItem = new SchematicSpiceDirectiveItem(directiveText, at, nullptr);
+                        m_undoStack->push(new AddItemCommand(m_scene, dirItem));
+                    }
                 }
                 m_undoStack->endMacro();
             }
@@ -811,6 +936,26 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                     }
                 }
                 m_undoStack->endMacro();
+            }
+            return;
+        }
+
+        // JFET properties dialog
+        if (item->itemTypeName().compare("njf", Qt::CaseInsensitive) == 0 ||
+            item->itemTypeName().compare("pjf", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("JN", Qt::CaseInsensitive) == 0 ||
+            item->referencePrefix().compare("JP", Qt::CaseInsensitive) == 0) {
+            JfetPropertiesDialog dlg(item, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                QJsonObject newState = item->toJson();
+                newState["value"] = dlg.modelName();
+                QJsonObject peObj;
+                const auto newPE = dlg.paramExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    peObj[it.key()] = it.value();
+                }
+                newState["paramExpressions"] = peObj;
+                m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
             }
             return;
         }

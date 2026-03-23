@@ -13,6 +13,7 @@ enum class SimComponentType {
     VoltageSource, CurrentSource,
     Diode, BJT_NPN, BJT_PNP,
     MOSFET_NMOS, MOSFET_PMOS,
+    JFET_NJF, JFET_PJF,
     OpAmpMacro, Switch, TransmissionLine, SubcircuitInstance,
     VCVS, VCCS, CCVS, CCCS,
     B_VoltageSource, B_CurrentSource,

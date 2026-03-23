@@ -128,6 +128,24 @@ void testCSWParsing() {
     // Let's check if the parser handles W records.
 }
 
+void testJfetModelParsing() {
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    const std::string content =
+        ".model JN_A NJF (BETA=1m VTO=-2 LAMBDA=0.02)\n"
+        ".model JP_A PJF (BETA=800u VTO=2 LAMBDA=0.03)\n";
+
+    const bool ok = SimModelParser::parseLibrary(netlist, content, SimModelParseOptions(), &diags);
+    require(ok, "parseLibrary failed for JFET model case");
+
+    const SimModel* njf = netlist.findModel("JN_A");
+    const SimModel* pjf = netlist.findModel("JP_A");
+    require(njf != nullptr, "NJF model missing");
+    require(pjf != nullptr, "PJF model missing");
+    require(njf->type == SimComponentType::JFET_NJF, "NJF type parse mismatch");
+    require(pjf->type == SimComponentType::JFET_PJF, "PJF type parse mismatch");
+}
+
 } // namespace
 
 int main() {
@@ -137,6 +155,7 @@ int main() {
         testIncludeResolverAndDiagnostics();
         testSubcktNamedNodeMapping();
         testCSWParsing();
+        testJfetModelParsing();
         std::cout << "[PASS] model parser compatibility checks passed." << std::endl;
         return 0;
     } catch (const std::exception& ex) {

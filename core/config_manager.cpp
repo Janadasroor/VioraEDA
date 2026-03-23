@@ -6,6 +6,8 @@ ConfigManager& ConfigManager::instance() {
     return instance;
 }
 
+ConfigManager::~ConfigManager() = default;
+
 ConfigManager::ConfigManager()
     : m_settings("viospice", "Settings") {
     load();

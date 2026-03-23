@@ -2253,11 +2253,13 @@ void SymbolEditor::createToolBar() {
     m_undoAction = m_undoStack->createUndoAction(this, "Undo");
     m_undoAction->setIcon(getThemeIcon(":/icons/undo.svg"));
     m_undoAction->setShortcut(QKeySequence::Undo);
+    m_undoAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_toolbar->addAction(m_undoAction);
 
     m_redoAction = m_undoStack->createRedoAction(this, "Redo");
     m_redoAction->setIcon(getThemeIcon(":/icons/redo.svg"));
     m_redoAction->setShortcut(QKeySequence::Redo);
+    m_redoAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_toolbar->addAction(m_redoAction);
 
     m_deleteAction = new QAction(getThemeIcon(":/icons/tool_delete.svg"), "Delete", this);
@@ -5064,11 +5066,11 @@ void SymbolEditor::updateVisualForPrimitive(int index, const SymbolPrimitive& pr
     if (index < 0 || index >= m_drawnItems.size()) return;
 
     QGraphicsItem* old = m_drawnItems[index];
-    m_scene->removeItem(old);
-    delete old;
-
     QGraphicsItem* fresh = buildVisual(prim, index);
+    
     if (fresh) {
+        m_scene->removeItem(old);
+        delete old;
         m_scene->addItem(fresh);
         m_drawnItems[index] = fresh;
     }

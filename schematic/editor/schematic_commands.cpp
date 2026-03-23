@@ -9,6 +9,8 @@
 #include "../items/schematic_sheet_item.h"
 #include "../items/voltage_source_item.h"
 #include <QDebug>
+#include <QGraphicsView>
+#include <QApplication>
 
 namespace {
 bool isConnectivitySensitiveSchematicItem(const SchematicItem* item) {
@@ -79,43 +81,59 @@ RemoveItemCommand::~RemoveItemCommand() {
 }
 
 void RemoveItemCommand::undo() {
-    // Restore items to scene
     for (SchematicItem* item : m_items) {
-        if (item && m_scene) {
+        if (item && m_scene && !m_scene->items().contains(item)) {
             m_scene->addItem(item);
         }
     }
     if (m_scene) {
         bool hasWire = false;
         for (SchematicItem* item : m_items) {
-            if (isConnectivitySensitiveSchematicItem(item)) {
-                hasWire = true;
-                break;
+            if (item) {
+                QString typeName = item->itemTypeName();
+                if (typeName == "Wire" || typeName == "Bus" || typeName == "BusEntry") {
+                    hasWire = true;
+                    break;
+                }
             }
         }
         if (hasWire) SchematicConnectivity::updateVisualConnections(m_scene);
-        m_scene->update();
+        m_scene->invalidate(m_scene->sceneRect(), QGraphicsScene::AllLayers);
+        for (auto* view : m_scene->views()) {
+            if (view && view->viewport()) {
+                view->resetCachedContent();
+                view->viewport()->repaint();
+            }
+        }
     }
     m_ownsItems = false;
 }
 
 void RemoveItemCommand::redo() {
-    // Remove items from scene
     for (SchematicItem* item : m_items) {
-        if (item && m_scene) {
+        if (item && m_scene && m_scene->items().contains(item)) {
             m_scene->removeItem(item);
         }
     }
     if (m_scene) {
         bool hasWire = false;
         for (SchematicItem* item : m_items) {
-            if (isConnectivitySensitiveSchematicItem(item)) {
-                hasWire = true;
-                break;
+            if (item) {
+                QString typeName = item->itemTypeName();
+                if (typeName == "Wire" || typeName == "Bus" || typeName == "BusEntry") {
+                    hasWire = true;
+                    break;
+                }
             }
         }
         if (hasWire) SchematicConnectivity::updateVisualConnections(m_scene);
-        m_scene->update();
+        m_scene->invalidate(m_scene->sceneRect(), QGraphicsScene::AllLayers);
+        for (auto* view : m_scene->views()) {
+            if (view && view->viewport()) {
+                view->resetCachedContent();
+                view->viewport()->repaint();
+            }
+        }
     }
     m_ownsItems = true;
 }

@@ -31,6 +31,8 @@ QString spicetypeToString(SimComponentType type) {
         case SimComponentType::BJT_PNP:         return "PNP";
         case SimComponentType::MOSFET_NMOS:     return "NMOS";
         case SimComponentType::MOSFET_PMOS:     return "PMOS";
+        case SimComponentType::JFET_NJF:        return "NJF";
+        case SimComponentType::JFET_PJF:        return "PJF";
         case SimComponentType::Switch:          return "SW";
         case SimComponentType::CSW:             return "CSW";
         default: return "";
@@ -275,6 +277,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     // This ensures .params and .model are defined before use
     netlist += "* Custom SPICE Directives\n";
     QSet<QString> switchModelsAdded;
+    bool hasCustomTran = false;
     for (QGraphicsItem* item : scene->items()) {
         if (auto* si = dynamic_cast<SchematicItem*>(item)) {
             if (si->itemType() == SchematicItem::SpiceDirectiveType) {
@@ -299,6 +302,10 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                             }
                         } else {
                             netlist += cmd + "\n";
+                        }
+                        
+                        if (cmd.toLower().startsWith(".tran")) {
+                            hasCustomTran = true;
                         }
                     }
                 }
@@ -342,7 +349,13 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     QStringList embeddedModelLines;
     for (const auto& comp : pkg.components) {
         if (comp.excludeFromSim) continue;
-        const QString modelName = comp.value.trimmed();
+        QString modelName = comp.value.trimmed();
+        const QString typeLower = comp.typeName.trimmed().toLower();
+        const bool isJfet = (typeLower == "njf" || typeLower == "pjf") ||
+                            comp.reference.startsWith("J", Qt::CaseInsensitive);
+        if (modelName.isEmpty() && isJfet) {
+            modelName = (typeLower == "pjf" || comp.reference.startsWith("JP", Qt::CaseInsensitive)) ? "PJF" : "NJF";
+        }
         if (modelName.isEmpty()) continue;
         if (switchModelsAdded.contains(modelName.toLower())) continue;
 
@@ -378,6 +391,36 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 // Strip "diode." prefix for SPICE format
                 for (int i = 0; i < params.size(); ++i) {
                     params[i].replace("diode.", "");
+                }
+
+                line += params.join(" ") + ")";
+                embeddedModelLines.append(line);
+                switchModelsAdded.insert(modelName.toLower());
+            }
+        } else if (isJfet) {
+            // Generate .model from component paramExpressions for user-customized JFETs
+            const auto& pe = comp.paramExpressions;
+            if (!pe.isEmpty()) {
+                const QString modelType = (typeLower == "pjf" || comp.reference.startsWith("JP", Qt::CaseInsensitive)) ? "PJF" : "NJF";
+                QString line = QString(".model %1 %2(").arg(modelName, modelType);
+                QStringList params;
+                auto addParam = [&](const QString& key) {
+                    QString val = pe.value(key).trimmed();
+                    if (!val.isEmpty()) {
+                        params.append(QString("%1=%2").arg(key, val));
+                    }
+                };
+                addParam("jfet.Beta");
+                addParam("jfet.Vto");
+                addParam("jfet.Lambda");
+                addParam("jfet.Rd");
+                addParam("jfet.Rs");
+                addParam("jfet.Cgs");
+                addParam("jfet.Cgd");
+                addParam("jfet.Is");
+
+                for (int i = 0; i < params.size(); ++i) {
+                    params[i].replace("jfet.", "");
                 }
 
                 line += params.join(" ") + ")";
@@ -448,7 +491,13 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
 
         QString line;
-        
+
+        // Helper to ensure proper SPICE prefix without doubling it
+        auto ensurePrefix = [](const QString& r, const QString& p) -> QString {
+            if (r.startsWith(p, Qt::CaseInsensitive)) return r;
+            return p + r;
+        };
+
         // Determine SPICE prefix
         bool isInstrument = (comp.typeName == "OscilloscopeInstrument" ||
                              comp.typeName == "Oscilloscope Instrument" ||
@@ -472,32 +521,31 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 QString node = pins[pk].replace(" ", "_");
                 if (node.isEmpty() || node.toUpper().startsWith("NC")) continue;
                 if (node == "0") continue; // No need to ground ground
-                
+
                 netlist += QString("R_%1_%2 %3 0 100Meg\n").arg(ref, pk, node);
             }
             continue;
         }
 
         // Determine SPICE prefix
-        if (type == SchematicItem::ResistorType) line = "R" + ref;
-        else if (type == SchematicItem::CapacitorType) line = "C" + ref;
-        else if (type == SchematicItem::InductorType) line = "L" + ref;
-        else if (type == SchematicItem::DiodeType) line = "D" + ref;
-        else if (type == SchematicItem::TransistorType) line = "Q" + ref;
+        if (type == SchematicItem::ResistorType) line = ensurePrefix(ref, "R");
+        else if (type == SchematicItem::CapacitorType) line = ensurePrefix(ref, "C");
+        else if (type == SchematicItem::InductorType) line = ensurePrefix(ref, "L");
+        else if (type == SchematicItem::DiodeType) line = ensurePrefix(ref, "D");
+        else if (type == SchematicItem::TransistorType) line = ensurePrefix(ref, "Q");
         else if (type == SchematicItem::VoltageSourceType) {
-            if (comp.value.trimmed().startsWith("V=", Qt::CaseInsensitive)) line = "B" + ref;
-            else line = "V" + ref;
+            if (comp.value.trimmed().startsWith("V=", Qt::CaseInsensitive)) line = ensurePrefix(ref, "B");
+            else line = ensurePrefix(ref, "V");
         }
         else if (comp.typeName.toLower().contains("gate") || comp.typeName.toLower().contains("digital")) {
-            line = "A" + ref; // XSPICE A-device
+            line = ensurePrefix(ref, "A"); // XSPICE A-device
         }
-        else line = "X" + ref; // Subcircuit or generic
-
+        else line = ensurePrefix(ref, "X"); // Subcircuit or generic
         // Fallback: if we don't know the type but reference has a known prefix,
         // use the reference as-is to avoid invalid X-lines.
         if (line.startsWith("X") && !ref.isEmpty()) {
             const QChar p = ref.at(0).toUpper();
-            const QString known = "RCLVIDQMBEGFH";
+            const QString known = "RCLVIDQMBEGFHJ";
             if (known.contains(p)) {
                 line = ref;
             }
@@ -639,15 +687,32 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 if (hasCpar) {
                     netlist += QString("C_%1 %2 %3 %4\n").arg(ref, srcPos, n2, paras.cpar);
                 }
-                nodes[0] = srcPos;
+                    nodes[0] = srcPos;
                 nodes[1] = n2;
             }
         }
 
-        const bool isBehavioralCurrentSource = (comp.typeName.compare("Current_Source_Behavioral", Qt::CaseInsensitive) == 0);
+        const bool isCurrentSource = (comp.type == SchematicItem::CurrentSourceType);
+        if (isCurrentSource) {
+            VoltageParasitics paras = stripVoltageParasitics(value);
+            value = paras.value;
+        }
+
+        const bool isBehavioralCurrentSource = (comp.typeName.compare("Current_Source_Behavioral", Qt::CaseInsensitive) == 0) ||
+                                              (comp.typeName.compare("bi", Qt::CaseInsensitive) == 0) ||
+                                              (comp.typeName.compare("bi2", Qt::CaseInsensitive) == 0);
         if (isBehavioralCurrentSource) {
-            const QString n1 = nodes.value(0, "0");
-            const QString n2 = nodes.value(1, "0");
+            QString n1 = nodes.value(0, "0");
+            QString n2 = nodes.value(1, "0");
+
+            const QString arrowDir = comp.paramExpressions.value("bi.arrow_direction").trimmed().toLower();
+            const bool swapForUpArrow = (arrowDir == "up") || (comp.typeName.compare("bi2", Qt::CaseInsensitive) == 0);
+            if (swapForUpArrow) {
+                const QString tmp = n1;
+                n1 = n2;
+                n2 = tmp;
+            }
+
             QString expr = value.trimmed();
             if (expr.isEmpty()) expr = "I=0";
             if (!expr.startsWith("I=", Qt::CaseInsensitive)) expr = "I=" + expr;
@@ -673,8 +738,14 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             }
 
             QString gain = value.trimmed();
-            // Reject non-numeric default values like "E", "G"
-            if (gain.isEmpty() || gain == comp.typeName) gain = "1";
+            // Reject placeholder defaults like "E", "G", "g2", "vcvs", "vccs"
+            const QString typeLower = comp.typeName.trimmed().toLower();
+            const QString gainLower = gain.toLower();
+            if (gain.isEmpty() || gainLower == typeLower ||
+                gainLower == "e" || gainLower == "g" || gainLower == "g2" ||
+                gainLower == "vcvs" || gainLower == "vccs") {
+                gain = "1";
+            }
 
             QString eref = ref;
             const QString pref = isVCVS ? "E" : "G";
@@ -709,14 +780,85 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             // Apply V-prefix rule for control source
             if (!controlSource.startsWith("V", Qt::CaseInsensitive)) {
                 controlSource = "V" + controlSource;
-            } else {
-                controlSource = "V" + controlSource;
             }
 
             QString eref = ref;
             const QString pref = isCCCS ? "F" : "H";
             if (!eref.startsWith(pref, Qt::CaseInsensitive)) eref = pref + ref;
             netlist += QString("%1 %2 %3 %4 %5\n").arg(eref, n1, n2, controlSource, gainVal);
+            continue;
+        }
+
+        const bool isLosslessTLine = (comp.typeName.compare("tline", Qt::CaseInsensitive) == 0) ||
+                                     ref.startsWith("T", Qt::CaseInsensitive);
+        const bool isLossyTLine = (comp.typeName.compare("ltline", Qt::CaseInsensitive) == 0) ||
+                                  ref.startsWith("O", Qt::CaseInsensitive);
+        if ((isLosslessTLine || isLossyTLine) && nodes.size() >= 4) {
+            const QString n1 = nodes.at(0);
+            const QString n2 = nodes.at(1);
+            const QString n3 = nodes.at(2);
+            const QString n4 = nodes.at(3);
+
+            if (isLossyTLine) {
+                QString modelName = value.trimmed();
+                if (modelName.isEmpty() || modelName.compare("LTRA", Qt::CaseInsensitive) == 0) {
+                    modelName = "LTRAmod";
+                }
+                const QString r = comp.paramExpressions.value("ltra.R").trimmed();
+                const QString l = comp.paramExpressions.value("ltra.L").trimmed();
+                const QString g = comp.paramExpressions.value("ltra.G").trimmed();
+                const QString c = comp.paramExpressions.value("ltra.C").trimmed();
+                const QString len = comp.paramExpressions.value("ltra.LEN").trimmed();
+
+                QStringList modelTokens;
+                if (!r.isEmpty()) modelTokens << QString("R=%1").arg(r);
+                if (!l.isEmpty()) modelTokens << QString("L=%1").arg(l);
+                if (!g.isEmpty()) modelTokens << QString("G=%1").arg(g);
+                if (!c.isEmpty()) modelTokens << QString("C=%1").arg(c);
+                if (!len.isEmpty()) modelTokens << QString("LEN=%1").arg(len);
+
+                if (!modelTokens.isEmpty() && !switchModelsAdded.contains(modelName.toLower())) {
+                    netlist += QString(".model %1 LTRA(%2)\n").arg(modelName, modelTokens.join(" "));
+                    switchModelsAdded.insert(modelName.toLower());
+                }
+
+                QString oref = ref;
+                if (!oref.startsWith("O", Qt::CaseInsensitive)) oref = "O" + ref;
+                netlist += QString("%1 %2 %3 %4 %5 %6\n").arg(oref, n1, n2, n3, n4, modelName);
+            } else {
+                QString z0 = "50";
+                QString td = "50n";
+                const QString v = value.trimmed();
+                const QRegularExpression reZ0("\\bZ0\\s*=\\s*([^\\s]+)", QRegularExpression::CaseInsensitiveOption);
+                const QRegularExpression reTd("\\bTd\\s*=\\s*([^\\s]+)", QRegularExpression::CaseInsensitiveOption);
+                auto mz = reZ0.match(v);
+                auto mt = reTd.match(v);
+                if (mz.hasMatch()) z0 = mz.captured(1);
+                if (mt.hasMatch()) td = mt.captured(1);
+
+                QString tref = ref;
+                if (!tref.startsWith("T", Qt::CaseInsensitive)) tref = "T" + ref;
+                netlist += QString("%1 %2 %3 %4 %5 Z0=%6 Td=%7\n").arg(tref, n1, n2, n3, n4, z0, td);
+            }
+            continue;
+        }
+
+        const bool isNJF = (comp.typeName.compare("njf", Qt::CaseInsensitive) == 0);
+        const bool isPJF = (comp.typeName.compare("pjf", Qt::CaseInsensitive) == 0);
+        const bool isJFET = isNJF || isPJF || ref.startsWith("J", Qt::CaseInsensitive);
+        if (isJFET && nodes.size() >= 3) {
+            QString jref = ref;
+            if (!jref.startsWith("J", Qt::CaseInsensitive)) jref = "J" + ref;
+
+            QString model = value.trimmed();
+            if (model.isEmpty() || model.compare("njf", Qt::CaseInsensitive) == 0 || model.compare("pjf", Qt::CaseInsensitive) == 0) {
+                model = isPJF ? "PJF" : "NJF";
+            }
+
+            const QString d = nodes.at(0);
+            const QString g = nodes.at(1);
+            const QString s = nodes.at(2);
+            netlist += QString("%1 %2 %3 %4 %5\n").arg(jref, d, g, s, model);
             continue;
         }
 
@@ -832,16 +974,8 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 if (controlSource.isEmpty()) {
                     controlSource = "V_UNKNOWN_CTRL"; // Placeholder if user didn't specify
                 } else if (!controlSource.startsWith("V", Qt::CaseInsensitive)) {
-                    // Prepend V because SpiceNetlistGenerator prepends V to all voltage source refs
-                    controlSource = "V" + controlSource;
-                } else {
-                    // If user typed 'V3', they mean the component V3.
-                    // But our generator turns component V3 into 'VV3'.
-                    // So we must prepend 'V' even if it already starts with 'V' 
-                    // to match the 'V' + ref rule for voltage sources.
                     controlSource = "V" + controlSource;
                 }
-
                 QString switchRef = ref;
                 if (!switchRef.startsWith("W", Qt::CaseInsensitive)) switchRef = "W" + ref;
                 netlist += QString("%1 %2 %3 %4 %5\n").arg(switchRef, n1, n2, controlSource, modelName);
@@ -939,7 +1073,9 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     netlist += "\n";
     switch (params.type) {
         case Transient:
-            netlist += QString(".tran %1 %2\n").arg(params.step, params.stop);
+            if (!hasCustomTran) {
+                netlist += QString(".tran %1 %2\n").arg(params.step, params.stop);
+            }
             break;
         case DC:
             netlist += QString(".dc %1 %2 %3 %4\n").arg(params.dcSource, params.dcStart, params.dcStop, params.dcStep);

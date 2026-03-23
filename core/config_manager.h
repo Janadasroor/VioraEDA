@@ -11,6 +11,7 @@ class ConfigManager : public QObject {
     Q_OBJECT
 
 public:
+    virtual ~ConfigManager();
     static ConfigManager& instance();
 
     // Auto-Save

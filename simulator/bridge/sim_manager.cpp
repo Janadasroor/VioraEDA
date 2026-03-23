@@ -16,6 +16,8 @@ SimManager& SimManager::instance() {
     return inst;
 }
 
+SimManager::~SimManager() = default;
+
 SimManager::SimManager(QObject* parent) : QObject(parent) {}
 
 void SimManager::runDCOP(QGraphicsScene* scene, NetManager* netMgr) {

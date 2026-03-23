@@ -9,7 +9,13 @@
 #include "schematic_commands.h"
 #include "../dialogs/voltage_source_ltspice_dialog.h"
 #include "../dialogs/spice_directive_dialog.h"
+#include "../dialogs/current_source_ltspice_dialog.h"
+#include "../dialogs/cccs_properties_dialog.h"
+#include "../dialogs/ccvs_properties_dialog.h"
+#include "../dialogs/transmission_line_properties_dialog.h"
+#include "../dialogs/jfet_properties_dialog.h"
 #include "../items/voltage_source_item.h"
+#include "../items/current_source_item.h"
 #include "../items/schematic_spice_directive_item.h"
 #include "../tools/schematic_probe_tool.h"
 #include "../items/wire_item.h"
@@ -35,6 +41,7 @@
 #include <QTimer>
 #include <QGraphicsPixmapItem>
 #include <QGraphicsEllipseItem>
+#include <QJsonObject>
 
 #include "../analysis/schematic_erc.h"
 #include <QGraphicsEllipseItem>
@@ -62,8 +69,7 @@ SchematicView::SchematicView(QWidget *parent)
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
-    setOptimizationFlags(QGraphicsView::DontSavePainterState | QGraphicsView::DontAdjustForAntialiasing);
-    setCacheMode(QGraphicsView::CacheBackground);
+    setOptimizationFlags(QGraphicsView::DontSavePainterState);
     
     // Enable NoIndex optimization for very large scenes
     if (scene()) scene()->setItemIndexMethod(QGraphicsScene::NoIndex);
@@ -710,31 +716,6 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
 }
 
 void SchematicView::keyPressEvent(QKeyEvent *event) {
-    qDebug() << "DEBUG: keyPressEvent" << event->key() << "text()" << event->text() << "modifiers" << event->modifiers() << "nativeScanCode" << event->nativeScanCode();
-    
-    // Handle Undo/Redo via QShortcut - try manual check
-    Qt::KeyboardModifiers mods = event->modifiers();
-    int key = event->key();
-    bool isCtrlZ = (key == Qt::Key_Z || key == Qt::Key_unknown) && (mods & Qt::ControlModifier) && !(mods & Qt::ShiftModifier);
-    bool isCtrlShiftZ = (key == Qt::Key_Z) && (mods & Qt::ControlModifier) && (mods & Qt::ShiftModifier);
-    
-    if (isCtrlZ) {
-        qDebug() << "DEBUG: Undo detected, m_undoStack:" << m_undoStack << "canUndo:" << (m_undoStack ? m_undoStack->canUndo() : false);
-        if (m_undoStack && m_undoStack->canUndo()) {
-            m_undoStack->undo();
-            event->accept();
-            return;
-        }
-    }
-    if (isCtrlShiftZ) {
-        qDebug() << "DEBUG: Redo detected, m_undoStack:" << m_undoStack << "canRedo:" << (m_undoStack ? m_undoStack->canRedo() : false);
-        if (m_undoStack && m_undoStack->canRedo()) {
-            m_undoStack->redo();
-            event->accept();
-            return;
-        }
-    }
-
     if (m_currentTool) m_currentTool->ensureView(this);
     // Smart Context-Aware Delete: Hover takes precedence
     if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
@@ -757,6 +738,7 @@ void SchematicView::keyPressEvent(QKeyEvent *event) {
         }
         
         if (!toRemove.isEmpty() && m_undoStack) {
+            scene()->clearSelection();
             m_undoStack->push(new RemoveItemCommand(scene(), toRemove));
             event->accept();
             return;
@@ -922,6 +904,15 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
         }
     }
 
+    // SPECIAL: Direct dialog for Current Sources on right-click (LTspice style)
+    if (targetSItem && targetSItem->itemType() == SchematicItem::CurrentSourceType) {
+        if (auto* csrc = dynamic_cast<CurrentSourceItem*>(targetSItem)) {
+            CurrentSourceLTSpiceDialog dlg(csrc, m_undoStack, scene(), QString(), this);
+            dlg.exec();
+            return;
+        }
+    }
+
     // SPECIAL: Direct dialog for SPICE Directives on right-click (LTspice style)
     if (targetSItem && targetSItem->itemType() == SchematicItem::SpiceDirectiveType) {
         if (auto* spice = dynamic_cast<SchematicSpiceDirectiveItem*>(targetSItem)) {
@@ -990,6 +981,36 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
 
+    // SPECIAL: JFET properties dialog on right-click
+    if (targetSItem && (targetSItem->itemTypeName().compare("njf", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("pjf", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("JN", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("JP", Qt::CaseInsensitive) == 0)) {
+        JfetPropertiesDialog dlg(targetSItem, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString newName = dlg.modelName();
+            const auto newPE = dlg.paramExpressions();
+            if (m_undoStack) {
+                QJsonObject newState = targetSItem->toJson();
+                newState["value"] = newName;
+                QJsonObject peObj;
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    peObj[it.key()] = it.value();
+                }
+                newState["paramExpressions"] = peObj;
+                m_undoStack->push(new BulkChangePropertyCommand(scene(), targetSItem, newState));
+            } else {
+                targetSItem->setValue(newName);
+                targetSItem->clearParamExpressions();
+                for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                    targetSItem->setParamExpression(it.key(), it.value());
+                }
+                targetSItem->update();
+            }
+        }
+        return;
+    }
+
     // SPECIAL: Direct dialog for Switches (LTspice style)
     if (targetSItem) {
         const QString t = targetSItem->itemTypeName();
@@ -1019,12 +1040,84 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
         }
     }
 
-    if (targetSItem && targetSItem->itemTypeName() == "Current_Source_Behavioral") {
+    if (targetSItem && (targetSItem->itemTypeName().compare("Current_Source_Behavioral", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("bi", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("bi2", Qt::CaseInsensitive) == 0)) {
         if (auto* bi = dynamic_cast<BehavioralCurrentSourceItem*>(targetSItem)) {
             BehavioralCurrentSourceDialog dlg(bi, scene(), this);
             dlg.exec();
             return;
         }
+    }
+
+    if (targetSItem && (targetSItem->itemTypeName().compare("f", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("cccs", Qt::CaseInsensitive) == 0)) {
+        CCCSPropertiesDialog dlg(targetSItem, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString newValue = dlg.controlSource() + " " + dlg.gainValue();
+            if (newValue != targetSItem->value()) {
+                if (m_undoStack) {
+                    m_undoStack->push(new ChangePropertyCommand(scene(), targetSItem, "value", targetSItem->value(), newValue));
+                } else {
+                    targetSItem->setValue(newValue);
+                    targetSItem->update();
+                }
+            }
+        }
+        return;
+    }
+
+    if (targetSItem && (targetSItem->itemTypeName().compare("h", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("ccvs", Qt::CaseInsensitive) == 0)) {
+        CCVSPropertiesDialog dlg(targetSItem, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString newValue = dlg.controlSource() + " " + dlg.transresistance();
+            if (newValue != targetSItem->value()) {
+                if (m_undoStack) {
+                    m_undoStack->push(new ChangePropertyCommand(scene(), targetSItem, "value", targetSItem->value(), newValue));
+                } else {
+                    targetSItem->setValue(newValue);
+                    targetSItem->update();
+                }
+            }
+        }
+        return;
+    }
+
+    if (targetSItem && (targetSItem->itemTypeName().compare("tline", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->itemTypeName().compare("ltline", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("T", Qt::CaseInsensitive) == 0 ||
+                        targetSItem->referencePrefix().compare("O", Qt::CaseInsensitive) == 0)) {
+        TransmissionLinePropertiesDialog dlg(targetSItem, scene(), m_undoStack, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString newValue = dlg.valueString();
+            if (m_undoStack) {
+                QJsonObject newState = targetSItem->toJson();
+                newState["value"] = newValue;
+                if (targetSItem->itemTypeName().compare("ltline", Qt::CaseInsensitive) == 0 ||
+                    targetSItem->referencePrefix().compare("O", Qt::CaseInsensitive) == 0) {
+                    QJsonObject peObj;
+                    const auto newPE = dlg.ltraParams();
+                    for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                        peObj[it.key()] = it.value();
+                    }
+                    newState["paramExpressions"] = peObj;
+                }
+                m_undoStack->push(new BulkChangePropertyCommand(scene(), targetSItem, newState));
+            } else {
+                targetSItem->setValue(newValue);
+                if (targetSItem->itemTypeName().compare("ltline", Qt::CaseInsensitive) == 0 ||
+                    targetSItem->referencePrefix().compare("O", Qt::CaseInsensitive) == 0) {
+                    const auto newPE = dlg.ltraParams();
+                    targetSItem->clearParamExpressions();
+                    for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
+                        targetSItem->setParamExpression(it.key(), it.value());
+                    }
+                }
+                targetSItem->update();
+            }
+        }
+        return;
     }
 
     QList<SchematicItem*> selectedItems;
