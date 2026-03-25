@@ -7,6 +7,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -81,6 +84,17 @@ QStringList preferredFiles(PassiveModelPickerDialog::Kind kind) {
         home + "/ViospiceLib/lib/inductors_standard.lib",
         home + "/Documents/ltspice/cmp/standard.ind"
     };
+}
+
+QString catalogPathForKind(PassiveModelPickerDialog::Kind kind) {
+    const QString home = QDir::homePath();
+    if (kind == PassiveModelPickerDialog::Kind::Resistor) {
+        return home + "/ViospiceLib/lib/passive_catalog_resistor.json";
+    }
+    if (kind == PassiveModelPickerDialog::Kind::Capacitor) {
+        return home + "/ViospiceLib/lib/passive_catalog_capacitor.json";
+    }
+    return home + "/ViospiceLib/lib/passive_catalog_inductor.json";
 }
 
 } // namespace
@@ -161,6 +175,38 @@ void PassiveModelPickerDialog::loadModels() {
     }
 
     if (m_modelList->count() == 0) {
+        const QString catalogPath = catalogPathForKind(m_kind);
+        QFile cf(catalogPath);
+        if (cf.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(cf.readAll());
+            cf.close();
+            const QJsonArray entries = doc.object().value("entries").toArray();
+            for (const QJsonValue& v : entries) {
+                const QJsonObject o = v.toObject();
+                const QString value = o.value("value").toString().trimmed();
+                const QString mpn = o.value("mpn").toString().trimmed();
+                const QString mfg = o.value("manufacturer").toString().trimmed();
+                const QString desc = o.value("description").toString().trimmed();
+                QString label = value;
+                if (!mpn.isEmpty()) {
+                    if (label.isEmpty()) label = mpn;
+                    else label += "  [" + mpn + "]";
+                }
+                if (label.isEmpty()) continue;
+                auto* item = new QListWidgetItem(label);
+                item->setData(Qt::UserRole, mpn);
+                item->setData(Qt::UserRole + 2, value);
+                item->setData(Qt::UserRole + 3, mfg);
+                item->setData(Qt::UserRole + 4, mpn);
+                item->setData(Qt::UserRole + 1,
+                              QString("%1\nMFG: %2\nMPN: %3\n%4")
+                                  .arg(label, mfg, mpn, desc));
+                m_modelList->addItem(item);
+            }
+        }
+    }
+
+    if (m_modelList->count() == 0) {
         const QVector<SpiceModelInfo> allModels = ModelLibraryManager::instance().allModels();
         QString hint;
         if (m_kind == Kind::Resistor) hint = "res";
@@ -206,6 +252,9 @@ void PassiveModelPickerDialog::filterModels(const QString& text) {
 void PassiveModelPickerDialog::onModelSelected(QListWidgetItem* item) {
     if (!item) return;
     m_selectedModel = item->data(Qt::UserRole).toString();
+    m_selectedValue = item->data(Qt::UserRole + 2).toString();
+    m_selectedManufacturer = item->data(Qt::UserRole + 3).toString();
+    m_selectedMpn = item->data(Qt::UserRole + 4).toString();
     accept();
 }
 
@@ -213,10 +262,25 @@ void PassiveModelPickerDialog::applySelected() {
     QListWidgetItem* item = m_modelList->currentItem();
     if (item) {
         m_selectedModel = item->data(Qt::UserRole).toString();
+        m_selectedValue = item->data(Qt::UserRole + 2).toString();
+        m_selectedManufacturer = item->data(Qt::UserRole + 3).toString();
+        m_selectedMpn = item->data(Qt::UserRole + 4).toString();
     }
     accept();
 }
 
 QString PassiveModelPickerDialog::selectedModel() const {
     return m_selectedModel;
+}
+
+QString PassiveModelPickerDialog::selectedValue() const {
+    return m_selectedValue;
+}
+
+QString PassiveModelPickerDialog::selectedManufacturer() const {
+    return m_selectedManufacturer;
+}
+
+QString PassiveModelPickerDialog::selectedMpn() const {
+    return m_selectedMpn;
 }

@@ -745,6 +745,8 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             newState["reference"] = dlg.reference();
             newState["value"] = dlg.valueText();
             newState["spiceModel"] = dlg.spiceModel();
+            newState["manufacturer"] = dlg.manufacturer();
+            newState["mpn"] = dlg.mpn();
             newState["excludeFromSim"] = dlg.excludeFromSimulation();
             newState["excludeFromPcb"] = dlg.excludeFromPcb();
             m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
@@ -844,6 +846,8 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 newState["reference"] = dlg.reference();
                 newState["value"] = dlg.valueText();
                 newState["spiceModel"] = dlg.spiceModel();
+                newState["manufacturer"] = dlg.manufacturer();
+                newState["mpn"] = dlg.mpn();
                 newState["excludeFromSim"] = dlg.excludeFromSimulation();
                 newState["excludeFromPcb"] = dlg.excludeFromPcb();
                 m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
@@ -857,6 +861,8 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 newState["reference"] = dlg.reference();
                 newState["value"] = dlg.valueText();
                 newState["spiceModel"] = dlg.spiceModel();
+                newState["manufacturer"] = dlg.manufacturer();
+                newState["mpn"] = dlg.mpn();
                 newState["excludeFromSim"] = dlg.excludeFromSimulation();
                 newState["excludeFromPcb"] = dlg.excludeFromPcb();
                 m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
@@ -870,6 +876,8 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 newState["reference"] = dlg.reference();
                 newState["value"] = dlg.valueText();
                 newState["spiceModel"] = dlg.spiceModel();
+                newState["manufacturer"] = dlg.manufacturer();
+                newState["mpn"] = dlg.mpn();
                 newState["excludeFromSim"] = dlg.excludeFromSimulation();
                 newState["excludeFromPcb"] = dlg.excludeFromPcb();
                 m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
@@ -1200,6 +1208,8 @@ void SchematicEditor::onSelectionDoubleClicked(const QList<SchematicItem*>& item
                     QJsonObject newState = it->toJson();
                     newState["value"] = dlg.valueText();
                     newState["spiceModel"] = dlg.spiceModel();
+                    newState["manufacturer"] = dlg.manufacturer();
+                    newState["mpn"] = dlg.mpn();
                     newState["excludeFromSim"] = dlg.excludeFromSimulation();
                     newState["excludeFromPcb"] = dlg.excludeFromPcb();
                     m_undoStack->push(new BulkChangePropertyCommand(m_scene, it, newState));

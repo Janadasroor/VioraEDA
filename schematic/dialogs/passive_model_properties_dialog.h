@@ -22,6 +22,8 @@ public:
     QString reference() const;
     QString valueText() const;
     QString spiceModel() const;
+    QString manufacturer() const;
+    QString mpn() const;
     bool excludeFromSimulation() const;
     bool excludeFromPcb() const;
 
@@ -34,6 +36,8 @@ private:
     QLineEdit* m_referenceEdit = nullptr;
     QLineEdit* m_valueEdit = nullptr;
     QLineEdit* m_spiceModelEdit = nullptr;
+    QLineEdit* m_manufacturerEdit = nullptr;
+    QLineEdit* m_mpnEdit = nullptr;
     QCheckBox* m_excludeSimCheck = nullptr;
     QCheckBox* m_excludePcbCheck = nullptr;
 };
