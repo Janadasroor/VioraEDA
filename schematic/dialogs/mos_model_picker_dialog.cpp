@@ -29,10 +29,22 @@ MosModelPickerDialog::MosModelPickerDialog(bool pmos, QWidget* parent)
 
     m_modelList = new QListWidget();
     m_modelList->setAlternatingRowColors(true);
+    {
+        QPalette listPal = m_modelList->palette();
+        listPal.setColor(QPalette::HighlightedText, listPal.color(QPalette::Text));
+        m_modelList->setPalette(listPal);
+    }
     layout->addWidget(m_modelList);
 
     m_detailLabel = new QLabel("Select a model to see details");
-    m_detailLabel->setStyleSheet("color: #888; font-size: 11px; padding: 4px;");
+    {
+        QFont detailFont = m_detailLabel->font();
+        detailFont.setPointSizeF(qMax(8.0, detailFont.pointSizeF() - 1.0));
+        m_detailLabel->setFont(detailFont);
+        QPalette pal = m_detailLabel->palette();
+        pal.setColor(QPalette::WindowText, palette().color(QPalette::PlaceholderText));
+        m_detailLabel->setPalette(pal);
+    }
     m_detailLabel->setWordWrap(true);
     layout->addWidget(m_detailLabel);
 
