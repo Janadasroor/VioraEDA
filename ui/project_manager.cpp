@@ -1178,6 +1178,15 @@ void ProjectManager::createMenuBar() {
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
     toolsMenu->addAction("Schematic Editor", this, &ProjectManager::openSchematicEditor);
     toolsMenu->addAction("Symbol Editor", this, &ProjectManager::openSymbolEditor);
+    toolsMenu->addSeparator();
+    QMenu* importersMenu = toolsMenu->addMenu("Importers");
+    importersMenu->addAction("LTspice Batch Symbols...", this, &ProjectManager::importLtspiceBatch);
+    importersMenu->addAction("Diode/JFET Models...", this, &ProjectManager::importLtspiceDiodeModels);
+    importersMenu->addAction("JFET Models...", this, &ProjectManager::importLtspiceJfetModels);
+    importersMenu->addAction("BJT Models...", this, &ProjectManager::importLtspiceBjtModels);
+    importersMenu->addAction("MOS Models...", this, &ProjectManager::importLtspiceMosModels);
+    importersMenu->addAction("Resistor Models (standard.res)", this, &ProjectManager::importLtspiceResistorModels);
+    importersMenu->addAction("Capacitor Models (standard.cap)", this, &ProjectManager::importLtspiceCapacitorModels);
 
     QMenu* prefsMenu = menuBar()->addMenu("&Preferences");
     prefsMenu->addAction("Settings", this, &ProjectManager::onSettings);
