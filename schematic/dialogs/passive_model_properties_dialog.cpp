@@ -14,7 +14,9 @@
 
 namespace {
 QString kindLabel(PassiveModelPropertiesDialog::Kind kind) {
-    return kind == PassiveModelPropertiesDialog::Kind::Resistor ? "Resistor" : "Capacitor";
+    if (kind == PassiveModelPropertiesDialog::Kind::Resistor) return "Resistor";
+    if (kind == PassiveModelPropertiesDialog::Kind::Capacitor) return "Capacitor";
+    return "Inductor";
 }
 }
 
@@ -32,7 +34,13 @@ PassiveModelPropertiesDialog::PassiveModelPropertiesDialog(SchematicItem* item, 
     form->addRow("Reference:", m_referenceEdit);
 
     m_valueEdit = new QLineEdit(item ? item->value() : QString());
-    m_valueEdit->setPlaceholderText(kind == Kind::Resistor ? "e.g. 10k" : "e.g. 100n");
+    if (kind == Kind::Resistor) {
+        m_valueEdit->setPlaceholderText("e.g. 10k");
+    } else if (kind == Kind::Capacitor) {
+        m_valueEdit->setPlaceholderText("e.g. 100n");
+    } else {
+        m_valueEdit->setPlaceholderText("e.g. 10u");
+    }
     form->addRow("Value:", m_valueEdit);
 
     auto* modelRow = new QHBoxLayout();
@@ -66,7 +74,10 @@ PassiveModelPropertiesDialog::PassiveModelPropertiesDialog(SchematicItem* item, 
 
 void PassiveModelPropertiesDialog::pickModel() {
     PassiveModelPickerDialog::Kind pickerKind =
-        (m_kind == Kind::Resistor) ? PassiveModelPickerDialog::Kind::Resistor : PassiveModelPickerDialog::Kind::Capacitor;
+        (m_kind == Kind::Resistor)
+            ? PassiveModelPickerDialog::Kind::Resistor
+            : (m_kind == Kind::Capacitor ? PassiveModelPickerDialog::Kind::Capacitor
+                                         : PassiveModelPickerDialog::Kind::Inductor);
     PassiveModelPickerDialog dlg(pickerKind, this);
     if (dlg.exec() == QDialog::Accepted && !dlg.selectedModel().isEmpty()) {
         m_spiceModelEdit->setText(dlg.selectedModel());

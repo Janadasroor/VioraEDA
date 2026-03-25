@@ -53,6 +53,7 @@ private slots:
     void importLtspiceMosModels();
     void importLtspiceResistorModels();
     void importLtspiceCapacitorModels();
+    void importLtspiceInductorModels();
     void onSettings();
     void showAbout();
     void showHelp();

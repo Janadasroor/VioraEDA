@@ -14,7 +14,8 @@ class PassiveModelPickerDialog : public QDialog {
 public:
     enum class Kind {
         Resistor,
-        Capacitor
+        Capacitor,
+        Inductor
     };
 
     explicit PassiveModelPickerDialog(Kind kind, QWidget* parent = nullptr);

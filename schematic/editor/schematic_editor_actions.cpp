@@ -731,11 +731,14 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             return;
         }
     } else if (item->itemType() == SchematicItem::ResistorType ||
-               item->itemType() == SchematicItem::CapacitorType) {
+               item->itemType() == SchematicItem::CapacitorType ||
+               item->itemType() == SchematicItem::InductorType) {
         const PassiveModelPropertiesDialog::Kind kind =
             (item->itemType() == SchematicItem::ResistorType)
                 ? PassiveModelPropertiesDialog::Kind::Resistor
-                : PassiveModelPropertiesDialog::Kind::Capacitor;
+                : (item->itemType() == SchematicItem::CapacitorType
+                    ? PassiveModelPropertiesDialog::Kind::Capacitor
+                    : PassiveModelPropertiesDialog::Kind::Inductor);
         PassiveModelPropertiesDialog dlg(item, kind, this);
         if (dlg.exec() == QDialog::Accepted) {
             QJsonObject newState = item->toJson();
@@ -746,10 +749,6 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             newState["excludeFromPcb"] = dlg.excludeFromPcb();
             m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
         }
-        return;
-    } else if (item->itemType() == SchematicItem::InductorType) {
-        PassivePropertiesDialog dlg(item, m_undoStack, m_scene, this);
-        dlg.exec();
         return;
     } else if (item->itemType() == SchematicItem::LabelType) {
         if (auto* textItem = dynamic_cast<SchematicTextItem*>(item)) {
@@ -853,6 +852,19 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
         }
         if (prefix == "C" || typeNameLower == "capacitor") {
             PassiveModelPropertiesDialog dlg(item, PassiveModelPropertiesDialog::Kind::Capacitor, this);
+            if (dlg.exec() == QDialog::Accepted) {
+                QJsonObject newState = item->toJson();
+                newState["reference"] = dlg.reference();
+                newState["value"] = dlg.valueText();
+                newState["spiceModel"] = dlg.spiceModel();
+                newState["excludeFromSim"] = dlg.excludeFromSimulation();
+                newState["excludeFromPcb"] = dlg.excludeFromPcb();
+                m_undoStack->push(new BulkChangePropertyCommand(m_scene, item, newState));
+            }
+            return;
+        }
+        if (prefix == "L" || typeNameLower == "inductor") {
+            PassiveModelPropertiesDialog dlg(item, PassiveModelPropertiesDialog::Kind::Inductor, this);
             if (dlg.exec() == QDialog::Accepted) {
                 QJsonObject newState = item->toJson();
                 newState["reference"] = dlg.reference();
@@ -1173,11 +1185,14 @@ void SchematicEditor::onSelectionDoubleClicked(const QList<SchematicItem*>& item
             }
             return;
         } else if (commonType == SchematicItem::ResistorType ||
-                   commonType == SchematicItem::CapacitorType) {
+                   commonType == SchematicItem::CapacitorType ||
+                   commonType == SchematicItem::InductorType) {
             const PassiveModelPropertiesDialog::Kind kind =
                 (commonType == SchematicItem::ResistorType)
                     ? PassiveModelPropertiesDialog::Kind::Resistor
-                    : PassiveModelPropertiesDialog::Kind::Capacitor;
+                    : (commonType == SchematicItem::CapacitorType
+                        ? PassiveModelPropertiesDialog::Kind::Capacitor
+                        : PassiveModelPropertiesDialog::Kind::Inductor);
             PassiveModelPropertiesDialog dlg(items.first(), kind, this);
             if (dlg.exec() == QDialog::Accepted) {
                 m_undoStack->beginMacro("Update Passive Component Properties");
@@ -1191,10 +1206,6 @@ void SchematicEditor::onSelectionDoubleClicked(const QList<SchematicItem*>& item
                 }
                 m_undoStack->endMacro();
             }
-            return;
-        } else if (commonType == SchematicItem::InductorType) {
-            PassivePropertiesDialog dlg(items.first(), m_undoStack, m_scene, this);
-            dlg.exec();
             return;
         }
     }
