@@ -145,18 +145,22 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     updateSimulationUiState(false);
 
     // Restore UI State after docks/toolbars are created
+    bool restoredWindowState = false;
     {
         QByteArray geom = ConfigManager::instance().windowGeometry("SchematicEditor");
         QByteArray state = ConfigManager::instance().windowState("SchematicEditor");
         if (!geom.isEmpty()) restoreGeometry(geom);
-        if (!state.isEmpty()) restoreState(state);
+        if (!state.isEmpty()) {
+            restoredWindowState = restoreState(state);
+        }
     }
     // Re-apply dock nesting and corner rules after restoring state to avoid overlaps.
     setDockNestingEnabled(true);
     setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
     setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
     setDockOptions(QMainWindow::AllowTabbedDocks | QMainWindow::ForceTabbedDocks);
-    if (m_ercDock && m_sourceControlDock) {
+    // Only enforce default docking layout when we did not restore a prior layout.
+    if (!restoredWindowState && m_ercDock && m_sourceControlDock) {
         addDockWidget(Qt::RightDockWidgetArea, m_ercDock);
         addDockWidget(Qt::RightDockWidgetArea, m_sourceControlDock);
         tabifyDockWidget(m_ercDock, m_sourceControlDock);
@@ -239,6 +243,12 @@ void SchematicEditor::closeEvent(QCloseEvent* event) {
 
     // Save UI State
     ConfigManager::instance().saveWindowState("SchematicEditor", saveGeometry(), saveState());
+
+    // Commands keep raw pointers to scene/items. Clear history while scenes are still alive.
+    if (m_undoStack) {
+        m_undoStack->disconnect(this);
+        m_undoStack->clear();
+    }
     
     disconnect(&ThemeManager::instance(), nullptr, this, nullptr);
     disconnect(&SyncManager::instance(), nullptr, this, nullptr);
@@ -268,10 +278,9 @@ void SchematicEditor::setupCanvas() {
 }
 
 void SchematicEditor::addSchematicTab(const QString& name) {
-    auto* scene = new QGraphicsScene(this);
-    scene->setSceneRect(-5000, -5000, 10000, 10000);
-    
     auto* view = new SchematicView(this);
+    auto* scene = new QGraphicsScene(view);
+    scene->setSceneRect(-5000, -5000, 10000, 10000);
     view->setScene(scene);
     view->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
     view->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
@@ -281,7 +290,7 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     view->setFocusPolicy(Qt::StrongFocus);
 
-    auto* netManager = new NetManager(this);
+    auto* netManager = new NetManager(view);
     view->setNetManager(netManager);
     view->setUndoStack(m_undoStack);
 
@@ -405,6 +414,12 @@ void SchematicEditor::closeTab(int index) {
 
     // LogicEditor guard: if we are closing the scene it's currently editing
     if (auto* view = qobject_cast<SchematicView*>(w)) {
+        // Global undo commands reference item pointers from this scene.
+        // Clearing prevents stale-pointer access after scene/tab teardown.
+        if (m_undoStack) {
+            m_undoStack->clear();
+        }
+
         if (m_logicEditorPanel) {
             // If the logic IDE is editing an item in this scene, we MUST flush it
             m_logicEditorPanel->flushEdits();
@@ -414,10 +429,8 @@ void SchematicEditor::closeTab(int index) {
             }
         }
         
-        // Explicitly clean up the scene and net manager to avoid memory leaks
-        // QGraphicsView does not own the scene by default.
+        // Keep raw pointers for state cleanup before removing the tab.
         QGraphicsScene* scene = view->scene();
-        NetManager* nm = view->netManager();
 
         // Clean up saved oscilloscope state for this tab
         if (m_simulationPanel && scene) {
@@ -434,10 +447,8 @@ void SchematicEditor::closeTab(int index) {
             m_currentFilePath.clear();
         }
 
-        // Delay deletion slightly to ensure no pending events in the event loop refer to these
+        // View owns scene/net manager, so deleting view tears down tab resources safely.
         view->deleteLater();
-        if (scene) scene->deleteLater();
-        if (nm) nm->deleteLater();
     } else {
         m_workspaceTabs->removeTab(index);
         w->deleteLater();

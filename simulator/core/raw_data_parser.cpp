@@ -7,6 +7,50 @@
 #include <cmath>
 #include <algorithm>
 
+namespace {
+std::string normalizeWaveformName(const std::string& rawName) {
+    const QString q = QString::fromStdString(rawName).trimmed();
+    if (q.isEmpty()) return rawName;
+
+    QString normalized = q;
+    static const QRegularExpression currentWrapperRe(
+        "^i\\s*\\(\\s*(.+)\\s*\\)$",
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto wrapped = currentWrapperRe.match(normalized); wrapped.hasMatch()) {
+        normalized = wrapped.captured(1).trimmed();
+    }
+
+    // Canonical current probe form expected by UI: I(<ref>)
+    // ngspice often emits device currents as @r1[i], @m1[id], ...
+    static const QRegularExpression deviceCurrentRe(
+        "^@\\s*([A-Za-z0-9_.$:+-]+)\\s*\\[\\s*i[a-z]*\\s*\\]$",
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto m = deviceCurrentRe.match(normalized); m.hasMatch()) {
+        return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
+    }
+
+    // ngspice voltage-source/current-defined branch naming: v1#branch
+    static const QRegularExpression branchRe(
+        "^\\s*([A-Za-z0-9_.$:+-]+)\\s*#\\s*branch\\s*$",
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto m = branchRe.match(normalized); m.hasMatch()) {
+        return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
+    }
+
+    // ngspice may also emit source currents as i(v1)
+    static const QRegularExpression namedCurrentRe(
+        "^\\s*([A-Za-z0-9_.$:+-]+)\\s*$",
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto m = namedCurrentRe.match(normalized); m.hasMatch() &&
+        currentWrapperRe.match(q).hasMatch()) {
+        return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
+    }
+
+    // Keep already-canonical names and everything else unchanged.
+    return rawName;
+}
+} // namespace
+
 bool RawDataParser::loadRawAscii(const QString& path, RawData* out, QString* error) {
     if (!out) return false;
     QFile file(path);
@@ -228,7 +272,7 @@ SimResults RawData::toSimResults() const {
 
     for (int i = 1; i < varNames.size(); ++i) {
         SimWaveform w;
-        w.name = varNames[i].toStdString();
+        w.name = normalizeWaveformName(varNames[i].toStdString());
         w.xData = stdX;
         if (i - 1 < y.size()) {
             w.yData = std::vector<double>(y[i - 1].begin(), y[i - 1].end());

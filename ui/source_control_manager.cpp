@@ -2,6 +2,7 @@
 #include <QtConcurrent>
 #include <QFuture>
 #include <QDebug>
+#include <QMutexLocker>
 
 SourceControlManager::SourceControlManager(QObject* parent)
     : QObject(parent)
@@ -18,13 +19,15 @@ SourceControlManager& SourceControlManager::instance() {
 }
 
 void SourceControlManager::setProjectDir(const QString& dir) {
+    QMutexLocker locker(&m_backendMutex);
     m_projectDir = dir;
     m_backend.setWorkingDir(dir);
     m_isRepo = m_backend.isGitRepo();
-    emit repoChanged(m_isRepo);
-    if (m_isRepo) {
-        refresh();
-    }
+    const bool isRepo = m_isRepo;
+    locker.unlock();
+
+    emit repoChanged(isRepo);
+    if (isRepo) refresh();
 }
 
 int SourceControlManager::stagedCount() const {
@@ -52,22 +55,36 @@ int SourceControlManager::untrackedCount() const {
 }
 
 void SourceControlManager::refresh() {
-    bool wasRepo = m_isRepo;
-    m_isRepo = m_backend.isGitRepo();
-    
-    if (wasRepo != m_isRepo) {
-        emit repoChanged(m_isRepo);
+    QString currentBranch;
+    QVector<GitFileStatus> fileStatuses;
+    QVector<GitCommit> recentCommits;
+    QStringList remoteNames;
+    bool isRepo = false;
+    bool wasRepo = false;
+
+    {
+        QMutexLocker locker(&m_backendMutex);
+        wasRepo = m_isRepo;
+        m_isRepo = m_backend.isGitRepo();
+        isRepo = m_isRepo;
+        if (!isRepo) return;
+
+        fileStatuses = m_backend.status();
+        currentBranch = m_backend.currentBranch();
+        recentCommits = m_backend.log(15);
+        remoteNames = m_backend.remotes();
+
+        m_fileStatuses = fileStatuses;
+        m_currentBranch = currentBranch;
+        m_recentCommits = recentCommits;
+        m_remoteNames = remoteNames;
     }
 
-    if (!m_isRepo) return;
-
-    m_fileStatuses = m_backend.status();
-    m_currentBranch = m_backend.currentBranch();
-    m_recentCommits = m_backend.log(15);
-    m_remoteNames = m_backend.remotes();
-
+    if (wasRepo != isRepo) {
+        emit repoChanged(isRepo);
+    }
     emit statusUpdated();
-    emit branchChanged(m_currentBranch);
+    emit branchChanged(currentBranch);
 }
 
 void SourceControlManager::scheduleRefresh() {
@@ -79,7 +96,8 @@ void SourceControlManager::scheduleRefresh() {
 void SourceControlManager::runAsync(const QString& opName, std::function<bool()> task) {
     emit operationStarted(opName);
 
-    QFuture<bool> future = QtConcurrent::run([task]() {
+    QFuture<bool> future = QtConcurrent::run([this, task]() {
+        QMutexLocker locker(&m_backendMutex);
         return task();
     });
 
@@ -88,7 +106,13 @@ void SourceControlManager::runAsync(const QString& opName, std::function<bool()>
         bool ok = watcher->result();
         watcher->deleteLater();
 
-        QString msg = ok ? (opName + " completed successfully") : (opName + " failed: " + m_backend.lastError());
+        QString backendError;
+        {
+            QMutexLocker locker(&m_backendMutex);
+            backendError = m_backend.lastError();
+        }
+
+        QString msg = ok ? (opName + " completed successfully") : (opName + " failed: " + backendError);
         emit operationFinished(opName, ok, msg);
 
         // Refresh after any mutating operation
@@ -99,19 +123,39 @@ void SourceControlManager::runAsync(const QString& opName, std::function<bool()>
 }
 
 void SourceControlManager::stageFile(const QString& path) {
-    if (m_backend.stageFile(path)) refresh();
+    bool ok = false;
+    {
+        QMutexLocker locker(&m_backendMutex);
+        ok = m_backend.stageFile(path);
+    }
+    if (ok) refresh();
 }
 
 void SourceControlManager::unstageFile(const QString& path) {
-    if (m_backend.unstageFile(path)) refresh();
+    bool ok = false;
+    {
+        QMutexLocker locker(&m_backendMutex);
+        ok = m_backend.unstageFile(path);
+    }
+    if (ok) refresh();
 }
 
 void SourceControlManager::stageAll() {
-    if (m_backend.stageAll()) refresh();
+    bool ok = false;
+    {
+        QMutexLocker locker(&m_backendMutex);
+        ok = m_backend.stageAll();
+    }
+    if (ok) refresh();
 }
 
 void SourceControlManager::unstageAll() {
-    if (m_backend.unstageAll()) refresh();
+    bool ok = false;
+    {
+        QMutexLocker locker(&m_backendMutex);
+        ok = m_backend.unstageAll();
+    }
+    if (ok) refresh();
 }
 
 void SourceControlManager::commit(const QString& message, bool amend) {

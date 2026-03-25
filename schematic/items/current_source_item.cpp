@@ -34,7 +34,7 @@ CurrentSourceItem::CurrentSourceItem(QPointF pos, const QString& value, SourceTy
 }
 
 CurrentSourceItem::~CurrentSourceItem() {
-    clearExternalSymbolItems();
+    // Child graphics items are owned by this QGraphicsItem and are deleted by Qt.
 }
 
 QString CurrentSourceItem::itemTypeName() const {
@@ -270,7 +270,6 @@ QList<SymbolPrimitive> CurrentSourceItem::resolvedExternalPrimitives() const {
 void CurrentSourceItem::clearExternalSymbolItems() {
     for (auto* item : m_symbolItems) {
         if (item) {
-            item->setParentItem(nullptr);
             delete item;
         }
     }

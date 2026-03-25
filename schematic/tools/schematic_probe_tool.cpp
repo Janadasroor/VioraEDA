@@ -145,12 +145,12 @@ SchematicProbeTool::ProbeCursorArt SchematicProbeTool::createProbeCursorArt(Prob
     const QPoint hotspot(static_cast<int>(std::lround(hotspotF.x())),
                          static_cast<int>(std::lround(hotspotF.y())));
 
-    if (kind == ProbeKind::Voltage || kind == ProbeKind::Current) {
+    if (kind == ProbeKind::Voltage) {
         QPixmap pixmap(kCursorSize, kCursorSize);
         pixmap.fill(Qt::transparent);
         QPainter painter(&pixmap);
         painter.setRenderHint(QPainter::Antialiasing);
-        QString iconPath = (kind == ProbeKind::Voltage) ? ":/icons/p-v-probe.svg" : ":/icons/n-v-probe.svg";
+        QString iconPath = ":/icons/p-v-probe.svg";
         QSvgRenderer renderer(iconPath);
         if (renderer.isValid()) {
             renderer.render(&painter, QRectF(kPadding, kPadding, kDrawSize, kDrawSize));
@@ -158,14 +158,14 @@ SchematicProbeTool::ProbeCursorArt SchematicProbeTool::createProbeCursorArt(Prob
         }
     }
 
-    // Fallback or other probe kinds (Current/Power)
+    // Fallback or Current/Power probe kinds
     QPixmap pix(kCursorSize, kCursorSize);
     pix.fill(Qt::transparent);
     QPainter p(&pix);
     p.setRenderHint(QPainter::Antialiasing);
 
     // Color scheme
-    QColor tipColor = (kind == ProbeKind::Voltage) ? QColor(220, 38, 38) : QColor(31, 41, 55); // Red or Dark Gray
+    QColor tipColor = (kind == ProbeKind::Voltage) ? QColor(220, 38, 38) : QColor(245, 158, 11); // Red or Amber (Current)
     QColor bodyColor = QColor(209, 213, 219); // Light Gray
     QColor shadowColor = QColor(0, 0, 0, 100);
 

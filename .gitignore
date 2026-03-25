@@ -1,6 +1,10 @@
 # CMake
 assets/*
 build/
+build-debug/
+build-release/
+build-asan/
+build-tsan/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

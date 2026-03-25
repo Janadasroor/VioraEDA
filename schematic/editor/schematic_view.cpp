@@ -447,11 +447,44 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                 }
                 event->accept();
                 return;
-            } else if (!probedNet.isEmpty() == false && !m_probeStartNet.isEmpty()) {
-                // Clicked empty space while armed: cancel
-                m_probeStartNet.clear();
-                clearProbeStartMarker();
-                setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
+            } else {
+                // Not over a wire/label, check for component body (Current Probe)
+                SchematicItem* compItem = nullptr;
+                for (QGraphicsItem* it : foundItems) {
+                    SchematicItem* candidate = owningSchematicItem(it);
+                    if (candidate && !candidate->isSubItem()) {
+                        auto type = candidate->itemType();
+                        // Filter for component-like items
+                        if (type != SchematicItem::WireType &&
+                            type != SchematicItem::LabelType &&
+                            type != SchematicItem::NetLabelType &&
+                            type != SchematicItem::JunctionType &&
+                            type != SchematicItem::BusType &&
+                            type != SchematicItem::NoConnectType &&
+                            type != SchematicItem::SpiceDirectiveType &&
+                            type != SchematicItem::SheetType) {
+                            compItem = candidate;
+                            break;
+                        }
+                    }
+                }
+
+                if (compItem) {
+                    QString ref = compItem->reference();
+                    if (!ref.isEmpty()) {
+                        emit netProbed(QString("I(%1)").arg(ref));
+                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, scenePos);
+                        event->accept();
+                        return;
+                    }
+                }
+
+                if (!m_probeStartNet.isEmpty()) {
+                    // Clicked empty space while armed: cancel
+                    m_probeStartNet.clear();
+                    clearProbeStartMarker();
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
+                }
             }
         }
 
@@ -528,6 +561,18 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
     // from executing if placed after.
     bool isSelectTool = (!m_currentTool || m_currentTool->name() == "Select");
     bool probeCursorActive = false;
+    auto isProbeableComponent = [](SchematicItem* candidate) -> bool {
+        if (!candidate || candidate->isSubItem()) return false;
+        const auto type = candidate->itemType();
+        return type != SchematicItem::WireType &&
+               type != SchematicItem::LabelType &&
+               type != SchematicItem::NetLabelType &&
+               type != SchematicItem::JunctionType &&
+               type != SchematicItem::BusType &&
+               type != SchematicItem::NoConnectType &&
+               type != SchematicItem::SpiceDirectiveType &&
+               type != SchematicItem::SheetType;
+    };
     // Allow probe cursor if hovering normally OR if we are currently clicking a wire
     if (!m_isPanning && (m_probeClickActive || !(event->buttons() & Qt::LeftButton)) && isSelectTool) {
         // Hover highlight
@@ -570,6 +615,20 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
                 if (!netName.isEmpty()) isWireOrLabel = true;
             }
 
+            SchematicItem* hoveredComponent = nullptr;
+            if (!isWireOrLabel) {
+                for (QGraphicsItem* it : foundItems) {
+                    SchematicItem* candidate = owningSchematicItem(it);
+                    if (isProbeableComponent(candidate)) {
+                        hoveredComponent = candidate;
+                        break;
+                    }
+                }
+                if (!hoveredComponent && isProbeableComponent(sItem)) {
+                    hoveredComponent = sItem;
+                }
+            }
+
             if (isWireOrLabel) {
                 // If differential mode is armed (Ctrl+Click waiting for second net),
                 // show the black probe to clearly indicate second-net capture mode
@@ -586,8 +645,11 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
                 }
                 probeCursorActive = true;
             } else {
-                // Not over a wire
-                if (!m_probeStartNet.isEmpty()) {
+                // Not over a wire, check for component body (Current Probe)
+                if (hoveredComponent && !hoveredComponent->reference().trimmed().isEmpty()) {
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, mapToScene(event->pos()));
+                    probeCursorActive = true;
+                } else if (!m_probeStartNet.isEmpty()) {
                     // Still show black probe in "armed" mode so user knows they need to click a wire
                     setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, mapToScene(event->pos()));
                     probeCursorActive = true;

@@ -16,6 +16,7 @@ namespace Flux {
 
 class GeminiPanel;
 class SmartSignalItem;
+class QFileSystemWatcher;
 
 /**
  * @brief A standalone Mini-IDE for editing programmable logic blocks.
@@ -76,6 +77,7 @@ private slots:
     void removeSelectedPin();
     void onPinsUpdated();
     void onVisualPinsChanged();
+    void refreshTemplates();
 
 private:
     void setupUi();
@@ -84,7 +86,6 @@ private:
     void saveCurrentToBlock();
     void updateEditorKeywords();
     void updateParametersTab();
-    void refreshTemplates();
 
     QGraphicsScene* m_scene;
     NetManager* m_netManager;
@@ -96,6 +97,7 @@ private:
     class QListWidget* m_explorerList;
     class QListWidget* m_templateList;
     class QDockWidget* m_templateDock;
+    QFileSystemWatcher* m_templateWatcher;
     
     // Pin Manager Widgets
     class VisualPinMapper* m_pinMapper;

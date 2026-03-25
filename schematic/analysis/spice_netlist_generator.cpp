@@ -204,6 +204,29 @@ QString formatPwlValueForNetlist(const QString& value, int maxLen = 140) {
     return lines.join("\n");
 }
 
+QString currentSaveVectorForRef(const QString& spiceRef) {
+    const QString ref = spiceRef.trimmed();
+    if (ref.isEmpty()) return QString();
+
+    const QChar prefix = ref.at(0).toUpper();
+    switch (prefix.unicode()) {
+    case 'R':
+    case 'C':
+    case 'L':
+    case 'D':
+    case 'B':
+        return QString("@%1[i]").arg(ref);
+    case 'Q':
+        return QString("@%1[ic]").arg(ref);
+    case 'M':
+    case 'J':
+    case 'Z':
+        return QString("@%1[id]").arg(ref);
+    default:
+        return QString();
+    }
+}
+
 struct VoltageParasitics {
     QString value;
     QString rser;
@@ -572,6 +595,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
     // 3. Export components
     QMap<QString, QString> powerNetVoltages;
+    QStringList savedCurrentVectors;
     for (const auto& comp : pkg.components) {
         if (comp.excludeFromSim) {
             netlist += "* Skipping " + comp.reference + " (Excluded from simulation)\n";
@@ -656,6 +680,10 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             if (known.contains(p)) {
                 line = ref;
             }
+        }
+        const QString currentSaveVector = currentSaveVectorForRef(line);
+        if (!currentSaveVector.isEmpty() && !savedCurrentVectors.contains(currentSaveVector, Qt::CaseInsensitive)) {
+            savedCurrentVectors.append(currentSaveVector);
         }
 
         // --- SPICE Mapper Logic ---
@@ -1355,7 +1383,11 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             break;
     }
 
-    netlist += ".control\nrun\n.save all\n.endc\n.end\n";
+    netlist += ".save all\n";
+    for (const QString& saveVec : savedCurrentVectors) {
+        netlist += QString(".save %1\n").arg(saveVec);
+    }
+    netlist += ".control\nrun\n.endc\n.end\n";
     return netlist;
 }
 

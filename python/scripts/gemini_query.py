@@ -181,7 +181,11 @@ Example: "The feedback resistor <HIGHLIGHT>R5</HIGHLIGHT> sets the gain."
     4) Suggestions (Optional buttons using <SUGGESTION> tag)
     """
     elif mode == "logic":
-        system_context = common_instructions + "You are FluxAI, an expert EDA Python assistant..."
+        system_context = common_instructions + """
+You are FluxAI, an expert EDA Python assistant for the Viospice Smart Signal Block layout.
+Your goal is to write custom Python algorithms for the `update(self, t, inputs)` function.
+If the user asks you to save the generated script for later use, you MUST use the `save_logic_template('filename.py', 'code')` tool to write it directly to their template library.
+"""
     elif mode == "ask":
         system_context = common_instructions + """
 You are FluxAI, an expert Electronic Design Architect.

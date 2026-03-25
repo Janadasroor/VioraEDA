@@ -34,7 +34,7 @@ VoltageSourceItem::VoltageSourceItem(QPointF pos, const QString& value, SourceTy
 }
 
 VoltageSourceItem::~VoltageSourceItem() {
-    clearExternalSymbolItems();
+    // Child graphics items are owned by this QGraphicsItem and are deleted by Qt.
 }
 
 QString VoltageSourceItem::itemTypeName() const {
@@ -276,7 +276,6 @@ QList<SymbolPrimitive> VoltageSourceItem::resolvedExternalPrimitives() const {
 void VoltageSourceItem::clearExternalSymbolItems() {
     for (auto* item : m_symbolItems) {
         if (item) {
-            item->setParentItem(nullptr);
             delete item;
         }
     }

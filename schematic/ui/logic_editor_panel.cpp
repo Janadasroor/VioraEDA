@@ -43,6 +43,7 @@
 #include "../../python/gemini_panel.h"
 #include <pybind11/eval.h>
 #include <pybind11/stl.h>
+#include <QFileSystemWatcher>
 
 LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)
     : QMainWindow(parent, Qt::Window), m_scene(scene), m_netManager(netManager) {
@@ -59,6 +60,16 @@ LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager
     setupMenus();
     createShortcuts();
     refreshTemplates();
+
+    // Setup Template Watcher
+    m_templateWatcher = new QFileSystemWatcher(this);
+    QString templatesPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../python/templates");
+    if (!QFile::exists(templatesPath)) {
+        templatesPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("python/templates");
+    }
+    QDir().mkpath(templatesPath); // Ensure it exists before watching
+    m_templateWatcher->addPath(templatesPath);
+    connect(m_templateWatcher, &QFileSystemWatcher::directoryChanged, this, &LogicEditorPanel::refreshTemplates);
 }
 
 void LogicEditorPanel::setScene(QGraphicsScene* scene, NetManager* netManager) {

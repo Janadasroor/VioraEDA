@@ -71,6 +71,7 @@ private:
     QVector<GitCommit> m_recentCommits;
     QStringList m_remoteNames;
     QTimer* m_refreshTimer;
+    mutable QMutex m_backendMutex;
 };
 
 #endif // SOURCE_CONTROL_MANAGER_H
