@@ -164,6 +164,27 @@ void testVdmosModelParsing() {
     require(mp->type == SimComponentType::MOSFET_PMOS, "VDMOS pchan type parse mismatch");
 }
 
+void testBsim4MultilineModelParsing() {
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    const std::string content =
+        ".model MY_BSIM4 NMOS (LEVEL=54\n"
+        "+ TNOM=27 TOX=2.1e-9 VTH0=0.35\n"
+        "+ K1=0.45 U0=280 LINT=1e-8\n"
+        "+ RDSW=150 NF=1 KF=1e-24 AF=1)\n";
+
+    const bool ok = SimModelParser::parseLibrary(netlist, content, SimModelParseOptions(), &diags);
+    require(ok, "parseLibrary failed for multiline BSIM4 card");
+
+    const SimModel* bsim4 = netlist.findModel("MY_BSIM4");
+    require(bsim4 != nullptr, "MY_BSIM4 model missing");
+    require(bsim4->type == SimComponentType::MOSFET_NMOS, "MY_BSIM4 type parse mismatch");
+    require(bsim4->params.count("LEVEL") != 0 && bsim4->params.at("LEVEL") == 54.0, "LEVEL parse mismatch");
+    require(bsim4->params.count("TOX") != 0 && bsim4->params.at("TOX") == 2.1e-9, "TOX parse mismatch");
+    require(bsim4->params.count("KF") != 0 && bsim4->params.at("KF") == 1e-24, "KF parse mismatch");
+    require(bsim4->params.count("AF") != 0 && bsim4->params.at("AF") == 1.0, "AF parse mismatch");
+}
+
 } // namespace
 
 int main() {
@@ -175,6 +196,7 @@ int main() {
         testCSWParsing();
         testJfetModelParsing();
         testVdmosModelParsing();
+        testBsim4MultilineModelParsing();
         std::cout << "[PASS] model parser compatibility checks passed." << std::endl;
         return 0;
     } catch (const std::exception& ex) {
