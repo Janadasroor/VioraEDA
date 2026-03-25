@@ -21,6 +21,9 @@ public:
     explicit PassiveModelPickerDialog(Kind kind, QWidget* parent = nullptr);
 
     QString selectedModel() const;
+    QString selectedValue() const;
+    QString selectedManufacturer() const;
+    QString selectedMpn() const;
 
 private slots:
     void filterModels(const QString& text);
@@ -32,6 +35,9 @@ private:
 
     Kind m_kind;
     QString m_selectedModel;
+    QString m_selectedValue;
+    QString m_selectedManufacturer;
+    QString m_selectedMpn;
     QLineEdit* m_searchEdit = nullptr;
     QListWidget* m_modelList = nullptr;
     QLabel* m_detailLabel = nullptr;

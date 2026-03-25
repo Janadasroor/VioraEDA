@@ -55,8 +55,233 @@
 #include <QRegularExpression>
 #include <QVector>
 #include <QtCore/QSet>
+#include <QJsonArray>
+
+#include <cstring>
 
 namespace {
+struct PassivePartEntry {
+    QString value;
+    QString manufacturer;
+    QString mpn;
+    QString description;
+};
+
+QString formatEngineering(double value) {
+    struct Unit { double scale; const char* suffix; };
+    static const Unit units[] = {
+        {1e9, "G"}, {1e6, "Meg"}, {1e3, "k"}, {1.0, ""}, {1e-3, "m"}, {1e-6, "u"}, {1e-9, "n"}, {1e-12, "p"}
+    };
+    const double a = std::fabs(value);
+    for (const auto& u : units) {
+        if (a >= u.scale * 0.999 || u.scale == 1e-12) {
+            const double scaled = value / u.scale;
+            return QString::number(scaled, 'g', 4) + u.suffix;
+        }
+    }
+    return QString::number(value, 'g', 4);
+}
+
+QStringList extractAsciiTokens(const QByteArray& raw, int minLen = 2) {
+    QStringList out;
+    QString cur;
+    for (unsigned char c : raw) {
+        if (c >= 32 && c <= 126) {
+            cur.append(QChar(c));
+        } else {
+            if (cur.size() >= minLen) out.append(cur);
+            cur.clear();
+        }
+    }
+    if (cur.size() >= minLen) out.append(cur);
+    return out;
+}
+
+QString capValueFromMpn(const QString& mpn) {
+    QRegularExpression codeRe("(\\d{3})");
+    auto m = codeRe.match(mpn);
+    if (!m.hasMatch()) return QString();
+    const QString d = m.captured(1);
+    const int sig = d.left(2).toInt();
+    const int pwr = d.mid(2, 1).toInt();
+    const double pf = sig * std::pow(10.0, pwr);
+    const double f = pf * 1e-12;
+    if (!std::isfinite(f) || f <= 0.0) return QString();
+    return formatEngineering(f) + "F";
+}
+
+QString indValueFromMpn(const QString& mpn) {
+    QRegularExpression rCode("(\\d+)R(\\d)");
+    auto r = rCode.match(mpn);
+    if (r.hasMatch()) {
+        const double uH = QString(r.captured(1) + "." + r.captured(2)).toDouble();
+        return formatEngineering(uH * 1e-6) + "H";
+    }
+    QRegularExpression codeRe("(\\d{3})");
+    auto m = codeRe.match(mpn);
+    if (!m.hasMatch()) return QString();
+    const QString d = m.captured(1);
+    const int sig = d.left(2).toInt();
+    const int pwr = d.mid(2, 1).toInt();
+    const double uH = sig * std::pow(10.0, pwr);
+    const double h = uH * 1e-6;
+    if (!std::isfinite(h) || h <= 0.0) return QString();
+    return formatEngineering(h) + "H";
+}
+
+QList<PassivePartEntry> parseStandardRes(const QByteArray& raw) {
+    QList<PassivePartEntry> out;
+    if (raw.size() < 32) return out;
+
+    const auto readU16Le = [&](int off) -> int {
+        if (off + 1 >= raw.size()) return 0;
+        const unsigned char b0 = static_cast<unsigned char>(raw[off]);
+        const unsigned char b1 = static_cast<unsigned char>(raw[off + 1]);
+        return static_cast<int>(b0) | (static_cast<int>(b1) << 8);
+    };
+
+    const int clsLen = readU16Le(6);
+    int p = 8 + clsLen;
+    if (p < 16 || p >= raw.size()) return out;
+
+    // Records are fixed-size blocks with resistance float at +2.
+    for (; p + 8 <= raw.size(); p += 16) {
+        float rv = 0.0f;
+        std::memcpy(&rv, raw.constData() + p + 2, sizeof(float));
+        if (!std::isfinite(rv) || rv <= 0.0f || rv > 1e12f) continue;
+        PassivePartEntry e;
+        const QString valueCode = formatEngineering(rv);
+        e.value = valueCode + "Ohm";
+        QString mpnCode = valueCode;
+        mpnCode.replace('.', 'p');
+        mpnCode.replace('-', 'm');
+        mpnCode.replace('+', '_');
+        e.mpn = "R_STD_" + mpnCode.toUpper();
+        e.manufacturer = "LTspice Standard";
+        e.description = "LTspice standard resistor";
+        out.append(e);
+    }
+    return out;
+}
+
+QList<PassivePartEntry> parseStandardCap(const QByteArray& raw) {
+    QList<PassivePartEntry> out;
+    QStringList tokens = extractAsciiTokens(raw, 2);
+    QString vendor = "";
+    QSet<QString> seen;
+    QRegularExpression mpnRe("^[A-Za-z0-9][A-Za-z0-9._+-]{3,}$");
+    for (int i = 0; i < tokens.size(); ++i) {
+        const QString t = tokens[i].trimmed();
+        if (t.compare("CCapacitorRec", Qt::CaseInsensitive) == 0) continue;
+        if (t.size() <= 6 && t.toUpper() == t && t.contains(QRegularExpression("[A-Z]")) && !t.contains(QRegularExpression("\\d"))) {
+            vendor = t;
+            continue;
+        }
+        if (!mpnRe.match(t).hasMatch() || !t.contains(QRegularExpression("\\d"))) continue;
+        const QString key = t.toLower();
+        if (seen.contains(key)) continue;
+        seen.insert(key);
+        PassivePartEntry e;
+        e.mpn = t;
+        e.manufacturer = vendor;
+        e.value = capValueFromMpn(t);
+        if (i + 1 < tokens.size() && tokens[i + 1].contains(QRegularExpression("[A-Za-z]")) && !tokens[i + 1].contains(QRegularExpression("\\d"))) {
+            e.description = tokens[i + 1].trimmed();
+        }
+        out.append(e);
+    }
+    return out;
+}
+
+QList<PassivePartEntry> parseStandardInd(const QByteArray& raw) {
+    QList<PassivePartEntry> out;
+    QStringList tokens = extractAsciiTokens(raw, 2);
+    QString vendor;
+    QSet<QString> seen;
+    QRegularExpression mpnRe("^[A-Za-z0-9][A-Za-z0-9._+-]{3,}$");
+    for (const QString& tok : tokens) {
+        const QString t = tok.trimmed();
+        if (t.compare("CInductorRec", Qt::CaseInsensitive) == 0) continue;
+        if (t.contains(",") || t.contains("Inc", Qt::CaseInsensitive) || t.contains("Corp", Qt::CaseInsensitive) || t.contains("Ltd", Qt::CaseInsensitive)) {
+            vendor = t;
+            continue;
+        }
+        if (!mpnRe.match(t).hasMatch() || !t.contains(QRegularExpression("\\d"))) continue;
+        const QString key = t.toLower();
+        if (seen.contains(key)) continue;
+        seen.insert(key);
+        PassivePartEntry e;
+        e.mpn = t;
+        e.manufacturer = vendor;
+        e.value = indValueFromMpn(t);
+        e.description = "LTspice standard inductor";
+        out.append(e);
+    }
+    return out;
+}
+
+bool importStandardPassiveCatalog(QWidget* parent,
+                                  const QString& srcFile,
+                                  const QString& kind,
+                                  QString* errorOut = nullptr) {
+    QFile file(srcFile);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (errorOut) *errorOut = "Cannot open file";
+        return false;
+    }
+    const QByteArray raw = file.readAll();
+    file.close();
+
+    QList<PassivePartEntry> entries;
+    if (kind == "resistor") entries = parseStandardRes(raw);
+    else if (kind == "capacitor") entries = parseStandardCap(raw);
+    else if (kind == "inductor") entries = parseStandardInd(raw);
+
+    if (entries.isEmpty()) {
+        if (errorOut) *errorOut = "No passive entries parsed";
+        return false;
+    }
+
+    QJsonArray arr;
+    QSet<QString> dedup;
+    for (const auto& e : entries) {
+        const QString k = (e.mpn + "|" + e.value + "|" + e.manufacturer).toLower();
+        if (dedup.contains(k)) continue;
+        dedup.insert(k);
+        QJsonObject o;
+        o["value"] = e.value;
+        o["manufacturer"] = e.manufacturer;
+        o["mpn"] = e.mpn;
+        o["description"] = e.description;
+        arr.append(o);
+    }
+
+    const QString dstDir = QDir::homePath() + "/ViospiceLib/lib";
+    QDir().mkpath(dstDir);
+    const QString dst = QDir(dstDir).filePath(QString("passive_catalog_%1.json").arg(kind));
+
+    QFile out(dst);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (errorOut) *errorOut = "Cannot write catalog json";
+        return false;
+    }
+    QJsonObject root;
+    root["kind"] = kind;
+    root["source"] = srcFile;
+    root["entries"] = arr;
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    out.close();
+
+    QMessageBox::information(parent,
+                             "Passive Catalog Import",
+                             QString("Imported %1 %2 entries from:\n%3\n\nCatalog:\n%4")
+                                 .arg(arr.size())
+                                 .arg(kind)
+                                 .arg(srcFile)
+                                 .arg(dst));
+    return true;
+}
+
 QString decodeSpiceText(const QByteArray& raw) {
     if (raw.isEmpty()) return QString();
 
@@ -146,12 +371,30 @@ bool importStandardPassiveModelFile(QWidget* parent,
     }
 
     if (models.isEmpty()) {
+        const QString lowerName = QFileInfo(srcFile).fileName().toLower();
+        const bool isLtspiceComponentDb =
+            (lowerName == "standard.res" || lowerName == "standard.cap" || lowerName == "standard.ind");
+
+        QString kindKey = readableTypeName.trimmed().toLower();
+        if (isLtspiceComponentDb && (kindKey == "resistor" || kindKey == "capacitor" || kindKey == "inductor")) {
+            QString importErr;
+            if (importStandardPassiveCatalog(parent, srcFile, kindKey, &importErr)) {
+                return true;
+            }
+        }
+
+        QString msg = QString("No %1 .model lines found in file.\n\nDetected .model lines: %2")
+                          .arg(readableTypeName)
+                          .arg(modelLines);
+        if (isLtspiceComponentDb) {
+            msg += "\n\nNote: LTspice standard.res/standard.cap/standard.ind are component database files, "
+                   "not SPICE .model libraries.\n"
+                   "Choose a SPICE model text file (e.g. .lib/.mod/.inc) that contains .model lines.";
+        }
         QMessageBox::information(
             parent,
             title,
-            QString("No %1 .model lines found in file.\n\nDetected .model lines: %2")
-                .arg(readableTypeName)
-                .arg(modelLines));
+            msg);
         return false;
     }
 
@@ -1863,13 +2106,13 @@ void ProjectManager::importLtspiceMosModels() {
 }
 
 void ProjectManager::importLtspiceResistorModels() {
-    const QString srcFile = QDir::homePath() + "/Documents/ltspice/cmp/standard.res";
-    if (!QFileInfo::exists(srcFile)) {
-        QMessageBox::warning(this,
-                             "Resistor Model Import",
-                             QString("Source file not found:\n%1").arg(srcFile));
-        return;
-    }
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
+    const QString srcFile = QFileDialog::getOpenFileName(
+        this,
+        "Select LTspice Resistor Model File",
+        defaultSrc,
+        "LTspice Resistor Models (*.res *.lib *.mod *.inc);;All Files (*)");
+    if (srcFile.isEmpty()) return;
 
     importStandardPassiveModelFile(this,
                                    srcFile,
@@ -1880,13 +2123,13 @@ void ProjectManager::importLtspiceResistorModels() {
 }
 
 void ProjectManager::importLtspiceCapacitorModels() {
-    const QString srcFile = QDir::homePath() + "/Documents/ltspice/cmp/standard.cap";
-    if (!QFileInfo::exists(srcFile)) {
-        QMessageBox::warning(this,
-                             "Capacitor Model Import",
-                             QString("Source file not found:\n%1").arg(srcFile));
-        return;
-    }
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
+    const QString srcFile = QFileDialog::getOpenFileName(
+        this,
+        "Select LTspice Capacitor Model File",
+        defaultSrc,
+        "LTspice Capacitor Models (*.cap *.lib *.mod *.inc);;All Files (*)");
+    if (srcFile.isEmpty()) return;
 
     importStandardPassiveModelFile(this,
                                    srcFile,
@@ -1897,13 +2140,13 @@ void ProjectManager::importLtspiceCapacitorModels() {
 }
 
 void ProjectManager::importLtspiceInductorModels() {
-    const QString srcFile = QDir::homePath() + "/Documents/ltspice/cmp/standard.ind";
-    if (!QFileInfo::exists(srcFile)) {
-        QMessageBox::warning(this,
-                             "Inductor Model Import",
-                             QString("Source file not found:\n%1").arg(srcFile));
-        return;
-    }
+    const QString defaultSrc = QDir::homePath() + "/Documents/ltspice/cmp";
+    const QString srcFile = QFileDialog::getOpenFileName(
+        this,
+        "Select LTspice Inductor Model File",
+        defaultSrc,
+        "LTspice Inductor Models (*.ind *.lib *.mod *.inc);;All Files (*)");
+    if (srcFile.isEmpty()) return;
 
     importStandardPassiveModelFile(this,
                                    srcFile,

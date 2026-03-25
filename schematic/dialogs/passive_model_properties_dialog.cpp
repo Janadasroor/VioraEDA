@@ -39,7 +39,7 @@ PassiveModelPropertiesDialog::PassiveModelPropertiesDialog(SchematicItem* item, 
     } else if (kind == Kind::Capacitor) {
         m_valueEdit->setPlaceholderText("e.g. 100n");
     } else {
-        m_valueEdit->setPlaceholderText("e.g. 10u");
+    m_valueEdit->setPlaceholderText("e.g. 10u");
     }
     form->addRow("Value:", m_valueEdit);
 
@@ -51,6 +51,12 @@ PassiveModelPropertiesDialog::PassiveModelPropertiesDialog(SchematicItem* item, 
     modelRow->addWidget(m_spiceModelEdit, 1);
     modelRow->addWidget(pickBtn);
     form->addRow("SPICE Model:", modelRow);
+
+    m_manufacturerEdit = new QLineEdit(item ? item->manufacturer() : QString());
+    form->addRow("Manufacturer:", m_manufacturerEdit);
+
+    m_mpnEdit = new QLineEdit(item ? item->mpn() : QString());
+    form->addRow("MPN:", m_mpnEdit);
 
     m_excludeSimCheck = new QCheckBox("Exclude from Simulation");
     m_excludeSimCheck->setChecked(item ? item->excludeFromSimulation() : false);
@@ -79,8 +85,19 @@ void PassiveModelPropertiesDialog::pickModel() {
             : (m_kind == Kind::Capacitor ? PassiveModelPickerDialog::Kind::Capacitor
                                          : PassiveModelPickerDialog::Kind::Inductor);
     PassiveModelPickerDialog dlg(pickerKind, this);
-    if (dlg.exec() == QDialog::Accepted && !dlg.selectedModel().isEmpty()) {
-        m_spiceModelEdit->setText(dlg.selectedModel());
+    if (dlg.exec() == QDialog::Accepted) {
+        if (!dlg.selectedModel().isEmpty()) {
+            m_spiceModelEdit->setText(dlg.selectedModel());
+        }
+        if (!dlg.selectedValue().isEmpty()) {
+            m_valueEdit->setText(dlg.selectedValue());
+        }
+        if (!dlg.selectedManufacturer().isEmpty()) {
+            m_manufacturerEdit->setText(dlg.selectedManufacturer());
+        }
+        if (!dlg.selectedMpn().isEmpty()) {
+            m_mpnEdit->setText(dlg.selectedMpn());
+        }
     }
 }
 
@@ -94,6 +111,14 @@ QString PassiveModelPropertiesDialog::valueText() const {
 
 QString PassiveModelPropertiesDialog::spiceModel() const {
     return m_spiceModelEdit ? m_spiceModelEdit->text().trimmed() : QString();
+}
+
+QString PassiveModelPropertiesDialog::manufacturer() const {
+    return m_manufacturerEdit ? m_manufacturerEdit->text().trimmed() : QString();
+}
+
+QString PassiveModelPropertiesDialog::mpn() const {
+    return m_mpnEdit ? m_mpnEdit->text().trimmed() : QString();
 }
 
 bool PassiveModelPropertiesDialog::excludeFromSimulation() const {
