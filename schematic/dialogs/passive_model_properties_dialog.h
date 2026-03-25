@@ -13,7 +13,8 @@ class PassiveModelPropertiesDialog : public QDialog {
 public:
     enum class Kind {
         Resistor,
-        Capacitor
+        Capacitor,
+        Inductor
     };
 
     explicit PassiveModelPropertiesDialog(SchematicItem* item, Kind kind, QWidget* parent = nullptr);

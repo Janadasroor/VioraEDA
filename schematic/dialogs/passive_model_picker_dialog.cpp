@@ -48,14 +48,19 @@ QStringList loadLogicalLines(const QString& filePath) {
 }
 
 QString kindName(PassiveModelPickerDialog::Kind kind) {
-    return kind == PassiveModelPickerDialog::Kind::Resistor ? "Resistor" : "Capacitor";
+    if (kind == PassiveModelPickerDialog::Kind::Resistor) return "Resistor";
+    if (kind == PassiveModelPickerDialog::Kind::Capacitor) return "Capacitor";
+    return "Inductor";
 }
 
 QStringList acceptedTypeTokens(PassiveModelPickerDialog::Kind kind) {
     if (kind == PassiveModelPickerDialog::Kind::Resistor) {
         return {"r", "res", "resistor"};
     }
-    return {"c", "cap", "capacitor"};
+    if (kind == PassiveModelPickerDialog::Kind::Capacitor) {
+        return {"c", "cap", "capacitor"};
+    }
+    return {"l", "ind", "inductor"};
 }
 
 QStringList preferredFiles(PassiveModelPickerDialog::Kind kind) {
@@ -66,9 +71,15 @@ QStringList preferredFiles(PassiveModelPickerDialog::Kind kind) {
             home + "/Documents/ltspice/cmp/standard.res"
         };
     }
+    if (kind == PassiveModelPickerDialog::Kind::Capacitor) {
+        return {
+            home + "/ViospiceLib/lib/capacitors_standard.lib",
+            home + "/Documents/ltspice/cmp/standard.cap"
+        };
+    }
     return {
-        home + "/ViospiceLib/lib/capacitors_standard.lib",
-        home + "/Documents/ltspice/cmp/standard.cap"
+        home + "/ViospiceLib/lib/inductors_standard.lib",
+        home + "/Documents/ltspice/cmp/standard.ind"
     };
 }
 
@@ -123,7 +134,7 @@ void PassiveModelPickerDialog::loadModels() {
     const QStringList accepted = acceptedTypeTokens(m_kind);
     const QRegularExpression headRe(R"(^\s*\.model\s+(\S+)\s+([^\s(]+))", QRegularExpression::CaseInsensitiveOption);
 
-    QSet<QString> seen;
+    QStringList seen;
     for (const QString& filePath : preferredFiles(m_kind)) {
         if (!QFileInfo::exists(filePath)) continue;
         const QStringList lines = loadLogicalLines(filePath);
@@ -135,8 +146,9 @@ void PassiveModelPickerDialog::loadModels() {
             const QString typeTok = m.captured(2).trimmed().toLower();
             if (!accepted.contains(typeTok)) continue;
             if (modelName.isEmpty()) continue;
-            if (seen.contains(modelName.toLower())) continue;
-            seen.insert(modelName.toLower());
+            const QString modelLower = modelName.toLower();
+            if (seen.contains(modelLower)) continue;
+            seen.append(modelLower);
 
             auto* item = new QListWidgetItem(modelName);
             item->setData(Qt::UserRole, modelName);
@@ -150,12 +162,16 @@ void PassiveModelPickerDialog::loadModels() {
 
     if (m_modelList->count() == 0) {
         const QVector<SpiceModelInfo> allModels = ModelLibraryManager::instance().allModels();
-        const QString hint = (m_kind == Kind::Resistor) ? "res" : "cap";
+        QString hint;
+        if (m_kind == Kind::Resistor) hint = "res";
+        else if (m_kind == Kind::Capacitor) hint = "cap";
+        else hint = "ind";
         for (const auto& mi : allModels) {
             const QString lib = QFileInfo(mi.libraryPath).fileName().toLower();
             if (!lib.contains(hint)) continue;
-            if (seen.contains(mi.name.toLower())) continue;
-            seen.insert(mi.name.toLower());
+            const QString modelLower = mi.name.toLower();
+            if (seen.contains(modelLower)) continue;
+            seen.append(modelLower);
 
             auto* item = new QListWidgetItem(mi.name);
             item->setData(Qt::UserRole, mi.name);
@@ -172,9 +188,10 @@ void PassiveModelPickerDialog::loadModels() {
     if (m_modelList->count() > 0) {
         m_modelList->setCurrentRow(0);
     } else {
+        const QString ext = (m_kind == Kind::Resistor) ? "res" : (m_kind == Kind::Capacitor ? "cap" : "ind");
         m_detailLabel->setText(QString("No %1 models found. Import standard.%2 first.")
                                    .arg(kindName(m_kind).toLower(),
-                                        m_kind == Kind::Resistor ? "res" : "cap"));
+                                        ext));
     }
 }
 
