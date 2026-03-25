@@ -14,6 +14,7 @@
 #include <cmath>
 #include <QRegularExpression>
 #include <QGraphicsScene>
+#include <QSignalSpy>
 
 namespace {
 
@@ -366,6 +367,34 @@ private slots:
         QVERIFY2(!wire->isSelected(), "Connected wire should not steal click selection from resistor pin.");
         QVERIFY2(view.currentTool() && view.currentTool()->name() == "Select",
                  "Select tool should stay active when clicking connected pin.");
+    }
+
+    void testSelect_ProbeClickOnComponentBodyEmitsCurrentWaveform() {
+        QGraphicsScene scene;
+        TestSchematicView view;
+        view.resize(900, 700);
+        view.setScene(&scene);
+        view.setCurrentTool("Select");
+        view.setSimulationRunning(true);
+
+        Flux::Model::SymbolDefinition symbol("BodyProbeSymbol");
+        symbol.setReferencePrefix("U");
+        symbol.addPrimitive(Flux::Model::SymbolPrimitive::createRect(QPointF(-50.0, -30.0), QPointF(50.0, 30.0)));
+        symbol.addPrimitive(Flux::Model::SymbolPrimitive::createPin(QPointF(-70.0, 0.0), 1, "IN", "Left", 20.0));
+
+        auto* comp = new GenericComponentItem(symbol);
+        comp->setReference("U1");
+        comp->setPos(QPointF(260.0, 200.0));
+        scene.addItem(comp);
+
+        QSignalSpy spy(&view, &SchematicView::netProbed);
+        QVERIFY(spy.isValid());
+
+        const QPoint clickPos = sceneToView(view, comp->mapToScene(QPointF(0.0, 0.0)));
+        sendMousePress(view, clickPos);
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(0).toString(), QString("I(U1)"));
     }
 
     void testSelect_DragTransistorKeepsTJunctionBranchesAttached() {

@@ -165,7 +165,9 @@ SchematicProbeTool::ProbeCursorArt SchematicProbeTool::createProbeCursorArt(Prob
     p.setRenderHint(QPainter::Antialiasing);
 
     // Color scheme
-    QColor tipColor = (kind == ProbeKind::Voltage) ? QColor(220, 38, 38) : QColor(245, 158, 11); // Red or Amber (Current)
+    QColor tipColor = QColor(220, 38, 38);
+    if (kind == ProbeKind::Current) tipColor = QColor(245, 158, 11);
+    else if (kind == ProbeKind::Power) tipColor = QColor(239, 68, 68);
     QColor bodyColor = QColor(209, 213, 219); // Light Gray
     QColor shadowColor = QColor(0, 0, 0, 100);
 

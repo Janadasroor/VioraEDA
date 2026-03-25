@@ -150,6 +150,9 @@ private:
     static QString tabStateKey(QGraphicsScene* scene);
     void parseCommandText(const QString& command);
     void updateCommandDisplay();
+    bool buildDerivedPowerWaveform(const QString& signalName, QVector<double>& time, QVector<double>& values) const;
+    QStringList connectedNetsForItem(class SchematicItem* item) const;
+    void appendDerivedPowerWaveforms(SimResults& results) const;
 
     QGraphicsScene* m_scene = nullptr;
     NetManager* m_netManager = nullptr;

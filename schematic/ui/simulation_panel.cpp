@@ -216,6 +216,138 @@ bool signalMatches(const QString& itemText, const QString& signalName) {
 }
 } // namespace
 
+QStringList SimulationPanel::connectedNetsForItem(SchematicItem* item) const {
+    QStringList nets;
+    if (!item || !m_netManager) return nets;
+    m_netManager->updateNets(m_scene);
+
+    QSet<QString> seen;
+    const qreal pinTolerance = 2.0;
+
+    for (const QPointF& pinLocal : item->connectionPoints()) {
+        const QPointF pinScene = item->mapToScene(pinLocal);
+        const QString net = m_netManager->findNetAtPoint(pinScene).trimmed();
+        if (net.isEmpty()) continue;
+
+        const QList<NetConnection> conns = m_netManager->getConnections(net);
+        bool pinBelongsToItem = false;
+        for (const auto& conn : conns) {
+            if (conn.item != item) continue;
+            if (QLineF(conn.connectionPoint, pinScene).length() <= pinTolerance) {
+                pinBelongsToItem = true;
+                break;
+            }
+        }
+        if (!pinBelongsToItem) continue;
+
+        const QString canonicalNet = net.toUpper();
+        if (seen.contains(canonicalNet)) continue;
+        seen.insert(canonicalNet);
+        nets.append(net);
+    }
+    return nets;
+}
+
+bool SimulationPanel::buildDerivedPowerWaveform(const QString& signalName, QVector<double>& time, QVector<double>& values) const {
+    if (!signalName.startsWith("P(", Qt::CaseInsensitive) || !signalName.endsWith(")")) return false;
+    if (!m_scene) return false;
+
+    const QString ref = signalName.mid(2, signalName.length() - 3).trimmed();
+    if (ref.isEmpty()) return false;
+
+    SchematicItem* targetItem = nullptr;
+    for (QGraphicsItem* gi : m_scene->items()) {
+        auto* item = dynamic_cast<SchematicItem*>(gi);
+        if (!item) continue;
+        if (item->reference().compare(ref, Qt::CaseInsensitive) == 0) {
+            targetItem = item;
+            break;
+        }
+    }
+    if (!targetItem) return false;
+
+    const QStringList nets = connectedNetsForItem(targetItem);
+    if (nets.size() < 2) return false;
+
+    const SimWaveform* currentWave = nullptr;
+    const SimWaveform* posWave = nullptr;
+    const SimWaveform* negWave = nullptr;
+    const QString currentName = QString("I(%1)").arg(ref);
+    const QString posName = QString("V(%1)").arg(nets.value(0));
+    const QString negName = QString("V(%1)").arg(nets.value(1));
+
+    for (const auto& w : m_lastResults.waveforms) {
+        const QString wName = QString::fromStdString(w.name);
+        if (!currentWave && wName.compare(currentName, Qt::CaseInsensitive) == 0) currentWave = &w;
+        if (!posWave && (wName.compare(posName, Qt::CaseInsensitive) == 0 || wName.compare(nets.value(0), Qt::CaseInsensitive) == 0)) posWave = &w;
+        if (!negWave && (wName.compare(negName, Qt::CaseInsensitive) == 0 || wName.compare(nets.value(1), Qt::CaseInsensitive) == 0)) negWave = &w;
+    }
+    if (!currentWave || !posWave || !negWave) return false;
+
+    const size_t count = std::min({currentWave->xData.size(), currentWave->yData.size(), posWave->yData.size(), negWave->yData.size()});
+    if (count == 0) return false;
+
+    time.reserve(static_cast<int>(count));
+    values.reserve(static_cast<int>(count));
+    for (size_t i = 0; i < count; ++i) {
+        time.append(currentWave->xData[i]);
+        values.append((posWave->yData[i] - negWave->yData[i]) * currentWave->yData[i]);
+    }
+    return true;
+}
+
+void SimulationPanel::appendDerivedPowerWaveforms(SimResults& results) const {
+    if (!m_scene || !m_netManager) return;
+    m_netManager->updateNets(m_scene);
+
+    auto findWave = [&](const QString& nameA, const QString& nameB = QString()) -> const SimWaveform* {
+        for (const auto& w : results.waveforms) {
+            const QString wName = QString::fromStdString(w.name);
+            if (wName.compare(nameA, Qt::CaseInsensitive) == 0) return &w;
+            if (!nameB.isEmpty() && wName.compare(nameB, Qt::CaseInsensitive) == 0) return &w;
+        }
+        return nullptr;
+    };
+
+    QSet<QString> existing;
+    for (const auto& w : results.waveforms) {
+        existing.insert(QString::fromStdString(w.name).toUpper());
+    }
+
+    for (QGraphicsItem* gi : m_scene->items()) {
+        auto* item = dynamic_cast<SchematicItem*>(gi);
+        if (!item) continue;
+
+        const QString ref = item->reference().trimmed();
+        if (ref.isEmpty()) continue;
+
+        const QString powerName = QString("P(%1)").arg(ref);
+        if (existing.contains(powerName.toUpper())) continue;
+
+        const QStringList nets = connectedNetsForItem(item);
+        if (nets.size() < 2) continue;
+
+        const SimWaveform* currentWave = findWave(QString("I(%1)").arg(ref));
+        const SimWaveform* posWave = findWave(QString("V(%1)").arg(nets[0]), nets[0]);
+        const SimWaveform* negWave = findWave(QString("V(%1)").arg(nets[1]), nets[1]);
+        if (!currentWave || !posWave || !negWave) continue;
+
+        const size_t count = std::min({currentWave->xData.size(), currentWave->yData.size(), posWave->yData.size(), negWave->yData.size()});
+        if (count == 0) continue;
+
+        SimWaveform powerWave;
+        powerWave.name = powerName.toStdString();
+        powerWave.xData.reserve(count);
+        powerWave.yData.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            powerWave.xData.push_back(currentWave->xData[i]);
+            powerWave.yData.push_back((posWave->yData[i] - negWave->yData[i]) * currentWave->yData[i]);
+        }
+        existing.insert(powerName.toUpper());
+        results.waveforms.push_back(std::move(powerWave));
+    }
+}
+
 void SimulationPanel::addProbe(const QString& signalName) {
     if (signalName.isEmpty()) return;
     
@@ -352,6 +484,61 @@ void SimulationPanel::addProbe(const QString& signalName) {
                         found = true;
                     }
                 }
+            }
+        }
+
+        if (!found && signalName.startsWith("P(", Qt::CaseInsensitive)) {
+            QVector<double> time;
+            QVector<double> values;
+            if (buildDerivedPowerWaveform(signalName, time, values) ||
+                (matchedName != signalName && buildDerivedPowerWaveform(matchedName, time, values))) {
+                bool existsInResults = false;
+                for (auto& wave : m_lastResults.waveforms) {
+                    if (QString::fromStdString(wave.name).compare(matchedName, Qt::CaseInsensitive) == 0) {
+                        wave.xData.assign(time.begin(), time.end());
+                        wave.yData.assign(values.begin(), values.end());
+                        existsInResults = true;
+                        break;
+                    }
+                }
+                if (!existsInResults) {
+                    SimWaveform wave;
+                    wave.name = matchedName.toStdString();
+                    wave.xData.assign(time.begin(), time.end());
+                    wave.yData.assign(values.begin(), values.end());
+                    m_lastResults.waveforms.push_back(std::move(wave));
+                }
+
+                m_waveformViewer->addSignal(matchedName, time, values);
+
+                bool chartHasSeries = false;
+                if (m_chart) {
+                    for (auto* series : m_chart->series()) {
+                        if (series && series->name().compare(matchedName, Qt::CaseInsensitive) == 0) {
+                            chartHasSeries = true;
+                            break;
+                        }
+                    }
+                    if (!chartHasSeries) {
+                        auto axesX = m_chart->axes(Qt::Horizontal);
+                        auto axesY = m_chart->axes(Qt::Vertical);
+                        if (!axesX.isEmpty() && !axesY.isEmpty()) {
+                            auto* series = new QLineSeries();
+                            series->setName(matchedName);
+                            series->setPen(QPen(Qt::red, 1.5));
+                            QList<QPointF> points;
+                            points.reserve(time.size());
+                            for (int i = 0; i < time.size() && i < values.size(); ++i) {
+                                points.append(QPointF(time[i], values[i]));
+                            }
+                            series->append(points);
+                            m_chart->addSeries(series);
+                            series->attachAxis(axesX[0]);
+                            series->attachAxis(axesY[0]);
+                        }
+                    }
+                }
+                found = true;
             }
         }
 
@@ -1934,45 +2121,48 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
         return;
     }
 
+    SimResults effectiveResults = results;
+    appendDerivedPowerWaveforms(effectiveResults);
+
     if (m_hasLastResults) {
         m_previousResults = m_lastResults;
         m_hasPreviousResults = true;
     }
-    m_lastResults = results;
+    m_lastResults = effectiveResults;
     m_hasLastResults = true;
     m_lastRunTimestampUtc = QDateTime::currentDateTimeUtc();
 
     m_logOutput->append("Built-in simulation finished.");
-    for (const auto& d : results.diagnostics) {
+    for (const auto& d : effectiveResults.diagnostics) {
         onLogReceived(QString("[Diag] %1").arg(QString::fromStdString(d)));
     }
-    for (const auto& s : results.fixSuggestions) {
+    for (const auto& s : effectiveResults.fixSuggestions) {
         onLogReceived(QString("[Fix] %1").arg(QString::fromStdString(s)));
     }
 
     // ── Timeline Initialization ──────────────────────────────────────
-    bool isTransient = (results.analysisType == SimAnalysisType::Transient);
+    bool isTransient = (effectiveResults.analysisType == SimAnalysisType::Transient);
     m_timelineSlider->setEnabled(isTransient);
             if (isTransient) {
             m_timelineSlider->blockSignals(true);
             m_timelineSlider->setValue(1000); // Start at end
             m_timelineSlider->blockSignals(false);
             
-            if (!results.waveforms.empty() && !results.waveforms.front().xData.empty()) {
-                m_timelineLabel->setText(QString::number(results.waveforms.front().xData.back(), 'g', 4) + " s");
+            if (!effectiveResults.waveforms.empty() && !effectiveResults.waveforms.front().xData.empty()) {
+                m_timelineLabel->setText(QString::number(effectiveResults.waveforms.front().xData.back(), 'g', 4) + " s");
             }
         } else {
     
         m_timelineLabel->setText("--- s");
     }
 
-    plotBuiltinResults(results);
-    evaluateMeasStatements(results);
+    plotBuiltinResults(effectiveResults);
+    evaluateMeasStatements(effectiveResults);
 
-    qDebug() << "SimulationPanel::onSimResultsReady() - type:" << (int)results.analysisType;
+    qDebug() << "SimulationPanel::onSimResultsReady() - type:" << (int)effectiveResults.analysisType;
 
     // Show detailed log dialog (Only for offline analyses, not real-time)
-    if (results.analysisType != SimAnalysisType::RealTime && m_logOutput->toPlainText().length() > 0) {
+    if (effectiveResults.analysisType != SimAnalysisType::RealTime && m_logOutput->toPlainText().length() > 0) {
         QTimer::singleShot(500, this, [this]() {
             SimulationLogDialog* dlg = new SimulationLogDialog(m_logOutput->toPlainText(), this);
             dlg->setAttribute(Qt::WA_DeleteOnClose);
