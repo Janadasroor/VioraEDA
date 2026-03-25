@@ -65,6 +65,49 @@ SchematicItem* owningSchematicItem(QGraphicsItem* item) {
     }
     return lastSchematic;
 }
+
+bool isProbeableSchematicComponent(SchematicItem* candidate) {
+    if (!candidate || candidate->isSubItem()) return false;
+    const auto type = candidate->itemType();
+    return type != SchematicItem::WireType &&
+           type != SchematicItem::LabelType &&
+           type != SchematicItem::NetLabelType &&
+           type != SchematicItem::JunctionType &&
+           type != SchematicItem::BusType &&
+           type != SchematicItem::NoConnectType &&
+           type != SchematicItem::SpiceDirectiveType &&
+           type != SchematicItem::SheetType;
+}
+
+SchematicItem* findProbeableComponentAt(SchematicView* view, const QPoint& viewPos, const QPointF& scenePos) {
+    if (!view || !view->scene()) return nullptr;
+
+    auto findFromItems = [](const QList<QGraphicsItem*>& items) -> SchematicItem* {
+        for (QGraphicsItem* it : items) {
+            SchematicItem* candidate = owningSchematicItem(it);
+            if (isProbeableSchematicComponent(candidate)) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    const QRect exactRect(viewPos.x() - 2, viewPos.y() - 2, 5, 5);
+    if (SchematicItem* candidate = findFromItems(view->items(exactRect))) {
+        return candidate;
+    }
+
+    // Symbol interiors are often hollow, so shape hits can miss even when the cursor is visibly over the body.
+    constexpr qreal kBodyHitRadius = 8.0;
+    const QRectF sceneRect(scenePos.x() - kBodyHitRadius,
+                           scenePos.y() - kBodyHitRadius,
+                           kBodyHitRadius * 2.0,
+                           kBodyHitRadius * 2.0);
+    return findFromItems(view->scene()->items(sceneRect,
+                                              Qt::IntersectsItemBoundingRect,
+                                              Qt::DescendingOrder,
+                                              view->transform()));
+}
 }
 
 SchematicView::SchematicView(QWidget *parent)
@@ -449,31 +492,16 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                 return;
             } else {
                 // Not over a wire/label, check for component body (Current Probe)
-                SchematicItem* compItem = nullptr;
-                for (QGraphicsItem* it : foundItems) {
-                    SchematicItem* candidate = owningSchematicItem(it);
-                    if (candidate && !candidate->isSubItem()) {
-                        auto type = candidate->itemType();
-                        // Filter for component-like items
-                        if (type != SchematicItem::WireType &&
-                            type != SchematicItem::LabelType &&
-                            type != SchematicItem::NetLabelType &&
-                            type != SchematicItem::JunctionType &&
-                            type != SchematicItem::BusType &&
-                            type != SchematicItem::NoConnectType &&
-                            type != SchematicItem::SpiceDirectiveType &&
-                            type != SchematicItem::SheetType) {
-                            compItem = candidate;
-                            break;
-                        }
-                    }
-                }
+                SchematicItem* compItem = findProbeableComponentAt(this, event->pos(), scenePos);
 
                 if (compItem) {
                     QString ref = compItem->reference();
                     if (!ref.isEmpty()) {
-                        emit netProbed(QString("I(%1)").arg(ref));
-                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, scenePos);
+                        const bool powerHeld = event->modifiers() & Qt::AltModifier;
+                        emit netProbed(QString("%1(%2)").arg(powerHeld ? "P" : "I", ref));
+                        setProbeCursorOverlay(powerHeld ? SchematicProbeTool::ProbeKind::Power
+                                                        : SchematicProbeTool::ProbeKind::Current,
+                                              scenePos);
                         event->accept();
                         return;
                     }
@@ -561,18 +589,6 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
     // from executing if placed after.
     bool isSelectTool = (!m_currentTool || m_currentTool->name() == "Select");
     bool probeCursorActive = false;
-    auto isProbeableComponent = [](SchematicItem* candidate) -> bool {
-        if (!candidate || candidate->isSubItem()) return false;
-        const auto type = candidate->itemType();
-        return type != SchematicItem::WireType &&
-               type != SchematicItem::LabelType &&
-               type != SchematicItem::NetLabelType &&
-               type != SchematicItem::JunctionType &&
-               type != SchematicItem::BusType &&
-               type != SchematicItem::NoConnectType &&
-               type != SchematicItem::SpiceDirectiveType &&
-               type != SchematicItem::SheetType;
-    };
     // Allow probe cursor if hovering normally OR if we are currently clicking a wire
     if (!m_isPanning && (m_probeClickActive || !(event->buttons() & Qt::LeftButton)) && isSelectTool) {
         // Hover highlight
@@ -617,14 +633,8 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
 
             SchematicItem* hoveredComponent = nullptr;
             if (!isWireOrLabel) {
-                for (QGraphicsItem* it : foundItems) {
-                    SchematicItem* candidate = owningSchematicItem(it);
-                    if (isProbeableComponent(candidate)) {
-                        hoveredComponent = candidate;
-                        break;
-                    }
-                }
-                if (!hoveredComponent && isProbeableComponent(sItem)) {
+                hoveredComponent = findProbeableComponentAt(this, event->pos(), scenePos);
+                if (!hoveredComponent && isProbeableSchematicComponent(sItem)) {
                     hoveredComponent = sItem;
                 }
             }
@@ -647,7 +657,10 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
             } else {
                 // Not over a wire, check for component body (Current Probe)
                 if (hoveredComponent && !hoveredComponent->reference().trimmed().isEmpty()) {
-                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, mapToScene(event->pos()));
+                    const bool powerHeld = event->modifiers() & Qt::AltModifier;
+                    setProbeCursorOverlay(powerHeld ? SchematicProbeTool::ProbeKind::Power
+                                                    : SchematicProbeTool::ProbeKind::Current,
+                                          mapToScene(event->pos()));
                     probeCursorActive = true;
                 } else if (!m_probeStartNet.isEmpty()) {
                     // Still show black probe in "armed" mode so user knows they need to click a wire
