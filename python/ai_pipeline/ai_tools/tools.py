@@ -1,5 +1,6 @@
 import json
 import re
+import os
 from ..services.simulation_adapter.engine import SimulationAdapter
 from ..services.power_metrics.compute import compute_average_power
 from ..services.waveform_viz.plot_service import PlotService
@@ -64,6 +65,46 @@ class ToolRegistry:
             "netlist": netlist_text,
             "instructions": "A 'GENERATE SCHEMATIC' button will appear in the chat. Click it to render this netlist directly onto the canvas."
         }
+
+    def save_logic_template(self, filename, code):
+        """
+        Saves a custom generated Python logic script directly to the python/templates directory
+        so the user can load it later.
+        """
+        try:
+            # We are assuming the CWD is the project root (Viospice/build or Viospice/)
+            # We'll resolve 'python/templates' relative to the schematic path or current dir.
+            # Usually the application root is near the parent of the schematic path, but we can search for it
+            # or simply use a hardcoded relative path.
+            # Viospice template path is typically 'python/templates/' relative to the binary (which is in bin/).
+            # The safest approach is to create it if it doesn't exist in the current working directory, 
+            # or next to the query script.
+            
+            # Use os.getcwd() which is usually the project dir or build dir.
+            target_dir = os.path.join(os.getcwd(), "python", "templates")
+            
+            if not os.path.exists(target_dir):
+                # Fallback to relative to this script
+                target_dir = os.path.join(os.path.dirname(__file__), "..", "..", "templates")
+                if not os.path.exists(target_dir):
+                    os.makedirs(target_dir, exist_ok=True)
+            
+            # Ensure safe filename
+            safe_filename = "".join([c for c in filename if c.isalnum() or c in "._-"])
+            if not safe_filename.endswith(".py"):
+                safe_filename += ".py"
+                
+            out_path = os.path.join(target_dir, safe_filename)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(code)
+                
+            return {
+                "status": "template_saved",
+                "filename": safe_filename,
+                "instructions": f"Saved template '{safe_filename}' successfully to {out_path}."
+            }
+        except Exception as e:
+            return {"error": f"Failed to save template: {str(e)}"}
 
     def _find_voltage_sources(self):
         sources = []
@@ -493,6 +534,24 @@ def get_tools_schema():
                     },
                 },
                 "required": ["netlist_text"],
+            },
+        },
+        {
+            "name": "save_logic_template",
+            "description": "Saves a custom generated Python logic script directly to the user's template library so they can load it smoothly into Smart Signal Blocks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "The filename to save as, e.g., '1khz_pwm.py' or 'fm_modulator.py'."
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "The complete Python source code for the logic block."
+                    }
+                },
+                "required": ["filename", "code"],
             },
         },
     ]
