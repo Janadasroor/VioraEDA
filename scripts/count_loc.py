@@ -51,7 +51,7 @@ def main():
     parser.add_argument('path', nargs='?', default='.', help='Directory to scan (default: current)')
     parser.add_argument('--extensions', nargs='+', default=['.cpp', '.h', '.hpp', '.cxx', '.hxx'], 
                         help='File extensions to include')
-    parser.add_argument('--exclude', nargs='+', default=['build', '.git', 'venv', 'node_modules', '_deps', 'cmake-build'],
+    parser.add_argument('--exclude', nargs='+', default=['build','build-debug','build-release', 'build-asan', 'build-tsan', 'assets', '.git', 'venv', 'node_modules', '_deps', 'cmake-build'],
                         help='Directories to exclude')
     
     args = parser.parse_args()

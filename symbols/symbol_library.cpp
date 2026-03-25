@@ -367,7 +367,159 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
             file.write(doc.toJson(QJsonDocument::Indented));
         }
     };
+
+    auto ensureDefaultNmos4Symbol = [](const QString& baseDir) {
+        QDir dir(baseDir);
+        if (!dir.exists() && !dir.mkpath(".")) return;
+
+        const QString filePath = dir.filePath("nmos4.viosym");
+        bool shouldWrite = !QFile::exists(filePath);
+        if (!shouldWrite) {
+            QFile inFile(filePath);
+            if (inFile.open(QIODevice::ReadOnly)) {
+                QJsonDocument doc = QJsonDocument::fromJson(inFile.readAll());
+                if (doc.isObject()) {
+                    const QJsonObject obj = doc.object();
+                    const QString name = obj.value("name").toString().trimmed();
+                    const QString generatedBy = obj.value("customFields").toObject().value("generatedBy").toString();
+                    if (name.compare("nmos4", Qt::CaseInsensitive) == 0 && generatedBy == "viospice") {
+                        shouldWrite = true;
+                    }
+                }
+            }
+        }
+        if (!shouldWrite) return;
+
+        SymbolDefinition sym("nmos4");
+        sym.setDescription("LTspice-style 4-terminal NMOS");
+        sym.setCategory("Semiconductors");
+        sym.setReferencePrefix("M");
+        sym.setDefaultValue("2N7000");
+        sym.setCustomField("generatedBy", "viospice");
+        sym.setCustomField("generatedVersion", "1");
+
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(-12, -24), QPointF(-12, 24)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, -18), QPointF(6, -6)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, 6), QPointF(6, 18)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, -6), QPointF(6, 6)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, -18), QPointF(18, -18)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, 18), QPointF(18, 18)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, 0), QPointF(18, 0)));
+
+        QList<QPointF> arrow = {QPointF(14, 0), QPointF(9.5, -2.2), QPointF(9.5, 2.2)};
+        sym.addPrimitive(SymbolPrimitive::createPolygon(arrow, true));
+
+        SymbolPrimitive gPin = SymbolPrimitive::createPin(QPointF(-30, 0), 1, "G");
+        gPin.data["length"] = 18.0;
+        gPin.data["orientation"] = "Right";
+        sym.addPrimitive(gPin);
+
+        SymbolPrimitive dPin = SymbolPrimitive::createPin(QPointF(18, -30), 2, "D");
+        dPin.data["length"] = 12.0;
+        dPin.data["orientation"] = "Down";
+        sym.addPrimitive(dPin);
+
+        SymbolPrimitive sPin = SymbolPrimitive::createPin(QPointF(18, 30), 3, "S");
+        sPin.data["length"] = 12.0;
+        sPin.data["orientation"] = "Up";
+        sym.addPrimitive(sPin);
+
+        SymbolPrimitive bPin = SymbolPrimitive::createPin(QPointF(36, 0), 4, "B");
+        bPin.data["length"] = 18.0;
+        bPin.data["orientation"] = "Left";
+        sym.addPrimitive(bPin);
+
+        QMap<int, QString> mosMapping;
+        mosMapping[1] = "D";
+        mosMapping[2] = "G";
+        mosMapping[3] = "S";
+        mosMapping[4] = "B";
+        sym.setSpiceNodeMapping(mosMapping);
+
+        QJsonDocument doc(sym.toJson());
+        QFile file(filePath);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            file.write(doc.toJson(QJsonDocument::Indented));
+        }
+    };
+
+    auto ensureDefaultPmos4Symbol = [](const QString& baseDir) {
+        QDir dir(baseDir);
+        if (!dir.exists() && !dir.mkpath(".")) return;
+
+        const QString filePath = dir.filePath("pmos4.viosym");
+        bool shouldWrite = !QFile::exists(filePath);
+        if (!shouldWrite) {
+            QFile inFile(filePath);
+            if (inFile.open(QIODevice::ReadOnly)) {
+                QJsonDocument doc = QJsonDocument::fromJson(inFile.readAll());
+                if (doc.isObject()) {
+                    const QJsonObject obj = doc.object();
+                    const QString name = obj.value("name").toString().trimmed();
+                    const QString generatedBy = obj.value("customFields").toObject().value("generatedBy").toString();
+                    if (name.compare("pmos4", Qt::CaseInsensitive) == 0 && generatedBy == "viospice") {
+                        shouldWrite = true;
+                    }
+                }
+            }
+        }
+        if (!shouldWrite) return;
+
+        SymbolDefinition sym("pmos4");
+        sym.setDescription("LTspice-style 4-terminal PMOS");
+        sym.setCategory("Semiconductors");
+        sym.setReferencePrefix("M");
+        sym.setDefaultValue("BS250");
+        sym.setCustomField("generatedBy", "viospice");
+        sym.setCustomField("generatedVersion", "1");
+
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(-12, -24), QPointF(-12, 24)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, -18), QPointF(6, -6)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, 6), QPointF(6, 18)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, -6), QPointF(6, 6)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, -18), QPointF(18, -18)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, 18), QPointF(18, 18)));
+        sym.addPrimitive(SymbolPrimitive::createLine(QPointF(6, 0), QPointF(18, 0)));
+
+        QList<QPointF> arrow = {QPointF(10.5, 0), QPointF(15.0, -2.2), QPointF(15.0, 2.2)};
+        sym.addPrimitive(SymbolPrimitive::createPolygon(arrow, true));
+
+        SymbolPrimitive gPin = SymbolPrimitive::createPin(QPointF(-30, 0), 1, "G");
+        gPin.data["length"] = 18.0;
+        gPin.data["orientation"] = "Right";
+        sym.addPrimitive(gPin);
+
+        SymbolPrimitive dPin = SymbolPrimitive::createPin(QPointF(18, -30), 2, "D");
+        dPin.data["length"] = 12.0;
+        dPin.data["orientation"] = "Down";
+        sym.addPrimitive(dPin);
+
+        SymbolPrimitive sPin = SymbolPrimitive::createPin(QPointF(18, 30), 3, "S");
+        sPin.data["length"] = 12.0;
+        sPin.data["orientation"] = "Up";
+        sym.addPrimitive(sPin);
+
+        SymbolPrimitive bPin = SymbolPrimitive::createPin(QPointF(36, 0), 4, "B");
+        bPin.data["length"] = 18.0;
+        bPin.data["orientation"] = "Left";
+        sym.addPrimitive(bPin);
+
+        QMap<int, QString> mosMapping;
+        mosMapping[1] = "D";
+        mosMapping[2] = "G";
+        mosMapping[3] = "S";
+        mosMapping[4] = "B";
+        sym.setSpiceNodeMapping(mosMapping);
+
+        QJsonDocument doc(sym.toJson());
+        QFile file(filePath);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            file.write(doc.toJson(QJsonDocument::Indented));
+        }
+    };
     ensureDefaultVoltageSourceSymbol(defaultPath);
+    ensureDefaultNmos4Symbol(defaultPath);
+    ensureDefaultPmos4Symbol(defaultPath);
 
     QMap<QString, SymbolLibrary*> looseLibs;
     for (const QString& path : paths) {

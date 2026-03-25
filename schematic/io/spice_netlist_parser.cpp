@@ -75,7 +75,9 @@ int SpiceNetlistParser::nodeCountForPrefix(QChar prefix) {
         case 'R': case 'C': case 'L': case 'D':
         case 'V': case 'I': case 'B':
             return 2;
-        case 'Q': case 'J': case 'M': case 'Z':
+        case 'M':
+            return 4;
+        case 'Q': case 'J': case 'Z':
             return 3;
         case 'E': case 'G': case 'F': case 'H':
         case 'S': case 'W': case 'T':

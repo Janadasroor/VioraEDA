@@ -813,6 +813,19 @@ QString normalizePinToken(const QString& pin) {
     return pin.trimmed().toUpper();
 }
 
+int resolveMosBodyNode(const QHash<QString, int>& normalizedPinToNode, int sourceNode) {
+    static const QStringList bodyAliases = {
+        "4", "B", "BULK", "BODY", "SUB", "SB"
+    };
+    for (const QString& alias : bodyAliases) {
+        auto it = normalizedPinToNode.find(alias);
+        if (it != normalizedPinToNode.end()) {
+            return *it;
+        }
+    }
+    return sourceNode;
+}
+
 using PinRoleAliases = QList<QStringList>;
 
 PinRoleAliases pinOrderAliasesFor(const SimComponentInstance& inst, const ECOComponent& comp) {
@@ -1306,6 +1319,11 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
                 .arg(compDebugLabel(comp))
                 .arg(inst.nodes.size()));
             continue;
+        }
+
+        if ((inst.type == SimComponentType::MOSFET_NMOS || inst.type == SimComponentType::MOSFET_PMOS) &&
+            inst.nodes.size() == 3) {
+            inst.nodes.push_back(resolveMosBodyNode(normalizedPinToNode, inst.nodes[2]));
         }
 
         // Parse value
