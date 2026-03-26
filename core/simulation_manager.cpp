@@ -49,6 +49,7 @@ void SimulationManager::initialize() {
     );
     m_isInitialized = true;
     qDebug() << "Ngspice initialized";
+    ngSpice_Command((char*)"set ngbehavior=ltps");
     ngSpice_Command((char*)"set filetype=ascii");
 #else
     qWarning() << "Ngspice not available (HAVE_NGSPICE not defined)";

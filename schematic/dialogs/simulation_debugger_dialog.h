@@ -18,10 +18,13 @@ public:
 private:
     void setupUi();
     void populateDiagnostics(const QStringList& diagnostics);
+    void copyDiagnosticsToClipboard() const;
 
     QTableWidget* m_table;
     QPushButton* m_btnRun;
     QPushButton* m_btnAbort;
+    QPushButton* m_btnCopy;
+    QStringList m_diagnostics;
     bool m_runAnyway = false;
 };
 
