@@ -65,6 +65,7 @@ public:
     
     // Reference designator prefix (e.g., "R" for resistor, "C" for capacitor)
     virtual QString referencePrefix() const { return "U"; }
+    virtual QString referenceDisplayText() const;
     
     // Rebuild visual primitives (override in subclasses)
     virtual void rebuildPrimitives() {}
@@ -179,7 +180,12 @@ public:
     void setSubItem(bool sub) { m_isSubItem = sub; }
 
     int unit() const { return m_unit; }
-    void setUnit(int u) { m_unit = u; update(); }
+    void setUnit(int u) {
+        m_unit = qMax(1, u);
+        rebuildPrimitives();
+        updateLabelText();
+        update();
+    }
 
     // Label management
     void createLabels(const QPointF& refOffset, const QPointF& valOffset);

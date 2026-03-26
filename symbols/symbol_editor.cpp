@@ -34,6 +34,7 @@
 
 #include <QGraphicsDropShadowEffect>
 #include <QFileDialog>
+#include <QFile>
 #include <QStyleOptionGraphicsItem>
 #include <QPainterPathStroker>
 #include <QTabWidget>
@@ -303,6 +304,7 @@ QString detectModelNameFromFile(const QString& filePath, const QString& prefix) 
 #include <QScreen>
 #include <QShowEvent>
 #include <QCryptographicHash>
+#include <QJsonArray>
 #include <algorithm>
 #include <cmath>
 #include "core/config_manager.h"
@@ -333,7 +335,7 @@ struct WizardTemplateDef {
     QString gate; // and, nand, or, nor, xor, xnor, not, buf
 };
 
-const QList<WizardTemplateDef>& wizardTemplateDefs() {
+const QList<WizardTemplateDef>& builtinWizardTemplateDefs() {
     static const QList<WizardTemplateDef> defs = {
         {"ic_8pins", "IC 8 Pins (DIP/SOIC)", "Dual-inline 8-pin IC frame", "ic_dual", "IC", "U", "IC8", 8, 10.0, 50.0, ""},
         {"ic_14pins", "IC 14 Pins (DIP/SOIC)", "Dual-inline 14-pin IC frame", "ic_dual", "IC", "U", "IC14", 14, 10.0, 60.0, ""},
@@ -354,9 +356,114 @@ const QList<WizardTemplateDef>& wizardTemplateDefs() {
     return defs;
 }
 
-const WizardTemplateDef* findWizardTemplate(const QString& id) {
+QString projectWizardTemplatesPath(const QString& projectKey) {
+    const QString trimmed = projectKey.trimmed();
+    if (trimmed.isEmpty()) return QString();
+
+    QFileInfo info(trimmed);
+    QString projectDir = trimmed;
+    if (!info.isDir()) {
+        projectDir = info.absolutePath();
+    }
+    if (projectDir.isEmpty()) return QString();
+
+    return QDir(projectDir).filePath(".viospice/symbol_wizard_templates.json");
+}
+
+QJsonObject wizardTemplateToJson(const WizardTemplateDef& tpl) {
+    QJsonObject obj;
+    obj["id"] = tpl.id;
+    obj["name"] = tpl.name;
+    obj["description"] = tpl.description;
+    obj["kind"] = tpl.kind;
+    obj["defaultCategory"] = tpl.defaultCategory;
+    obj["defaultPrefix"] = tpl.defaultPrefix;
+    obj["defaultSymbolName"] = tpl.defaultSymbolName;
+    obj["pins"] = tpl.pins;
+    obj["pitch"] = tpl.pitch;
+    obj["width"] = tpl.width;
+    obj["gate"] = tpl.gate;
+    return obj;
+}
+
+bool wizardTemplateFromJson(const QJsonObject& obj, WizardTemplateDef& out) {
+    const QString id = obj.value("id").toString().trimmed();
+    const QString name = obj.value("name").toString().trimmed();
+    const QString kind = obj.value("kind").toString().trimmed().toLower();
+    if (id.isEmpty() || name.isEmpty() || kind.isEmpty()) return false;
+
+    out.id = id;
+    out.name = name;
+    out.description = obj.value("description").toString();
+    out.kind = kind;
+    out.defaultCategory = obj.value("defaultCategory").toString("IC");
+    out.defaultPrefix = obj.value("defaultPrefix").toString("U");
+    out.defaultSymbolName = obj.value("defaultSymbolName").toString(name);
+    out.pins = qMax(0, obj.value("pins").toInt(0));
+    out.pitch = obj.value("pitch").toDouble(10.0);
+    out.width = obj.value("width").toDouble(50.0);
+    out.gate = obj.value("gate").toString().toLower();
+    return true;
+}
+
+void ensureProjectWizardTemplatesFile(const QString& projectKey) {
+    const QString path = projectWizardTemplatesPath(projectKey);
+    if (path.isEmpty() || QFileInfo::exists(path)) return;
+
+    const QFileInfo outInfo(path);
+    QDir().mkpath(outInfo.absolutePath());
+
+    QJsonArray arr;
+    const QList<WizardTemplateDef>& defaults = builtinWizardTemplateDefs();
+    for (const WizardTemplateDef& tpl : defaults) {
+        arr.append(wizardTemplateToJson(tpl));
+    }
+
+    QJsonObject root;
+    root["version"] = 1;
+    root["templates"] = arr;
+
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return;
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    out.close();
+}
+
+QList<WizardTemplateDef> wizardTemplateDefsForProject(const QString& projectKey) {
+    QList<WizardTemplateDef> defs = builtinWizardTemplateDefs();
+    const QString path = projectWizardTemplatesPath(projectKey);
+    if (path.isEmpty()) return defs;
+
+    ensureProjectWizardTemplatesFile(projectKey);
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return defs;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+    if (!doc.isObject()) return defs;
+
+    const QJsonArray arr = doc.object().value("templates").toArray();
+    if (arr.isEmpty()) return defs;
+
+    QMap<QString, int> byId;
+    for (int i = 0; i < defs.size(); ++i) byId[defs[i].id] = i;
+
+    for (const QJsonValue& v : arr) {
+        if (!v.isObject()) continue;
+        WizardTemplateDef parsed;
+        if (!wizardTemplateFromJson(v.toObject(), parsed)) continue;
+        if (byId.contains(parsed.id)) {
+            defs[byId.value(parsed.id)] = parsed;
+        } else {
+            byId[parsed.id] = defs.size();
+            defs.append(parsed);
+        }
+    }
+
+    return defs;
+}
+
+const WizardTemplateDef* findWizardTemplate(const QString& id, const QList<WizardTemplateDef>& defs) {
     if (id.trimmed().isEmpty()) return nullptr;
-    const QList<WizardTemplateDef>& defs = wizardTemplateDefs();
     for (const WizardTemplateDef& def : defs) {
         if (def.id == id) return &def;
     }
@@ -3046,7 +3153,7 @@ void SymbolEditor::refreshWizardTemplateList(const QString& query) {
     const QString q = query.trimmed().toLower();
     m_wizardTemplateCombo->clear();
 
-    const QList<WizardTemplateDef>& defs = wizardTemplateDefs();
+    const QList<WizardTemplateDef> defs = wizardTemplateDefsForProject(m_projectKey);
     for (const WizardTemplateDef& tpl : defs) {
         const QString haystack = (tpl.name + " " + tpl.id + " " + tpl.description + " " + tpl.defaultCategory).toLower();
         if (!q.isEmpty() && !haystack.contains(q)) continue;
@@ -3064,8 +3171,9 @@ void SymbolEditor::onWizardTemplateSearchChanged(const QString& text) {
 
 void SymbolEditor::onWizardApplyTemplate() {
     if (!m_wizardTemplateCombo || m_wizardTemplateCombo->count() == 0) return;
+    const QList<WizardTemplateDef> defs = wizardTemplateDefsForProject(m_projectKey);
     const QString id = m_wizardTemplateCombo->currentData(Qt::UserRole).toString();
-    const WizardTemplateDef* tpl = findWizardTemplate(id);
+    const WizardTemplateDef* tpl = findWizardTemplate(id, defs);
     if (!tpl) return;
 
     if (tpl->kind == "ic_dual") {
@@ -3108,7 +3216,8 @@ void SymbolEditor::onWizardGenerate() {
     const QString templateId = m_wizardTemplateCombo
         ? m_wizardTemplateCombo->currentData(Qt::UserRole).toString()
         : QString();
-    const WizardTemplateDef* tpl = findWizardTemplate(templateId);
+    const QList<WizardTemplateDef> defs = wizardTemplateDefsForProject(m_projectKey);
+    const WizardTemplateDef* tpl = findWizardTemplate(templateId, defs);
 
     if (tpl && tpl->kind == "logic") {
         SymbolDefinition oldDef = symbolDefinition();
@@ -5619,6 +5728,10 @@ void SymbolEditor::keyPressEvent(QKeyEvent* event) {
 
 void SymbolEditor::setProjectKey(const QString& key) {
     m_projectKey = key.trimmed();
+    ensureProjectWizardTemplatesFile(m_projectKey);
+    refreshWizardTemplateList(m_wizardTemplateSearchEdit ? m_wizardTemplateSearchEdit->text() : QString());
+    onWizardApplyTemplate();
+
     const QString stateKey = symbolEditorStateKey(m_projectKey);
     QByteArray geom = ConfigManager::instance().windowGeometry(stateKey);
     QByteArray state = ConfigManager::instance().windowState(stateKey);

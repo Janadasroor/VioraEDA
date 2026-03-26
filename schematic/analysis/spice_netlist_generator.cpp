@@ -596,6 +596,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     // 3. Export components
     QMap<QString, QString> powerNetVoltages;
     QStringList savedCurrentVectors;
+    QSet<QString> emittedRefs;
     for (const auto& comp : pkg.components) {
         if (comp.excludeFromSim) {
             netlist += "* Skipping " + comp.reference + " (Excluded from simulation)\n";
@@ -603,6 +604,13 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
 
         QString ref = comp.reference;
+        const QString refKey = ref.trimmed().toUpper();
+        if (emittedRefs.contains(refKey)) {
+            netlist += "* Skipping duplicate packaged unit " + ref + "\n";
+            continue;
+        }
+        emittedRefs.insert(refKey);
+
         int type = comp.type;
         QMap<QString, QString> pins = componentPins.value(ref);
         

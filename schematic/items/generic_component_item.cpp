@@ -11,6 +11,14 @@
 using Flux::Model::SymbolPrimitive;
 using namespace Flux::Item;
 
+namespace {
+QString unitSuffixForDisplay(int unit) {
+    if (unit <= 0) return "A";
+    if (unit <= 26) return QString(QChar('A' + unit - 1));
+    return QString::number(unit);
+}
+}
+
 QList<SymbolPrimitive> GenericComponentItem::resolvedPrimitives() const {
     QList<SymbolPrimitive> out;
     const QList<SymbolPrimitive> effective = m_symbol.effectivePrimitives();
@@ -113,6 +121,7 @@ bool GenericComponentItem::fromJson(const QJsonObject& json) {
     if (json.contains("value")) m_value = json["value"].toString();
     if (json.contains("name")) m_name = json["name"].toString();
     if (json.contains("spiceModel")) m_spiceModel = json["spiceModel"].toString();
+    if (json.contains("unit")) m_unit = qMax(1, json["unit"].toInt(1));
     m_excludeFromSimulation = json["excludeFromSim"].toBool(false);
     m_excludeFromPcb = json["excludeFromPcb"].toBool(false);
     m_isLocked = json["isLocked"].toBool(false);
@@ -161,6 +170,14 @@ bool GenericComponentItem::fromJson(const QJsonObject& json) {
     return true;
 }
 
+QString GenericComponentItem::referenceDisplayText() const {
+    QString base = reference().trimmed();
+    if (base.isEmpty()) base = referencePrefix() + "?";
+    const int totalUnits = qMax(1, m_symbol.unitCount());
+    if (totalUnits <= 1) return base;
+    return base + ":" + unitSuffixForDisplay(unit());
+}
+
 void GenericComponentItem::rebuildPrimitives() {
     for (auto* item : m_primitiveItems) {
         if (item) {
@@ -206,6 +223,7 @@ SchematicItem* GenericComponentItem::clone() const {
     item->setRotation(rotation());
     item->setId(QUuid::createUuid());
     item->setReference(m_reference); 
+    item->setUnit(unit());
     item->setValue(m_value);
     item->setName(m_name);
     item->m_pinModeOverrides = m_pinModeOverrides;

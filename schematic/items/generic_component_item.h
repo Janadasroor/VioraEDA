@@ -26,6 +26,7 @@ public:
     bool fromJson(const QJsonObject& json) override;
     
     virtual QString referencePrefix() const override { return m_symbol.referencePrefix(); }
+    QString referenceDisplayText() const override;
     
     virtual void rebuildPrimitives() override;
     virtual SchematicItem* clone() const override;
