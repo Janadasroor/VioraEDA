@@ -9,8 +9,8 @@ target_include_directories(FluxSchematic PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/core
     ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/bridge
 )
-if(NGSPICE_FOUND)
-    target_include_directories(FluxSchematic PRIVATE ${NGSPICE_INCLUDE_DIRS})
+if(VIOSPICE_ENGINE_FOUND)
+    target_include_directories(FluxSchematic PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
 endif()
 
 # For backward compatibility if other modules use FluxSchematicCore or FluxSchematicUI

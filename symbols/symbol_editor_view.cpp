@@ -38,8 +38,8 @@ SymbolEditorView::SymbolEditorView(QWidget* parent)
 
     PCBTheme* theme = ThemeManager::theme();
     setBackgroundBrush(QBrush(theme ? theme->canvasBackground() : QColor(30, 30, 30)));
-    // Start slightly zoomed-out, but close to normal editing scale.
-    scale(0.8, 0.8);
+    // Start more zoomed-in for easier initial symbol editing.
+    scale(1.5, 1.5);
 }
 
 void SymbolEditorView::setCurrentTool(int tool) {
@@ -82,7 +82,8 @@ void SymbolEditorView::drawBackground(QPainter* painter, const QRectF& rect) {
     
     // If we'd draw more than 500 lines, only draw major grid to prevent hang
     bool drawFine = (horizontalLines < 500 && verticalLines < 500);
-    qreal majorGrid = fineGrid * 10;
+    // Use denser major blocks so symbol proportions are easier to judge while drawing.
+    qreal majorGrid = fineGrid * 5;
     
     qreal startX = std::floor(rect.left() / (drawFine ? fineGrid : majorGrid)) * (drawFine ? fineGrid : majorGrid);
     qreal startY = std::floor(rect.top() / (drawFine ? fineGrid : majorGrid)) * (drawFine ? fineGrid : majorGrid);

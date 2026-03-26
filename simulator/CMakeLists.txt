@@ -45,9 +45,9 @@ endif()
 
 target_link_libraries(FluxSimulator PUBLIC FluxCore FluxSchematicCore Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::Concurrent)
 
-if(NGSPICE_FOUND)
-    target_link_libraries(FluxSimulator PRIVATE ${NGSPICE_LIBRARIES})
-    target_include_directories(FluxSimulator PRIVATE ${NGSPICE_INCLUDE_DIRS})
+if(VIOSPICE_ENGINE_FOUND)
+    target_link_libraries(FluxSimulator PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
+    target_include_directories(FluxSimulator PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
 endif()
 
 target_include_directories(FluxSimulator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
