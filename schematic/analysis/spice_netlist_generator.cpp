@@ -681,6 +681,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 line = ref;
             }
         }
+        const bool isADevice = line.startsWith("A", Qt::CaseInsensitive);
         const QString currentSaveVector = currentSaveVectorForRef(line);
         if (!currentSaveVector.isEmpty() && !savedCurrentVectors.contains(currentSaveVector, Qt::CaseInsensitive)) {
             savedCurrentVectors.append(currentSaveVector);
@@ -699,7 +700,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             if (!sym->spiceModelName().isEmpty() && comp.spiceModel.isEmpty()) value = sym->spiceModelName();
 
             if (!sym->modelName().isEmpty() && comp.spiceModel.isEmpty()) {
-                if (line.startsWith("X") || line.startsWith("D") || line.startsWith("Q")) {
+                if (line.startsWith("X") || line.startsWith("D") || line.startsWith("Q") || isADevice) {
                     // Don't use modelName if it's just the device prefix (e.g., "D", "Q", "X")
                     const QString mn = sym->modelName();
                     if (mn.length() > 1 || mn.toLower() != line.left(1).toLower()) {
@@ -774,7 +775,6 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             }
 
             // XSPICE A-device vector grouping: [in1 in2 ...] out
-            bool isADevice = line.startsWith("A");
             if (isADevice) {
                 QStringList inputs;
                 QStringList outputs;
@@ -1223,6 +1223,27 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
         // Add value
         if (value.isEmpty()) {
+            if (isADevice) {
+                // LTspice digital symbols (Prefix=A) require a model token such as
+                // AND/OR/XOR/BUF/SCHMITT/DFLOP/SRFLOP/COUNTER/PHASEDET.
+                value = comp.paramExpressions.value("ltspice.SpiceModel").trimmed();
+                if (value.isEmpty()) value = comp.paramExpressions.value("ltspice.MODEL").trimmed();
+                if (value.isEmpty()) value = comp.paramExpressions.value("ltspice.Model").trimmed();
+                if (value.isEmpty() && sym) {
+                    if (!sym->spiceModelName().trimmed().isEmpty()) value = sym->spiceModelName().trimmed();
+                    else if (!sym->modelName().trimmed().isEmpty()) value = sym->modelName().trimmed();
+                }
+                if (value.isEmpty()) {
+                    const QString tl = comp.typeName.trimmed().toLower();
+                    if (tl.contains("xor")) value = "XOR";
+                    else if (tl.contains("nand")) value = "NAND";
+                    else if (tl.contains("nor")) value = "NOR";
+                    else if (tl.contains("and")) value = "AND";
+                    else if (tl.contains("or")) value = "OR";
+                    else if (tl.contains("inv") || tl.contains("not") || tl.contains("buf")) value = "BUF";
+                    else value = "AND";
+                }
+            } else
             if (line.startsWith("D")) {
                 // Generate default .model for diodes with no model specified
                 QString defaultModel = QString("D_DEFAULT_%1").arg(ref);
