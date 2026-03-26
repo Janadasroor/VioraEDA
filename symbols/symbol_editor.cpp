@@ -297,6 +297,59 @@ QString symbolEditorStateKey(const QString& projectKey) {
     const QByteArray hash = QCryptographicHash::hash(trimmed.toUtf8(), QCryptographicHash::Sha1).toHex();
     return QStringLiteral("SymbolEditor_") + QString::fromLatin1(hash);
 }
+
+void translatePrimitive(SymbolPrimitive& prim, qreal dx, qreal dy) {
+    switch (prim.type) {
+    case SymbolPrimitive::Line:
+        prim.data["x1"] = prim.data.value("x1").toDouble() + dx;
+        prim.data["y1"] = prim.data.value("y1").toDouble() + dy;
+        prim.data["x2"] = prim.data.value("x2").toDouble() + dx;
+        prim.data["y2"] = prim.data.value("y2").toDouble() + dy;
+        break;
+    case SymbolPrimitive::Bezier:
+        prim.data["x1"] = prim.data.value("x1").toDouble() + dx;
+        prim.data["y1"] = prim.data.value("y1").toDouble() + dy;
+        prim.data["x2"] = prim.data.value("x2").toDouble() + dx;
+        prim.data["y2"] = prim.data.value("y2").toDouble() + dy;
+        prim.data["x3"] = prim.data.value("x3").toDouble() + dx;
+        prim.data["y3"] = prim.data.value("y3").toDouble() + dy;
+        prim.data["x4"] = prim.data.value("x4").toDouble() + dx;
+        prim.data["y4"] = prim.data.value("y4").toDouble() + dy;
+        break;
+    case SymbolPrimitive::Rect:
+    case SymbolPrimitive::Arc:
+    case SymbolPrimitive::Text:
+    case SymbolPrimitive::Pin:
+    case SymbolPrimitive::Image:
+        prim.data["x"] = prim.data.value("x").toDouble() + dx;
+        prim.data["y"] = prim.data.value("y").toDouble() + dy;
+        break;
+    case SymbolPrimitive::Circle: {
+        const bool hasCenterX = prim.data.contains("centerX");
+        const bool hasCenterY = prim.data.contains("centerY");
+        const bool hasCx = prim.data.contains("cx");
+        const bool hasCy = prim.data.contains("cy");
+        if (hasCenterX) prim.data["centerX"] = prim.data.value("centerX").toDouble() + dx;
+        if (hasCenterY) prim.data["centerY"] = prim.data.value("centerY").toDouble() + dy;
+        if (hasCx) prim.data["cx"] = prim.data.value("cx").toDouble() + dx;
+        if (hasCy) prim.data["cy"] = prim.data.value("cy").toDouble() + dy;
+        break;
+    }
+    case SymbolPrimitive::Polygon: {
+        QJsonArray points = prim.data.value("points").toArray();
+        for (int i = 0; i < points.size(); ++i) {
+            QJsonObject p = points[i].toObject();
+            p["x"] = p.value("x").toDouble() + dx;
+            p["y"] = p.value("y").toDouble() + dy;
+            points[i] = p;
+        }
+        prim.data["points"] = points;
+        break;
+    }
+    default:
+        break;
+    }
+}
 }
 
 SymbolEditor::SymbolEditor(QWidget* parent)
@@ -593,8 +646,18 @@ void SymbolEditor::removeOverlayItems() {
     m_overlayItems.clear();
 }
 
+void SymbolEditor::clearResizeHandles() {
+    for (QGraphicsRectItem* h : m_resizeHandles) {
+        if (!h) continue;
+        if (m_scene) m_scene->removeItem(h);
+        delete h;
+    }
+    m_resizeHandles.clear();
+}
+
 void SymbolEditor::clearScene() {
     m_overlayItems.clear();
+    clearResizeHandles();
     m_drawnItems.clear();
     m_previewItem = nullptr;
     m_polyPoints.clear();
@@ -644,6 +707,66 @@ void SymbolEditor::updateOverlayLabels() {
               QPointF(bounds.left(), bounds.bottom() + 5),
               def.namePos(),
               "name");
+}
+
+void SymbolEditor::updateResizeHandles() {
+    clearResizeHandles();
+    if (!m_scene || m_currentTool != Select) return;
+
+    const QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    if (selected.size() != 1) return;
+
+    const int idx = primitiveIndex(selected.first());
+    if (idx < 0 || idx >= m_symbol.primitives().size()) return;
+    const SymbolPrimitive& prim = m_symbol.primitives().at(idx);
+    QList<QPair<QString, QPointF>> handles;
+    if (prim.type == SymbolPrimitive::Rect || prim.type == SymbolPrimitive::Arc) {
+        const qreal x = prim.data.value("x").toDouble();
+        const qreal y = prim.data.value("y").toDouble();
+        const qreal w = prim.data.contains("width") ? prim.data.value("width").toDouble() : prim.data.value("w").toDouble();
+        const qreal h = prim.data.contains("height") ? prim.data.value("height").toDouble() : prim.data.value("h").toDouble();
+        QRectF r(x, y, w, h);
+        r = r.normalized();
+        if (r.isNull()) return;
+        handles = {
+            {"tl", r.topLeft()},
+            {"tr", r.topRight()},
+            {"br", r.bottomRight()},
+            {"bl", r.bottomLeft()}
+        };
+    } else if (prim.type == SymbolPrimitive::Line) {
+        const QPointF p1(prim.data.value("x1").toDouble(), prim.data.value("y1").toDouble());
+        const QPointF p2(prim.data.value("x2").toDouble(), prim.data.value("y2").toDouble());
+        handles = {{"p1", p1}, {"p2", p2}};
+    } else if (prim.type == SymbolPrimitive::Circle) {
+        const qreal cx = prim.data.contains("centerX") ? prim.data.value("centerX").toDouble() : prim.data.value("cx").toDouble();
+        const qreal cy = prim.data.contains("centerY") ? prim.data.value("centerY").toDouble() : prim.data.value("cy").toDouble();
+        const qreal r = prim.data.contains("radius") ? prim.data.value("radius").toDouble() : prim.data.value("r").toDouble();
+        if (r <= 0.0) return;
+        handles = {
+            {"east", QPointF(cx + r, cy)},
+            {"west", QPointF(cx - r, cy)},
+            {"north", QPointF(cx, cy - r)},
+            {"south", QPointF(cx, cy + r)}
+        };
+    } else {
+        return;
+    }
+
+    const qreal hs = 8.0;
+    for (const auto& h : handles) {
+        auto* handle = new QGraphicsRectItem(h.second.x() - hs / 2.0, h.second.y() - hs / 2.0, hs, hs);
+        handle->setBrush(QColor(96, 165, 250));
+        handle->setPen(QPen(QColor(255, 255, 255), 1.0));
+        handle->setZValue(3000);
+        handle->setData(0, "resize_handle");
+        handle->setData(1, h.first);
+        handle->setData(2, idx);
+        handle->setFlag(QGraphicsItem::ItemIsSelectable, false);
+        handle->setFlag(QGraphicsItem::ItemIsMovable, false);
+        m_scene->addItem(handle);
+        m_resizeHandles.append(handle);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1186,6 +1309,7 @@ void SymbolEditor::applySymbolDefinition(const SymbolDefinition& def) {
     updateCodePreview();
     updatePinTable();
     updateGuideAnchors();
+    updateResizeHandles();
 }
 
 SymbolDefinition SymbolEditor::symbolDefinition() const {
@@ -1679,6 +1803,9 @@ void SymbolEditor::connectViewSignals() {
      // Bezier edit signals (Select mode)
      connect(m_view, &SymbolEditorView::bezierEditPointClicked, this, &SymbolEditor::onBezierEditPointClicked);
      connect(m_view, &SymbolEditorView::bezierEditPointDragged, this, &SymbolEditor::onBezierEditPointDragged);
+     connect(m_view, &SymbolEditorView::rectResizeStarted, this, &SymbolEditor::onRectResizeStarted);
+     connect(m_view, &SymbolEditorView::rectResizeUpdated, this, &SymbolEditor::onRectResizeUpdated);
+     connect(m_view, &SymbolEditorView::rectResizeFinished, this, &SymbolEditor::onRectResizeFinished);
 
     // Items dragged in Select mode → move primitives via undo command
     connect(m_view, &SymbolEditorView::itemsMoved, this, [this](QPointF delta) {
@@ -2083,6 +2210,15 @@ void SymbolEditor::createMenuBar() {
     });
     viewMenu->addAction("Zoom Fit", this, &SymbolEditor::onZoomFit, QKeySequence("F"));
     viewMenu->addAction("Zoom Selection", this, &SymbolEditor::onZoomSelection, QKeySequence("Ctrl+0"));
+    QAction* snapCursorCrosshairAct = viewMenu->addAction("Snap Cursor Crosshair");
+    snapCursorCrosshairAct->setCheckable(true);
+    snapCursorCrosshairAct->setChecked(false);
+    connect(snapCursorCrosshairAct, &QAction::toggled, this, [this](bool on) {
+        if (m_view) m_view->setSnapCursorCrosshairEnabled(on);
+        if (statusBar()) {
+            statusBar()->showMessage(on ? "Snap cursor crosshair: ON" : "Snap cursor crosshair: OFF", 1800);
+        }
+    });
     viewMenu->addSeparator();
     auto* toggleMaxAct = viewMenu->addAction("Toggle Maximize", this, [this]() {
         if (isMaximized()) {
@@ -3305,13 +3441,8 @@ void SymbolEditor::onAlignLeft() {
         int idx = primitiveIndex(item);
         if (idx != -1) {
             qreal dx = minX - item->sceneBoundingRect().left();
-            // This is complex because primitives have different data formats.
-            // Simplified: we shift all coordinate-like fields in data.
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) {
-                if (key.toLower().contains("x"))
-                    prim.data[key] = prim.data[key].toDouble() + dx;
-            }
+            translatePrimitive(prim, dx, 0.0);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Align Left"));
@@ -3329,7 +3460,7 @@ void SymbolEditor::onAlignRight() {
         if (idx != -1) {
             qreal dx = maxX - item->sceneBoundingRect().right();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) { if (key.toLower().contains("x")) prim.data[key] = prim.data[key].toDouble() + dx; }
+            translatePrimitive(prim, dx, 0.0);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Align Right"));
@@ -3347,7 +3478,7 @@ void SymbolEditor::onAlignTop() {
         if (idx != -1) {
             qreal dy = minY - item->sceneBoundingRect().top();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) { if (key.toLower().contains("y")) prim.data[key] = prim.data[key].toDouble() + dy; }
+            translatePrimitive(prim, 0.0, dy);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Align Top"));
@@ -3365,7 +3496,7 @@ void SymbolEditor::onAlignBottom() {
         if (idx != -1) {
             qreal dy = maxY - item->sceneBoundingRect().bottom();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) { if (key.toLower().contains("y")) prim.data[key] = prim.data[key].toDouble() + dy; }
+            translatePrimitive(prim, 0.0, dy);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Align Bottom"));
@@ -3384,7 +3515,7 @@ void SymbolEditor::onAlignCenterX() {
         if (idx != -1) {
             qreal dx = centerX - item->sceneBoundingRect().center().x();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) { if (key.toLower().contains("x")) prim.data[key] = prim.data[key].toDouble() + dx; }
+            translatePrimitive(prim, dx, 0.0);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Center X"));
@@ -3403,7 +3534,7 @@ void SymbolEditor::onAlignCenterY() {
         if (idx != -1) {
             qreal dy = centerY - item->sceneBoundingRect().center().y();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) { if (key.toLower().contains("y")) prim.data[key] = prim.data[key].toDouble() + dy; }
+            translatePrimitive(prim, 0.0, dy);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Center Y"));
@@ -3423,7 +3554,7 @@ void SymbolEditor::onDistributeH() {
         if (idx != -1) {
             qreal dx = (firstX + i * step) - selected[i]->sceneBoundingRect().center().x();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) { if (key.toLower().contains("x")) prim.data[key] = prim.data[key].toDouble() + dx; }
+            translatePrimitive(prim, dx, 0.0);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Distribute H"));
@@ -3443,7 +3574,7 @@ void SymbolEditor::onDistributeV() {
         if (idx != -1) {
             qreal dy = (firstY + i * step) - selected[i]->sceneBoundingRect().center().y();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) { if (key.toLower().contains("y")) prim.data[key] = prim.data[key].toDouble() + dy; }
+            translatePrimitive(prim, 0.0, dy);
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Distribute V"));
@@ -3487,10 +3618,7 @@ void SymbolEditor::onMatchSpacing() {
 
             QPointF delta = target - selected[i]->sceneBoundingRect().center();
             SymbolPrimitive& prim = newDef.primitives()[idx];
-            for (const QString& key : prim.data.keys()) {
-                if (key.toLower().contains("x")) prim.data[key] = prim.data[key].toDouble() + delta.x();
-                if (key.toLower().contains("y")) prim.data[key] = prim.data[key].toDouble() + delta.y();
-            }
+            translatePrimitive(prim, delta.x(), delta.y());
         }
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Match Spacing"));
@@ -3905,6 +4033,7 @@ void SymbolEditor::onPinStackSelected() {
     // Sort indices in descending order to avoid index shift during removal
     QList<int> sortedIndices = primIndices;
     std::sort(sortedIndices.begin(), sortedIndices.end(), std::greater<int>());
+    int removedBeforeMaster = 0;
 
     for (int idx : sortedIndices) {
         if (idx == masterIdx) continue;
@@ -3917,22 +4046,17 @@ void SymbolEditor::onPinStackSelected() {
         if (!existing.isEmpty()) slaveNumbers << existing.split(",", Qt::SkipEmptyParts);
         
         newDef.removePrimitive(idx);
-    }
-
-    // 3. Update Master
-    // Since we removed items in newDef, we need to find the new index of the master
-    // Or just find it by number if it was the master
-    int masterNumber = oldDef.primitives().at(masterIdx).data["number"].toInt();
-    int newMasterIdx = -1;
-    for (int i = 0; i < newDef.primitives().size(); ++i) {
-        if (newDef.primitives()[i].type == SymbolPrimitive::Pin && 
-            newDef.primitives()[i].data["number"].toInt() == masterNumber) {
-            newMasterIdx = i;
-            break;
+        if (idx < masterIdx) {
+            ++removedBeforeMaster;
         }
     }
 
-    if (newMasterIdx != -1) {
+    // 3. Update Master
+    int masterNumber = oldDef.primitives().at(masterIdx).data["number"].toInt();
+    const int newMasterIdx = masterIdx - removedBeforeMaster;
+
+    if (newMasterIdx >= 0 && newMasterIdx < newDef.primitives().size() &&
+        newDef.primitives()[newMasterIdx].type == SymbolPrimitive::Pin) {
         SymbolPrimitive& master = newDef.primitives()[newMasterIdx];
         QString currentStacked = master.data.value("stackedNumbers").toString();
         QStringList all = currentStacked.split(",", Qt::SkipEmptyParts);
@@ -3984,8 +4108,14 @@ void SymbolEditor::onManageCustomFields() {
     });
 
     connect(remBtn, &QPushButton::clicked, [&](){
+        QSet<int> rows;
         for (auto* item : table->selectedItems()) {
-            table->removeRow(item->row());
+            if (item) rows.insert(item->row());
+        }
+        QList<int> ordered = rows.values();
+        std::sort(ordered.begin(), ordered.end(), std::greater<int>());
+        for (int row : ordered) {
+            table->removeRow(row);
         }
     });
 
@@ -3999,8 +4129,10 @@ void SymbolEditor::onManageCustomFields() {
         SymbolDefinition newDef = oldDef;
         QMap<QString, QString> newFields;
         for (int i = 0; i < table->rowCount(); ++i) {
-            QString key = table->item(i, 0)->text().trimmed();
-            QString val = table->item(i, 1)->text();
+            QTableWidgetItem* keyItem = table->item(i, 0);
+            QTableWidgetItem* valItem = table->item(i, 1);
+            const QString key = keyItem ? keyItem->text().trimmed() : QString();
+            const QString val = valItem ? valItem->text() : QString();
             if (!key.isEmpty()) newFields[key] = val;
         }
         newDef.setCustomFields(newFields);
@@ -4599,8 +4731,8 @@ void SymbolEditor::onPenDoubleClicked(QPointF pos, int pointIndex) {
 //  SymbolEditor – Zoom
 // ─────────────────────────────────────────────────────────────────────────────
 
-void SymbolEditor::onZoomIn()  { if (m_view) m_view->scale(1.2, 1.2); }
-void SymbolEditor::onZoomOut() { if (m_view) m_view->scale(1.0 / 1.2, 1.0 / 1.2); }
+void SymbolEditor::onZoomIn()  { if (m_view) m_view->zoomByFactor(1.25); }
+void SymbolEditor::onZoomOut() { if (m_view) m_view->zoomByFactor(1.0 / 1.25); }
 void SymbolEditor::onZoomFit() {
     if (!m_view || !m_scene) return;
     QRectF bounds = m_scene->itemsBoundingRect();
@@ -4634,10 +4766,7 @@ void SymbolEditor::onPaste() {
     for (const auto& prim : m_copyBuffer) {
         SymbolPrimitive p = prim;
         // Shift pasted items slightly
-        for (const QString& key : p.data.keys()) {
-            if (key.toLower().contains("x")) p.data[key] = p.data[key].toDouble() + 10;
-            if (key.toLower().contains("y")) p.data[key] = p.data[key].toDouble() + 10;
-        }
+        translatePrimitive(p, 10.0, 10.0);
         newDef.addPrimitive(p);
     }
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Paste Items"));
@@ -4646,6 +4775,127 @@ void SymbolEditor::onPaste() {
 void SymbolEditor::onDuplicate() {
     onCopy();
     onPaste();
+}
+
+void SymbolEditor::onRectResizeStarted(const QString& corner, QPointF scenePos) {
+    if (!m_scene || m_currentTool != Select) return;
+    const QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    if (selected.size() != 1) return;
+
+    const int idx = primitiveIndex(selected.first());
+    if (idx < 0 || idx >= m_symbol.primitives().size()) return;
+    const SymbolPrimitive& prim = m_symbol.primitives().at(idx);
+    m_rectResizeSessionActive = true;
+    m_rectResizePrimIdx = idx;
+    m_rectResizeCorner = corner;
+    m_rectResizeOldDef = symbolDefinition();
+    m_rectResizeAnchor = QPointF();
+    m_resizeLineOtherEnd = QPointF();
+    m_resizeCircleCenter = QPointF();
+
+    if (prim.type == SymbolPrimitive::Rect || prim.type == SymbolPrimitive::Arc) {
+        const qreal x = prim.data.value("x").toDouble();
+        const qreal y = prim.data.value("y").toDouble();
+        const qreal w = prim.data.contains("width") ? prim.data.value("width").toDouble() : prim.data.value("w").toDouble();
+        const qreal h = prim.data.contains("height") ? prim.data.value("height").toDouble() : prim.data.value("h").toDouble();
+        QRectF r(x, y, w, h);
+        r = r.normalized();
+        if (r.isNull()) {
+            m_rectResizeSessionActive = false;
+            return;
+        }
+        if (corner == "tl") m_rectResizeAnchor = r.bottomRight();
+        else if (corner == "tr") m_rectResizeAnchor = r.bottomLeft();
+        else if (corner == "bl") m_rectResizeAnchor = r.topRight();
+        else m_rectResizeAnchor = r.topLeft(); // "br"
+    } else if (prim.type == SymbolPrimitive::Line) {
+        const QPointF p1(prim.data.value("x1").toDouble(), prim.data.value("y1").toDouble());
+        const QPointF p2(prim.data.value("x2").toDouble(), prim.data.value("y2").toDouble());
+        m_resizeLineOtherEnd = (corner == "p1") ? p2 : p1;
+    } else if (prim.type == SymbolPrimitive::Circle) {
+        const qreal cx = prim.data.contains("centerX") ? prim.data.value("centerX").toDouble() : prim.data.value("cx").toDouble();
+        const qreal cy = prim.data.contains("centerY") ? prim.data.value("centerY").toDouble() : prim.data.value("cy").toDouble();
+        m_resizeCircleCenter = QPointF(cx, cy);
+    } else {
+        m_rectResizeSessionActive = false;
+        return;
+    }
+
+    onRectResizeUpdated(scenePos);
+}
+
+void SymbolEditor::onRectResizeUpdated(QPointF scenePos) {
+    if (!m_rectResizeSessionActive) return;
+    if (m_rectResizePrimIdx < 0 || m_rectResizePrimIdx >= m_symbol.primitives().size()) return;
+
+    SymbolPrimitive& prim = m_symbol.primitives()[m_rectResizePrimIdx];
+    if (prim.type == SymbolPrimitive::Rect || prim.type == SymbolPrimitive::Arc) {
+        QPointF p = scenePos;
+        const qreal minSize = qMax<qreal>(1.0, m_view ? m_view->gridSize() * 0.5 : 1.0);
+        QRectF r(m_rectResizeAnchor, p);
+        r = r.normalized();
+        if (r.width() < minSize) r.setWidth(minSize);
+        if (r.height() < minSize) r.setHeight(minSize);
+
+        prim.data["x"] = r.left();
+        prim.data["y"] = r.top();
+        prim.data["width"] = r.width();
+        prim.data["height"] = r.height();
+        prim.data["w"] = r.width();
+        prim.data["h"] = r.height();
+    } else if (prim.type == SymbolPrimitive::Line) {
+        if (m_rectResizeCorner == "p1") {
+            prim.data["x1"] = scenePos.x();
+            prim.data["y1"] = scenePos.y();
+            prim.data["x2"] = m_resizeLineOtherEnd.x();
+            prim.data["y2"] = m_resizeLineOtherEnd.y();
+        } else {
+            prim.data["x2"] = scenePos.x();
+            prim.data["y2"] = scenePos.y();
+            prim.data["x1"] = m_resizeLineOtherEnd.x();
+            prim.data["y1"] = m_resizeLineOtherEnd.y();
+        }
+    } else if (prim.type == SymbolPrimitive::Circle) {
+        qreal radius = 1.0;
+        if (m_rectResizeCorner == "east" || m_rectResizeCorner == "west") {
+            radius = qAbs(scenePos.x() - m_resizeCircleCenter.x());
+        } else if (m_rectResizeCorner == "north" || m_rectResizeCorner == "south") {
+            radius = qAbs(scenePos.y() - m_resizeCircleCenter.y());
+        } else {
+            radius = QLineF(scenePos, m_resizeCircleCenter).length();
+        }
+        const qreal minR = qMax<qreal>(0.5, m_view ? m_view->gridSize() * 0.25 : 0.5);
+        if (radius < minR) radius = minR;
+        prim.data["centerX"] = m_resizeCircleCenter.x();
+        prim.data["centerY"] = m_resizeCircleCenter.y();
+        prim.data["cx"] = m_resizeCircleCenter.x();
+        prim.data["cy"] = m_resizeCircleCenter.y();
+        prim.data["radius"] = radius;
+        prim.data["r"] = radius;
+    } else {
+        return;
+    }
+
+    updateVisualForPrimitive(m_rectResizePrimIdx, prim);
+    updateResizeHandles();
+}
+
+void SymbolEditor::onRectResizeFinished(QPointF scenePos) {
+    if (!m_rectResizeSessionActive) return;
+    onRectResizeUpdated(scenePos);
+
+    SymbolDefinition newDef = symbolDefinition();
+    const bool changed = (QJsonDocument(newDef.toJson()).toJson(QJsonDocument::Compact) !=
+                          QJsonDocument(m_rectResizeOldDef.toJson()).toJson(QJsonDocument::Compact));
+    if (changed) {
+        m_undoStack->push(new UpdateSymbolCommand(this, m_rectResizeOldDef, newDef, "Resize Rectangle"));
+    } else {
+        applySymbolDefinition(m_rectResizeOldDef);
+    }
+
+    m_rectResizeSessionActive = false;
+    m_rectResizePrimIdx = -1;
+    m_rectResizeCorner.clear();
 }
 
 void SymbolEditor::onSelectionChanged() {
@@ -4661,6 +4911,7 @@ void SymbolEditor::onSelectionChanged() {
     }
     
     updatePropertiesPanel();
+    updateResizeHandles();
     
     // Check if a single bezier primitive is selected for editing in Select mode
     if (m_currentTool == Select) {
@@ -5096,6 +5347,11 @@ void SymbolEditor::keyPressEvent(QKeyEvent* event) {
         if (m_selectAction) m_selectAction->setChecked(true);
         event->accept();
         return;
+    } else if (event->key() == Qt::Key_Delete ||
+               (event->key() == Qt::Key_Backspace && m_currentTool != Pen)) {
+        onDelete();
+        event->accept();
+        return;
     } else if (event->key() == Qt::Key_R && m_currentTool == Pin) {
         // Cycle orientation: Right -> Down -> Left -> Up
         if (m_previewOrientation == "Right") m_previewOrientation = "Down";
@@ -5146,7 +5402,16 @@ void SymbolEditor::setProjectKey(const QString& key) {
 }
 
 void SymbolEditor::closeEvent(QCloseEvent* event) {
-    if (m_undoStack && !m_undoStack->isClean()) {
+    const bool metadataDirty =
+        (m_symbol.name() != m_nameEdit->text()) ||
+        (m_symbol.description() != m_descriptionEdit->text()) ||
+        (m_symbol.category() != m_categoryCombo->currentText()) ||
+        (m_symbol.referencePrefix() != m_prefixEdit->text()) ||
+        (m_symbol.modelSource() != m_modelSourceCombo->currentData().toString()) ||
+        (m_symbol.modelPath() != m_modelPathEdit->text()) ||
+        (m_symbol.modelName() != m_modelNameEdit->text());
+    const bool hasUnsavedChanges = (m_undoStack && !m_undoStack->isClean()) || metadataDirty;
+    if (hasUnsavedChanges) {
         QMessageBox msg(this);
         msg.setWindowTitle("Unsaved Changes");
         msg.setText("You have unsaved changes. Would you like to save them before closing?");

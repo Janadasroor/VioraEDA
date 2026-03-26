@@ -28,6 +28,9 @@ public:
     enum GridStyle { Dots, Lines };
     GridStyle gridStyle() const { return m_gridStyle; }
     void setGridStyle(GridStyle style) { m_gridStyle = style; viewport()->update(); }
+    void zoomByFactor(qreal factor);
+    bool snapCursorCrosshairEnabled() const { return m_snapCursorCrosshair; }
+    void setSnapCursorCrosshairEnabled(bool enabled) { m_snapCursorCrosshair = enabled; viewport()->update(); }
     
 signals:
     void pointClicked(QPointF scenePos);
@@ -51,6 +54,9 @@ signals:
     void penDoubleClicked(QPointF scenePos, int pointIndex = -1);
     void bezierEditPointClicked(QPointF scenePos);
     void bezierEditPointDragged(QPointF newPos);
+    void rectResizeStarted(const QString& corner, QPointF scenePos);
+    void rectResizeUpdated(QPointF scenePos);
+    void rectResizeFinished(QPointF scenePos);
     
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -63,6 +69,7 @@ protected:
     void drawForeground(QPainter* painter, const QRectF& rect) override;
  
 private:
+    bool applyZoomFactor(qreal factor);
     void updatePinAlignmentGuides();
     void updateDrawGuides(const QPointF& cursor);
     void clearPinAlignmentGuides();
@@ -88,10 +95,16 @@ private:
     // Bezier editing state (Select mode)
     bool m_bezierEditIsDragging = false;
     QPointF m_bezierEditPressPos;
+    bool m_rectResizeActive = false;
 
     // Smart guide anchor points (pins, endpoints, etc.)
     QList<QPointF> m_guideAnchors;
     QPointF m_guideCursorPos;
+    qreal m_minZoom = 0.03;
+    qreal m_maxZoom = 60.0;
+    bool m_snapCursorCrosshair = false;
+    bool m_hasMousePos = false;
+    QPointF m_lastSnappedMousePos;
 };
 
 #endif // SYMBOL_EDITOR_VIEW_H

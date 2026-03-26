@@ -11,6 +11,16 @@
 #include <QPen>
 #include <cmath>
 
+namespace {
+QGraphicsItem* findResizeHandleItem(QGraphicsItem* item) {
+    while (item) {
+        if (item->data(0).toString() == "resize_handle") return item;
+        item = item->parentItem();
+    }
+    return nullptr;
+}
+}
+
 SymbolEditorView::SymbolEditorView(QWidget* parent)
     : QGraphicsView(parent) {
     setRenderHint(QPainter::Antialiasing);
@@ -28,6 +38,8 @@ SymbolEditorView::SymbolEditorView(QWidget* parent)
 
     PCBTheme* theme = ThemeManager::theme();
     setBackgroundBrush(QBrush(theme ? theme->canvasBackground() : QColor(30, 30, 30)));
+    // Start slightly zoomed-out, but close to normal editing scale.
+    scale(0.8, 0.8);
 }
 
 void SymbolEditorView::setCurrentTool(int tool) {
@@ -80,8 +92,17 @@ void SymbolEditorView::drawBackground(QPainter* painter, const QRectF& rect) {
 
     QColor subColor = theme ? theme->gridSecondary() : QColor(120, 120, 130);
     QColor mainColor = theme ? theme->gridPrimary() : QColor(180, 180, 190);
-    subColor.setAlpha(isDark ? 200 : 180);
-    mainColor.setAlpha(isDark ? 255 : 230);
+    if (isDark) {
+        // Stronger contrast for dark canvas
+        subColor = QColor(100, 108, 122);
+        mainColor = QColor(150, 162, 182);
+    } else {
+        // Darker grid tones for light canvas
+        subColor = QColor(170, 178, 192);
+        mainColor = QColor(118, 128, 146);
+    }
+    subColor.setAlpha(isDark ? 235 : 225);
+    mainColor.setAlpha(isDark ? 255 : 245);
 
     QColor dotColor = mainColor;
     dotColor.setAlpha(isDark ? 255 : 255);
@@ -185,6 +206,16 @@ void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
      }
 
       if (event->button() == Qt::LeftButton) {
+          if (m_currentTool == 0) {
+              QGraphicsItem* hit = itemAt(event->pos());
+              if (QGraphicsItem* handle = findResizeHandleItem(hit)) {
+                  m_rectResizeActive = true;
+                  emit rectResizeStarted(handle->data(1).toString(), snapToGrid(mapToScene(event->pos())));
+                  event->accept();
+                  return;
+              }
+          }
+
           if (m_currentTool > 0) {
               if (m_currentTool == 8) { // Erase tool
                   QGraphicsItem* hit = itemAt(event->pos());
@@ -238,8 +269,17 @@ void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
 void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
     QPointF scenePos = mapToScene(event->pos());
     QPointF snapped = snapToGrid(scenePos);
+    m_hasMousePos = true;
+    m_lastSnappedMousePos = snapped;
+    if (m_snapCursorCrosshair) viewport()->update();
     emit coordinatesChanged(scenePos);
     emit mouseMoved(snapped);
+
+    if (m_rectResizeActive) {
+        emit rectResizeUpdated(snapToGrid(scenePos));
+        event->accept();
+        return;
+    }
 
     if (m_isPanning) {
         QPoint delta = event->pos() - m_lastPanPoint;
@@ -304,6 +344,13 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
     }
 
     if (event->button() == Qt::LeftButton) {
+        if (m_rectResizeActive) {
+            m_rectResizeActive = false;
+            emit rectResizeFinished(snapToGrid(mapToScene(event->pos())));
+            event->accept();
+            return;
+        }
+
         if (m_isDrawing) {
             if (m_currentTool == 13) { // Pen tool
                 QPointF releasePos = snapToGrid(mapToScene(event->pos()));
@@ -337,8 +384,22 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
 
 void SymbolEditorView::wheelEvent(QWheelEvent* event) {
     const double factor = (event->angleDelta().y() > 0) ? 1.15 : (1.0 / 1.15);
-    scale(factor, factor);
+    applyZoomFactor(factor);
     event->accept();
+}
+
+bool SymbolEditorView::applyZoomFactor(qreal factor) {
+    if (factor <= 0.0) return false;
+    const qreal current = std::abs(transform().m11());
+    if (current <= 0.0) return false;
+    const qreal target = current * factor;
+    if (target < m_minZoom || target > m_maxZoom) return false;
+    scale(factor, factor);
+    return true;
+}
+
+void SymbolEditorView::zoomByFactor(qreal factor) {
+    applyZoomFactor(factor);
 }
 
 void SymbolEditorView::keyPressEvent(QKeyEvent* event) {
@@ -396,6 +457,22 @@ void SymbolEditorView::drawForeground(QPainter* painter, const QRectF& rect) {
             painter->setPen(QPen(guideColor, 0));
             painter->drawEllipse(QPointF(cursor.x(), m_hGuideY), markerR * 1.2, markerR * 1.2);
         }
+    }
+
+    if (m_snapCursorCrosshair && m_hasMousePos) {
+        QColor c(34, 197, 94);
+        c.setAlpha(220);
+        QPen p(c, 0.0, Qt::DashLine);
+        p.setCosmetic(true);
+        painter->setPen(p);
+        const qreal x = m_lastSnappedMousePos.x();
+        const qreal y = m_lastSnappedMousePos.y();
+        painter->drawLine(QLineF(x, rect.top(), x, rect.bottom()));
+        painter->drawLine(QLineF(rect.left(), y, rect.right(), y));
+        painter->setPen(QPen(c, 0.0));
+        painter->setBrush(QColor(c.red(), c.green(), c.blue(), 90));
+        const qreal r = qMax<qreal>(2.5, m_gridSize * 0.12);
+        painter->drawEllipse(QPointF(x, y), r, r);
     }
 }
 
