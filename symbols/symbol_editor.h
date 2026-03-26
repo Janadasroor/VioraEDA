@@ -25,6 +25,7 @@ using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 
 class QAbstractGraphicsShapeItem;
+class QGraphicsRectItem;
 class PropertyEditor;
 /**
  * @brief Main window for creating and editing schematic symbols
@@ -60,7 +61,10 @@ private slots:
     void onUndo();
     void onRedo();
     void onDelete();
-     void onSelectionChanged();
+    void onSelectionChanged();
+    void onRectResizeStarted(const QString& corner, QPointF scenePos);
+    void onRectResizeUpdated(QPointF scenePos);
+    void onRectResizeFinished(QPointF scenePos);
      void onBezierEditPointClicked(QPointF pos);
      void onBezierEditPointDragged(QPointF newPos);
      void updateBezierEditPreview();
@@ -164,6 +168,8 @@ private:
     QGraphicsItem* buildVisual(const SymbolPrimitive& prim, int index) const;
     void updateVisualForPrimitive(int index, const SymbolPrimitive& prim);
     void updateGuideAnchors();
+    void clearResizeHandles();
+    void updateResizeHandles();
     
     // Pin Table Helpers
     QList<int> selectedPinRows() const;
@@ -210,9 +216,19 @@ protected:
          QPointF pos;
      };
      QList<BezierEditPoint> m_bezierEditPoints;        // Current bezier edit points for visualization
-     QList<QGraphicsEllipseItem*> m_bezierEditMarkers; // Visual edit point markers
-     QList<QGraphicsLineItem*> m_bezierEditLines;      // Handle lines
-     int m_selectedBezierPoint = -1;                   // Which point is selected for dragging
+    QList<QGraphicsEllipseItem*> m_bezierEditMarkers; // Visual edit point markers
+    QList<QGraphicsLineItem*> m_bezierEditLines;      // Handle lines
+    int m_selectedBezierPoint = -1;                   // Which point is selected for dragging
+
+    // Rectangle resize handles/session
+    QList<QGraphicsRectItem*> m_resizeHandles;
+    bool m_rectResizeSessionActive = false;
+    int m_rectResizePrimIdx = -1;
+    QString m_rectResizeCorner;
+    QPointF m_rectResizeAnchor;
+    QPointF m_resizeLineOtherEnd;
+    QPointF m_resizeCircleCenter;
+    SymbolDefinition m_rectResizeOldDef;
      
     // UI Components
     QGraphicsScene* m_scene = nullptr;
