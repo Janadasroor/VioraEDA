@@ -311,11 +311,14 @@ void finalizePendingSymbol(QGraphicsScene* scene, const PendingSymbol& pending) 
 
     QString value = pending.attrs.value("Value").trimmed();
     const QString value2 = pending.attrs.value("Value2").trimmed();
+    QString spiceModel = pending.attrs.value("SpiceModel").trimmed();
+    if (spiceModel.isEmpty()) spiceModel = pending.attrs.value("Model").trimmed();
     if (value.startsWith('"') && value.endsWith('"')) {
         value = unquote(value);
     }
     if (value.isEmpty()) value = value2;
     if (!value.isEmpty()) props["value"] = value;
+    if (!spiceModel.isEmpty()) props["spiceModel"] = spiceModel;
 
     SchematicItem* item = nullptr;
     auto& factory = SchematicItemFactory::instance();
@@ -332,6 +335,10 @@ void finalizePendingSymbol(QGraphicsScene* scene, const PendingSymbol& pending) 
     }
 
     if (!item) return;
+
+    if (!spiceModel.isEmpty()) {
+        item->setSpiceModel(spiceModel);
+    }
 
     applyOrientation(item, pending.orientation);
 
