@@ -10,7 +10,7 @@
 #include <mutex>
 
 #ifdef HAVE_NGSPICE
-#include <ngspice/sharedspice.h>
+#include <viospice/vioshared.h>
 #endif
 
 class SimControl;

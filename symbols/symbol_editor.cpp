@@ -86,6 +86,13 @@ public:
         QStyleOptionGraphicsItem opt = *o; opt.state &= ~QStyle::State_Selected;
         QGraphicsRectItem::paint(p, &opt, w);
     }
+    QPainterPath shape() const override {
+        QPainterPathStroker stroker;
+        stroker.setWidth(10.0); // Easier hit target for thin outlines
+        QPainterPath hit = stroker.createStroke(QGraphicsRectItem::shape());
+        hit.addPath(QGraphicsRectItem::shape());
+        return hit;
+    }
 };
 
 class FilteredEllipseItem : public QGraphicsEllipseItem {
@@ -94,6 +101,13 @@ public:
     void paint(QPainter* p, const QStyleOptionGraphicsItem* o, QWidget* w) override {
         QStyleOptionGraphicsItem opt = *o; opt.state &= ~QStyle::State_Selected;
         QGraphicsEllipseItem::paint(p, &opt, w);
+    }
+    QPainterPath shape() const override {
+        QPainterPathStroker stroker;
+        stroker.setWidth(10.0); // Easier hit target for thin outlines
+        QPainterPath hit = stroker.createStroke(QGraphicsEllipseItem::shape());
+        hit.addPath(QGraphicsEllipseItem::shape());
+        return hit;
     }
 };
 
@@ -131,6 +145,13 @@ public:
     void paint(QPainter* p, const QStyleOptionGraphicsItem* o, QWidget* w) override {
         QStyleOptionGraphicsItem opt = *o; opt.state &= ~QStyle::State_Selected;
         QGraphicsPolygonItem::paint(p, &opt, w);
+    }
+    QPainterPath shape() const override {
+        QPainterPathStroker stroker;
+        stroker.setWidth(10.0); // Easier hit target for thin outlines
+        QPainterPath hit = stroker.createStroke(QGraphicsPolygonItem::shape());
+        hit.addPath(QGraphicsPolygonItem::shape());
+        return hit;
     }
 };
 
@@ -720,6 +741,7 @@ void SymbolEditor::updateResizeHandles() {
     if (idx < 0 || idx >= m_symbol.primitives().size()) return;
     const SymbolPrimitive& prim = m_symbol.primitives().at(idx);
     QList<QPair<QString, QPointF>> handles;
+    qreal handleSize = 8.0;
     if (prim.type == SymbolPrimitive::Rect || prim.type == SymbolPrimitive::Arc) {
         const qreal x = prim.data.value("x").toDouble();
         const qreal y = prim.data.value("y").toDouble();
@@ -728,32 +750,42 @@ void SymbolEditor::updateResizeHandles() {
         QRectF r(x, y, w, h);
         r = r.normalized();
         if (r.isNull()) return;
+        const qreal minDim = qMin(r.width(), r.height());
+        handleSize = qBound<qreal>(3.0, minDim * 0.22, 8.0);
+        const qreal edgeOffset = (minDim < 16.0) ? qBound<qreal>(1.0, handleSize * 0.7, 3.5) : 0.0;
         handles = {
-            {"tl", r.topLeft()},
-            {"tr", r.topRight()},
-            {"br", r.bottomRight()},
-            {"bl", r.bottomLeft()}
+            {"tl", r.topLeft() + QPointF(-edgeOffset, -edgeOffset)},
+            {"tr", r.topRight() + QPointF(edgeOffset, -edgeOffset)},
+            {"br", r.bottomRight() + QPointF(edgeOffset, edgeOffset)},
+            {"bl", r.bottomLeft() + QPointF(-edgeOffset, edgeOffset)}
         };
     } else if (prim.type == SymbolPrimitive::Line) {
         const QPointF p1(prim.data.value("x1").toDouble(), prim.data.value("y1").toDouble());
         const QPointF p2(prim.data.value("x2").toDouble(), prim.data.value("y2").toDouble());
+        const qreal len = QLineF(p1, p2).length();
+        handleSize = qBound<qreal>(3.0, len * 0.12, 7.5);
         handles = {{"p1", p1}, {"p2", p2}};
     } else if (prim.type == SymbolPrimitive::Circle) {
         const qreal cx = prim.data.contains("centerX") ? prim.data.value("centerX").toDouble() : prim.data.value("cx").toDouble();
         const qreal cy = prim.data.contains("centerY") ? prim.data.value("centerY").toDouble() : prim.data.value("cy").toDouble();
         const qreal r = prim.data.contains("radius") ? prim.data.value("radius").toDouble() : prim.data.value("r").toDouble();
         if (r <= 0.0) return;
+        const qreal d = r * 2.0;
+        handleSize = qBound<qreal>(3.0, d * 0.22, 7.5);
+        // For very small circles place handles slightly outside the perimeter.
+        const qreal radialOffset = (r < 10.0) ? qBound<qreal>(1.5, handleSize * 0.9, 3.5) : 0.0;
+        const qreal rr = r + radialOffset;
         handles = {
-            {"east", QPointF(cx + r, cy)},
-            {"west", QPointF(cx - r, cy)},
-            {"north", QPointF(cx, cy - r)},
-            {"south", QPointF(cx, cy + r)}
+            {"east", QPointF(cx + rr, cy)},
+            {"west", QPointF(cx - rr, cy)},
+            {"north", QPointF(cx, cy - rr)},
+            {"south", QPointF(cx, cy + rr)}
         };
     } else {
         return;
     }
 
-    const qreal hs = 8.0;
+    const qreal hs = handleSize;
     for (const auto& h : handles) {
         auto* handle = new QGraphicsRectItem(h.second.x() - hs / 2.0, h.second.y() - hs / 2.0, hs, hs);
         handle->setBrush(QColor(96, 165, 250));
@@ -1016,7 +1048,9 @@ QGraphicsItem* SymbolEditor::buildVisual(const SymbolPrimitive& prim, int index)
 
         // Pin body line
         auto* line = new FilteredLineItem(px, py, endPt.x(), endPt.y());
-        line->setPen(QPen(lineColor, 2.0, isVisible ? Qt::SolidLine : Qt::DashLine));
+        QPen pinLeadPen(lineColor, 2.0, isVisible ? Qt::SolidLine : Qt::DashLine);
+        pinLeadPen.setCapStyle(Qt::FlatCap); // Avoid visual overshoot into body edge
+        line->setPen(pinLeadPen);
         group->addToGroup(line);
 
         // Draw Pin Shapes (Inverted, Clock, etc.)

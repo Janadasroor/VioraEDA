@@ -14,22 +14,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml)
 
-# --- NGSPICE Support ---
+# --- VIOSPICE ENGINE Support ---
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-if(WIN32)
-    set(NGSPICE_ROOT "$ENV{NGSPICE_ROOT}" CACHE PATH "Path to NGSPICE installation")
-elseif(ANDROID)
-    set(NGSPICE_ROOT "/home/jnd/cpp_projects/ngspice/build/android-arm64" CACHE PATH "Path to NGSPICE installation")
+find_package(VIOSPICE_ENGINE)
+if(VIOSPICE_ENGINE_FOUND)
+    message(STATUS "VIOSPICE ENGINE found: ${VIOSPICE_ENGINE_LIBRARIES}")
+    message(STATUS "VIOSPICE ENGINE include dirs: ${VIOSPICE_ENGINE_INCLUDE_DIRS}")
+    add_compile_definitions(HAVE_NGSPICE) # Keep for code compatibility
 else()
-    set(NGSPICE_ROOT "/usr/local" CACHE PATH "Path to NGSPICE installation")
-endif()
-find_package(NGSPICE)
-if(NGSPICE_FOUND)
-    message(STATUS "NGSPICE found: ${NGSPICE_LIBRARIES}")
-    message(STATUS "NGSPICE include dirs: ${NGSPICE_INCLUDE_DIRS}")
-    add_compile_definitions(HAVE_NGSPICE)
-else()
-    message(WARNING "NGSPICE not found. Simulation features using libngspice will be disabled.")
+    message(WARNING "VIOSPICE ENGINE not found. Simulation features will be disabled.")
 endif()
 # -----------------------
 
@@ -78,9 +71,9 @@ if(BUILD_VIOSPICE_CLI)
         FluxSimulator
     )
 
-    if(NGSPICE_FOUND)
-        target_link_libraries(vio_cmd PRIVATE ${NGSPICE_LIBRARIES})
-        target_include_directories(vio_cmd PRIVATE ${NGSPICE_INCLUDE_DIRS})
+    if(VIOSPICE_ENGINE_FOUND)
+        target_link_libraries(vio_cmd PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
+        target_include_directories(vio_cmd PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
     endif()
 
     vioraeda_configure_app_target(vio_cmd)
@@ -104,9 +97,9 @@ if(BUILD_VIOSPICE_APP)
         FluxCore 
     )
 
-    if(NGSPICE_FOUND)
-        target_link_libraries(viospice PRIVATE ${NGSPICE_LIBRARIES})
-        target_include_directories(viospice PRIVATE ${NGSPICE_INCLUDE_DIRS})
+    if(VIOSPICE_ENGINE_FOUND)
+        target_link_libraries(viospice PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
+        target_include_directories(viospice PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
     endif()
 
     vioraeda_configure_app_target(viospice)
