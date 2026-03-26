@@ -961,7 +961,9 @@ QString SchematicView::getNextReference(const QString& prefix) {
     for (QGraphicsItem* item : items) {
         SchematicItem* schItem = dynamic_cast<SchematicItem*>(item);
         if (schItem && schItem->reference().startsWith(prefix)) {
-            QString ref = schItem->reference();
+            QString ref = schItem->reference().trimmed();
+            const int unitSep = ref.indexOf(':');
+            if (unitSep >= 0) ref = ref.left(unitSep).trimmed();
             if (ref.length() > prefix.length()) {
                 QString numStr = ref.mid(prefix.length());
                 bool ok;

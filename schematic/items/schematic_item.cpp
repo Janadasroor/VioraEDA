@@ -23,7 +23,7 @@ void SchematicItem::createLabels(const QPointF& refOffset, const QPointF& valOff
     m_defaultValOffset = valOffset;
     
     if (!m_refLabelItem) {
-        QString refText = reference().isEmpty() ? (referencePrefix() + "?") : reference();
+        const QString refText = referenceDisplayText();
         m_refLabelItem = new SchematicTextItem(refText, QPointF(0,0), this);
         m_refLabelItem->setSubItem(true);
         m_refLabelItem->setPos(refOffset);
@@ -54,12 +54,15 @@ void SchematicItem::resetLabels() {
 
 void SchematicItem::updateLabelText() {
     if (m_refLabelItem) {
-        QString refText = reference().isEmpty() ? (referencePrefix() + "?") : reference();
-        m_refLabelItem->setText(refText);
+        m_refLabelItem->setText(referenceDisplayText());
     }
     if (m_valueLabelItem) {
         m_valueLabelItem->setText(value());
     }
+}
+
+QString SchematicItem::referenceDisplayText() const {
+    return reference().isEmpty() ? (referencePrefix() + "?") : reference();
 }
 
 QPointF SchematicItem::referenceLabelPos() const {
@@ -147,6 +150,7 @@ QJsonObject SchematicItem::toJson() const {
     j["x"] = pos().x();
     j["y"] = pos().y();
     j["rotation"] = rotation();
+    j["unit"] = m_unit;
     j["name"] = m_name;
     j["value"] = m_value;
     j["reference"] = m_reference;
@@ -183,6 +187,7 @@ bool SchematicItem::fromJson(const QJsonObject& json) {
     if (json.contains("id")) m_id = QUuid::fromString(json["id"].toString());
     setPos(json["x"].toDouble(), json["y"].toDouble());
     setRotation(json["rotation"].toDouble());
+    m_unit = qMax(1, json["unit"].toInt(1));
     m_name = json["name"].toString();
     m_value = json["value"].toString();
     m_reference = json["reference"].toString();

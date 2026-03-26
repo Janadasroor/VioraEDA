@@ -79,3 +79,4 @@ tests/test-folders-paths.md
 benchmark_spice.sh
 opencode.json
 ui-map/*
+tests/DATA/*

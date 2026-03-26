@@ -2091,8 +2091,7 @@ void SchematicEditor::onRunSimulation() {
 
     // Auto-annotate if duplicate references exist (prevents netlist collisions like V1/V1/V1).
     {
-        QSet<QString> seen;
-        bool hasDup = false;
+        QMap<QString, QList<SchematicItem*>> refs;
         for (auto* gi : m_scene->items()) {
             auto* si = dynamic_cast<SchematicItem*>(gi);
             if (!si) continue;
@@ -2109,9 +2108,43 @@ void SchematicEditor::onRunSimulation() {
             }
             const QString ref = si->reference().trimmed();
             if (ref.isEmpty()) continue;
-            const QString key = ref.toUpper();
-            if (seen.contains(key)) { hasDup = true; break; }
-            seen.insert(key);
+            refs[ref.toUpper()].append(si);
+        }
+
+        auto isValidMultiUnitPack = [](const QList<SchematicItem*>& items) -> bool {
+            if (items.size() <= 1) return false;
+
+            QString identity;
+            int totalUnits = 0;
+            QSet<int> usedUnits;
+
+            for (SchematicItem* si : items) {
+                auto* gc = dynamic_cast<GenericComponentItem*>(si);
+                if (!gc) return false;
+
+                const SymbolDefinition sym = gc->symbol();
+                const QString sid = sym.symbolId().trimmed();
+                const QString key = (sid.isEmpty() ? sym.name().trimmed() : sid).toLower();
+                if (key.isEmpty()) return false;
+
+                if (identity.isEmpty()) identity = key;
+                if (identity != key) return false;
+
+                totalUnits = qMax(totalUnits, sym.unitCount());
+                const int u = gc->unit();
+                if (u <= 0) return false;
+                usedUnits.insert(u);
+            }
+
+            return totalUnits > 1 && usedUnits.size() == items.size() && usedUnits.size() <= totalUnits;
+        };
+
+        bool hasDup = false;
+        for (auto it = refs.constBegin(); it != refs.constEnd(); ++it) {
+            if (it.value().size() <= 1) continue;
+            if (isValidMultiUnitPack(it.value())) continue;
+            hasDup = true;
+            break;
         }
         if (hasDup) {
             onAnnotate();

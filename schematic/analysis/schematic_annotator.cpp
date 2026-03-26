@@ -1,6 +1,8 @@
 #include "schematic_annotator.h"
 #include "schematic_item.h"
+#include "../items/generic_component_item.h"
 #include "schematic_file_io.h"
+#include "flux/symbols/symbol_library.h"
 #include <algorithm>
 #include <QFileInfo>
 #include <QDir>
@@ -9,6 +11,47 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
+namespace {
+
+bool isSkippableForAnnotation(const SchematicItem* si) {
+    if (!si) return true;
+    const SchematicItem::ItemType type = si->itemType();
+    if (type == SchematicItem::WireType ||
+        type == SchematicItem::BusType ||
+        type == SchematicItem::JunctionType ||
+        type == SchematicItem::LabelType ||
+        type == (QGraphicsItem::UserType + 101)) { // BusEntry
+        return true;
+    }
+    if (si->referencePrefix().startsWith("#")) return true;
+    return false;
+}
+
+QString baseReference(const QString& ref) {
+    const QString trimmed = ref.trimmed();
+    const int sep = trimmed.indexOf(':');
+    return (sep >= 0 ? trimmed.left(sep) : trimmed).trimmed();
+}
+
+int referenceNumber(const QString& ref, const QString& prefix) {
+    const QString base = baseReference(ref);
+    if (!base.startsWith(prefix, Qt::CaseInsensitive)) return -1;
+    const QString suffix = base.mid(prefix.size()).trimmed();
+    bool ok = false;
+    const int n = suffix.toInt(&ok);
+    return ok ? n : -1;
+}
+
+QString symbolIdentityKey(const GenericComponentItem* gc) {
+    if (!gc) return QString();
+    const SymbolDefinition sym = gc->symbol();
+    const QString sid = sym.symbolId().trimmed();
+    if (!sid.isEmpty()) return sid.toLower();
+    return sym.name().trimmed().toLower();
+}
+
+} // namespace
+
 QMap<SchematicItem*, QString> SchematicAnnotator::annotate(QGraphicsScene* scene, bool resetExisting, Order order) {
     QMap<SchematicItem*, QString> changes;
     if (!scene) return changes;
@@ -16,20 +59,7 @@ QMap<SchematicItem*, QString> SchematicAnnotator::annotate(QGraphicsScene* scene
     QList<SchematicItem*> items;
     for (QGraphicsItem* gi : scene->items()) {
         SchematicItem* si = dynamic_cast<SchematicItem*>(gi);
-        if (!si) continue;
-
-        // Skip non-component items
-        SchematicItem::ItemType type = si->itemType();
-        if (type == SchematicItem::WireType || 
-            type == SchematicItem::BusType || 
-            type == SchematicItem::JunctionType ||
-            type == SchematicItem::LabelType ||
-            type == (QGraphicsItem::UserType + 101)) { // BusEntry
-            continue;
-        }
-
-        // Power items usually have fixed references like #GND
-        if (si->referencePrefix().startsWith("#")) continue;
+        if (!si || isSkippableForAnnotation(si)) continue;
 
         items.append(si);
     }
@@ -56,37 +86,90 @@ QMap<SchematicItem*, QString> SchematicAnnotator::annotate(QGraphicsScene* scene
         }
     });
 
-    QMap<QString, int> counters;
-    
-    // Optional: First pass to keep existing annotations if requested
-    if (!resetExisting) {
-        for (SchematicItem* si : items) {
-            QString ref = si->reference();
-            QString prefix = si->referencePrefix();
-            if (!ref.contains("?") && ref.startsWith(prefix)) {
-                bool ok;
-                int num = ref.mid(prefix.length()).toInt(&ok);
-                if (ok) {
-                    counters[prefix] = std::max(counters[prefix], num);
+    struct AnnotRec {
+        SchematicItem* item = nullptr;
+        QString prefix;
+        QString currentRef;
+        bool isMulti = false;
+        int unitCount = 1;
+        QString multiKey;
+    };
+
+    QList<AnnotRec> recs;
+    recs.reserve(items.size());
+    QMap<QString, int> counters; // per prefix
+
+    for (SchematicItem* si : items) {
+        AnnotRec r;
+        r.item = si;
+        r.prefix = si->referencePrefix();
+        r.currentRef = si->reference().trimmed();
+
+        if (auto* gc = dynamic_cast<GenericComponentItem*>(si)) {
+            const int uc = qMax(1, gc->symbol().unitCount());
+            if (uc > 1) {
+                r.isMulti = true;
+                r.unitCount = uc;
+                r.multiKey = symbolIdentityKey(gc);
+            }
+        }
+        recs.append(r);
+
+        const int existing = referenceNumber(r.currentRef, r.prefix);
+        if (existing > 0) {
+            counters[r.prefix] = std::max(counters.value(r.prefix, 0), existing);
+        }
+    }
+
+    // Keep existing refs when requested.
+    QMap<QString, QList<int>> pendingMulti; // group -> rec indices
+    QList<int> pendingSingle;
+
+    for (int i = 0; i < recs.size(); ++i) {
+        const AnnotRec& r = recs[i];
+        const bool hasValidExisting = (referenceNumber(r.currentRef, r.prefix) > 0);
+        if (!resetExisting && hasValidExisting) continue;
+
+        if (r.isMulti && !r.multiKey.isEmpty()) {
+            const QString key = r.prefix + "|" + r.multiKey;
+            pendingMulti[key].append(i);
+        } else {
+            pendingSingle.append(i);
+        }
+    }
+
+    // Singles: annotate one-by-one.
+    for (int idx : pendingSingle) {
+        const AnnotRec& r = recs[idx];
+        const QString newRef = r.prefix + QString::number(++counters[r.prefix]);
+        if (newRef != r.item->reference()) {
+            changes[r.item] = newRef;
+            r.item->setReference(newRef);
+        }
+    }
+
+    // Multi-unit symbols: assign package refs in chunks of unitCount.
+    for (auto it = pendingMulti.begin(); it != pendingMulti.end(); ++it) {
+        const QList<int> idxs = it.value();
+        if (idxs.isEmpty()) continue;
+
+        const AnnotRec& first = recs[idxs.first()];
+        const int chunk = qMax(1, first.unitCount);
+        int start = 0;
+        while (start < idxs.size()) {
+            const QString newRef = first.prefix + QString::number(++counters[first.prefix]);
+            const int end = qMin(start + chunk, idxs.size());
+            for (int j = start; j < end; ++j) {
+                SchematicItem* si = recs[idxs[j]].item;
+                if (newRef != si->reference()) {
+                    changes[si] = newRef;
+                    si->setReference(newRef);
                 }
             }
+            start = end;
         }
     }
 
-    // Second pass: Assign new references
-    for (SchematicItem* si : items) {
-        QString prefix = si->referencePrefix();
-        QString currentRef = si->reference();
-
-        if (resetExisting || currentRef.contains("?") || !currentRef.startsWith(prefix)) {
-            int nextIdx = ++counters[prefix];
-            QString newRef = prefix + QString::number(nextIdx);
-            if (newRef != currentRef) {
-                changes[si] = newRef;
-                si->setReference(newRef);
-            }
-        }
-    }
     return changes;
 }
 
@@ -96,17 +179,7 @@ QMap<SchematicItem*, QString> SchematicAnnotator::resetAnnotations(QGraphicsScen
 
     for (QGraphicsItem* gi : scene->items()) {
         SchematicItem* si = dynamic_cast<SchematicItem*>(gi);
-        if (!si) continue;
-
-        // Power items usually have fixed references
-        if (si->referencePrefix().startsWith("#")) continue;
-
-        // Skip non-components as in annotate()
-        SchematicItem::ItemType type = si->itemType();
-        if (type == SchematicItem::WireType || type == SchematicItem::BusType || 
-            type == SchematicItem::JunctionType || type == SchematicItem::LabelType) {
-            continue;
-        }
+        if (!si || isSkippableForAnnotation(si)) continue;
 
         QString newRef = si->referencePrefix() + "?";
         if (si->reference() != newRef) {
@@ -165,9 +238,25 @@ void SchematicAnnotator::annotateProject(const QString& rootFilePath, const QStr
         qreal x; 
         QString prefix; 
         QString originalRef;
+        QString typeName;
+        int unitCount = 1;
     };
     QList<GlobalComp> allComps;
     QMap<QString, QJsonObject> fileRoots;
+    QMap<QString, int> knownUnitCountByType;
+    QMap<QString, int> counters;
+
+    auto unitCountForType = [&](const QString& typeName) -> int {
+        const QString key = typeName.trimmed();
+        if (key.isEmpty()) return 1;
+        if (knownUnitCountByType.contains(key)) return knownUnitCountByType.value(key);
+        int uc = 1;
+        if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(key)) {
+            uc = qMax(1, def->unitCount());
+        }
+        knownUnitCountByType[key] = uc;
+        return uc;
+    };
 
     for (const QString& filePath : allFiles) {
         QFile file(filePath);
@@ -200,7 +289,10 @@ void SchematicAnnotator::annotateProject(const QString& rootFilePath, const QStr
                 if (!foundPrefix.isEmpty()) prefix = foundPrefix;
             }
 
-            allComps.append({filePath, i, obj["y"].toDouble(), obj["x"].toDouble(), prefix, obj["reference"].toString()});
+            const QString ref = obj["reference"].toString();
+            const int existing = referenceNumber(ref, prefix);
+            if (existing > 0) counters[prefix] = std::max(counters.value(prefix, 0), existing);
+            allComps.append({filePath, i, obj["y"].toDouble(), obj["x"].toDouble(), prefix, ref, type, unitCountForType(type)});
         }
     }
 
@@ -215,18 +307,53 @@ void SchematicAnnotator::annotateProject(const QString& rootFilePath, const QStr
         }
     });
 
-    // 4. Assign unique designators using project-wide counters
-    QMap<QString, int> counters;
+    // 4. Assign unique designators using project-wide counters (multi-unit aware)
+    QMap<QString, QList<int>> pendingMulti;
+    QList<int> pendingSingle;
+
     for (int i = 0; i < allComps.size(); ++i) {
-        QString newRef = allComps[i].prefix + QString::number(++counters[allComps[i].prefix]);
-        
-        // Update the cached JSON object
-        QJsonObject& root = fileRoots[allComps[i].filePath];
+        const GlobalComp& c = allComps[i];
+        const bool hasValidExisting = (referenceNumber(c.originalRef, c.prefix) > 0);
+        if (!resetExisting && hasValidExisting) continue;
+
+        if (c.unitCount > 1) {
+            const QString key = c.prefix + "|" + c.typeName.toLower();
+            pendingMulti[key].append(i);
+        } else {
+            pendingSingle.append(i);
+        }
+    }
+
+    auto writeRef = [&](int compIndex, const QString& newRef) {
+        const GlobalComp& c = allComps[compIndex];
+        QJsonObject& root = fileRoots[c.filePath];
         QJsonArray items = root["items"].toArray();
-        QJsonObject itemObj = items[allComps[i].indexInFile].toObject();
+        QJsonObject itemObj = items[c.indexInFile].toObject();
         itemObj["reference"] = newRef;
-        items[allComps[i].indexInFile] = itemObj;
+        items[c.indexInFile] = itemObj;
         root["items"] = items;
+    };
+
+    for (int idx : pendingSingle) {
+        const GlobalComp& c = allComps[idx];
+        const QString newRef = c.prefix + QString::number(++counters[c.prefix]);
+        writeRef(idx, newRef);
+    }
+
+    for (auto it = pendingMulti.begin(); it != pendingMulti.end(); ++it) {
+        const QList<int> idxs = it.value();
+        if (idxs.isEmpty()) continue;
+        const GlobalComp& first = allComps[idxs.first()];
+        const int chunk = qMax(1, first.unitCount);
+        int start = 0;
+        while (start < idxs.size()) {
+            const QString newRef = first.prefix + QString::number(++counters[first.prefix]);
+            const int end = qMin(start + chunk, idxs.size());
+            for (int j = start; j < end; ++j) {
+                writeRef(idxs[j], newRef);
+            }
+            start = end;
+        }
     }
 
     // 5. Commit changes to disk

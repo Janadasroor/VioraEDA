@@ -18,6 +18,7 @@
 #include "../dialogs/bus_aliases_dialog.h"
 #include "../../symbols/symbol_editor.h"
 #include "../items/net_label_item.h"
+#include "../items/generic_component_item.h"
 #include "../../core/project.h"
 #include "../../core/recent_projects.h"
 #include "../analysis/spice_netlist_generator.h"
@@ -70,6 +71,87 @@ QStringList itemPinNames(const SchematicItem* item) {
         pins.append(pin.isEmpty() ? QString::number(i + 1) : pin);
     }
     return pins;
+}
+
+QString symbolIdentityKey(const SymbolDefinition& symbol) {
+    const QString sid = symbol.symbolId().trimmed();
+    if (!sid.isEmpty()) return sid.toLower();
+    return symbol.name().trimmed().toLower();
+}
+
+QString baseReferenceOf(const QString& ref) {
+    const QString trimmed = ref.trimmed();
+    const int sep = trimmed.indexOf(':');
+    return sep >= 0 ? trimmed.left(sep).trimmed() : trimmed;
+}
+
+int parseRefNumber(const QString& baseRef, const QString& prefix) {
+    if (!baseRef.startsWith(prefix, Qt::CaseInsensitive)) return -1;
+    const QString suffix = baseRef.mid(prefix.size()).trimmed();
+    bool ok = false;
+    const int n = suffix.toInt(&ok);
+    return ok ? n : -1;
+}
+
+QString unitSuffixForStatus(int unit) {
+    if (unit <= 0) return "A";
+    if (unit <= 26) return QString(QChar('A' + unit - 1));
+    return QString::number(unit);
+}
+
+struct UnitPlacement {
+    QString baseRef;
+    int unit = 1;
+};
+
+UnitPlacement pickNextUnitPlacement(QGraphicsScene* scene, const SymbolDefinition& symbol, const QString& fallbackRef) {
+    UnitPlacement out;
+    out.baseRef = baseReferenceOf(fallbackRef);
+    if (out.baseRef.isEmpty()) out.baseRef = fallbackRef.trimmed();
+    out.unit = 1;
+
+    const int unitCount = qMax(1, symbol.unitCount());
+    if (!scene || unitCount <= 1) return out;
+
+    const QString wantedKey = symbolIdentityKey(symbol);
+    QMap<QString, QSet<int>> usedUnitsByRef;
+
+    const QList<QGraphicsItem*> items = scene->items();
+    for (QGraphicsItem* gi : items) {
+        auto* gc = dynamic_cast<GenericComponentItem*>(gi);
+        if (!gc) continue;
+        if (symbolIdentityKey(gc->symbol()) != wantedKey) continue;
+
+        const QString base = baseReferenceOf(gc->reference());
+        if (base.isEmpty()) continue;
+        const int u = qBound(1, gc->unit(), unitCount);
+        usedUnitsByRef[base].insert(u);
+    }
+
+    if (usedUnitsByRef.isEmpty()) return out;
+
+    QStringList refs = usedUnitsByRef.keys();
+    std::sort(refs.begin(), refs.end(), [&](const QString& a, const QString& b) {
+        const int na = parseRefNumber(a, symbol.referencePrefix());
+        const int nb = parseRefNumber(b, symbol.referencePrefix());
+        if (na >= 0 && nb >= 0) return na < nb;
+        if (na >= 0) return true;
+        if (nb >= 0) return false;
+        return a.compare(b, Qt::CaseInsensitive) < 0;
+    });
+
+    for (const QString& base : refs) {
+        const QSet<int>& used = usedUnitsByRef[base];
+        for (int u = 1; u <= unitCount; ++u) {
+            if (!used.contains(u)) {
+                out.baseRef = base;
+                out.unit = u;
+                return out;
+            }
+        }
+    }
+
+    return out;
 }
 
 bool isTextFile(const QString& path) {
@@ -1126,7 +1208,6 @@ void SchematicEditor::onOpenNetlistEditor() {
 }
 
 #include "../items/net_label_item.h"
-#include "../items/generic_component_item.h"
 #include "schematic_item.h"
 
 void SchematicEditor::handleIncomingECO() {
@@ -1265,6 +1346,10 @@ void SchematicEditor::onPlaceSymbolInSchematic(const SymbolDefinition& symbol) {
     
     // Create the item
     auto* item = new GenericComponentItem(symbol);
+    const QString fallbackRef = m_view->getNextReference(symbol.referencePrefix());
+    const UnitPlacement placement = pickNextUnitPlacement(m_scene, symbol, fallbackRef);
+    item->setReference(placement.baseRef);
+    item->setUnit(placement.unit);
     item->setPos(center);
     
     // Use undo stack for the addition
@@ -1278,12 +1363,15 @@ void SchematicEditor::onPlaceSymbolInSchematic(const SymbolDefinition& symbol) {
     this->raise();
     m_view->setFocus();
     
-    statusBar()->showMessage(QString("Placed symbol: %1").arg(symbol.name()), 3000);
+    QString placedRef = placement.baseRef;
+    if (symbol.unitCount() > 1) {
+        placedRef += ":" + unitSuffixForStatus(placement.unit);
+    }
+    statusBar()->showMessage(QString("Placed symbol: %1 (%2)").arg(symbol.name(), placedRef), 3000);
 }
 
 // ─── Create New Symbol From Schematic ──────────────────────────────────────
 
-#include "../items/generic_component_item.h"
 #include "../../symbols/models/symbol_primitive.h"
 #include "../../core/config_manager.h"
 
