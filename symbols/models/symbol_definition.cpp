@@ -8,6 +8,15 @@ namespace Model {
 
 namespace {
 
+QString normalizeSymbolIdKey(const QString& raw) {
+    QString key = raw.trimmed().toLower();
+    key.replace(" ", "_");
+    while (key.contains("__")) key.replace("__", "_");
+    if (key.startsWith('_')) key.remove(0, 1);
+    if (key.endsWith('_')) key.chop(1);
+    return key;
+}
+
 QString oppositeOrientation(const QString& orientation) {
     if (orientation == "Left") return "Right";
     if (orientation == "Right") return "Left";
@@ -307,6 +316,8 @@ QJsonObject SymbolDefinition::toJson() const {
     json["name"] = m_name;
     json["description"] = m_description;
     json["category"] = m_category;
+    json["symbolId"] = m_symbolId;
+    json["aliases"] = QJsonArray::fromStringList(m_aliases);
     json["datasheet"] = m_datasheet;
     json["referencePrefix"] = m_referencePrefix;
     json["parentName"] = m_parentName;
@@ -354,6 +365,14 @@ SymbolDefinition SymbolDefinition::fromJson(const QJsonObject& json) {
     def.m_name = json["name"].toString();
     def.m_description = json["description"].toString();
     def.m_category = json["category"].toString();
+    def.m_symbolId = json["symbolId"].toString();
+    {
+        const QJsonArray aliases = json["aliases"].toArray();
+        for (const auto& a : aliases) def.m_aliases.append(a.toString());
+    }
+    if (def.m_symbolId.trimmed().isEmpty()) {
+        def.m_symbolId = normalizeSymbolIdKey(def.m_name);
+    }
     def.m_datasheet = json["datasheet"].toString();
     def.m_referencePrefix = json["referencePrefix"].toString("U");
     def.m_parentName = json["parentName"].toString();
@@ -413,6 +432,8 @@ SymbolDefinition SymbolDefinition::clone() const {
     copy.m_name = m_name;
     copy.m_description = m_description;
     copy.m_category = m_category;
+    copy.m_symbolId = m_symbolId;
+    copy.m_aliases = m_aliases;
     copy.m_datasheet = m_datasheet;
     copy.m_referencePrefix = m_referencePrefix;
     copy.m_parentName = m_parentName;
