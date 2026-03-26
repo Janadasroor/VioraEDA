@@ -99,7 +99,7 @@ SimComponentType inferModelType(const std::string& typeToken, bool& ok) {
     if (typeStr == "PMF") return SimComponentType::MOSFET_PMOS;
     if (typeStr == "NJF") return SimComponentType::JFET_NJF;
     if (typeStr == "PJF") return SimComponentType::JFET_PJF;
-    if (typeStr == "SW") return SimComponentType::Switch;
+    if (typeStr == "SW" || typeStr == "VSWITCH") return SimComponentType::Switch;
     if (typeStr == "CSW") return SimComponentType::CSW;
     ok = false;
     return SimComponentType::Resistor;
@@ -121,7 +121,7 @@ int mapSubcktNodeToken(
         const int n = std::stoi(token);
         if (n >= 0) return n;
     } catch (...) {
-        qDebug() << "Token" << QString::fromStdString(token) << "is not a valid integer, treating as node name";
+        // Alphanumeric node name (common in LTspice)
     }
 
     auto it = localNodeToId.find(token);
@@ -180,18 +180,33 @@ bool SimModelParser::parseModelLine(
 
     SimModel model;
     model.name = tokens[1];
-    const std::string typeOrBase = tokens[2];
+    std::string typeOrBase = tokens[2];
+
+    if (startsWithNoCase(typeOrBase, "AKO:")) {
+        typeOrBase = typeOrBase.substr(4);
+    }
 
     bool typeOk = false;
     model.type = inferModelType(typeOrBase, typeOk);
     if (!typeOk) {
-        const SimModel* base = netlist.findModel(typeOrBase);
-        if (!base) {
-            addDiag(diagnostics, Severity::Error, lineNumber, sourceName, "unknown model type or base model '" + typeOrBase + "'", tLine);
-            return false;
+        auto it = outModels.find(typeOrBase);
+        if (it != outModels.end()) {
+            model.type = it->second.type;
+            model.params = it->second.params;
+            typeOk = true;
+        } else {
+            const SimModel* base = netlist.findModel(typeOrBase);
+            if (base) {
+                model.type = base->type;
+                model.params = base->params;
+                typeOk = true;
+            }
         }
-        model.type = base->type;
-        model.params = base->params;
+    }
+
+    if (!typeOk) {
+        addDiag(diagnostics, Severity::Warning, lineNumber, sourceName, "unknown model type or base model '" + typeOrBase + "'", tLine);
+        model.type = SimComponentType::SubcircuitInstance; 
     }
 
     bool vdmosPchan = false;
@@ -256,14 +271,17 @@ bool SimModelParser::parseLibrary(
         }
     }
 
-    bool inSubckt = false;
     bool inLibBlock = false;
     bool parseLibBlock = true;
     bool hadErrors = false;
-    SimSubcircuit currentSub;
-    std::map<std::string, int> currentPinToId;
-    std::map<std::string, int> currentLocalNodeToId;
-    int nextInternalNodeId = 1;
+    
+    struct SubcktContext {
+        SimSubcircuit sub;
+        std::map<std::string, int> pinToId;
+        std::map<std::string, int> localNodeToId;
+        int nextInternalNodeId = 1;
+    };
+    std::vector<SubcktContext> subcktStack;
 
     auto fail = [&](int lineNo, const std::string& msg, const std::string& lineText) {
         addDiag(diagnostics, Severity::Error, lineNo, options.sourceName, msg, lineText);
@@ -290,66 +308,58 @@ bool SimModelParser::parseLibrary(
                 fail(ll.lineNo, "malformed .subckt card", tLine);
                 continue;
             }
-            inSubckt = true;
-            currentSub = SimSubcircuit();
-            currentSub.name = tokens[1];
-            currentPinToId.clear();
-            currentLocalNodeToId.clear();
-            currentSub.pinNames.clear();
-            currentSub.components.clear();
+            
+            SubcktContext ctx;
+            ctx.sub.name = tokens[1];
             for (size_t i = 2; i < tokens.size(); ++i) {
-                currentSub.pinNames.push_back(tokens[i]);
-                currentPinToId[tokens[i]] = static_cast<int>(i - 1); // pin 1..N
+                if (tokens[i].find('=') != std::string::npos) break; // End of pins, start of params
+                ctx.sub.pinNames.push_back(tokens[i]);
+                ctx.pinToId[tokens[i]] = static_cast<int>(i - 1);
             }
-            nextInternalNodeId = static_cast<int>(currentSub.pinNames.size()) + 1;
+            ctx.nextInternalNodeId = static_cast<int>(ctx.sub.pinNames.size()) + 1;
+            subcktStack.push_back(ctx);
             continue;
         }
 
         if (cardLower == ".ends") {
-            if (!inSubckt) {
+            if (subcktStack.empty()) {
                 addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, ".ends found without active .subckt", tLine);
                 continue;
             }
-            netlist.addSubcircuit(currentSub);
-            inSubckt = false;
+            netlist.addSubcircuit(subcktStack.back().sub);
+            subcktStack.pop_back();
             continue;
         }
 
         if (cardLower == ".model") {
-            if (inSubckt) {
-                if (!parseModelLine(netlist, currentSub.models, tLine, ll.lineNo, options.sourceName, diagnostics)) {
-                    hadErrors = true;
-                }
+            if (!subcktStack.empty()) {
+                parseModelLine(netlist, subcktStack.back().sub.models, tLine, ll.lineNo, options.sourceName, diagnostics);
             } else {
-                if (!parseModelLine(netlist, netlist.mutableModels(), tLine, ll.lineNo, options.sourceName, diagnostics)) {
-                    hadErrors = true;
-                }
+                parseModelLine(netlist, netlist.mutableModels(), tLine, ll.lineNo, options.sourceName, diagnostics);
             }
             continue;
         }
 
         if (cardLower == ".param" || cardLower == ".params") {
             for (size_t i = 1; i < tokens.size(); ++i) {
-                std::string token = stripParensComma(tokens[i]);
+                std::string token = tokens[i];
                 size_t eq = token.find('=');
                 
                 std::string key, val;
                 if (eq != std::string::npos) {
                     key = token.substr(0, eq);
                     val = token.substr(eq + 1);
-                    // Handle "key= val"
                     if (val.empty() && i + 1 < tokens.size()) {
-                        val = stripParensComma(tokens[++i]);
+                        val = tokens[++i];
                     }
                 } else {
-                    // Handle "key = val" or "key =val"
                     if (i + 1 < tokens.size() && (tokens[i+1] == "=" || tokens[i+1].front() == '=')) {
                         key = token;
                         if (tokens[i+1] == "=") {
                             i += 2;
-                            if (i < tokens.size()) val = stripParensComma(tokens[i]);
+                            if (i < tokens.size()) val = tokens[i];
                         } else {
-                            val = stripParensComma(tokens[++i]).substr(1);
+                            val = tokens[++i].substr(1);
                         }
                     } else {
                         continue;
@@ -359,10 +369,12 @@ bool SimModelParser::parseLibrary(
                 if (key.empty()) continue;
                 double parsed = 0.0;
                 if (parseNumeric(val, parsed)) {
-                    if (inSubckt) currentSub.parameters[key] = parsed;
+                    if (!subcktStack.empty()) subcktStack.back().sub.parameters[key] = parsed;
                     else netlist.setParameter(key, parsed);
+                } else if (!val.empty()) {
+                    // Formula or expression
                 } else {
-                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "invalid numeric value for parameter '" + key + "'", tLine);
+                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "empty value for parameter '" + key + "'", tLine);
                 }
             }
             continue;
@@ -412,314 +424,190 @@ bool SimModelParser::parseLibrary(
             continue;
         }
 
-        // --- Recognized simulation / control directives (passed through to netlist) ---
-        // Analysis directives
         if (cardLower == ".noise" || cardLower == ".four" || cardLower == ".tf" ||
-            cardLower == ".disto" || cardLower == ".sens" || cardLower == ".fft") {
-            continue; // Recognized analysis directive, silently pass through
+            cardLower == ".disto" || cardLower == ".sens" || cardLower == ".fft" ||
+            cardLower == ".meas" || cardLower == ".measur" || cardLower == ".measure" ||
+            cardLower == ".mean" || cardLower == ".step" || cardLower == ".options" || 
+            cardLower == ".option" || cardLower == ".temp" || cardLower == ".temperature" ||
+            cardLower == ".ic" || cardLower == ".nodeset" || cardLower == ".global" ||
+            cardLower == ".func" || cardLower == ".function" || cardLower == ".print" ||
+            cardLower == ".plot" || cardLower == ".probe" || cardLower == ".width" ||
+            cardLower == ".title" || cardLower == ".save" || cardLower == ".control" ||
+            cardLower == ".endc" || cardLower == ".alter" || cardLower == ".let" ||
+            cardLower == ".csdf" || cardLower == ".timedomain" || cardLower == ".machine" || 
+            cardLower == ".state" || cardLower == ".rule" || cardLower == ".output" || 
+            cardLower == ".endmachine" || cardLower == ".backanno" || cardLower == ".net") {
+            continue; 
         }
 
-        // Measurement and stepping
-        if (cardLower == ".meas" || cardLower == ".measur" || cardLower == ".measure") {
-            MeasStatement meas;
-            if (SimMeasEvaluator::parse(tLine, ll.lineNo, options.sourceName, meas)) {
-                netlist.addMeasStatement(meas);
-            } else {
-                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName,
-                    "failed to parse .meas directive", tLine);
+        std::string lineToSplit = tLine;
+        bool inBraces = false;
+        for (char &c : lineToSplit) {
+            if (c == '{') inBraces = true;
+            else if (c == '}') inBraces = false;
+            if (!inBraces && (c == '(' || c == ')' || c == ',')) {
+                c = ' ';
             }
-            continue;
         }
-        if (cardLower == ".mean") {
-            std::string measLine;
-            if (!convertMeanToMeasLine(tLine, ll.lineNo, measLine)) {
-                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName,
-                    "failed to parse .mean directive", tLine);
-                continue;
-            }
-            MeasStatement meas;
-            if (SimMeasEvaluator::parse(measLine, ll.lineNo, options.sourceName, meas)) {
-                netlist.addMeasStatement(meas);
-            } else {
-                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName,
-                    "failed to convert .mean directive to .meas", tLine);
-            }
-            continue;
-        }
-        if (cardLower == ".step") {
-            continue;
-        }
+        auto compTokens = split(lineToSplit);
 
-        // Configuration and options
-        if (cardLower == ".options" || cardLower == ".option") {
-            continue;
-        }
-        if (cardLower == ".temp" || cardLower == ".temperature") {
-            continue;
-        }
+        if (compTokens.size() < 2) continue;
 
-        // Initial conditions and node sets
-        if (cardLower == ".ic") {
-            continue;
-        }
-        if (cardLower == ".nodeset") {
-            continue;
-        }
+        SimComponentInstance inst;
+        inst.name = compTokens[0];
+        const char typeChar = static_cast<char>(std::toupper(static_cast<unsigned char>(inst.name[0])));
 
-        // Global nodes
-        if (cardLower == ".global") {
-            continue;
-        }
+        size_t nodeStart = 1;
+        size_t nodeCount = 0;
+        bool isSubcktCall = false;
 
-        // Functions
-        if (cardLower == ".func" || cardLower == ".function") {
-            continue;
-        }
-
-        // Output directives
-        if (cardLower == ".print" || cardLower == ".plot" || cardLower == ".probe") {
-            continue;
-        }
-
-        // Width and title
-        if (cardLower == ".width" || cardLower == ".title") {
-            continue;
-        }
-
-        // Save/load raw data
-        if (cardLower == ".save") {
-            continue;
-        }
-
-        // Control blocks
-        if (cardLower == ".control" || cardLower == ".endc") {
-            continue;
-        }
-
-        // Alter and update (device modification during simulation)
-        if (cardLower == ".alter" || cardLower == ".let") {
-            continue;
-        }
-
-        // CSDF output
-        if (cardLower == ".csdf") {
-            continue;
-        }
-
-        if (inSubckt) {
-            if (!card.empty() && card[0] == '.') {
-                addDiag(diagnostics, Severity::Info, ll.lineNo, options.sourceName, "ignored unsupported control card '" + card + "' in subcircuit", tLine);
-                continue;
-            }
-            if (tokens.size() < 2) {
-                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "ignored malformed subcircuit line", tLine);
-                continue;
-            }
-
-            SimComponentInstance inst;
-            inst.name = tokens[0];
-            const char typeChar = static_cast<char>(std::toupper(static_cast<unsigned char>(inst.name[0])));
-
-            size_t nodeStart = 1;
-            size_t nodeCount = 0;
-            bool isSubcktCall = false;
-
-            switch (typeChar) {
-                case 'R': inst.type = SimComponentType::Resistor; nodeCount = 2; break;
-                case 'C': inst.type = SimComponentType::Capacitor; nodeCount = 2; break;
-                case 'L': inst.type = SimComponentType::Inductor; nodeCount = 2; break;
-                case 'D': inst.type = SimComponentType::Diode; nodeCount = 2; break;
-                case 'Q': inst.type = SimComponentType::BJT_NPN; nodeCount = 3; break;
-                case 'M': inst.type = SimComponentType::MOSFET_NMOS; nodeCount = 4; break;
-                case 'V': inst.type = SimComponentType::VoltageSource; nodeCount = 2; break;
-                case 'I': inst.type = SimComponentType::CurrentSource; nodeCount = 2; break;
-                case 'E': inst.type = SimComponentType::VCVS; nodeCount = 4; break;
-                case 'G': inst.type = SimComponentType::VCCS; nodeCount = 4; break;
-                case 'F': inst.type = SimComponentType::CCCS; nodeCount = 2; break;
-                case 'H': inst.type = SimComponentType::CCVS; nodeCount = 2; break;
-                case 'S': inst.type = SimComponentType::Switch; nodeCount = 4; break;
-                case 'W': inst.type = SimComponentType::CSW; nodeCount = 4; break;
-                case 'B': inst.type = SimComponentType::B_VoltageSource; nodeCount = 2; break;
-                case 'A': {
-                    // XSPICE: Logic gates. Find the type at the end of node list.
-                    inst.type = SimComponentType::LOGIC_AND; // Default
-                    nodeCount = 0;
-                    for (size_t i = 1; i < tokens.size(); ++i) {
-                        if (tokens[i].find('=') != std::string::npos) break;
-                        std::string up = tokens[i];
-                        std::transform(up.begin(), up.end(), up.begin(), ::toupper);
-                        if (up == "AND")  { inst.type = SimComponentType::LOGIC_AND; break; }
-                        if (up == "OR")   { inst.type = SimComponentType::LOGIC_OR; break; }
-                        if (up == "XOR")  { inst.type = SimComponentType::LOGIC_XOR; break; }
-                        if (up == "NAND") { inst.type = SimComponentType::LOGIC_NAND; break; }
-                        if (up == "NOR")  { inst.type = SimComponentType::LOGIC_NOR; break; }
-                        if (up == "NOT")  { inst.type = SimComponentType::LOGIC_NOT; break; }
-                        if (up == "BUF")  { inst.type = SimComponentType::LOGIC_OR; break; } // Map BUF to OR
-                        if (up == "SCHMITT") { inst.type = SimComponentType::LOGIC_OR; break; }
-                        if (up == "DFLOP") { inst.type = SimComponentType::LOGIC_XOR; break; } // Placeholder
-                        nodeCount++;
+        switch (typeChar) {
+            case 'R': inst.type = SimComponentType::Resistor; nodeCount = 2; break;
+            case 'C': inst.type = SimComponentType::Capacitor; nodeCount = 2; break;
+            case 'L': inst.type = SimComponentType::Inductor; nodeCount = 2; break;
+            case 'D': inst.type = SimComponentType::Diode; nodeCount = 2; break;
+            case 'Q': inst.type = SimComponentType::BJT_NPN; nodeCount = 3; break;
+            case 'J': inst.type = SimComponentType::JFET_NJF; nodeCount = 3; break;
+            case 'Z': inst.type = SimComponentType::JFET_NJF; nodeCount = 3; break;
+            case 'M': inst.type = SimComponentType::MOSFET_NMOS; nodeCount = 4; break;
+            case 'V': inst.type = SimComponentType::VoltageSource; nodeCount = 2; break;
+            case 'I': inst.type = SimComponentType::CurrentSource; nodeCount = 2; break;
+            case 'E': {
+                bool isBehavioral = false;
+                for (const auto& t : compTokens) {
+                    std::string up = t; std::transform(up.begin(), up.end(), up.begin(), ::toupper);
+                    if (up.find("VALUE") != std::string::npos || up.find("POLY") != std::string::npos || 
+                        up.find("TABLE") != std::string::npos || up.find("{") != std::string::npos) {
+                        isBehavioral = true; break;
                     }
+                }
+                inst.type = SimComponentType::VCVS;
+                nodeCount = isBehavioral ? 2 : 4;
+                break;
+            }
+            case 'G': {
+                bool isBehavioral = false;
+                for (const auto& t : compTokens) {
+                    std::string up = t; std::transform(up.begin(), up.end(), up.begin(), ::toupper);
+                    if (up.find("VALUE") != std::string::npos || up.find("POLY") != std::string::npos || 
+                        up.find("TABLE") != std::string::npos || up.find("{") != std::string::npos) {
+                        isBehavioral = true; break;
+                    }
+                }
+                inst.type = SimComponentType::VCCS;
+                nodeCount = isBehavioral ? 2 : 4;
+                break;
+            }
+            case 'F': inst.type = SimComponentType::CCCS; nodeCount = 2; break;
+            case 'H': inst.type = SimComponentType::CCVS; nodeCount = 2; break;
+            case 'S': inst.type = SimComponentType::Switch; nodeCount = 4; break;
+            case 'W': inst.type = SimComponentType::CSW; nodeCount = 4; break;
+            case 'B': inst.type = SimComponentType::B_VoltageSource; nodeCount = 2; break;
+            case 'A': {
+                inst.type = SimComponentType::LOGIC_AND;
+                size_t endOfNodes = 1;
+                for (; endOfNodes < compTokens.size(); ++endOfNodes) {
+                    if (compTokens[endOfNodes].find('=') != std::string::npos) break;
+                }
+                if (endOfNodes > 2) {
+                    inst.modelName = compTokens[endOfNodes - 1];
+                    nodeCount = endOfNodes - 2;
+                } else {
+                    nodeCount = 0;
+                }
+                break;
+            }
+            case 'X': isSubcktCall = true; break;
+            default:
+                if (!inst.name.empty() && inst.name[0] == '.') continue;
+                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "unsupported primitive '" + inst.name + "'", tLine);
+                continue;
+        }
+
+        if (isSubcktCall) {
+            size_t eqPos = compTokens.size();
+            for (size_t i = 1; i < compTokens.size(); ++i) {
+                if (compTokens[i].find('=') != std::string::npos) {
+                    eqPos = i;
                     break;
                 }
-                case 'X': isSubcktCall = true; break;
-                default:
-                    if (!inst.name.empty() && inst.name[0] == '.') {
-                        continue;
-                    }
-                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "unsupported subcircuit primitive '" + inst.name + "'", tLine);
-                    continue;
             }
-
-            if (isSubcktCall) {
-                size_t eqPos = tokens.size();
-                for (size_t i = 1; i < tokens.size(); ++i) {
-                    if (tokens[i].find('=') != std::string::npos) {
-                        eqPos = i;
-                        break;
-                    }
+            if (eqPos <= 2) {
+                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "invalid X-call line", tLine);
+                continue;
+            }
+            inst.subcircuitName = compTokens[eqPos - 1];
+            for (size_t i = nodeStart; i + 1 < eqPos; ++i) {
+                if (!subcktStack.empty()) {
+                    auto& ctx = subcktStack.back();
+                    inst.nodes.push_back(mapSubcktNodeToken(compTokens[i], ctx.pinToId, ctx.localNodeToId, ctx.nextInternalNodeId));
+                } else {
+                    inst.nodes.push_back(netlist.addNode(compTokens[i]));
                 }
-                if (eqPos <= 2) {
-                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "invalid X-call line (missing nodes/subckt name)", tLine);
-                    continue;
-                }
-                inst.subcircuitName = tokens[eqPos - 1];
-                for (size_t i = nodeStart; i + 1 < eqPos; ++i) {
-                    inst.nodes.push_back(mapSubcktNodeToken(tokens[i], currentPinToId, currentLocalNodeToId, nextInternalNodeId));
-                }
-            } else {
-                if (tokens.size() <= nodeStart + nodeCount) {
-                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "insufficient node tokens for primitive '" + inst.name + "'", tLine);
-                    continue;
-                }
-                for (size_t i = nodeStart; i < nodeStart + nodeCount; ++i) {
-                    inst.nodes.push_back(mapSubcktNodeToken(tokens[i], currentPinToId, currentLocalNodeToId, nextInternalNodeId));
-                }
-
-                size_t dataIdx = nodeStart + nodeCount;
-                for (size_t i = dataIdx; i < tokens.size(); ++i) {
-                    std::string token = tokens[i];
-                    if (token.empty()) continue;
-
-                    const size_t eq = token.find('=');
-                    if (eq == std::string::npos) {
-                        // Positional parameter (e.g., R1 1 0 1k)
-                        if (i == dataIdx) {
-                            if (typeChar == 'R' || typeChar == 'C' || typeChar == 'L') {
-                                std::string key = (typeChar == 'R') ? "resistance" : (typeChar == 'C' ? "capacitance" : "inductance");
-                                if (token.front() == '{' && token.back() == '}') {
-                                    inst.paramExpressions[key] = token;
-                                } else {
-                                    double v = 0.0;
-                                    if (parseNumeric(token, v)) inst.params[key] = v;
-                                }
-                            } else if (typeChar == 'D' || typeChar == 'Q' || typeChar == 'M') {
-                                inst.modelName = token;
-                            } else if (typeChar == 'V' || typeChar == 'I') {
-                                std::string key = (typeChar == 'V') ? "voltage" : "current";
-                                // Handle PWL(...) which spans multiple tokens.
-                                std::string upper = token;
-                                std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-                                if (upper.rfind("PWL(", 0) == 0) {
-                                    std::string combined = token;
-                                    size_t endIdx = i;
-                                    while (combined.find(')') == std::string::npos && endIdx + 1 < tokens.size()) {
-                                        ++endIdx;
-                                        combined += " " + tokens[endIdx];
-                                    }
-
-                                    const size_t open = combined.find('(');
-                                    const size_t close = combined.rfind(')');
-                                    if (open != std::string::npos && close != std::string::npos && close > open + 1) {
-                                        std::string inside = combined.substr(open + 1, close - open - 1);
-                                        std::istringstream iss(inside);
-                                        std::vector<std::string> parts;
-                                        for (std::string part; iss >> part; ) {
-                                            parts.push_back(part);
-                                        }
-                                        const int nPairs = static_cast<int>(parts.size() / 2);
-                                        if (nPairs > 0) {
-                                            inst.params["wave_type"] = 5.0;
-                                            inst.params["pwl_n"] = static_cast<double>(nPairs);
-                                            for (int idx = 0; idx < nPairs; ++idx) {
-                                                double ti = 0.0;
-                                                double vi = 0.0;
-                                                if (!parseNumeric(parts[2 * idx], ti)) continue;
-                                                if (!parseNumeric(parts[2 * idx + 1], vi)) continue;
-                                                inst.params["pwl_t" + std::to_string(idx)] = ti;
-                                                inst.params["pwl_v" + std::to_string(idx)] = vi;
-                                                if (idx == 0) {
-                                                    inst.params["pwl_v0"] = vi;
-                                                }
-                                            }
-                                        } else {
-                                            inst.paramExpressions[key] = combined;
-                                        }
-                                    } else {
-                                        inst.paramExpressions[key] = combined;
-                                    }
-
-                                    i = endIdx;
-                                } else {
-                                    double v = 0.0;
-                                    if (parseNumeric(token, v)) inst.params[key] = v;
-                                    else inst.paramExpressions[key] = token; // SIN(...) etc
-                                }
-                            } else if (typeChar == 'E' || typeChar == 'G') {
-                                double g = 0.0;
-                                if (parseNumeric(token, g)) inst.params["gain"] = g;
-                            }
-                        }
-                        continue;
-                    }
-
-                    std::string key = token.substr(0, eq);
-                    const std::string val = token.substr(eq + 1);
-                    if (key.empty()) continue;
-
-                    // Support tol=... dist=... lot=...
-                    if (key == "tol") {
-                        std::string target = (typeChar == 'R') ? "resistance" : (typeChar == 'C' ? "capacitance" : "inductance");
-                        double t = 0.0;
-                        if (parseNumeric(val, t)) inst.tolerances[target].value = t;
-                        continue;
-                    } else if (key == "dist") {
-                        std::string target = (typeChar == 'R') ? "resistance" : (typeChar == 'C' ? "capacitance" : "inductance");
-                        if (val == "gaussian") inst.tolerances[target].distribution = ToleranceDistribution::Gaussian;
-                        else inst.tolerances[target].distribution = ToleranceDistribution::Uniform;
-                        continue;
-                    } else if (key == "lot") {
-                        std::string target = (typeChar == 'R') ? "resistance" : (typeChar == 'C' ? "capacitance" : "inductance");
-                        inst.tolerances[target].lotId = val;
-                        continue;
-                    }
-
-                    if (val.front() == '{' && val.back() == '}') {
-                        inst.paramExpressions[key] = val;
-                    } else {
-                        double parsed = 0.0;
-                        if (parseNumeric(val, parsed)) {
-                            inst.params[key] = parsed;
-                        } else {
-                            // Store non-numeric (like table=...) as expression/string
-                            inst.paramExpressions[key] = val;
-                        }
-                    }
+            }
+        } else {
+            if (typeChar != 'A' && compTokens.size() <= nodeStart + nodeCount) {
+                addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName, "insufficient node tokens for '" + inst.name + "'", tLine);
+                continue;
+            }
+            for (size_t i = nodeStart; i < nodeStart + nodeCount; ++i) {
+                if (!subcktStack.empty()) {
+                    auto& ctx = subcktStack.back();
+                    inst.nodes.push_back(mapSubcktNodeToken(compTokens[i], ctx.pinToId, ctx.localNodeToId, ctx.nextInternalNodeId));
+                } else {
+                    inst.nodes.push_back(netlist.addNode(compTokens[i]));
                 }
             }
 
-            currentSub.components.push_back(inst);
-            continue;
+            size_t dataIdx = nodeStart + nodeCount;
+            if (typeChar == 'A') dataIdx = inst.nodes.size() + 2; 
+
+            for (size_t i = dataIdx; i < compTokens.size(); ++i) {
+                std::string token = compTokens[i];
+                if (token.empty()) continue;
+
+                const size_t eq = token.find('=');
+                if (eq == std::string::npos) {
+                    if (i == dataIdx) {
+                        if (typeChar == 'R' || typeChar == 'C' || typeChar == 'L') {
+                            std::string key = (typeChar == 'R') ? "resistance" : (typeChar == 'C' ? "capacitance" : "inductance");
+                            double v = 0.0;
+                            if (parseNumeric(token, v)) inst.params[key] = v;
+                            else inst.paramExpressions[key] = token;
+                        } else if (typeChar == 'D' || typeChar == 'Q' || typeChar == 'M' || typeChar == 'J' || typeChar == 'Z') {
+                            inst.modelName = token;
+                        } else if (typeChar == 'V' || typeChar == 'I' || typeChar == 'E' || typeChar == 'G') {
+                            std::string key = (typeChar == 'V') ? "voltage" : (typeChar == 'I' ? "current" : "gain");
+                            double v = 0.0;
+                            if (parseNumeric(token, v)) inst.params[key] = v;
+                            else inst.paramExpressions[key] = token;
+                        }
+                    }
+                    continue;
+                }
+
+                std::string key = token.substr(0, eq);
+                const std::string val = token.substr(eq + 1);
+                if (key.empty()) continue;
+
+                double parsed = 0.0;
+                if (parseNumeric(val, parsed)) {
+                    inst.params[key] = parsed;
+                } else {
+                    inst.paramExpressions[key] = val;
+                }
+            }
         }
 
-
-
-        if (!card.empty() && card[0] == '.') {
-            addDiag(diagnostics, Severity::Info, ll.lineNo, options.sourceName, "ignored unsupported control card '" + card + "'", tLine);
+        if (!subcktStack.empty()) {
+            subcktStack.back().sub.components.push_back(inst);
+        } else {
+            netlist.addComponent(inst);
         }
     }
 
-    if (inSubckt) {
-        fail(logicalLines.empty() ? 0 : logicalLines.back().lineNo, "unterminated .subckt (missing .ends)", currentSub.name);
+    if (!subcktStack.empty()) {
+        fail(logicalLines.empty() ? 0 : logicalLines.back().lineNo, "unterminated .subckt (missing .ends)", subcktStack.back().sub.name);
     }
 
     return options.strict ? !hadErrors : true;

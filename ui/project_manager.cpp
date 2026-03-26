@@ -1569,6 +1569,13 @@ void ProjectManager::openSchematicEditor() {
 void ProjectManager::openSymbolEditor() {
     SymbolEditor* editor = new SymbolEditor(nullptr);
     editor->setAttribute(Qt::WA_DeleteOnClose);
+    QString projectKey;
+    if (!m_workspaceFolders.isEmpty()) {
+        projectKey = m_workspaceFolders.first();
+    } else if (!m_workspaceFilePath.isEmpty()) {
+        projectKey = QFileInfo(m_workspaceFilePath).absolutePath();
+    }
+    editor->setProjectKey(projectKey);
     editor->show();
 }
 

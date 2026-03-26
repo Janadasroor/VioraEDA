@@ -1,5 +1,6 @@
 #include "simulation_debugger_dialog.h"
 #include "theme_manager.h"
+#include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QTableWidget>
@@ -7,10 +8,12 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QIcon>
+#include <QClipboard>
 
 SimulationDebuggerDialog::SimulationDebuggerDialog(const QStringList& diagnostics, QWidget* parent)
     : QDialog(parent)
 {
+    m_diagnostics = diagnostics;
     setupUi();
     populateDiagnostics(diagnostics);
 }
@@ -29,7 +32,9 @@ void SimulationDebuggerDialog::setupUi() {
                     "QPushButton#btnRun { background-color: #059669; } "
                     "QPushButton#btnRun:hover { background-color: #10b981; } "
                     "QPushButton#btnAbort { background-color: #b91c1c; } "
-                    "QPushButton#btnAbort:hover { background-color: #dc2626; } ";
+                    "QPushButton#btnAbort:hover { background-color: #dc2626; } "
+                    "QPushButton#btnCopy { background-color: #1d4ed8; } "
+                    "QPushButton#btnCopy:hover { background-color: #2563eb; } ";
     setStyleSheet(style);
 
     auto* layout = new QVBoxLayout(this);
@@ -53,6 +58,13 @@ void SimulationDebuggerDialog::setupUi() {
 
     auto* btnLayout = new QHBoxLayout();
     btnLayout->addStretch();
+
+    m_btnCopy = new QPushButton("Copy");
+    m_btnCopy->setObjectName("btnCopy");
+    connect(m_btnCopy, &QPushButton::clicked, this, [this]() {
+        copyDiagnosticsToClipboard();
+    });
+    btnLayout->addWidget(m_btnCopy);
 
     m_btnAbort = new QPushButton("Abort");
     m_btnAbort->setObjectName("btnAbort");
@@ -116,4 +128,14 @@ void SimulationDebuggerDialog::populateDiagnostics(const QStringList& diagnostic
         m_btnRun->setEnabled(false);
         m_btnRun->setToolTip("Resolve errors before running simulation.");
     }
+}
+
+void SimulationDebuggerDialog::copyDiagnosticsToClipboard() const {
+    QString text;
+    if (!m_diagnostics.isEmpty()) {
+        text = m_diagnostics.join("\n");
+    } else {
+        text = "No issues detected. You can run the simulation.";
+    }
+    QApplication::clipboard()->setText(text);
 }

@@ -43,6 +43,7 @@
 #include <QSpinBox>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFrame>
 #include <QTableWidget>
 #include <QHeaderView>
 
@@ -304,6 +305,7 @@ QString detectModelNameFromFile(const QString& filePath, const QString& prefix) 
 #include <QScreen>
 #include <QShowEvent>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QJsonArray>
 #include <algorithm>
 #include <cmath>
@@ -325,7 +327,7 @@ struct WizardTemplateDef {
     QString id;
     QString name;
     QString description;
-    QString kind; // "ic_dual", "ic_quad", "logic"
+    QString kind; // "ic_dual", "ic_quad", "logic", "symbol"
     QString defaultCategory;
     QString defaultPrefix;
     QString defaultSymbolName;
@@ -333,6 +335,7 @@ struct WizardTemplateDef {
     qreal pitch = 10.0;
     qreal width = 50.0;
     QString gate; // and, nand, or, nor, xor, xnor, not, buf
+    QJsonObject symbolJson; // used when kind == "symbol"
 };
 
 const QList<WizardTemplateDef>& builtinWizardTemplateDefs() {
@@ -356,6 +359,9 @@ const QList<WizardTemplateDef>& builtinWizardTemplateDefs() {
     return defs;
 }
 
+QList<WizardTemplateDef> wizardTemplateDefsForProject(const QString& projectKey);
+void ensureProjectWizardTemplatesFile(const QString& projectKey);
+
 QString projectWizardTemplatesPath(const QString& projectKey) {
     const QString trimmed = projectKey.trimmed();
     if (trimmed.isEmpty()) return QString();
@@ -368,6 +374,10 @@ QString projectWizardTemplatesPath(const QString& projectKey) {
     if (projectDir.isEmpty()) return QString();
 
     return QDir(projectDir).filePath(".viospice/symbol_wizard_templates.json");
+}
+
+QString legacyGlobalWizardTemplatesPath() {
+    return QDir::home().filePath(".viospice/symbol_wizard_templates.json");
 }
 
 QJsonObject wizardTemplateToJson(const WizardTemplateDef& tpl) {
@@ -383,6 +393,9 @@ QJsonObject wizardTemplateToJson(const WizardTemplateDef& tpl) {
     obj["pitch"] = tpl.pitch;
     obj["width"] = tpl.width;
     obj["gate"] = tpl.gate;
+    if (tpl.kind == "symbol" && !tpl.symbolJson.isEmpty()) {
+        obj["symbol"] = tpl.symbolJson;
+    }
     return obj;
 }
 
@@ -403,6 +416,73 @@ bool wizardTemplateFromJson(const QJsonObject& obj, WizardTemplateDef& out) {
     out.pitch = obj.value("pitch").toDouble(10.0);
     out.width = obj.value("width").toDouble(50.0);
     out.gate = obj.value("gate").toString().toLower();
+    out.symbolJson = obj.value("symbol").toObject();
+    return true;
+}
+
+QString sanitizeWizardTemplateId(const QString& text) {
+    QString id = text.trimmed().toLower();
+    id.replace(QRegularExpression("[^a-z0-9]+"), "_");
+    while (id.contains("__")) id.replace("__", "_");
+    if (id.startsWith('_')) id.remove(0, 1);
+    if (id.endsWith('_')) id.chop(1);
+    if (id.isEmpty()) id = "custom_symbol";
+    if (!id.startsWith("custom_")) id = "custom_" + id;
+    return id;
+}
+
+QString uniqueWizardTemplateId(const QString& projectKey, const QString& preferredId) {
+    const QList<WizardTemplateDef> defs = wizardTemplateDefsForProject(projectKey);
+    QSet<QString> usedIds;
+    for (const WizardTemplateDef& tpl : defs) usedIds.insert(tpl.id);
+
+    if (!usedIds.contains(preferredId)) return preferredId;
+    for (int i = 2; i < 100000; ++i) {
+        const QString candidate = QString("%1_%2").arg(preferredId).arg(i);
+        if (!usedIds.contains(candidate)) return candidate;
+    }
+    return preferredId + "_" + QString::number(QDateTime::currentSecsSinceEpoch());
+}
+
+bool upsertWizardTemplate(const QString& projectKey, const WizardTemplateDef& tpl, QString* errorOut = nullptr) {
+    const QString path = projectWizardTemplatesPath(projectKey);
+    if (path.isEmpty()) {
+        if (errorOut) *errorOut = "Wizard template path is empty.";
+        return false;
+    }
+
+    ensureProjectWizardTemplatesFile(projectKey);
+
+    QJsonObject root;
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        file.close();
+        if (doc.isObject()) root = doc.object();
+    }
+
+    root["version"] = 1;
+    QJsonArray arr = root.value("templates").toArray();
+    bool replaced = false;
+    for (int i = 0; i < arr.size(); ++i) {
+        const QJsonObject obj = arr[i].toObject();
+        if (obj.value("id").toString() == tpl.id) {
+            arr[i] = wizardTemplateToJson(tpl);
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) arr.append(wizardTemplateToJson(tpl));
+    root["templates"] = arr;
+
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        if (errorOut) *errorOut = QString("Failed to write template file:\n%1").arg(path);
+        return false;
+    }
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    out.close();
     return true;
 }
 
@@ -523,6 +603,66 @@ SymbolDefinition buildLogicTemplateSymbol(const WizardTemplateDef& tpl,
 
     if (inverted) {
         def.addPrimitive(SymbolPrimitive::createCircle(QPointF(23, 0), 3.0, false));
+    }
+
+    return def;
+}
+
+SymbolDefinition buildIcTemplateSymbol(const WizardTemplateDef& tpl,
+                                       const QString& symbolName,
+                                       const QString& prefix,
+                                       const QString& category) {
+    SymbolDefinition def;
+    def.setName(symbolName);
+    def.setReferencePrefix(prefix);
+    def.setCategory(category);
+    def.setDescription(tpl.description);
+
+    const bool quad = (tpl.kind == "ic_quad");
+    const int pins = qMax(quad ? 4 : 2, tpl.pins);
+    const qreal pitch = tpl.pitch > 0.0 ? tpl.pitch : 10.0;
+    const qreal width = tpl.width > 0.0 ? tpl.width : 50.0;
+
+    if (!quad) {
+        const int half = qMax(1, pins / 2);
+        const qreal bodyHeight = qMax(2.0 * pitch, half * pitch + pitch);
+        def.addPrimitive(SymbolPrimitive::createRect(QRectF(-width / 2.0, -bodyHeight / 2.0, width, bodyHeight), false));
+
+        for (int i = 0; i < half; ++i) {
+            const qreal y = -bodyHeight / 2.0 + pitch + i * pitch;
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(-width / 2.0 - 15.0, y), i + 1, QString::number(i + 1), "Right", 15.0));
+        }
+        for (int i = 0; i < half; ++i) {
+            const qreal y = bodyHeight / 2.0 - pitch - i * pitch;
+            const int n = half + i + 1;
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(width / 2.0 + 15.0, y), n, QString::number(n), "Left", 15.0));
+        }
+    } else {
+        const int perSide = qMax(1, pins / 4);
+        const qreal side = qMax(2.0 * pitch, perSide * pitch + pitch);
+        def.addPrimitive(SymbolPrimitive::createRect(QRectF(-side / 2.0, -side / 2.0, side, side), false));
+
+        int pinNum = 1;
+        for (int i = 0; i < perSide; ++i) {
+            const qreal y = -side / 2.0 + pitch + i * pitch;
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(-side / 2.0 - 15.0, y), pinNum, QString::number(pinNum), "Right", 15.0));
+            ++pinNum;
+        }
+        for (int i = 0; i < perSide; ++i) {
+            const qreal x = -side / 2.0 + pitch + i * pitch;
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(x, side / 2.0 + 15.0), pinNum, QString::number(pinNum), "Up", 15.0));
+            ++pinNum;
+        }
+        for (int i = 0; i < perSide; ++i) {
+            const qreal y = side / 2.0 - pitch - i * pitch;
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(side / 2.0 + 15.0, y), pinNum, QString::number(pinNum), "Left", 15.0));
+            ++pinNum;
+        }
+        for (int i = 0; i < perSide; ++i) {
+            const qreal x = side / 2.0 - pitch - i * pitch;
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(x, -side / 2.0 - 15.0), pinNum, QString::number(pinNum), "Down", 15.0));
+            ++pinNum;
+        }
     }
 
     return def;
@@ -1802,20 +1942,26 @@ void SymbolEditor::setupUI() {
     createWizardPanel();
     auto* wizContainer = new QWidget();
     auto* wizLayout = new QVBoxLayout(wizContainer);
-    auto* wizForm = new QFormLayout();
-    wizForm->addRow("Template Search:", m_wizardTemplateSearchEdit);
-    wizForm->addRow("Template:", m_wizardTemplateCombo);
-    wizForm->addRow("Style:", m_wizardStyleCombo);
-    wizForm->addRow("Pins:", m_pinCountSpin);
-    wizForm->addRow("Pitch:", m_pinSpacingSpin);
-    wizForm->addRow("Width:", m_bodyWidthSpin);
-    wizLayout->addLayout(wizForm);
+    auto* browseGroup = new QGroupBox("Template Browser");
+    auto* browseLayout = new QVBoxLayout(browseGroup);
+    auto* browseForm = new QFormLayout();
+    browseForm->addRow("Search:", m_wizardTemplateSearchEdit);
+    browseForm->addRow("Template:", m_wizardTemplateCombo);
+    browseLayout->addLayout(browseForm);
+    browseLayout->addWidget(m_wizardTemplateInfoLabel);
+    browseLayout->addWidget(m_wizardTemplateDescLabel);
+    browseLayout->addWidget(m_wizardPreviewView);
+    wizLayout->addWidget(browseGroup);
+
     auto* applyTplBtn = new QPushButton("Apply Template");
     connect(applyTplBtn, &QPushButton::clicked, this, &SymbolEditor::onWizardApplyTemplate);
     wizLayout->addWidget(applyTplBtn);
     auto* wizBtn = new QPushButton("Generate Symbol");
     connect(wizBtn, &QPushButton::clicked, this, &SymbolEditor::onWizardGenerate);
     wizLayout->addWidget(wizBtn);
+    auto* saveTplBtn = new QPushButton("Save Current as Template");
+    connect(saveTplBtn, &QPushButton::clicked, this, &SymbolEditor::onWizardSaveTemplate);
+    wizLayout->addWidget(saveTplBtn);
     auto* importBtn = new QPushButton("Import KiCad Symbol");
     connect(importBtn, &QPushButton::clicked, this, &SymbolEditor::onImportKicadSymbol);
     wizLayout->addWidget(importBtn);
@@ -2386,6 +2532,7 @@ void SymbolEditor::createMenuBar() {
     fileMenu->addAction(getThemeIcon(":/icons/toolbar_new.png"), "&New Symbol", this, &SymbolEditor::onNewSymbol, QKeySequence::New);
     fileMenu->addAction(getThemeIcon(":/icons/check.svg"), "&Save to Library", this, &SymbolEditor::onSaveToLibrary, QKeySequence::Save);
     fileMenu->addAction(getThemeIcon(":/icons/toolbar_file.png"), "Save As...", this, &SymbolEditor::onExportVioSym);
+    fileMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Save as Wizard Template...", this, &SymbolEditor::onWizardSaveTemplate);
     fileMenu->addAction(getThemeIcon(":/icons/toolbar_refresh.png"), "Refresh Libraries", this, &SymbolEditor::onRefreshLibraries, QKeySequence::Refresh);
     fileMenu->addSeparator();
     fileMenu->addAction(getThemeIcon(":/icons/schematic_editor.png"), "&Place in Schematic", this, &SymbolEditor::onPlaceInSchematic);
@@ -2623,6 +2770,10 @@ void SymbolEditor::createToolBar() {
     QAction* exportAction = m_toolbar->addAction(getThemeIcon(":/icons/toolbar_file.png"), "Save As...");
     exportAction->setToolTip("Save symbol to a .viosym file");
     connect(exportAction, &QAction::triggered, this, &SymbolEditor::onExportVioSym);
+
+    QAction* saveTplAction = m_toolbar->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Save Wizard Template");
+    saveTplAction->setToolTip("Save current symbol as IC Wizard template");
+    connect(saveTplAction, &QAction::triggered, this, &SymbolEditor::onWizardSaveTemplate);
 
     auto* openSchAct = m_toolbar->addAction(getThemeIcon(":/icons/schematic_editor.png"), "Open in Schematic");
     openSchAct->setToolTip("Place this symbol in the current schematic");
@@ -2991,11 +3142,27 @@ void SymbolEditor::createLibraryBrowser() {
 
 void SymbolEditor::createWizardPanel() {
     m_wizardTemplateSearchEdit = new QLineEdit();
-    m_wizardTemplateSearchEdit->setPlaceholderText("Search template (AND, NAND, XOR, IC...)");
+    m_wizardTemplateSearchEdit->setPlaceholderText("Search templates (AND, NAND, XOR, IC, custom...)");
     m_wizardTemplateSearchEdit->setClearButtonEnabled(true);
 
     m_wizardTemplateCombo = new QComboBox();
     m_wizardTemplateCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_wizardTemplateCombo->setMinimumContentsLength(16);
+
+    m_wizardTemplateInfoLabel = new QLabel("No template selected");
+    m_wizardTemplateInfoLabel->setStyleSheet("font-weight: 600;");
+    m_wizardTemplateDescLabel = new QLabel();
+    m_wizardTemplateDescLabel->setWordWrap(true);
+    m_wizardTemplateDescLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
+    m_wizardPreviewScene = new QGraphicsScene(this);
+    m_wizardPreviewView = new QGraphicsView(m_wizardPreviewScene);
+    m_wizardPreviewView->setMinimumHeight(180);
+    m_wizardPreviewView->setRenderHint(QPainter::Antialiasing, true);
+    m_wizardPreviewView->setFrameShape(QFrame::StyledPanel);
+    m_wizardPreviewView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_wizardPreviewView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_wizardPreviewView->setDragMode(QGraphicsView::NoDrag);
 
     m_wizardStyleCombo = new QComboBox();
     m_wizardStyleCombo->addItems({"Dual (DIP/SOIC)", "Quad (QFP/QFN)"});
@@ -3024,6 +3191,7 @@ void SymbolEditor::createWizardPanel() {
         m_wizardTemplateCombo->setCurrentIndex(0);
     }
     onWizardApplyTemplate();
+    updateWizardTemplatePreview();
 }
 
 void SymbolEditor::createPinTable() {
@@ -3160,9 +3328,15 @@ void SymbolEditor::refreshWizardTemplateList(const QString& query) {
         m_wizardTemplateCombo->addItem(QString("%1  [%2]").arg(tpl.name, tpl.defaultCategory), tpl.id);
     }
 
-    if (m_wizardTemplateCombo->count() == 0) return;
+    if (m_wizardTemplateCombo->count() == 0) {
+        if (m_wizardTemplateInfoLabel) m_wizardTemplateInfoLabel->setText("No templates match search.");
+        if (m_wizardTemplateDescLabel) m_wizardTemplateDescLabel->clear();
+        updateWizardTemplatePreview();
+        return;
+    }
     const int restoreIdx = m_wizardTemplateCombo->findData(selectedId, Qt::UserRole);
     m_wizardTemplateCombo->setCurrentIndex(restoreIdx >= 0 ? restoreIdx : 0);
+    updateWizardTemplatePreview();
 }
 
 void SymbolEditor::onWizardTemplateSearchChanged(const QString& text) {
@@ -3188,6 +3362,17 @@ void SymbolEditor::onWizardApplyTemplate() {
         m_bodyWidthSpin->setValue(tpl->width);
     }
 
+    if (m_wizardTemplateInfoLabel) {
+        m_wizardTemplateInfoLabel->setText(
+            QString("%1  |  %2  |  %3 pins")
+                .arg(tpl->name, tpl->defaultCategory, QString::number(qMax(0, tpl->pins))));
+    }
+    if (m_wizardTemplateDescLabel) {
+        m_wizardTemplateDescLabel->setText(tpl->description.trimmed().isEmpty()
+            ? QString("Template ID: %1").arg(tpl->id)
+            : QString("%1\nID: %2").arg(tpl->description, tpl->id));
+    }
+
     if (m_nameEdit->text().trimmed().isEmpty()) {
         m_nameEdit->setText(tpl->defaultSymbolName);
     }
@@ -3204,6 +3389,51 @@ void SymbolEditor::onWizardApplyTemplate() {
     if (m_statusBar) {
         m_statusBar->showMessage(QString("Template ready: %1").arg(tpl->name), 2500);
     }
+
+    updateWizardTemplatePreview();
+}
+
+void SymbolEditor::updateWizardTemplatePreview() {
+    if (!m_wizardPreviewScene || !m_wizardPreviewView) return;
+    m_wizardPreviewScene->clear();
+
+    if (!m_wizardTemplateCombo || m_wizardTemplateCombo->count() == 0) {
+        return;
+    }
+
+    const QString id = m_wizardTemplateCombo->currentData(Qt::UserRole).toString();
+    const QList<WizardTemplateDef> defs = wizardTemplateDefsForProject(m_projectKey);
+    const WizardTemplateDef* tpl = findWizardTemplate(id, defs);
+    if (!tpl) return;
+
+    SymbolDefinition previewDef;
+    if (tpl->kind == "logic") {
+        previewDef = buildLogicTemplateSymbol(*tpl,
+                                             tpl->defaultSymbolName.isEmpty() ? tpl->name : tpl->defaultSymbolName,
+                                             tpl->defaultPrefix.isEmpty() ? "U" : tpl->defaultPrefix,
+                                             tpl->defaultCategory.isEmpty() ? "Digital" : tpl->defaultCategory);
+    } else if (tpl->kind == "symbol" && !tpl->symbolJson.isEmpty()) {
+        previewDef = SymbolDefinition::fromJson(tpl->symbolJson);
+    } else {
+        previewDef = buildIcTemplateSymbol(*tpl,
+                                           tpl->defaultSymbolName.isEmpty() ? tpl->name : tpl->defaultSymbolName,
+                                           tpl->defaultPrefix.isEmpty() ? "U" : tpl->defaultPrefix,
+                                           tpl->defaultCategory.isEmpty() ? "IC" : tpl->defaultCategory);
+    }
+
+    for (const SymbolPrimitive& prim : previewDef.primitives()) {
+        if (QGraphicsItem* item = buildVisual(prim, -1)) {
+            m_wizardPreviewScene->addItem(item);
+        }
+    }
+
+    QRectF bounds = m_wizardPreviewScene->itemsBoundingRect();
+    if (!bounds.isValid() || bounds.isEmpty()) {
+        bounds = QRectF(-40, -30, 80, 60);
+    }
+    bounds = bounds.adjusted(-12, -12, 12, 12);
+    m_wizardPreviewScene->setSceneRect(bounds);
+    m_wizardPreviewView->fitInView(bounds, Qt::KeepAspectRatio);
 }
 
 void SymbolEditor::onWizardGenerate() {
@@ -3218,6 +3448,19 @@ void SymbolEditor::onWizardGenerate() {
         : QString();
     const QList<WizardTemplateDef> defs = wizardTemplateDefsForProject(m_projectKey);
     const WizardTemplateDef* tpl = findWizardTemplate(templateId, defs);
+
+    if (tpl && tpl->kind == "symbol" && !tpl->symbolJson.isEmpty()) {
+        SymbolDefinition oldDef = symbolDefinition();
+        SymbolDefinition newDef = SymbolDefinition::fromJson(tpl->symbolJson);
+        const QString name = m_nameEdit->text().trimmed();
+        const QString prefix = m_prefixEdit->text().trimmed();
+        const QString category = m_categoryCombo ? m_categoryCombo->currentText().trimmed() : QString();
+        if (!name.isEmpty()) newDef.setName(name);
+        if (!prefix.isEmpty()) newDef.setReferencePrefix(prefix);
+        if (!category.isEmpty()) newDef.setCategory(category);
+        m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Wizard Generate Saved Template"));
+        return;
+    }
 
     if (tpl && tpl->kind == "logic") {
         SymbolDefinition oldDef = symbolDefinition();
@@ -3310,6 +3553,70 @@ void SymbolEditor::onWizardGenerate() {
     }
 
     m_undoStack->push(new UpdateSymbolCommand(this, oldDef, newDef, "Wizard Generate IC"));
+}
+
+void SymbolEditor::onWizardSaveTemplate() {
+    SymbolDefinition current = symbolDefinition();
+    if (current.primitives().isEmpty()) {
+        QMessageBox::warning(this, "Save Wizard Template", "Current symbol is empty.");
+        return;
+    }
+
+    const QString defaultName = m_nameEdit->text().trimmed().isEmpty()
+        ? QStringLiteral("Custom Symbol")
+        : m_nameEdit->text().trimmed();
+
+    bool ok = false;
+    const QString templateName = QInputDialog::getText(
+        this,
+        "Save Wizard Template",
+        "Template name:",
+        QLineEdit::Normal,
+        defaultName,
+        &ok).trimmed();
+    if (!ok || templateName.isEmpty()) return;
+
+    current.setName(m_nameEdit->text().trimmed().isEmpty() ? templateName : m_nameEdit->text().trimmed());
+    current.setDescription(m_descriptionEdit->text().trimmed());
+    current.setReferencePrefix(m_prefixEdit->text().trimmed().isEmpty() ? "U" : m_prefixEdit->text().trimmed());
+    if (m_categoryCombo && !m_categoryCombo->currentText().trimmed().isEmpty()) {
+        current.setCategory(m_categoryCombo->currentText().trimmed());
+    }
+
+    int pinCount = 0;
+    for (const SymbolPrimitive& prim : current.primitives()) {
+        if (prim.type == SymbolPrimitive::Pin) ++pinCount;
+    }
+
+    WizardTemplateDef tpl;
+    tpl.id = uniqueWizardTemplateId(m_projectKey, sanitizeWizardTemplateId(templateName));
+    tpl.name = templateName;
+    tpl.description = current.description().trimmed().isEmpty()
+        ? QString("Saved template from symbol \"%1\"").arg(current.name())
+        : current.description();
+    tpl.kind = "symbol";
+    tpl.defaultCategory = current.category().trimmed().isEmpty() ? "Custom" : current.category().trimmed();
+    tpl.defaultPrefix = current.referencePrefix().trimmed().isEmpty() ? "U" : current.referencePrefix().trimmed();
+    tpl.defaultSymbolName = current.name().trimmed().isEmpty() ? templateName : current.name().trimmed();
+    tpl.pins = pinCount;
+    tpl.symbolJson = current.toJson();
+
+    QString error;
+    if (!upsertWizardTemplate(m_projectKey, tpl, &error)) {
+        QMessageBox::critical(this, "Save Wizard Template",
+                              error.isEmpty() ? "Failed to save template." : error);
+        return;
+    }
+
+    refreshWizardTemplateList(m_wizardTemplateSearchEdit ? m_wizardTemplateSearchEdit->text() : QString());
+    if (m_wizardTemplateCombo) {
+        const int idx = m_wizardTemplateCombo->findData(tpl.id, Qt::UserRole);
+        if (idx >= 0) m_wizardTemplateCombo->setCurrentIndex(idx);
+    }
+
+    if (m_statusBar) {
+        m_statusBar->showMessage(QString("Saved wizard template: %1").arg(tpl.name), 3500);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5728,7 +6035,17 @@ void SymbolEditor::keyPressEvent(QKeyEvent* event) {
 
 void SymbolEditor::setProjectKey(const QString& key) {
     m_projectKey = key.trimmed();
-    ensureProjectWizardTemplatesFile(m_projectKey);
+
+    if (!m_projectKey.isEmpty()) {
+        const QString projectTpl = projectWizardTemplatesPath(m_projectKey);
+        const QString legacyTpl = legacyGlobalWizardTemplatesPath();
+        if (!projectTpl.isEmpty() && !QFileInfo::exists(projectTpl) && QFileInfo::exists(legacyTpl)) {
+            QDir().mkpath(QFileInfo(projectTpl).absolutePath());
+            QFile::copy(legacyTpl, projectTpl);
+        }
+        ensureProjectWizardTemplatesFile(m_projectKey);
+    }
+
     refreshWizardTemplateList(m_wizardTemplateSearchEdit ? m_wizardTemplateSearchEdit->text() : QString());
     onWizardApplyTemplate();
 
