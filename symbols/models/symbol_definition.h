@@ -3,6 +3,7 @@
 
 #include "symbol_primitive.h"
 #include <QString>
+#include <QStringList>
 #include <QList>
 #include <QPointF>
 #include <QMap>
@@ -29,6 +30,12 @@ public:
     
     QString category() const { return m_category; }
     void setCategory(const QString& cat) { m_category = cat; }
+
+    QString symbolId() const { return m_symbolId; }
+    void setSymbolId(const QString& id) { m_symbolId = id; }
+
+    QStringList aliases() const { return m_aliases; }
+    void setAliases(const QStringList& aliases) { m_aliases = aliases; }
 
     QString datasheet() const { return m_datasheet; }
     void setDatasheet(const QString& ds) { m_datasheet = ds; }
@@ -117,6 +124,8 @@ private:
     QString m_name;
     QString m_description;
     QString m_category;
+    QString m_symbolId;
+    QStringList m_aliases;
     QString m_datasheet;
     QString m_referencePrefix;
     QString m_parentName;

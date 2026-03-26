@@ -7,11 +7,101 @@
 #include <QFileInfo>
 #include <QDebug>
 #include <QColor>
+#include <cmath>
 
 using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 
 namespace {
+constexpr qreal kExternalPinSnapGrid = 15.0;
+constexpr qreal kExternalPinSnapEpsilon = 1e-6;
+constexpr qreal kMaxAxisResidualForAutoAlign = 2.0;
+
+qreal wrapMod(qreal value, qreal mod) {
+    if (mod <= 0.0) return 0.0;
+    qreal r = std::fmod(value, mod);
+    if (r < 0.0) r += mod;
+    return r;
+}
+
+qreal circularDist(qreal a, qreal b, qreal mod) {
+    const qreal d = std::abs(a - b);
+    return std::min(d, mod - d);
+}
+
+qreal axisResidualRms(const QList<qreal>& coords, qreal grid, qreal shift) {
+    if (coords.isEmpty() || grid <= 0.0) return 0.0;
+    qreal sumSq = 0.0;
+    for (qreal c : coords) {
+        const qreal d = circularDist(wrapMod(c + shift, grid), 0.0, grid);
+        sumSq += d * d;
+    }
+    return std::sqrt(sumSq / static_cast<qreal>(coords.size()));
+}
+
+qreal bestAxisShift(const QList<qreal>& coords, qreal grid) {
+    if (coords.isEmpty() || grid <= 0.0) return 0.0;
+
+    QList<qreal> candidates;
+    candidates.reserve(coords.size() + 1);
+    candidates.append(0.0);
+    for (qreal c : coords) candidates.append(wrapMod(c, grid));
+
+    qreal bestR = 0.0;
+    qreal bestScore = std::numeric_limits<qreal>::max();
+    for (qreal r : candidates) {
+        qreal score = 0.0;
+        for (qreal c : coords) {
+            const qreal d = circularDist(wrapMod(c, grid), r, grid);
+            score += d * d;
+        }
+        if (score < bestScore) {
+            bestScore = score;
+            bestR = r;
+        }
+    }
+
+    qreal shift = -bestR;
+    if (shift > grid / 2.0) shift -= grid;
+    if (shift < -grid / 2.0) shift += grid;
+    return shift;
+}
+
+bool normalizeExternalSymbolPinGrid(SymbolDefinition& sym) {
+    QList<qreal> pinXs;
+    QList<qreal> pinYs;
+    for (const SymbolPrimitive& prim : sym.primitives()) {
+        if (prim.type != SymbolPrimitive::Pin) continue;
+        pinXs.append(prim.data.value("x").toDouble());
+        pinYs.append(prim.data.value("y").toDouble());
+    }
+
+    if (pinXs.isEmpty()) return false;
+
+    qreal dx = bestAxisShift(pinXs, kExternalPinSnapGrid);
+    qreal dy = bestAxisShift(pinYs, kExternalPinSnapGrid);
+
+    // Apply only when the symbol is globally close to one grid lattice on BOTH axes.
+    // If either axis is poor, leave symbol untouched to preserve native geometry.
+    const qreal rmsX = axisResidualRms(pinXs, kExternalPinSnapGrid, dx);
+    const qreal rmsY = axisResidualRms(pinYs, kExternalPinSnapGrid, dy);
+    if (rmsX > kMaxAxisResidualForAutoAlign || rmsY > kMaxAxisResidualForAutoAlign) {
+        return false;
+    }
+
+    if (std::abs(dx) <= kExternalPinSnapEpsilon && std::abs(dy) <= kExternalPinSnapEpsilon) {
+        return false;
+    }
+
+    QList<SymbolPrimitive>& prims = sym.primitives();
+    for (SymbolPrimitive& prim : prims) prim.move(dx, dy);
+    sym.setReferencePos(sym.referencePos() + QPointF(dx, dy));
+    sym.setNamePos(sym.namePos() + QPointF(dx, dy));
+    bool changed = false;
+    changed = true;
+    return changed;
+}
+
 QString normalizeBuiltInSymbolKey(const QString& name) {
     QString key = name.trimmed().toLower();
     key.replace("(", "_");
@@ -22,6 +112,26 @@ QString normalizeBuiltInSymbolKey(const QString& name) {
     if (key.startsWith('_')) key.remove(0, 1);
     if (key.endsWith('_')) key.chop(1);
     return key;
+}
+
+QString normalizeLookupKey(const QString& raw) {
+    return raw.trimmed().toLower();
+}
+
+bool symbolMatchesLookupKey(const SymbolDefinition& sym, const QString& query) {
+    const QString q = normalizeLookupKey(query);
+    if (q.isEmpty()) return false;
+
+    auto eq = [&](const QString& s) {
+        return !s.trimmed().isEmpty() && normalizeLookupKey(s) == q;
+    };
+
+    if (eq(sym.name())) return true;
+    if (eq(sym.symbolId())) return true;
+    for (const QString& alias : sym.aliases()) {
+        if (eq(alias)) return true;
+    }
+    return false;
 }
 
 QString suggestedBuiltInFootprint(const SymbolDefinition& sym) {
@@ -69,7 +179,11 @@ SymbolLibrary::SymbolLibrary(const QString& name, bool builtIn)
 }
 
 void SymbolLibrary::addSymbol(const SymbolDefinition& symbol) {
-    m_symbols[symbol.name()] = symbol;
+    SymbolDefinition normalized = symbol;
+    if (normalized.symbolId().trimmed().isEmpty()) {
+        normalized.setSymbolId(normalizeLookupKey(normalized.name()));
+    }
+    m_symbols[normalized.name()] = normalized;
 }
 
 void SymbolLibrary::removeSymbol(const QString& name) {
@@ -78,12 +192,22 @@ void SymbolLibrary::removeSymbol(const QString& name) {
 
 SymbolDefinition* SymbolLibrary::findSymbol(const QString& name) {
     auto it = m_symbols.find(name);
-    return it != m_symbols.end() ? &it.value() : nullptr;
+    if (it != m_symbols.end()) return &it.value();
+
+    for (auto jt = m_symbols.begin(); jt != m_symbols.end(); ++jt) {
+        if (symbolMatchesLookupKey(jt.value(), name)) return &jt.value();
+    }
+    return nullptr;
 }
 
 const SymbolDefinition* SymbolLibrary::findSymbol(const QString& name) const {
     auto it = m_symbols.find(name);
-    return it != m_symbols.end() ? &it.value() : nullptr;
+    if (it != m_symbols.end()) return &it.value();
+
+    for (auto jt = m_symbols.begin(); jt != m_symbols.end(); ++jt) {
+        if (symbolMatchesLookupKey(jt.value(), name)) return &jt.value();
+    }
+    return nullptr;
 }
 
 QStringList SymbolLibrary::symbolNames() const {
@@ -687,6 +811,10 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
 
             SymbolLibrary* lib = new SymbolLibrary();
             if (lib->load(filePath)) {
+                for (const QString& name : lib->symbolNames()) {
+                    SymbolDefinition* sym = lib->findSymbol(name);
+                    if (sym) normalizeExternalSymbolPinGrid(*sym);
+                }
                 addLibrary(lib);
                 // Index symbols
                 for (const QString& name : lib->symbolNames()) {
@@ -710,6 +838,7 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
             QJsonObject obj = doc.object();
             if (obj.contains("library")) continue;
             SymbolDefinition sym = SymbolDefinition::fromJson(obj);
+            normalizeExternalSymbolPinGrid(sym);
             if (sym.name().trimmed().isEmpty()) {
                 sym.setName(QFileInfo(filePath).completeBaseName());
             }

@@ -12,6 +12,14 @@ using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 
 namespace {
+constexpr qreal kLtspiceToSchematicScale = 15.0 / 16.0;
+constexpr qreal kSchematicPinGrid = 15.0;
+
+qreal snapToGrid(qreal value, qreal grid) {
+    if (grid <= 0.0) return value;
+    return std::round(value / grid) * grid;
+}
+
 QString mapLtspicePinJustification(const QString& rawJustification) {
     const QString j = rawJustification.trimmed().toUpper();
     // Flux orientation means "lead extends from connection point toward symbol body".
@@ -359,13 +367,15 @@ LtspiceSymbolImporter::ImportResult LtspiceSymbolImporter::importSymbolDetailed(
         }
     }
 
+    const bool isADigitalDevice = symbol.referencePrefix().trimmed().compare("A", Qt::CaseInsensitive) == 0;
+    const bool allowStubExtraction = !isADigitalDevice;
+
     QSet<int> usedLineIndices;
     for (const auto& rawPin : rawPins) {
         QString orient = rawPin.orientation.isEmpty() ? QString("Right") : rawPin.orientation;
         qreal len = 0.0;
-        bool foundStub = false;
 
-        for (int i = 0; i < rawLines.size(); ++i) {
+        for (int i = 0; allowStubExtraction && i < rawLines.size(); ++i) {
             if (usedLineIndices.contains(i)) continue;
             const auto& line = rawLines[i];
             QPointF pOther;
@@ -401,15 +411,16 @@ LtspiceSymbolImporter::ImportResult LtspiceSymbolImporter::importSymbolDetailed(
 
                 if (rawPin.orientation.isEmpty() || rawPin.orientation == stubOrient) {
                     orient = stubOrient;
-                    len = rawLen * 1.25;
+                    len = LtspiceSymbolImporter::scale(rawLen);
                     usedLineIndices.insert(i);
-                    foundStub = true;
                     break;
                 }
             }
         }
         
-        QPointF finalPos = parsePoint(QString::number(rawPin.pos.x()), QString::number(rawPin.pos.y()), true);
+        QPointF finalPos = scale(rawPin.pos);
+        finalPos.setX(snapToGrid(finalPos.x(), kSchematicPinGrid));
+        finalPos.setY(snapToGrid(finalPos.y(), kSchematicPinGrid));
         symbol.addPrimitive(SymbolPrimitive::createPin(finalPos, rawPin.number, rawPin.name, orient, len));
     }
 
@@ -420,7 +431,8 @@ LtspiceSymbolImporter::ImportResult LtspiceSymbolImporter::importSymbolDetailed(
         }
     }
 
-    normalizeLtspiceSymbolSize(symbol);
+    // Keep imported geometry as-authored (after LTspice->schematic scaling and pin snap).
+    // Auto-rescaling here can reintroduce off-grid pin coordinates.
 
     result.symbol = symbol;
     result.success = true;
@@ -435,17 +447,16 @@ QPointF LtspiceSymbolImporter::parsePoint(const QString& x, const QString& y, bo
     qreal dx = x.toDouble();
     qreal dy = y.toDouble();
     if (applyScale) {
-        // 1.25 scale converts 16-unit grid to 20-unit grid (aligned with 10-unit system)
-        dx = std::round(dx * 1.25 / 10.0) * 10.0;
-        dy = std::round(dy * 1.25 / 10.0) * 10.0;
+        dx *= kLtspiceToSchematicScale;
+        dy *= kLtspiceToSchematicScale;
     }
     return QPointF(dx, dy);
 }
 
 qreal LtspiceSymbolImporter::scale(qreal val) {
-    return val * 1.25;
+    return val * kLtspiceToSchematicScale;
 }
 
 QPointF LtspiceSymbolImporter::scale(QPointF p) {
-    return QPointF(p.x() * 1.25, p.y() * 1.25);
+    return QPointF(p.x() * kLtspiceToSchematicScale, p.y() * kLtspiceToSchematicScale);
 }
