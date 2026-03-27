@@ -162,7 +162,7 @@ std::string measAnalysisToken(SimAnalysisType type) {
 }
 
 SimulationPanel::SimulationPanel(QGraphicsScene* scene, NetManager* netManager, const QString& projectDir, QWidget* parent)
-    : QWidget(parent), m_scene(scene), m_netManager(netManager), m_projectDir(projectDir) {
+    : QWidget(parent), m_scene(scene), m_netManager(netManager), m_projectDir(projectDir), m_acceptRealTimeStream(false) {
     setupUI();
     
     auto& builtin = SimManager::instance();
@@ -191,6 +191,8 @@ SimulationPanel::SimulationPanel(QGraphicsScene* scene, NetManager* netManager, 
 
 SimulationPanel::~SimulationPanel() {
     SimManager::instance().stopRealTime();
+    // Explicitly disconnect to avoid signals hitting a partially destroyed objective or another instance
+    SimManager::instance().disconnect(this);
 }
 
 namespace {
@@ -843,7 +845,7 @@ void SimulationPanel::updateSchematicDirective() {
                  existing->text().startsWith(".op", Qt::CaseInsensitive))) {
                 m_scene->removeItem(existing);
                 delete existing;
-                break;
+                // DO NOT break here! We must remove ALL old directives if multiple exist.
             }
         }
     }
@@ -1921,6 +1923,7 @@ void SimulationPanel::onRunSimulation() {
 
     // Update simulation command directive on the schematic
     updateSchematicDirective();
+    m_isSimInitiator = true; 
 
     m_buildInProgress = true;
     m_logOutput->append("Building netlist in background...");
@@ -2133,6 +2136,8 @@ QString SimulationPanel::generateSpiceNetlist() {
 
 void SimulationPanel::onSimResultsReady(const SimResults& results) {
     m_acceptRealTimeStream = false; // Stop accepting real-time data immediately
+    m_isSimInitiator = false;      // This panel was the initiator, but the simulation is now done.
+    qDebug() << "[CRASH_TRACE] onSimResultsReady START - type:" << (int)results.analysisType;
     if (!results.isSchemaCompatible()) {
         m_logOutput->append(QString("Unsupported simulator results schema v%1 (expected v%2).")
                             .arg(results.schemaVersion)
@@ -2141,10 +2146,14 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
     }
 
     SimResults effectiveResults = results;
+    qDebug() << "[CRASH_TRACE] effectiveResults waveforms size:" << effectiveResults.waveforms.size();
+    for (size_t i = 0; i < effectiveResults.waveforms.size(); ++i) {
+        qDebug() << "[CRASH_TRACE] waveform" << i << ":" << QString::fromStdString(effectiveResults.waveforms[i].name) << "size:" << effectiveResults.waveforms[i].xData.size();
+    }
     appendDerivedPowerWaveforms(effectiveResults);
 
     if (m_hasLastResults) {
-        m_previousResults = m_lastResults;
+        m_previousResults = std::move(m_lastResults);
         m_hasPreviousResults = true;
     }
     m_lastResults = effectiveResults;
@@ -2175,21 +2184,11 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
         m_timelineLabel->setText("--- s");
     }
 
+    qDebug() << "[CRASH_TRACE] before plotBuiltinResults";
     plotBuiltinResults(effectiveResults);
+    qDebug() << "[CRASH_TRACE] before evaluateMeasStatements";
     evaluateMeasStatements(effectiveResults);
-
-    qDebug() << "SimulationPanel::onSimResultsReady() - type:" << (int)effectiveResults.analysisType;
-
-    // Show detailed log dialog (Only for offline analyses, not real-time)
-    if (effectiveResults.analysisType != SimAnalysisType::RealTime && m_logOutput->toPlainText().length() > 0) {
-        QTimer::singleShot(500, this, [this]() {
-            SimulationLogDialog* dlg = new SimulationLogDialog(m_logOutput->toPlainText(), this);
-            dlg->setAttribute(Qt::WA_DeleteOnClose);
-            dlg->show();
-            dlg->raise();
-            dlg->activateWindow();
-        });
-    }
+    qDebug() << "[CRASH_TRACE] onSimResultsReady END - No Log Dialog for testing";
 }
 
 void SimulationPanel::showDetailedLog() {
@@ -2253,6 +2252,7 @@ void SimulationPanel::updateChartRealTime(const QString& name, double t, double 
 
 void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
     if (times.empty()) return;
+    if (!m_isSimInitiator) return;
     qDebug() << "SimulationPanel: onRealTimeDataBatchReceived batchSize=" << times.size() << "firstT=" << times.front() << "lastT=" << times.back() << "numVars=" << names.size();
     if (!m_acceptRealTimeStream) return;
     if (!m_waveformViewer) return;
@@ -2374,14 +2374,17 @@ void SimulationPanel::onTimelineValueChanged(int value) {
 }
 
 void SimulationPanel::plotBuiltinResults(const SimResults& results) {
-    // Save currently checked signals to restore them later
-    QSet<QString> checkedSignals;
-    for (int i = 0; i < m_signalList->count(); ++i) {
-        if (m_signalList->item(i)->checkState() == Qt::Checked) {
-            checkedSignals.insert(m_signalList->item(i)->text());
+    if (m_signalList) {
+        for (int i = 0; i < m_signalList->count(); ++i) {
+            if (m_signalList->item(i)->checkState() == Qt::Checked) {
+                m_persistentCheckedSignals.insert(m_signalList->item(i)->text());
+            } else {
+                m_persistentCheckedSignals.remove(m_signalList->item(i)->text());
+            }
         }
     }
-    bool hadChecks = !checkedSignals.isEmpty();
+    bool hadChecks = !m_persistentCheckedSignals.isEmpty();
+    qDebug() << "[CRASH_TRACE] plotBuiltinResults START - persistentChecks:" << m_persistentCheckedSignals.size();
 
     m_realTimeSeries.clear();
 
@@ -2599,21 +2602,30 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
                                             QVector<double>(wave.yData.begin(), wave.yData.end()));
             }
             
-            // Restore checked state or default to checked if it's the first time we see these results
+            // Restore checked state
             const QString waveName = QString::fromStdString(wave.name);
-            bool shouldCheck = !hadChecks || checkedSignals.contains(waveName);
+            bool shouldCheck = m_persistentCheckedSignals.contains(waveName);
             
-            // Robust check: if Net2 is checked, V(Net2) should also be checked
-            if (!shouldCheck && (waveName.startsWith("V(") || waveName.startsWith("v(")) && waveName.endsWith(")")) {
-                QString core = waveName.mid(2, waveName.length() - 3);
-                if (checkedSignals.contains(core)) shouldCheck = true;
-            }
-            if (!shouldCheck && !waveName.contains("(")) {
-                if (checkedSignals.contains("V(" + waveName + ")") || checkedSignals.contains("v(" + waveName + ")")) shouldCheck = true;
+            // Try normalized matching
+            if (!shouldCheck) {
+                QString norm = waveName.toUpper();
+                for (const QString& s : m_persistentCheckedSignals) {
+                    if (s.toUpper() == norm) { shouldCheck = true; break; }
+                }
             }
 
-            // If we found NO previous checks at all, check it by default (initial run)
-            if (!hadChecks) shouldCheck = true;
+            // Robust check: if Net2 is checked, V(Net2) should also be checked
+            if (!shouldCheck && (waveName.startsWith("V(", Qt::CaseInsensitive) || waveName.startsWith("v(")) && waveName.endsWith(")")) {
+                QString core = waveName.mid(2, waveName.length() - 3);
+                for (const QString& s : m_persistentCheckedSignals) {
+                    if (s.compare(core, Qt::CaseInsensitive) == 0) { shouldCheck = true; break; }
+                }
+            }
+
+            // Optional: check "OUT" by default only if NEVER ANY signals were probed in this session
+            if (!shouldCheck && !hadChecks && (waveName.compare("V(OUT)", Qt::CaseInsensitive) == 0 || waveName.compare("OUT", Qt::CaseInsensitive) == 0)) {
+                shouldCheck = true;
+            }
             
             if (shouldCheck) {
                 series->show();
@@ -2756,6 +2768,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     emit resultsReady(results);
 
     m_signalList->blockSignals(false);
+    m_isSimInitiator = false; // Just in case, though onSimResultsReady handles it
     m_realTimeSeries.clear();
 }
 

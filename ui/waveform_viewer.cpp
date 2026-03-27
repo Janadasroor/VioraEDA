@@ -973,40 +973,92 @@ void WaveformViewer::updatePlot(bool autoScale) {
     }
 
     m_chartView->setCursorPositions(m_chartView->cursor1X(), 0, m_chartView->cursor2X(), 0, nullptr);
+    
+    // Safety: we used to remove ALL series/axes, but that's unstable and slow.
+    // Instead, let's keep the axes if they exist and just clear the series.
     m_chart->removeAllSeries();
-    auto axes = m_chart->axes();
-    for (auto* a : axes) {
-        m_chart->removeAxis(a);
-        a->deleteLater();
-    }
-    // Explicitly clear pointer counters to prevent stale data logic
-    m_pointCounters.clear();
-
+    
     if (m_signals.isEmpty()) return;
 
-    auto* axisX = new QValueAxis();
-    axisX->setTitleText(m_acMode ? "Frequency (Hz)" : "Time (s)");
-    axisX->setLabelFormat("%.2g");
+    // Range tracking
+    double minX = 1e30, maxX = -1e30;
+    double minY = 1e30, maxY = -1e30;
+    bool hasData = false;
+
+    // Determine target range if auto-scaling
+    if (autoScale) {
+        for (const auto& sig : m_signals) {
+            // Only consider checked signals for auto-scaling
+            bool isChecked = false;
+            for (int i = 0; i < m_nodeList->count(); ++i) {
+                if (m_nodeList->item(i)->text() == sig.name && m_nodeList->item(i)->checkState() == Qt::Checked) {
+                    isChecked = true;
+                    break;
+                }
+            }
+            if (!isChecked || sig.time.isEmpty()) continue;
+            
+            minX = std::min(minX, *std::min_element(sig.time.begin(), sig.time.end()));
+            maxX = std::max(maxX, *std::max_element(sig.time.begin(), sig.time.end()));
+            for (double v : sig.values) {
+                double tv = m_acMode ? toDb(v) : v;
+                minY = std::min(minY, tv);
+                maxY = std::max(maxY, tv);
+            }
+            hasData = true;
+        }
+        if (!hasData) { minX = 0; maxX = 1; minY = -1; maxY = 1; }
+        else {
+            // Add some padding
+            double padY = (maxY - minY) * 0.1;
+            if (padY == 0) padY = 0.5;
+            minY -= padY; maxY += padY;
+        }
+    } else if (hasRange) {
+        minX = xMin; maxX = xMax; minY = yMin; maxY = yMax;
+        hasData = true;
+    }
+
+    // Reuse or create axes
+    QValueAxis *axisX = nullptr, *axisY = nullptr;
+    auto axesX = m_chart->axes(Qt::Horizontal);
+    auto axesY = m_chart->axes(Qt::Vertical);
     
-    auto* axisY = new QValueAxis();
-    axisY->setTitleText(m_acMode ? "Magnitude (dB)" : "Amplitude");
-    axisY->setLabelFormat("%.2g");
+    if (axesX.isEmpty()) {
+        axisX = new QValueAxis();
+        m_chart->addAxis(axisX, Qt::AlignBottom);
+    } else axisX = qobject_cast<QValueAxis*>(axesX[0]);
+
+    if (axesY.isEmpty()) {
+        axisY = new QValueAxis();
+        m_chart->addAxis(axisY, Qt::AlignLeft);
+    } else axisY = qobject_cast<QValueAxis*>(axesY[0]);
+
+    if (axisX) {
+        axisX->setTitleText(m_acMode ? "Frequency (Hz)" : "Time (s)");
+        axisX->setRange(minX, maxX);
+        axisX->setLabelFormat("%.2g");
+    }
+    if (axisY) {
+        axisY->setTitleText(m_acMode ? "Magnitude (dB)" : "Amplitude");
+        axisY->setRange(minY, maxY);
+        axisY->setLabelFormat("%.2g");
+    }
 
     QPen axisPen(Qt::white);
     axisPen.setWidth(1);
-    
-    axisX->setLinePen(axisPen);
-    axisX->setLabelsBrush(QBrush(Qt::white));
-    axisX->setTitleBrush(QBrush(Qt::white));
-    axisX->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
-
-    axisY->setLinePen(axisPen);
-    axisY->setLabelsBrush(QBrush(Qt::white));
-    axisY->setTitleBrush(QBrush(Qt::white));
-    axisY->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
-
-    m_chart->addAxis(axisX, Qt::AlignBottom);
-    m_chart->addAxis(axisY, Qt::AlignLeft);
+    if (axisX) {
+        axisX->setLinePen(axisPen);
+        axisX->setLabelsBrush(QBrush(Qt::white));
+        axisX->setTitleBrush(QBrush(Qt::white));
+        axisX->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
+    }
+    if (axisY) {
+        axisY->setLinePen(axisPen);
+        axisY->setLabelsBrush(QBrush(Qt::white));
+        axisY->setTitleBrush(QBrush(Qt::white));
+        axisY->setGridLinePen(QPen(QColor("#404040"), 1, Qt::DotLine));
+    }
 
     bool needsPhaseAxis = false;
     double minPhase = 1e30;
@@ -1230,7 +1282,7 @@ void WaveformViewer::updatePlot(bool autoScale) {
     
     if (hasAnyChecked || autoScale) {
         if (m_preserveXRangeOnce) {
-            zoomFitYOnly();
+            zoomFitYOnly(); // This will adjust Y but we want to force X
             auto axesX = m_chart->axes(Qt::Horizontal);
             if (!axesX.isEmpty()) {
                 if (auto* axX = qobject_cast<QValueAxis*>(axesX[0])) {
@@ -1238,15 +1290,8 @@ void WaveformViewer::updatePlot(bool autoScale) {
                 }
             }
             m_preserveXRangeOnce = false;
-        } else if (hasRange && !autoScale) {
-            // Restore saved ranges
-            auto axesX = m_chart->axes(Qt::Horizontal);
-            auto axesY = m_chart->axes(Qt::Vertical);
-            if (!axesX.isEmpty()) qobject_cast<QValueAxis*>(axesX[0])->setRange(xMin, xMax);
-            if (!axesY.isEmpty()) qobject_cast<QValueAxis*>(axesY[0])->setRange(yMin, yMax);
-        } else {
-            zoomFit();
         }
+        // Standard range already set at top of updatePlot
     }
 
     if (m_holdXRangeCount > 0) {
