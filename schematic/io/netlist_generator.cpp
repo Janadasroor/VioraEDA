@@ -18,6 +18,8 @@
 #include <QFile>
 #include <functional>
 #include <algorithm>
+#include <QDir>
+#include <QSet>
 
 using Flux::Model::SymbolPrimitive;
 
@@ -146,8 +148,26 @@ ECOPackage NetlistGenerator::generateECOPackage(QGraphicsScene* scene, const QSt
     }
 
     // 2. Collect Components (Hierarchical)
-    std::function<void(QGraphicsScene*, const QString&)> collectComponents;
-    collectComponents = [&](QGraphicsScene* s, const QString& prefix) {
+    std::function<void(QGraphicsScene*, const QString&, const QString&, int)> collectComponents;
+    QSet<QString> activeSheetStack;
+    constexpr int kMaxHierarchyDepth = 64;
+    collectComponents = [&](QGraphicsScene* s, const QString& prefix, const QString& sceneFilePath, int depth) {
+        if (!s) return;
+        if (depth > kMaxHierarchyDepth) {
+            qWarning() << "NetlistGenerator: Hierarchy depth exceeded while collecting components at" << sceneFilePath;
+            return;
+        }
+
+        const QString canonicalSceneFile = sceneFilePath.isEmpty()
+            ? QString()
+            : QFileInfo(sceneFilePath).canonicalFilePath();
+        const bool trackSceneFile = !canonicalSceneFile.isEmpty();
+        if (trackSceneFile && activeSheetStack.contains(canonicalSceneFile)) {
+            qWarning() << "NetlistGenerator: Sheet recursion detected, skipping:" << canonicalSceneFile;
+            return;
+        }
+        if (trackSceneFile) activeSheetStack.insert(canonicalSceneFile);
+
         for (auto* item : s->items()) {
             SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
             if (!sItem) continue;
@@ -166,7 +186,7 @@ ECOPackage NetlistGenerator::generateECOPackage(QGraphicsScene* scene, const QSt
                     QString dummyScript;
                     QMap<QString, QStringList> dummyBusAliases;
                     if (SchematicFileIO::loadSchematic(childScene, childFile, dummySize, dummyTB, &dummyScript, &dummyBusAliases)) {
-                        collectComponents(childScene, prefix + sheet->sheetName() + "/");
+                        collectComponents(childScene, prefix + sheet->sheetName() + "/", childFile, depth + 1);
                     }
                     delete childScene;
                 }
@@ -213,9 +233,11 @@ ECOPackage NetlistGenerator::generateECOPackage(QGraphicsScene* scene, const QSt
                 pkg.components.append(comp);
             }
         }
+
+        if (trackSceneFile) activeSheetStack.remove(canonicalSceneFile);
     };
 
-    collectComponents(scene, "");
+    collectComponents(scene, "", QString(), 0);
 
     return pkg;
 }
@@ -226,10 +248,26 @@ QList<NetlistNet> NetlistGenerator::buildConnectivity(QGraphicsScene* scene, con
     StringDSU dsu;
     QMap<QString, QList<NetlistPin>> netToPins;
     
-    std::function<void(QGraphicsScene*, const QString&)> traverse;
-    traverse = [&](QGraphicsScene* s, const QString& prefix) {
+    std::function<void(QGraphicsScene*, const QString&, const QString&, int)> traverse;
+    QSet<QString> activeSheetStack;
+    constexpr int kMaxHierarchyDepth = 64;
+    traverse = [&](QGraphicsScene* s, const QString& prefix, const QString& sceneFilePath, int depth) {
         qDebug() << "NetlistGenerator: Traversing scene with prefix:" << prefix;
         if (!s) { qDebug() << "NetlistGenerator: Scene is null!"; return; }
+        if (depth > kMaxHierarchyDepth) {
+            qWarning() << "NetlistGenerator: Hierarchy depth exceeded while traversing at" << sceneFilePath;
+            return;
+        }
+
+        const QString canonicalSceneFile = sceneFilePath.isEmpty()
+            ? QString()
+            : QFileInfo(sceneFilePath).canonicalFilePath();
+        const bool trackSceneFile = !canonicalSceneFile.isEmpty();
+        if (trackSceneFile && activeSheetStack.contains(canonicalSceneFile)) {
+            qWarning() << "NetlistGenerator: Sheet recursion detected, skipping:" << canonicalSceneFile;
+            return;
+        }
+        if (trackSceneFile) activeSheetStack.insert(canonicalSceneFile);
         
         NetManager localManager;
         localManager.updateNets(s);
@@ -421,15 +459,17 @@ QList<NetlistNet> NetlistGenerator::buildConnectivity(QGraphicsScene* scene, con
                     QString dummyScript;
                     QMap<QString, QStringList> dummyBusAliases;
                     if (SchematicFileIO::loadSchematic(childScene, childFile, dummySize, dummyTB, &dummyScript, &dummyBusAliases)) {
-                        traverse(childScene, prefix + sheet->sheetName() + "/");
+                        traverse(childScene, prefix + sheet->sheetName() + "/", childFile, depth + 1);
                     }
                     delete childScene;
                 }
             }
         }
+
+        if (trackSceneFile) activeSheetStack.remove(canonicalSceneFile);
     };
 
-    traverse(scene, "");
+    traverse(scene, "", QString(), 0);
 
     // Final merge
     QMap<QString, NetlistNet> finalNets;

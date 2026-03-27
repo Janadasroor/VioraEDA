@@ -39,6 +39,12 @@ public:
     void setModelPaths(const QStringList& paths);
     QStringList libraryRoots() const;
     void setLibraryRoots(const QStringList& roots);
+    
+    bool kicadDisabled() const;
+    void setKicadDisabled(bool disabled);
+    
+    bool kicadBasicsOnly() const;
+    void setKicadBasicsOnly(bool enabled);
 
     // Simulator Settings
     QString defaultSolver() const;
@@ -108,6 +114,8 @@ private:
     bool m_snapToGrid;
     bool m_autoFocusOnCrossProbe;
     bool m_realtimeWireUpdate;
+    bool m_kicadDisabled;
+    bool m_kicadBasicsOnly;
 };
 
 #endif // CONFIG_MANAGER_H

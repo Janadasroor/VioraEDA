@@ -2,6 +2,7 @@
 #define MODEL_LIBRARY_MANAGER_H
 
 #include <QObject>
+#include <QReadWriteLock>
 #include <QStringList>
 #include <QMap>
 #include <QVector>
@@ -28,9 +29,11 @@ public:
     
     const SimModel* findModel(const QString& name) const;
     const SimSubcircuit* findSubcircuit(const QString& name) const;
+    QString findLibraryPath(const QString& name) const;
 
 signals:
     void libraryReloaded();
+    void progressUpdated(const QString& status, int progress, int total);
 
 private:
     ModelLibraryManager();
@@ -39,6 +42,7 @@ private:
     void scanDirectory(const QString& path);
     void loadLibraryFile(const QString& path);
 
+    mutable QReadWriteLock m_lock;
     QVector<SpiceModelInfo> m_modelIndex;
     SimNetlist m_masterNetlist; // Holds all loaded models and subcircuits
 };

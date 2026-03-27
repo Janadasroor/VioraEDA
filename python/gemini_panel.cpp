@@ -510,7 +510,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_modelCombo->setMinimumWidth(110);
     m_modelCombo->setFixedHeight(24);
     m_modelCombo->setStyleSheet(comboStyle);
-    m_modelCombo->addItem("Gemini 2.0 Flash", "gemini-2.0-flash-thinking-exp-01-21");
+    m_modelCombo->addItem("Gemini 3.1 Flash Lite Preview", "gemini-3.1-flash-lite-preview");
 
     QPushButton* micButton = new QPushButton("VOICE", this);
     micButton->setFixedHeight(24);
@@ -797,7 +797,12 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     }
     m_process = new QProcess(this);
     QProcess* proc = m_process;
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment(); env.insert("GEMINI_API_KEY", key); m_process->setProcessEnvironment(env);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    // ADK warns/fails-over when both keys exist; force a single key for this process.
+    env.remove("GEMINI_API_KEY");
+    env.remove("GOOGLE_API_KEY");
+    env.insert("GOOGLE_API_KEY", key);
+    m_process->setProcessEnvironment(env);
     connect(m_process, &QProcess::readyReadStandardOutput, this, &GeminiPanel::onProcessReadyRead);
     connect(proc, &QProcess::readyReadStandardError, this, [this, proc](){
         if (proc != m_process) return;
@@ -1000,6 +1005,8 @@ void GeminiPanel::refreshModelList() {
     }
     m_modelFetchProcess = new QProcess(this);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    // gemini_query.py reads GEMINI_API_KEY; keep only that key here.
+    env.remove("GOOGLE_API_KEY");
     env.insert("GEMINI_API_KEY", key);
     m_modelFetchProcess->setProcessEnvironment(env);
 
@@ -1024,7 +1031,12 @@ void GeminiPanel::onModelFetchFinished(int exitCode, QProcess::ExitStatus) {
     if (!m_modelFetchProcess) return;
 
     const QString stdoutText = QString::fromUtf8(m_modelFetchProcess->readAllStandardOutput()).trimmed();
-    const QString selectedBefore = m_modelCombo ? m_modelCombo->currentData().toString() : QString();
+    const QString selectedBeforeRaw = m_modelCombo ? m_modelCombo->currentData().toString() : QString();
+    QString selectedBefore = selectedBeforeRaw.trimmed();
+    // Ignore legacy bootstrap default so first refresh can pick the preferred model.
+    if (selectedBefore == "gemini-2.0-flash-thinking-exp-01-21") {
+        selectedBefore.clear();
+    }
 
     if (exitCode != 0) {
         showErrorBanner(QString("Model fetch failed: %1").arg(m_modelFetchStdErr.trimmed().isEmpty() ? "Unknown error" : m_modelFetchStdErr.trimmed()));
@@ -1063,26 +1075,34 @@ void GeminiPanel::onModelFetchFinished(int exitCode, QProcess::ExitStatus) {
         auto prettyModelLabel = [](const QString& modelId) {
             QString lbl = modelId;
             if (lbl.startsWith("models/")) lbl = lbl.mid(7);
-            
-            // Clean up version names and make them look professional
-            if (lbl.contains("thinking", Qt::CaseInsensitive)) lbl = "Gemini 2.0 Thinking";
-            else if (lbl.contains("flash", Qt::CaseInsensitive)) lbl = "Gemini 2.0 Flash";
-            else if (lbl.contains("pro", Qt::CaseInsensitive)) lbl = "Gemini Pro";
-            else {
-                lbl.replace('-', ' ');
-                if (lbl.startsWith("gemini", Qt::CaseInsensitive)) {
-                    lbl = "Gemini " + lbl.mid(6).trimmed();
-                }
-            }
-            
-            if (lbl.size() > 24) lbl = lbl.left(22) + "...";
             return lbl.trimmed();
         };
         for (const QString& model : models) {
             m_modelCombo->addItem(prettyModelLabel(model), model);
             m_modelCombo->setItemData(m_modelCombo->count() - 1, model, Qt::ToolTipRole);
         }
-        int idx = m_modelCombo->findData(selectedBefore);
+        int idx = selectedBefore.isEmpty() ? -1 : m_modelCombo->findData(selectedBefore);
+        if (idx < 0) {
+            const QStringList preferredDefaults = {
+                "gemini-3.1-flash-lite-preview",
+                "models/gemini-3.1-flash-lite-preview",
+                "gemini-3.1-flash-lite-preview-latest"
+            };
+            for (const QString& candidate : preferredDefaults) {
+                idx = m_modelCombo->findData(candidate);
+                if (idx >= 0) break;
+            }
+        }
+        if (idx < 0) {
+            // Fallback for versioned preview IDs (e.g., ...-preview-YYYYMMDD).
+            for (int i = 0; i < m_modelCombo->count(); ++i) {
+                const QString data = m_modelCombo->itemData(i).toString().toLower();
+                if (data.contains("gemini-3.1") && data.contains("flash-lite") && data.contains("preview")) {
+                    idx = i;
+                    break;
+                }
+            }
+        }
         if (idx < 0) idx = m_modelCombo->findData("gemini-2.0-flash-thinking-exp-01-21");
         if (idx >= 0) m_modelCombo->setCurrentIndex(idx);
     }

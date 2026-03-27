@@ -1,6 +1,8 @@
 #include "settings_dialog.h"
 #include "config_manager.h"
 #include "theme_manager.h"
+#include "../symbols/symbol_library.h"
+#include "../simulator/bridge/model_library_manager.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -197,6 +199,19 @@ void SettingsDialog::setupUI() {
     m_modelPathsEdit = new QTextEdit();
     layGrpModels->addWidget(m_modelPathsEdit);
     layLibs->addWidget(grpModels);
+
+    QGroupBox* grpScanning = new QGroupBox("Library Scanning");
+    QVBoxLayout* layScanning = new QVBoxLayout(grpScanning);
+    m_kicadDisabledCheck = new QCheckBox("Disable KiCad library scanning (Recommended for Debug)");
+    m_kicadDisabledCheck->setStyleSheet("font-weight: bold; color: #fb7185;"); 
+    
+    m_kicadBasicsOnlyCheck = new QCheckBox("Load only basic KiCad libraries (faster startup)");
+    m_kicadBasicsOnlyCheck->setStyleSheet("margin-left: 20px; color: #a1a1aa;");
+    
+    layScanning->addWidget(m_kicadDisabledCheck);
+    layScanning->addWidget(m_kicadBasicsOnlyCheck);
+    layLibs->addWidget(grpScanning);
+
     layLibs->addStretch();
     m_pagesStack->addWidget(pageLibs);
 
@@ -273,6 +288,12 @@ void SettingsDialog::loadSettings() {
     m_symbolPathsEdit->setPlainText(config.rawSymbolPaths().join("\n"));
     m_modelPathsEdit->setPlainText(config.rawModelPaths().join("\n"));
     m_libraryRootsEdit->setPlainText(config.libraryRoots().join("\n"));
+    m_kicadDisabledCheck->setChecked(config.kicadDisabled());
+    m_kicadBasicsOnlyCheck->setChecked(config.kicadBasicsOnly());
+    
+    // Disable basics checkbox if KiCad is disabled entirely
+    m_kicadBasicsOnlyCheck->setEnabled(!m_kicadDisabledCheck->isChecked());
+    connect(m_kicadDisabledCheck, &QCheckBox::toggled, m_kicadBasicsOnlyCheck, &QCheckBox::setDisabled);
 }
 
 void SettingsDialog::onAccept() {
@@ -299,7 +320,14 @@ void SettingsDialog::onAccept() {
     config.setSymbolPaths(m_symbolPathsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));
     config.setModelPaths(m_modelPathsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));
     config.setLibraryRoots(m_libraryRootsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));
+    config.setKicadDisabled(m_kicadDisabledCheck->isChecked());
+    config.setKicadBasicsOnly(m_kicadBasicsOnlyCheck->isChecked());
     
     config.save();
+    
+    // Trigger library reload to reflect KiCad disable/enable toggle
+    SymbolLibraryManager::instance().reloadUserLibraries();
+    ModelLibraryManager::instance().reload();
+    
     accept();
 }

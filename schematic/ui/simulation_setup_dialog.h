@@ -44,6 +44,7 @@ private:
     void updateSyntaxHint();
 
     QComboBox* m_typeCombo;
+    QFormLayout* m_formLayout;
     QLineEdit* m_commandLine;
     QLabel* m_syntaxLabel;
     QLineEdit* m_param1;

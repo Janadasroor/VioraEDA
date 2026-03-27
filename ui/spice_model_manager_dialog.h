@@ -2,11 +2,13 @@
 #define SPICE_MODEL_MANAGER_DIALOG_H
 
 #include <QDialog>
-#include <QTreeWidget>
 #include <QLineEdit>
 #include <QLabel>
 #include <QTextBrowser>
-#include "../simulator/bridge/model_library_manager.h"
+#include <QPushButton>
+#include <QTreeView>
+#include <QSortFilterProxyModel>
+#include "spice_model_list_model.h"
 
 class SpiceModelManagerDialog : public QDialog {
     Q_OBJECT
@@ -15,16 +17,18 @@ public:
 
 private slots:
     void onSearchChanged(const QString& query);
-    void onModelSelected(QTreeWidgetItem* item);
+    void onModelSelected(const QModelIndex& index);
     void onReloadLibraries();
     void onAddLibraryPath();
 
 private:
     void setupUI();
-    void updateModelList(const QVector<SpiceModelInfo>& models);
-
+    
     QLineEdit* m_searchField;
-    QTreeWidget* m_modelTree;
+    QTreeView* m_modelView;
+    SpiceModelListModel* m_model;
+    QSortFilterProxyModel* m_proxyModel;
+    
     QLabel* m_modelTitle;
     QLabel* m_modelMeta;
     QTextBrowser* m_modelDetails;

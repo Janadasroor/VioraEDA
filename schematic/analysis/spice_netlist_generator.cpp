@@ -16,6 +16,7 @@
 #include <QTextStream>
 #include <QFileInfo>
 #include <QDir>
+#include <QCryptographicHash>
 #include <cmath>
 #include "../../core/config_manager.h"
 #include "../../simulator/core/sim_value_parser.h"
@@ -78,6 +79,53 @@ QString modelToSpiceLine(const SimModel& model) {
     }
     line += ")";
     return line;
+}
+
+QString sanitizeModelIncludeForNgspice(const QString& path) {
+    const QFileInfo fi(path);
+    if (!fi.exists() || !fi.isFile()) return path;
+
+    const QString ext = fi.suffix().toLower();
+    const QSet<QString> supportedExt = {"lib", "inc", "sub", "sp", "cir", "cmp", "mod"};
+    if (!supportedExt.contains(ext)) return path;
+
+    QFile in(path);
+    if (!in.open(QIODevice::ReadOnly | QIODevice::Text)) return path;
+
+    const QByteArray raw = in.readAll();
+    in.close();
+    if (raw.isEmpty()) return path;
+
+    QString content = QString::fromUtf8(raw);
+    // Strip comment-only lines. This works around ngspice parsing noise seen
+    // with some vendor libraries (e.g. LTspice-format comments in large .lib files).
+    QStringList outLines;
+    outLines.reserve(content.count('\n') + 1);
+    const QStringList lines = content.split('\n');
+    for (const QString& line : lines) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith('*') || trimmed.startsWith(';')) continue;
+        outLines.append(line);
+    }
+
+    const QString sanitized = outLines.join('\n');
+    QByteArray key = fi.absoluteFilePath().toUtf8();
+    key += QByteArray::number(fi.size());
+    key += QByteArray::number(fi.lastModified().toMSecsSinceEpoch());
+    const QString hash = QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex());
+
+    const QString cacheDirPath = QDir(QDir::tempPath()).filePath("viospice_model_cache");
+    QDir cacheDir(cacheDirPath);
+    if (!cacheDir.exists()) cacheDir.mkpath(".");
+
+    const QString outPath = cacheDir.filePath(hash + "_" + fi.fileName());
+    QFile out(outPath);
+    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        out.write(sanitized.toUtf8());
+        out.close();
+        return outPath;
+    }
+    return path;
 }
 
 QString pickPowerNetName(const QMap<QString, QString>& pins, const QString& fallbackValue) {
@@ -279,6 +327,35 @@ QString resolveModelPath(const QString& modelPath, const QString& projectDir) {
     return modelPath;
 }
 
+QString normalizeIncludePathForNetlist(const QString& includePath, const QString& projectDir) {
+    QString resolvedPath = QDir::fromNativeSeparators(includePath.trimmed());
+    if (resolvedPath.isEmpty()) return resolvedPath;
+
+    QFileInfo fi(resolvedPath);
+    if (!fi.isAbsolute()) {
+        // Prefer project-relative resolution first.
+        const QString projectCandidate = QDir(projectDir).absoluteFilePath(resolvedPath);
+        if (QFileInfo::exists(projectCandidate)) {
+            resolvedPath = QDir::cleanPath(projectCandidate);
+        } else {
+            // Fall back to known library roots.
+            const QStringList roots = ConfigManager::instance().libraryRoots();
+            for (const QString& root : roots) {
+                if (root.isEmpty()) continue;
+                const QString candidate = QDir(root).absoluteFilePath(resolvedPath);
+                if (QFileInfo::exists(candidate)) {
+                    resolvedPath = QDir::cleanPath(candidate);
+                    break;
+                }
+            }
+        }
+    } else if (QFileInfo::exists(resolvedPath)) {
+        resolvedPath = QFileInfo(resolvedPath).absoluteFilePath();
+    }
+
+    return QDir::fromNativeSeparators(QDir::cleanPath(resolvedPath));
+}
+
 QString sanitizeDirectiveName(const QString& raw) {
     QString s = raw;
     s.replace(QRegularExpression("[^A-Za-z0-9_]"), "_");
@@ -323,13 +400,28 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     // This ensures .params and .model are defined before use
     netlist += "* Custom SPICE Directives\n";
     QSet<QString> switchModelsAdded;
+    QSet<QString> userDeclaredModelFiles;
     bool hasCustomTran = false;
+    static const QRegularExpression includeDirectiveRe(
+        "^\\s*\\.(lib|inc|include)\\s+(?:\"([^\"]+)\"|(\\S+))",
+        QRegularExpression::CaseInsensitiveOption);
     for (QGraphicsItem* item : scene->items()) {
         if (auto* si = dynamic_cast<SchematicItem*>(item)) {
             if (si->itemType() == SchematicItem::SpiceDirectiveType) {
                 if (auto* dir = dynamic_cast<SchematicSpiceDirectiveItem*>(si)) {
                     QString cmd = dir->text().trimmed();
                     if (!cmd.isEmpty()) {
+                        const QRegularExpressionMatch includeMatch = includeDirectiveRe.match(cmd);
+                        if (includeMatch.hasMatch()) {
+                            const QString rawPath = includeMatch.captured(2).isEmpty()
+                                ? includeMatch.captured(3)
+                                : includeMatch.captured(2);
+                            const QString normalized = normalizeIncludePathForNetlist(rawPath, projectDir);
+                            if (!normalized.isEmpty()) {
+                                userDeclaredModelFiles.insert(normalized);
+                            }
+                        }
+
                         if (cmd.startsWith(".model", Qt::CaseInsensitive)) {
                             // Extract model name to prevent auto-generator duplicates
                             QStringList parts = cmd.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
@@ -433,7 +525,20 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                 embeddedModelLines.append(line);
                 switchModelsAdded.insert(modelName.toLower());
             }
-        } else if (comp.reference.startsWith("D", Qt::CaseInsensitive)) {
+        } else if (ModelLibraryManager::instance().findSubcircuit(modelName) || 
+                   comp.reference.startsWith("X", Qt::CaseInsensitive) || 
+                   typeLower.contains("amplifier") || typeLower.contains("opamp") || typeLower.contains("ic")) {
+                
+            QString subLib = ModelLibraryManager::instance().findLibraryPath(modelName);
+            if (!subLib.isEmpty()) {
+                if (subLib.endsWith(".lib", Qt::CaseInsensitive)) {
+                    libPaths.insert(subLib);
+                } else {
+                    includePaths.insert(subLib);
+                }
+                switchModelsAdded.insert(modelName.toLower());
+            }
+        } else if (!switchModelsAdded.contains(modelName.toLower()) && comp.reference.startsWith("D", Qt::CaseInsensitive)) {
             // Generate .model from component paramExpressions for user-customized diodes
             const auto& pe = comp.paramExpressions;
             if (!pe.isEmpty()) {
@@ -571,21 +676,24 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         QStringList libList = libPaths.values();
         libList.sort();
 
-        QStringList libRoots = ConfigManager::instance().libraryRoots();
-
         netlist += "* Model Includes\n";
+        QSet<QString> emittedModelFiles = userDeclaredModelFiles;
         auto processPath = [&](const QString& inc, const QString& directive) {
-            QString relPath = inc;
-            for (const QString& root : libRoots) {
-                if (!root.isEmpty() && inc.startsWith(root, Qt::CaseInsensitive)) {
-                    relPath = QDir(root).relativeFilePath(inc);
-                    break;
-                }
+            QString resolvedPath = normalizeIncludePathForNetlist(inc, projectDir);
+            if (resolvedPath.isEmpty()) return;
+
+            if (emittedModelFiles.contains(resolvedPath)) return;
+
+            QString emittedPath = resolvedPath;
+            if (QFileInfo::exists(resolvedPath)) {
+                emittedPath = sanitizeModelIncludeForNgspice(resolvedPath);
+                emittedPath = QDir::fromNativeSeparators(QDir::cleanPath(emittedPath));
+                if (emittedModelFiles.contains(emittedPath)) return;
             }
-            if (QDir::isAbsolutePath(relPath)) {
-                relPath = QFileInfo(inc).fileName();
-            }
-            netlist += QString(".%1 \"%2\"\n").arg(directive, relPath);
+
+            netlist += QString(".%1 \"%2\"\n").arg(directive, emittedPath);
+            emittedModelFiles.insert(resolvedPath);
+            emittedModelFiles.insert(emittedPath);
         };
 
         for (const QString& inc : includeList) processPath(inc, "include");
@@ -710,6 +818,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         value = inlinePwlFileIfNeeded(value, projectDir);
         value = formatPwlValueForNetlist(value);
         QStringList nodes;
+        const SimSubcircuit* activeSub = nullptr;
         
         // Find Symbol definition to check for custom mapping
         SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(comp.typeName);
@@ -749,7 +858,13 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                     if (!mdl && !sub) {
                         netlist += QString("* Warning: Model '%1' not found for %2\n").arg(mn, ref);
                     } else if (sub) {
-                        const int symPins = sym->connectionPoints().size();
+                        int symPins = sym->connectionPoints().size();
+                        const auto mappingPins = sym->spiceNodeMapping();
+                        if (!mappingPins.isEmpty() && line.startsWith("X", Qt::CaseInsensitive)) {
+                            // For subcircuits with explicit mapping, compare against mapped simulation pins
+                            // instead of raw drawable symbol pins (which may contain extra NC/alt-unit pins).
+                            symPins = mappingPins.size();
+                        }
                         const int subPins = static_cast<int>(sub->pinNames.size());
                         if (symPins > 0 && subPins > 0 && symPins != subPins) {
                             netlist += QString("* Warning: Pin count mismatch for %1 (symbol %2 vs subckt %3)\n")
@@ -758,25 +873,62 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                                                .arg(subPins);
                         }
                     }
+                    if (!activeSub && sub) activeSub = sub;
                 }
             }
             
             auto mapping = sym->spiceNodeMapping();
             if (!mapping.isEmpty()) {
-                // Mapping is Node Index -> Pin Name
-                // But componentPins uses pin NUMBER as key, not pin name
-                // So we try both: first the name, then the number as fallback
-                QList<int> sortedIndices = mapping.keys();
-                std::sort(sortedIndices.begin(), sortedIndices.end());
-                for (int idx : sortedIndices) {
-                    QString pinName = mapping[idx];
-                    // Try pin name first
-                    QString net = pins.value(pinName, "0").replace(" ", "_");
-                    if (net == "0") {
-                        // Fallback: try numeric pin number
-                        net = pins.value(QString::number(idx), "0").replace(" ", "_");
+                // KiCad Sim.Pins mapping is typically: symbolPinNumber -> subcktPinName.
+                // If we know the active subckt signature, emit nodes in its formal pin order.
+                if (line.startsWith("X", Qt::CaseInsensitive)) {
+                    if (!activeSub && !value.trimmed().isEmpty()) {
+                        activeSub = ModelLibraryManager::instance().findSubcircuit(value.trimmed());
                     }
-                    nodes.append(net);
+
+                    if (activeSub) {
+                        QMap<QString, int> subPinToSymbolPin;
+                        for (auto it = mapping.constBegin(); it != mapping.constEnd(); ++it) {
+                            subPinToSymbolPin.insert(it.value().trimmed().toUpper(), it.key());
+                        }
+
+                        for (const std::string& sp : activeSub->pinNames) {
+                            const QString subPin = QString::fromStdString(sp).trimmed();
+                            QString net = "0";
+
+                            const int symbolPinNo = subPinToSymbolPin.value(subPin.toUpper(), -1);
+                            if (symbolPinNo >= 0) {
+                                net = pins.value(QString::number(symbolPinNo), QString());
+                            }
+                            // Fallbacks for symbol sets that key by pin names/tokens.
+                            if (net.isEmpty()) net = pins.value(subPin, QString());
+                            if (net.isEmpty()) net = "0";
+
+                            nodes.append(net.replace(" ", "_"));
+                        }
+                    } else {
+                        QList<int> sortedIndices = mapping.keys();
+                        std::sort(sortedIndices.begin(), sortedIndices.end());
+                        for (int idx : sortedIndices) {
+                            QString pinName = mapping[idx];
+                            QString net = pins.value(pinName, "0").replace(" ", "_");
+                            if (net == "0") {
+                                net = pins.value(QString::number(idx), "0").replace(" ", "_");
+                            }
+                            nodes.append(net);
+                        }
+                    }
+                } else {
+                    QList<int> sortedIndices = mapping.keys();
+                    std::sort(sortedIndices.begin(), sortedIndices.end());
+                    for (int idx : sortedIndices) {
+                        QString pinName = mapping[idx];
+                        QString net = pins.value(pinName, "0").replace(" ", "_");
+                        if (net == "0") {
+                            net = pins.value(QString::number(idx), "0").replace(" ", "_");
+                        }
+                        nodes.append(net);
+                    }
                 }
             }
         }
@@ -1235,6 +1387,39 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
 
         QStringList emittedNodes = nodes;
+        if (line.startsWith("X", Qt::CaseInsensitive)) {
+            const SimSubcircuit* subForCount = activeSub ? activeSub : nullptr;
+            // Prefer the actual value token (model/subckt name) if already known.
+            if (!subForCount && !value.trimmed().isEmpty()) {
+                subForCount = ModelLibraryManager::instance().findSubcircuit(value.trimmed());
+            }
+            // Fallback to symbol model name.
+            if (!subForCount && sym && !sym->modelName().trimmed().isEmpty()) {
+                subForCount = ModelLibraryManager::instance().findSubcircuit(sym->modelName().trimmed());
+            }
+
+            if (subForCount) {
+                const int subPins = static_cast<int>(subForCount->pinNames.size());
+                if (subPins > 0) {
+                    if (emittedNodes.size() > subPins) {
+                        netlist += QString("* Warning: Trimming extra pins for %1 (%2 -> %3) to match subckt '%4'\n")
+                                       .arg(ref)
+                                       .arg(emittedNodes.size())
+                                       .arg(subPins)
+                                       .arg(QString::fromStdString(subForCount->name));
+                        emittedNodes = emittedNodes.mid(0, subPins);
+                    } else if (emittedNodes.size() < subPins) {
+                        netlist += QString("* Warning: Padding missing pins for %1 (%2 -> %3) to match subckt '%4'\n")
+                                       .arg(ref)
+                                       .arg(emittedNodes.size())
+                                       .arg(subPins)
+                                       .arg(QString::fromStdString(subForCount->name));
+                        while (emittedNodes.size() < subPins) emittedNodes.append("0");
+                    }
+                }
+            }
+        }
+
         if (line.startsWith("Q", Qt::CaseInsensitive) && emittedNodes.size() == 4) {
             const QString sub = emittedNodes.at(3).trimmed();
             if (sub.isEmpty() || sub == "0") {

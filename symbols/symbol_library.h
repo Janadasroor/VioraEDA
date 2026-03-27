@@ -3,17 +3,20 @@
 
 #include "models/symbol_definition.h"
 #include "models/symbol_primitive.h"
-#include <QString>
-#include <QMap>
-#include <QStringList>
+#include <QObject>
+#include <QJsonObject>
+#include <QReadWriteLock>
 
 using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
+
+class KicadSymbolImporter;
 
 /**
  * @brief A library containing multiple symbol definitions
  */
 class SymbolLibrary {
+    Q_DISABLE_COPY(SymbolLibrary)
 public:
     SymbolLibrary();
     SymbolLibrary(const QString& name, bool builtIn = false);
@@ -35,10 +38,11 @@ public:
     const SymbolDefinition* findSymbol(const QString& name) const;
     QStringList symbolNames() const;
     int symbolCount() const { return m_symbols.size(); }
-    QList<SymbolDefinition> allSymbols() const { return m_symbols.values(); }
+    QList<SymbolDefinition> allSymbols() const;
     
     // Categories
     QStringList categories() const;
+    void ensureLoaded() const;
     QList<SymbolDefinition*> symbolsInCategory(const QString& category);
     
     // File I/O
@@ -47,19 +51,21 @@ public:
     
     // Serialization
     QJsonObject toJson() const;
-    static SymbolLibrary fromJson(const QJsonObject& json);
+    static SymbolLibrary* fromJson(const QJsonObject& json);
     
 private:
+    mutable QReadWriteLock m_lock;
     QString m_name;
     QString m_path;
     bool m_builtIn;
-    QMap<QString, SymbolDefinition> m_symbols;
+    mutable QMap<QString, SymbolDefinition> m_symbols;
 };
 
 /**
  * @brief Singleton manager for all symbol libraries
  */
-class SymbolLibraryManager {
+class SymbolLibraryManager : public QObject {
+    Q_OBJECT
 public:
     static SymbolLibraryManager& instance();
     
@@ -67,7 +73,7 @@ public:
     void addLibrary(SymbolLibrary* library);
     void removeLibrary(const QString& name);
     SymbolLibrary* findLibrary(const QString& name);
-    QList<SymbolLibrary*> libraries() const { return m_libraries; }
+    QList<SymbolLibrary*> libraries() const;
     
     // Symbol lookup across all libraries
     SymbolDefinition* findSymbol(const QString& name);
@@ -82,6 +88,10 @@ public:
     // Categories across all libraries
     QStringList allCategories() const;
     
+signals:
+    void progressUpdated(const QString& status, int progress, int total);
+    void loadingFinished();
+    
 private:
     SymbolLibraryManager();
     ~SymbolLibraryManager();
@@ -90,6 +100,7 @@ private:
     
     void createDefaultBuiltInLibrary();
     
+    mutable QReadWriteLock m_lock;
     QList<SymbolLibrary*> m_libraries;
 };
 

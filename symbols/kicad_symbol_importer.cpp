@@ -477,6 +477,33 @@ SymbolDefinition importSymbolFromContent(const QString& content, const QString& 
             if (footprintSource && !resolved.isEmpty()) *footprintSource = "Footprint property";
         }
         else if (keyL == "ki_fp_filters") def.setFootprintFilters(splitFpFilters(val));
+        else if (keyL == "sim.device") {
+            const QString dev = val.trimmed().toUpper();
+            def.setSpiceModelName(dev); // Use as default model type/name if name not set
+            if (dev == "SUBCKT") def.setModelName(dev);
+        }
+        else if (keyL == "sim.pins") {
+            // KiCad format: "1=A 2=K" or "1=C 2=B 3=E"
+            QStringList pairs = val.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            QMap<int, QString> mapping;
+            for (const QString& pair : pairs) {
+                QStringList kv = pair.split('=');
+                if (kv.size() == 2) {
+                    bool ok;
+                    int pinNum = kv[0].toInt(&ok);
+                    if (ok) mapping[pinNum] = kv[1].trimmed();
+                    else mapping[mapping.size() + 1] = kv[1].trimmed(); // Fallback
+                }
+            }
+            if (!mapping.isEmpty()) def.setSpiceNodeMapping(mapping);
+        }
+        else if (keyL == "sim.name") {
+            def.setModelName(val.trimmed());
+            if (def.spiceModelName().isEmpty()) def.setSpiceModelName(val.trimmed());
+        }
+        else if (keyL == "sim.library") {
+            def.setModelPath(val.trimmed());
+        }
         else {
             const QString decoded = decodeKiCadEscapes(val);
             def.setCustomField(key, decoded);
@@ -885,6 +912,25 @@ KicadSymbolImporter::ImportResult KicadSymbolImporter::importSymbolDetailed(cons
     QSet<QString> visiting;
     out.symbol = importSymbolFromContent(content, symbolName, visiting, &out.footprintSource);
     out.detectedFootprint = out.symbol.defaultFootprint();
+    return out;
+}
+
+QMap<QString, SymbolDefinition> KicadSymbolImporter::importLibrary(const QString& filePath) {
+    QMap<QString, SymbolDefinition> out;
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return out;
+
+    QTextStream in(&file);
+    QString content = in.readAll();
+    
+    QStringList names = getSymbolNames(filePath);
+    for (const QString& name : names) {
+        QSet<QString> visiting;
+        SymbolDefinition sym = importSymbolFromContent(content, name, visiting);
+        if (!sym.name().isEmpty()) {
+            out.insert(name, sym);
+        }
+    }
     return out;
 }
 

@@ -69,6 +69,11 @@ QString typeToString(SimComponentType type) {
         default: return "Model";
     }
 }
+
+bool isKicadModelPath(const QString& p) {
+    const QString n = QDir::cleanPath(QDir::fromNativeSeparators(p)).toLower();
+    return n.contains("/kicad/") || n.endsWith("/kicad");
+}
 }
 
 ModelLibraryManager& ModelLibraryManager::instance() {
@@ -77,17 +82,26 @@ ModelLibraryManager& ModelLibraryManager::instance() {
 }
 
 ModelLibraryManager::ModelLibraryManager() {
-    reload();
 }
 
 ModelLibraryManager::~ModelLibraryManager() {}
 
 void ModelLibraryManager::reload() {
+    QWriteLocker locker(&m_lock);
     m_modelIndex.clear();
     m_masterNetlist = SimNetlist();
+    locker.unlock();
     
     QStringList paths = ConfigManager::instance().modelPaths();
+    bool skipKicad = ConfigManager::instance().kicadDisabled();
+    
     for (const QString& path : paths) {
+        if (skipKicad && path.contains("kicad", Qt::CaseInsensitive)) continue;
+        if (isKicadModelPath(path)) {
+            qDebug() << "Skipping KiCad model path:" << path;
+            continue;
+        }
+        
         if (QFileInfo(path).isDir()) {
             scanDirectory(path);
         } else if (QFileInfo(path).isFile()) {
@@ -99,10 +113,12 @@ void ModelLibraryManager::reload() {
 }
 
 QVector<SpiceModelInfo> ModelLibraryManager::allModels() const {
+    QReadLocker locker(&m_lock);
     return m_modelIndex;
 }
 
 QVector<SpiceModelInfo> ModelLibraryManager::search(const QString& query) const {
+    QReadLocker locker(&m_lock);
     if (query.isEmpty()) return m_modelIndex;
     
     QVector<SpiceModelInfo> results;
@@ -117,22 +133,57 @@ QVector<SpiceModelInfo> ModelLibraryManager::search(const QString& query) const 
 }
 
 const SimModel* ModelLibraryManager::findModel(const QString& name) const {
+    QReadLocker locker(&m_lock);
     return m_masterNetlist.findModel(name.toStdString());
 }
 
 const SimSubcircuit* ModelLibraryManager::findSubcircuit(const QString& name) const {
+    QReadLocker locker(&m_lock);
     return m_masterNetlist.findSubcircuit(name.toStdString());
 }
 
+QString ModelLibraryManager::findLibraryPath(const QString& name) const {
+    QReadLocker locker(&m_lock);
+    for (const auto& info : m_modelIndex) {
+        if (info.name.compare(name, Qt::CaseInsensitive) == 0) {
+            return info.libraryPath;
+        }
+    }
+    return QString();
+}
+
 void ModelLibraryManager::scanDirectory(const QString& path) {
-    QDirIterator it(path, QStringList() << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp" << "*.jft" << "*.bjt" << "*.mos",
-                    QDir::Files, QDirIterator::Subdirectories);
+    if (isKicadModelPath(path)) return;
+
+    QStringList filters;
+    filters << "*.lib" << "*.mod" << "*.sub" << "*.sp" << "*.inc" << "*.cmp" << "*.jft" << "*.bjt" << "*.mos";
+    
+    bool skipKicad = ConfigManager::instance().kicadDisabled();
+    QDirIterator countIt(path, filters, QDir::Files, QDirIterator::Subdirectories);
+    int total = 0;
+    while (countIt.hasNext()) {
+        QString f = countIt.next();
+        if (skipKicad && f.contains("kicad", Qt::CaseInsensitive)) continue;
+        if (isKicadModelPath(f)) continue;
+        total++;
+    }
+
+    QDirIterator it(path, filters, QDir::Files, QDirIterator::Subdirectories);
+    int current = 0;
     while (it.hasNext()) {
-        loadLibraryFile(it.next());
+        QString f = it.next();
+        if (skipKicad && f.contains("kicad", Qt::CaseInsensitive)) continue;
+        if (isKicadModelPath(f)) continue;
+        
+        current++;
+        emit progressUpdated(QString("Loading model: %1").arg(QFileInfo(f).fileName()), current, total);
+        loadLibraryFile(f);
     }
 }
 
 void ModelLibraryManager::loadLibraryFile(const QString& path) {
+    if (isKicadModelPath(path)) return;
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "Failed to open library file:" << path;
@@ -141,6 +192,14 @@ void ModelLibraryManager::loadLibraryFile(const QString& path) {
     
     const QString content = decodeSpiceText(file.readAll());
     file.close();
+
+    // Quick sniff for non-SPICE formats
+    const QString trimmed = content.trimmed();
+    if (trimmed.startsWith("CSI SCH LIB", Qt::CaseInsensitive) || 
+        trimmed.startsWith("V2.0", Qt::CaseInsensitive) ||
+        trimmed.startsWith("[")) {
+        return; // Skip non-SPICE schematic libraries
+    }
     
     SimModelParseOptions options;
     options.sourceName = path.toStdString();
@@ -150,6 +209,7 @@ void ModelLibraryManager::loadLibraryFile(const QString& path) {
     std::vector<SimParseDiagnostic> diagnostics;
     
     if (SimModelParser::parseLibrary(tempNetlist, content.toStdString(), options, &diagnostics)) {
+        QWriteLocker locker(&m_lock);
         // Add models to index
         for (const auto& [name, model] : tempNetlist.models()) {
             SpiceModelInfo info;

@@ -73,6 +73,11 @@ void ConfigManager::setModelPaths(const QStringList& paths) { m_modelPaths = pat
 
 QStringList ConfigManager::libraryRoots() const { return m_libraryRoots; }
 void ConfigManager::setLibraryRoots(const QStringList& roots) { m_libraryRoots = roots; }
+bool ConfigManager::kicadDisabled() const { return m_kicadDisabled; }
+void ConfigManager::setKicadDisabled(bool disabled) { m_kicadDisabled = disabled; }
+
+bool ConfigManager::kicadBasicsOnly() const { return m_kicadBasicsOnly; }
+void ConfigManager::setKicadBasicsOnly(bool enabled) { m_kicadBasicsOnly = enabled; }
 
 // Simulator Settings
 QString ConfigManager::defaultSolver() const { return m_defaultSolver; }
@@ -155,6 +160,8 @@ void ConfigManager::save() {
     m_settings.setValue("simulator/vntol", m_vntol);
     m_settings.setValue("simulator/gmin", m_gmin);
     m_settings.setValue("simulator/maxIterations", m_maxIterations);
+    m_settings.setValue("libraries/kicadDisabled", m_kicadDisabled);
+    m_settings.setValue("libraries/kicadBasicsOnly", m_kicadBasicsOnly);
     
     m_settings.sync();
 }
@@ -178,6 +185,8 @@ void ConfigManager::load() {
     m_vntol = m_settings.value("simulator/vntol", 1e-6).toDouble();
     m_gmin = m_settings.value("simulator/gmin", 1e-12).toDouble();
     m_maxIterations = m_settings.value("simulator/maxIterations", 100).toInt();
+    m_kicadDisabled = m_settings.value("libraries/kicadDisabled", false).toBool();
+    m_kicadBasicsOnly = m_settings.value("libraries/kicadBasicsOnly", true).toBool();
 
     // Seed default library root on first run if none are configured.
     if (m_libraryRoots.isEmpty() && m_symbolPaths.isEmpty() && m_modelPaths.isEmpty()) {

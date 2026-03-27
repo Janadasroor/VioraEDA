@@ -1,5 +1,5 @@
 #include "symbol_library.h"
-//#include "../core/library_index.h"
+#include "kicad_symbol_importer.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -179,6 +179,7 @@ SymbolLibrary::SymbolLibrary(const QString& name, bool builtIn)
 }
 
 void SymbolLibrary::addSymbol(const SymbolDefinition& symbol) {
+    QWriteLocker locker(&m_lock);
     SymbolDefinition normalized = symbol;
     if (normalized.symbolId().trimmed().isEmpty()) {
         normalized.setSymbolId(normalizeLookupKey(normalized.name()));
@@ -187,34 +188,116 @@ void SymbolLibrary::addSymbol(const SymbolDefinition& symbol) {
 }
 
 void SymbolLibrary::removeSymbol(const QString& name) {
+    QWriteLocker locker(&m_lock);
     m_symbols.remove(name);
 }
 
 SymbolDefinition* SymbolLibrary::findSymbol(const QString& name) {
+    QWriteLocker locker(&m_lock);
     auto it = m_symbols.find(name);
-    if (it != m_symbols.end()) return &it.value();
+    if (it != m_symbols.end()) {
+        SymbolDefinition& sym = it.value();
+        if (sym.isStub()) {
+            SymbolDefinition loaded = KicadSymbolImporter::importSymbol(m_path, name);
+            if (!loaded.name().isEmpty()) {
+                sym = loaded;
+                sym.setStub(false);
+                normalizeExternalSymbolPinGrid(sym);
+            }
+        }
+        return &sym;
+    }
 
+    // Try aliases/lookup
     for (auto jt = m_symbols.begin(); jt != m_symbols.end(); ++jt) {
-        if (symbolMatchesLookupKey(jt.value(), name)) return &jt.value();
+        if (symbolMatchesLookupKey(jt.value(), name)) {
+            SymbolDefinition& sym = jt.value();
+            if (sym.isStub()) {
+                SymbolDefinition loaded = KicadSymbolImporter::importSymbol(m_path, sym.name());
+                if (!loaded.name().isEmpty()) {
+                    sym = loaded;
+                    sym.setStub(false);
+                    normalizeExternalSymbolPinGrid(sym);
+                }
+            }
+            return &sym;
+        }
     }
     return nullptr;
 }
 
 const SymbolDefinition* SymbolLibrary::findSymbol(const QString& name) const {
+    QReadLocker locker(&m_lock);
     auto it = m_symbols.find(name);
-    if (it != m_symbols.end()) return &it.value();
+    if (it != m_symbols.end()) {
+        const SymbolDefinition& sym = it.value();
+        if (sym.isStub()) {
+            SymbolDefinition loaded = KicadSymbolImporter::importSymbol(m_path, name);
+            if (!loaded.name().isEmpty()) {
+                SymbolDefinition& mutableSym = const_cast<SymbolDefinition&>(sym);
+                mutableSym = loaded;
+                mutableSym.setStub(false);
+                normalizeExternalSymbolPinGrid(mutableSym);
+            }
+        }
+        return &it.value();
+    }
 
     for (auto jt = m_symbols.begin(); jt != m_symbols.end(); ++jt) {
-        if (symbolMatchesLookupKey(jt.value(), name)) return &jt.value();
+        if (symbolMatchesLookupKey(jt.value(), name)) {
+            const SymbolDefinition& sym = jt.value();
+            if (sym.isStub()) {
+                SymbolDefinition loaded = KicadSymbolImporter::importSymbol(m_path, sym.name());
+                if (!loaded.name().isEmpty()) {
+                    SymbolDefinition& mutableSym = const_cast<SymbolDefinition&>(sym);
+                    mutableSym = loaded;
+                    mutableSym.setStub(false);
+                    normalizeExternalSymbolPinGrid(mutableSym);
+                }
+            }
+            return &jt.value();
+        }
     }
     return nullptr;
 }
 
 QStringList SymbolLibrary::symbolNames() const {
+    QReadLocker locker(&m_lock);
     return m_symbols.keys();
 }
 
+QList<SymbolDefinition> SymbolLibrary::allSymbols() const {
+    ensureLoaded();
+    QReadLocker locker(&m_lock);
+    return m_symbols.values();
+}
+
+void SymbolLibrary::ensureLoaded() const {
+    QWriteLocker locker(&m_lock);
+    bool hasStubs = false;
+    for (const SymbolDefinition& sym : m_symbols) {
+        if (sym.isStub()) { hasStubs = true; break; }
+    }
+    if (!hasStubs) return;
+
+    if (m_path.endsWith(".kicad_sym", Qt::CaseInsensitive)) {
+        QMap<QString, SymbolDefinition> loaded = KicadSymbolImporter::importLibrary(m_path);
+        for (auto it = loaded.begin(); it != loaded.end(); ++it) {
+            if (m_symbols.contains(it.key())) {
+                SymbolDefinition& sym = m_symbols[it.key()];
+                QString originalCategory = sym.category();
+                sym = it.value();
+                sym.setStub(false);
+                if (sym.category().isEmpty()) sym.setCategory(originalCategory);
+                normalizeExternalSymbolPinGrid(sym);
+            }
+        }
+    }
+}
+
 QStringList SymbolLibrary::categories() const {
+    ensureLoaded();
+    QReadLocker locker(&m_lock);
     QSet<QString> cats;
     for (const SymbolDefinition& sym : m_symbols) {
         if (!sym.category().isEmpty()) {
@@ -225,6 +308,7 @@ QStringList SymbolLibrary::categories() const {
 }
 
 QList<SymbolDefinition*> SymbolLibrary::symbolsInCategory(const QString& category) {
+    ensureLoaded();
     QList<SymbolDefinition*> result;
     for (auto it = m_symbols.begin(); it != m_symbols.end(); ++it) {
         if (it.value().category() == category) {
@@ -252,6 +336,7 @@ bool SymbolLibrary::load(const QString& filePath) {
     QJsonObject root = doc.object();
     QJsonObject libObj = root["library"].toObject();
     
+    QWriteLocker locker(&m_lock);
     m_name = libObj["name"].toString();
     m_path = filePath;
     m_symbols.clear();
@@ -261,6 +346,7 @@ bool SymbolLibrary::load(const QString& filePath) {
         SymbolDefinition sym = SymbolDefinition::fromJson(val.toObject());
         m_symbols[sym.name()] = sym;
     }
+    locker.unlock();
     
     qDebug() << "Loaded library:" << m_name << "with" << m_symbols.size() << "symbols";
     return true;
@@ -303,15 +389,14 @@ QJsonObject SymbolLibrary::toJson() const {
     return root;
 }
 
-SymbolLibrary SymbolLibrary::fromJson(const QJsonObject& json) {
-    SymbolLibrary lib;
+SymbolLibrary* SymbolLibrary::fromJson(const QJsonObject& json) {
     QJsonObject libObj = json["library"].toObject();
-    lib.m_name = libObj["name"].toString();
+    SymbolLibrary* lib = new SymbolLibrary(libObj["name"].toString());
     
     QJsonArray symbolsArr = libObj["symbols"].toArray();
     for (const QJsonValue& val : symbolsArr) {
         SymbolDefinition sym = SymbolDefinition::fromJson(val.toObject());
-        lib.m_symbols[sym.name()] = sym;
+        lib->addSymbol(sym);
     }
     
     return lib;
@@ -324,22 +409,25 @@ SymbolLibraryManager& SymbolLibraryManager::instance() {
     return inst;
 }
 
-SymbolLibraryManager::SymbolLibraryManager() {
-    loadBuiltInLibrary();
-    loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym");
+SymbolLibraryManager::SymbolLibraryManager() : QObject(nullptr) {
+    createDefaultBuiltInLibrary();
 }
 
 SymbolLibraryManager::~SymbolLibraryManager() {
+    QWriteLocker locker(&m_lock); // Modifies m_libraries
     qDeleteAll(m_libraries);
+    m_libraries.clear(); // Ensure list is empty after deleting elements
 }
 
 void SymbolLibraryManager::addLibrary(SymbolLibrary* library) {
+    QWriteLocker locker(&m_lock); // Modifies m_libraries
     if (library && !m_libraries.contains(library)) {
         m_libraries.append(library);
     }
 }
 
 void SymbolLibraryManager::removeLibrary(const QString& name) {
+    QWriteLocker locker(&m_lock); // Modifies m_libraries
     for (int i = 0; i < m_libraries.size(); ++i) {
         if (m_libraries[i]->name() == name) {
             delete m_libraries.takeAt(i);
@@ -349,37 +437,44 @@ void SymbolLibraryManager::removeLibrary(const QString& name) {
 }
 
 SymbolLibrary* SymbolLibraryManager::findLibrary(const QString& name) {
+    QReadLocker locker(&m_lock);
     for (SymbolLibrary* lib : m_libraries) {
         if (lib->name() == name) return lib;
     }
     return nullptr;
 }
 
+QList<SymbolLibrary*> SymbolLibraryManager::libraries() const {
+    QReadLocker locker(&m_lock);
+    return m_libraries;
+}
+
 SymbolDefinition* SymbolLibraryManager::findSymbol(const QString& name) {
     // Prefer user libraries over built-in ones when names collide.
+    QReadLocker locker(&m_lock);
     for (SymbolLibrary* lib : m_libraries) {
-        if (lib->isBuiltIn()) continue;
-        if (SymbolDefinition* sym = lib->findSymbol(name)) return sym;
-    }
-    for (SymbolLibrary* lib : m_libraries) {
-        if (!lib->isBuiltIn()) continue;
         if (SymbolDefinition* sym = lib->findSymbol(name)) return sym;
     }
     return nullptr;
 }
 
 SymbolDefinition* SymbolLibraryManager::findSymbol(const QString& name, const QString& libraryName) {
-    if (libraryName.isEmpty()) return findSymbol(name);
-    SymbolLibrary* lib = findLibrary(libraryName);
-    return lib ? lib->findSymbol(name) : nullptr;
+    QReadLocker locker(&m_lock);
+    for (SymbolLibrary* lib : m_libraries) {
+        if (lib->name() == libraryName) return lib->findSymbol(name);
+    }
+    return nullptr;
 }
 
 QList<SymbolDefinition*> SymbolLibraryManager::search(const QString& query) {
+    QReadLocker locker(&m_lock);
     QList<SymbolDefinition*> results;
     QString q = query.toLower();
 
-    auto scanLib = [&](SymbolLibrary* lib) {
-        for (const QString& name : lib->symbolNames()) {
+    for (int i = 0; i < m_libraries.size(); ++i) {
+        SymbolLibrary* lib = m_libraries[i];
+        QStringList names = lib->symbolNames();
+        for (const QString& name : names) {
             SymbolDefinition* sym = lib->findSymbol(name);
             if (sym && (sym->name().toLower().contains(q) ||
                         sym->description().toLower().contains(q) ||
@@ -387,11 +482,7 @@ QList<SymbolDefinition*> SymbolLibraryManager::search(const QString& query) {
                 results.append(sym);
             }
         }
-    };
-
-    // Prefer user libraries first.
-    for (SymbolLibrary* lib : m_libraries) if (!lib->isBuiltIn()) scanLib(lib);
-    for (SymbolLibrary* lib : m_libraries) if (lib->isBuiltIn()) scanLib(lib);
+    }
     return results;
 }
 
@@ -417,15 +508,42 @@ void SymbolLibraryManager::loadBuiltInLibrary() {
 
 #include "../../core/config_manager.h"
 #include <QDirIterator>
+#include <QCoreApplication>
 
 void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
     Q_UNUSED(userLibPath); // We now use ConfigManager paths + default path
 
     QStringList paths = ConfigManager::instance().symbolPaths();
     
-    // Add default user path if not present (optional, but good for UX)
+    // Add default user path if not present
     QString defaultPath = QDir::homePath() + "/ViospiceLib/sym";
     if (!paths.contains(defaultPath)) paths.append(defaultPath);
+
+    QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList bundledRoots = {
+        QDir(appDir).absoluteFilePath("viospicelib"),
+        QDir(appDir).absoluteFilePath("../viospicelib")
+    };
+    auto normalizedPath = [](const QString& p) {
+        return QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(p).absoluteFilePath()));
+    };
+    auto isUnderRoot = [&](const QString& p, const QString& root) {
+        const QString np = normalizedPath(p);
+        QString nr = normalizedPath(root);
+        if (!nr.endsWith('/')) nr += '/';
+        return np.startsWith(nr);
+    };
+    auto isBundledKicadPath = [&](const QString& p) {
+        const QString np = normalizedPath(p).toLower();
+        if (!np.contains("/symbols/kicad")) return false;
+        for (const QString& root : bundledRoots) {
+            if (isUnderRoot(p, root)) return true;
+        }
+        return false;
+    };
+
+    bool skipKicad = ConfigManager::instance().kicadDisabled();
+    const bool basicsOnly = ConfigManager::instance().kicadBasicsOnly();
 
     auto ensureDefaultVoltageSourceSymbol = [](const QString& baseDir) {
         QDir dir(baseDir);
@@ -795,6 +913,10 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
 
     QMap<QString, SymbolLibrary*> looseLibs;
     for (const QString& path : paths) {
+        if (isBundledKicadPath(path)) {
+            qDebug() << "Skipping bundled KiCad path:" << path;
+            continue;
+        }
         QDir dir(path);
         if (!dir.exists()) continue;
 
@@ -864,19 +986,82 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
             }
             lib->addSymbol(sym);
         }
+
+        if (!skipKicad) {
+            QDirIterator countIt(path, QStringList() << "*.kicad_sym", QDir::Files, QDirIterator::Subdirectories);
+            int totalKicad = 0;
+            while (countIt.hasNext()) { countIt.next(); totalKicad++; }
+
+            QDirIterator kicadIt(path, QStringList() << "*.kicad_sym", QDir::Files, QDirIterator::Subdirectories);
+            int currentKicad = 0;
+            while (kicadIt.hasNext()) {
+                QString filePath = kicadIt.next();
+                if (isBundledKicadPath(filePath)) {
+                    continue;
+                }
+                currentKicad++;
+                
+                const QString libName = QFileInfo(filePath).completeBaseName();
+
+                if (basicsOnly) {
+                    static const QSet<QString> basics = {
+                        "Device", "Connector", "Connector_Generic", "Connector_Audio", 
+                        "power", "Simulation_SPICE",
+                        "Diode", "Diode_Bridge", "Rectifier",
+                        "Transistor_BJT", "Transistor_FET", "Transistor_IGBT",
+                        "Amplifier_Operational", "Amplifier_Audio", "Amplifier_Buffer", 
+                        "Amplifier_Instrumentation", "Amplifier_Difference", "Amplifier_Video",
+                        "Reference_Voltage", "Regulator_Linear", "Regulator_Switching",
+                        "Switch", "Jumper", "Logic_74xx", "Logic_4xxx", "analog_sw"
+                    };
+                    if (!basics.contains(libName)) {
+                        continue;
+                    }
+                }
+
+                emit progressUpdated(QString("Loading KiCad library: %1").arg(libName), currentKicad, totalKicad);
+
+                // Check if already loaded...
+                bool alreadyLoaded = false;
+                for (SymbolLibrary* lib : m_libraries) {
+                    if (lib->path() == filePath) { alreadyLoaded = true; break; }
+                }
+                if (alreadyLoaded) continue;
+
+                SymbolLibrary* lib = new SymbolLibrary(libName, false);
+                lib->setPath(filePath);
+
+                QStringList symNames = KicadSymbolImporter::getSymbolNames(filePath);
+                for (const QString& name : symNames) {
+                    SymbolDefinition stub(name);
+                    stub.setStub(true);
+                    stub.setCategory(libName); // Default category is library name
+                    lib->addSymbol(stub);
+                }
+                if (lib->symbolCount() > 0) {
+                    addLibrary(lib);
+                    qDebug() << "Loaded KiCad library:" << filePath << "with" << lib->symbolCount() << "symbols";
+                } else {
+                    delete lib;
+                }
+            }
+        }
     }
 }
 
 void SymbolLibraryManager::reloadUserLibraries() {
+    QWriteLocker locker(&m_lock);
     for (int i = m_libraries.size() - 1; i >= 0; --i) {
         if (!m_libraries[i]->isBuiltIn()) {
             delete m_libraries.takeAt(i);
         }
     }
+    locker.unlock();
     loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym");
 }
 
 QStringList SymbolLibraryManager::allCategories() const {
+    QReadLocker locker(&m_lock);
     QSet<QString> cats;
     for (SymbolLibrary* lib : m_libraries) {
         for (const QString& cat : lib->categories()) {

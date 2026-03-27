@@ -738,9 +738,13 @@ bool SchematicEditor::openFile(const QString& filePath) {
 }
 
 void SchematicEditor::onSaveSchematic() {
+    if (m_isSaving) return;
+    m_isSaving = true;
+
     // If current tab is an unsaved schematic, force Save As to avoid overwriting another file
     if (m_view && m_view->property("filePath").toString().isEmpty()) {
         onSaveSchematicAs();
+        m_isSaving = false;
         return;
     }
 
@@ -752,6 +756,7 @@ void SchematicEditor::onSaveSchematic() {
             if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 QMessageBox::critical(this, "Save Error",
                     QString("Failed to save file:\n%1").arg(file.errorString()));
+                m_isSaving = false;
                 return;
             }
             file.write(textEditor->toPlainText().toUtf8());
@@ -760,6 +765,7 @@ void SchematicEditor::onSaveSchematic() {
             textEditor->setProperty("dirty", false);
             updateCurrentTabTitleFromFilePath(textPath);
             statusBar()->showMessage(QString("Saved: %1").arg(textPath), 3000);
+            m_isSaving = false;
             return;
         }
     }
@@ -772,6 +778,7 @@ void SchematicEditor::onSaveSchematic() {
     
     if (m_currentFilePath.isEmpty()) {
         onSaveSchematicAs();
+        m_isSaving = false;
         return;
     }
     
@@ -806,6 +813,7 @@ void SchematicEditor::onSaveSchematic() {
         QMessageBox::critical(this, "Save Error",
             QString("Failed to save schematic:\n%1").arg(SchematicFileIO::lastError()));
     }
+    m_isSaving = false;
 }
 
 void SchematicEditor::onSaveSchematicAs() {

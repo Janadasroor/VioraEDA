@@ -65,6 +65,7 @@
 #include "core/simulation_manager.h"
 #include "simulator/bridge/sim_manager.h"
 #include "simulator/core/sim_value_parser.h"
+#include "simulator/bridge/model_library_manager.h"
 
 namespace {
 std::optional<int> parseTimeoutMs(const QString& value, QString* error) {
@@ -1194,7 +1195,8 @@ bool runSymbolImport(const QStringList& args, const QCommandLineParser& parser) 
                 return false;
             }
         } else {
-            lib = SymbolLibrary(QFileInfo(finalOut).completeBaseName(), false);
+            lib.setName(QFileInfo(finalOut).completeBaseName());
+            lib.setBuiltIn(false);
             lib.setPath(finalOut);
         }
         lib.addSymbol(symbol);
@@ -3333,6 +3335,9 @@ static void printGeneralHelp() {
     std::cout << "  raw-info <file.raw> [--summary --json]\n";
     std::cout << "  raw-export <file.raw> [--format csv|json|parquet] [--out <file>]\n";
     std::cout << "  symbol-render <file.viosym> <out.png>\n";
+    std::cout << "  symbol-import <input.asy|input.kicad_sym> <out.viosym|out.sclib> [--name <symbol>]\n";
+    std::cout << "  symbol-export <symbolName> <library.sclib> <out.viosym>\n";
+    std::cout << "  symbol-list <folder|library.sclib>\n";
     std::cout << "  symbol-validate <file.viosym>\n";
     std::cout << "\nTips:\n";
     std::cout << "  Use \"vio-cmd help <command>\" for command-specific help.\n";
@@ -3555,6 +3560,10 @@ int main(int argc, char *argv[]) {
     PCBItemRegistry::registerBuiltInItems();
     #endif
     SchematicItemRegistry::registerBuiltInItems();
+    
+    // Initialize libraries synchronously for CLI
+    SymbolLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym");
+    ModelLibraryManager::instance().reload();
 
     if (command == "drc") {
         #if !VIOSPICE_HAS_PCB

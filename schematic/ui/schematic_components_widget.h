@@ -2,16 +2,14 @@
 #define SCHEMATICCOMPONENTSWIDGET_H
 
 #include <QWidget>
-#include <QTreeWidget>
-#include <QLineEdit>
-#include <QTreeWidgetItem>
-#include <QVBoxLayout>
-#include <QLabel>
-#include <QTabWidget>
-#include "../../symbols/models/symbol_definition.h"
+#include <QTreeView>
+#include <QSortFilterProxyModel>
+#include "../../ui/symbol_list_model.h"
 #include "../../simulator/bridge/model_library_manager.h"
 
-using Flux::Model::SymbolDefinition;
+#include <QTabWidget>
+#include <QLineEdit>
+#include <QLabel>
 
 class SchematicComponentsWidget : public QWidget {
     Q_OBJECT
@@ -31,7 +29,7 @@ signals:
 
 private slots:
     void onSearchTextChanged(const QString &text);
-    void onItemClicked(QTreeWidgetItem *item, int column);
+    void onItemClicked(const QModelIndex& index);
     void onCreateSymbol();
     void onOpenLibraryBrowser();
     void onApplyModelRequested(const SpiceModelInfo& info);
@@ -42,10 +40,11 @@ private:
     class ModelBrowserWidget *m_modelTab;
 
     QLineEdit *m_searchBox;
-    QTreeWidget *m_componentList;
+    QTreeView *m_componentList;
+    SymbolListModel *m_symbolListModel;
+    QSortFilterProxyModel *m_proxyModel;
+
     SymbolDefinition m_selectedSymbol;
-    
-    QIcon createComponentIcon(const QString& name);
 };
 
 #endif // SCHEMATICCOMPONENTSWIDGET_H

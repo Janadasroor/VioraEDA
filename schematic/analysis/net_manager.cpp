@@ -17,6 +17,7 @@ NetManager::~NetManager() {
 }
 
 QString NetManager::createNet(const QString& name) {
+    QWriteLocker locker(&m_lock);
     QString netName = name.isEmpty() ? generateNetName() : name;
 
     if (!m_nets.contains(netName)) {
@@ -30,6 +31,7 @@ QString NetManager::createNet(const QString& name) {
 }
 
 void NetManager::removeNet(const QString& netName) {
+    QWriteLocker locker(&m_lock);
     if (m_nets.contains(netName)) {
         m_nets.remove(netName);
         m_netWires.remove(netName);
@@ -39,14 +41,17 @@ void NetManager::removeNet(const QString& netName) {
 }
 
 QStringList NetManager::netNames() const {
+    QReadLocker locker(&m_lock);
     return m_nets.keys();
 }
 
 void NetManager::setBusAliases(const QMap<QString, QList<QString>>& aliases) {
+    QWriteLocker locker(&m_lock);
     m_busAliases = aliases;
 }
 
 void NetManager::addConnection(const QString& netName, SchematicItem* item, const QPointF& point, const QString& pinName) {
+    QWriteLocker locker(&m_lock);
     if (!m_nets.contains(netName)) {
         createNet(netName);
     }
@@ -60,6 +65,7 @@ void NetManager::addConnection(const QString& netName, SchematicItem* item, cons
 }
 
 void NetManager::removeConnection(const QString& netName, SchematicItem* item, const QPointF& point) {
+    QWriteLocker locker(&m_lock);
     if (!m_nets.contains(netName)) return;
 
     NetConnection connection = {item, point, QString()};
@@ -68,16 +74,20 @@ void NetManager::removeConnection(const QString& netName, SchematicItem* item, c
 
     // Remove net if it becomes empty
     if (m_nets[netName].isEmpty() && m_netWires[netName].isEmpty()) {
-        removeNet(netName);
+        m_nets.remove(netName);
+        m_netWires.remove(netName);
+        emit netRemoved(netName);
     }
 }
 
 QList<NetConnection> NetManager::getConnections(const QString& netName) const {
+    QReadLocker locker(&m_lock);
     return m_nets.value(netName, QList<NetConnection>());
 }
 
 void NetManager::addWireToNet(const QString& netName, WireItem* wire) {
-    if (!m_netWires.contains(netName)) {
+    QWriteLocker locker(&m_lock);
+    if (!m_netWires.contains(netName)) { // Check if net exists before accessing
         createNet(netName);
     }
 
@@ -88,6 +98,7 @@ void NetManager::addWireToNet(const QString& netName, WireItem* wire) {
 }
 
 void NetManager::removeWireFromNet(const QString& netName, WireItem* wire) {
+    QWriteLocker locker(&m_lock);
     if (m_netWires.contains(netName)) {
         m_netWires[netName].removeAll(wire);
 
@@ -99,6 +110,7 @@ void NetManager::removeWireFromNet(const QString& netName, WireItem* wire) {
 }
 
 QList<WireItem*> NetManager::getWiresInNet(const QString& netName) const {
+    QReadLocker locker(&m_lock);
     return m_netWires.value(netName, QList<WireItem*>());
 }
 
@@ -110,6 +122,16 @@ void NetManager::updateConnections() {
 void NetManager::updateNets(QGraphicsScene* scene) {
     if (!scene) return;
 
+    // Recursion and lock guard
+    bool expected = false;
+    if (!m_isUpdating.compare_exchange_strong(expected, true)) return;
+    struct UpdateFlagReset {
+        std::atomic<bool>& flag;
+        ~UpdateFlagReset() { flag = false; }
+    } flagReset{m_isUpdating};
+    
+    QWriteLocker locker(&m_lock);
+    
     m_nets.clear();
     m_netWires.clear();
     m_nextNetId = 1;
@@ -119,7 +141,16 @@ void NetManager::updateNets(QGraphicsScene* scene) {
         int find(int i) {
             if (!parent.contains(i)) parent[i] = i;
             if (parent[i] == i) return i;
-            return parent[i] = find(parent[i]);
+            // Iterative path compression to avoid stack overflow on deep chains
+            int root = i;
+            while (parent[root] != root) root = parent[root];
+            int curr = i;
+            while (parent[curr] != root) {
+                int next = parent[curr];
+                parent[curr] = root;
+                curr = next;
+            }
+            return root;
         }
         void unite(int i, int j) {
             int root_i = find(i);
@@ -133,12 +164,20 @@ void NetManager::updateNets(QGraphicsScene* scene) {
         int id;
     };
     QList<Node> nodes;
+    QHash<QString, int> spatialHash;
+
     auto getNodeId = [&](const QPointF& p) -> int {
-        for (const auto& node : nodes) {
-            if (pointsAreClose(p, node.pos, 5.0)) return node.id;
-        }
+        // Use grid-snapped coordinates for spatial hashing (5.0 unit threshold)
+        int gx = qRound(p.x() / 5.0);
+        int gy = qRound(p.y() / 5.0);
+        QString key = QString("%1,%2").arg(gx).arg(gy);
+        
+        auto it = spatialHash.find(key);
+        if (it != spatialHash.end()) return *it;
+
         int id = nodes.size();
         nodes.append({p, id});
+        spatialHash[key] = id;
         return id;
     };
 
@@ -179,10 +218,10 @@ void NetManager::updateNets(QGraphicsScene* scene) {
     }
 
     // 2. Handle T-junctions: any node (pin, end, or junction) on any wire segment unites them
+    // Optimized: iterate nodes once per conductive item
     for (SchematicItem* item : schItems) {
         if (isConductiveSegment(item)) {
-            // Air wires are straight diagonal/routing guides that visibly cross over other components
-            // They strictly only connect their explicit endpoints (Step 1) and must ignore geometric T-junctions
+            // Air wires strictly only connect their explicit endpoints
             if (item->itemType() == SchematicItem::WireType) {
                 if (static_cast<WireItem*>(item)->wireType() == WireItem::AirWire) {
                     continue;
@@ -190,14 +229,15 @@ void NetManager::updateNets(QGraphicsScene* scene) {
             }
 
             QList<QPointF> pts = item->connectionPoints();
-            for (int i = 0; i < pts.size() - 1; ++i) {
-                QPointF p1 = item->mapToScene(pts[i]);
-                QPointF p2 = item->mapToScene(pts[i+1]);
-                for (const auto& node : nodes) {
-                    // Check if node lies on the wire segment p1-p2
-                    if (isPointOnItem(item, node.pos, 5.0)) {
-                        dsu.unite(node.id, getNodeId(p1));
-                    }
+            if (pts.size() < 2) continue;
+
+            // Use indexed loop to avoid iterator invalidation and O(N^2) redundant calls
+            int nodeCount = nodes.size();
+            for (int nIdx = 0; nIdx < nodeCount; ++nIdx) {
+                const auto& node = nodes[nIdx];
+                if (isPointOnItem(item, node.pos, 5.0)) {
+                    // Unite node with the item's first connection point (others are united in Step 1)
+                    dsu.unite(node.id, getNodeId(item->mapToScene(pts[0])));
                 }
             }
         }
@@ -257,6 +297,21 @@ void NetManager::updateNets(QGraphicsScene* scene) {
         }
     }
 
+    auto ensureNetUnlocked = [&](const QString& netName) {
+        if (!m_nets.contains(netName)) {
+            m_nets[netName] = QList<NetConnection>();
+            m_netWires[netName] = QList<WireItem*>();
+        }
+    };
+
+    auto addConnectionUnlocked = [&](const QString& netName, SchematicItem* item, const QPointF& point, const QString& pinName) {
+        ensureNetUnlocked(netName);
+        NetConnection connection = {item, point, pinName};
+        if (!m_nets[netName].contains(connection)) {
+            m_nets[netName].append(connection);
+        }
+    };
+
     // Populate m_nets and m_netWires
     for (SchematicItem* item : schItems) {
         if (item->itemType() == SchematicItem::WireType) {
@@ -270,6 +325,7 @@ void NetManager::updateNets(QGraphicsScene* scene) {
                     rootToName[root] = rootToBestName.contains(root) ? rootToBestName[root].name : generateNetName();
                 }
                 const QString netName = rootToName[root];
+                ensureNetUnlocked(netName);
                 m_netWires[netName].append(wire);
                 item->setPinNet(0, netName);
             }
@@ -284,7 +340,7 @@ void NetManager::updateNets(QGraphicsScene* scene) {
                     rootToName[root] = rootToBestName.contains(root) ? rootToBestName[root].name : generateNetName();
                 }
                 const QString netName = rootToName[root];
-                addConnection(netName, item, scenePt, item->pinName(i));
+                addConnectionUnlocked(netName, item, scenePt, item->pinName(i));
                 item->setPinNet(i, netName);
             }
         }
@@ -300,6 +356,7 @@ void NetManager::updateNets(QGraphicsScene* scene) {
 }
 
 QString NetManager::findNetAtPoint(const QPointF& point) const {
+    QReadLocker locker(&m_lock);
     auto pointToSegmentDistance = [](const QPointF& p, const QPointF& a, const QPointF& b) -> qreal {
         const qreal vx = b.x() - a.x();
         const qreal vy = b.y() - a.y();
@@ -349,6 +406,7 @@ QString NetManager::findNetAtPoint(const QPointF& point) const {
 }
 
 bool NetManager::arePointsConnected(const QPointF& point1, const QPointF& point2) const {
+    QReadLocker locker(&m_lock);
     QString net1 = findNetAtPoint(point1);
     QString net2 = findNetAtPoint(point2);
 
@@ -368,6 +426,7 @@ QList<SchematicItem*> NetManager::traceNet(SchematicItem* startItem) const {
 }
 
 QMap<SchematicItem*, QSet<int>> NetManager::traceNetWithPins(SchematicItem* startItem) const {
+    QReadLocker locker(&m_lock);
     if (!startItem) return {};
 
     QMap<SchematicItem*, QSet<int>> result;
@@ -449,6 +508,7 @@ void NetManager::clearAllHighlights(QGraphicsScene* scene) const {
 }
 
 QList<SchematicItem*> NetManager::getItemsForNet(const QString& netName) const {
+    QReadLocker locker(&m_lock);
     // This is a bridge between the name-based system and the physical crawler
     // For now, return a list of wires associated with this net
     QList<SchematicItem*> items;

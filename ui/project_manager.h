@@ -47,6 +47,7 @@ private slots:
     void openPluginsManager();
     void openSpiceModelManager();
     void importLtspiceBatch();
+    void importKicadBatch();
     void importLtspiceDiodeModels();
     void importLtspiceJfetModels();
     void importLtspiceBjtModels();

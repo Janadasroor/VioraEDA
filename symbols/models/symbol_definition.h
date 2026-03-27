@@ -83,6 +83,12 @@ public:
     bool isPowerSymbol() const { return m_isPowerSymbol; }
     void setIsPowerSymbol(bool power) { m_isPowerSymbol = power; }
 
+    bool isStub() const { return m_isStub; }
+    void setStub(bool stub) { m_isStub = stub; }
+
+    QString libraryPath() const { return m_libraryPath; }
+    void setLibraryPath(const QString& path) { m_libraryPath = path; }
+
     // Custom Fields
     QMap<QString, QString> customFields() const { return m_customFields; }
     void setCustomFields(const QMap<QString, QString>& fields) { m_customFields = fields; }
@@ -141,6 +147,8 @@ private:
     int m_unitCount = 1;
     bool m_unitsInterchangeable = true;
     bool m_isPowerSymbol = false;
+    bool m_isStub = false;
+    QString m_libraryPath;
     QPointF m_referencePos;
     QPointF m_namePos;
     QMap<QString, QString> m_customFields;

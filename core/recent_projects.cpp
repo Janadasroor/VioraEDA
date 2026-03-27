@@ -18,7 +18,9 @@ RecentProjects::RecentProjects(QObject* parent)
 }
 
 RecentProjects::~RecentProjects() {
-    save();
+    // Redundant: save() is called after every modification (add, remove, clear).
+    // Removing from destructor prevents potential crashes during static teardown 
+    // when Qt infrastructure (QStandardPaths) might already be partially destroyed.
 }
 
 void RecentProjects::addProject(const QString& projectPath) {

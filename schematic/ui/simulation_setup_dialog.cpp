@@ -49,31 +49,31 @@ SimulationSetupDialog::SimulationSetupDialog(QWidget* parent) : QDialog(parent) 
 void SimulationSetupDialog::setupUI() {
     auto* mainLayout = new QVBoxLayout(this);
     
-    auto* form = new QFormLayout();
+    m_formLayout = new QFormLayout();
     
     m_typeCombo = new QComboBox();
     m_typeCombo->addItems({"Transient (Time)", "DC Operating Point", "AC Sweep (Frequency)", "Interactive (Live)"});
-    form->addRow("Analysis Type:", m_typeCombo);
+    m_formLayout->addRow("Analysis Type:", m_typeCombo);
 
     m_param1 = new QLineEdit("10u");
     m_param2 = new QLineEdit("10m");
     m_param3 = new QLineEdit("0");
 
-    form->addRow("Step Size:", m_param1);
-    form->addRow("Stop Time:", m_param2);
-    form->addRow("Start Time:", m_param3);
+    m_formLayout->addRow("Step Size:", m_param1);
+    m_formLayout->addRow("Stop Time:", m_param2);
+    m_formLayout->addRow("Start Time:", m_param3);
 
     m_commandLine = new QLineEdit();
     m_commandLine->setStyleSheet(
         "QLineEdit { background: white; color: #3b82f6; border: 1px solid #3b82f6; "
         "font-family: 'Courier New'; font-weight: bold; padding: 4px; }");
     m_commandLine->setPlaceholderText(".tran <tstep> <tstop> [tstart]");
-    form->addRow("Command:", m_commandLine);
+    m_formLayout->addRow("Command:", m_commandLine);
     m_syntaxLabel = new QLabel(this);
     m_syntaxLabel->setStyleSheet("color: #6b7280;");
-    form->addRow("Syntax:", m_syntaxLabel);
+    m_formLayout->addRow("Syntax:", m_syntaxLabel);
 
-    mainLayout->addLayout(form);
+    mainLayout->addLayout(m_formLayout);
 
     auto* btnLayout = new QHBoxLayout();
     auto* okBtn = new QPushButton("Apply");
@@ -98,11 +98,10 @@ void SimulationSetupDialog::setupUI() {
 }
 
 void SimulationSetupDialog::onAnalysisChanged(int index) {
-    auto* form = qobject_cast<QFormLayout*>(layout()->itemAt(0)->layout());
-    if (!form) return;
+    if (!m_formLayout) return;
 
     auto setLabel = [&](QWidget* field, const QString& text) {
-        if (auto* lbl = qobject_cast<QLabel*>(form->labelForField(field))) {
+        if (auto* lbl = qobject_cast<QLabel*>(m_formLayout->labelForField(field))) {
             lbl->setText(text);
             lbl->show();
         }
@@ -110,7 +109,7 @@ void SimulationSetupDialog::onAnalysisChanged(int index) {
     };
 
     auto hideField = [&](QWidget* field) {
-        if (auto* lbl = form->labelForField(field)) lbl->hide();
+        if (auto* lbl = m_formLayout->labelForField(field)) lbl->hide();
         field->hide();
     };
 
@@ -267,6 +266,7 @@ void SimulationSetupDialog::setConfig(const Config& cfg) {
     
     if (!cfg.commandText.isEmpty()) {
         m_commandLine->setText(cfg.commandText);
+        parseCommandText(cfg.commandText); // Ensure UI fields are updated
     } else {
         updateCommandDisplay();
     }

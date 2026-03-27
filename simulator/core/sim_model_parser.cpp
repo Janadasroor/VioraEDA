@@ -101,8 +101,21 @@ SimComponentType inferModelType(const std::string& typeToken, bool& ok) {
     if (typeStr == "PJF") return SimComponentType::JFET_PJF;
     if (typeStr == "SW" || typeStr == "VSWITCH") return SimComponentType::Switch;
     if (typeStr == "CSW") return SimComponentType::CSW;
+    if (typeStr == "RES" || typeStr == "R") return SimComponentType::Resistor;
+    if (typeStr == "CAP" || typeStr == "C") return SimComponentType::Capacitor;
+    if (typeStr == "IND" || typeStr == "L") return SimComponentType::Inductor;
+    
+    // Support for common digital logic models (XSpice) - handle silently
+    // Check if it starts with D_ (e.g. D_AND, D_DFF) or matches common names directly
+    if (startsWithNoCase(typeStr, "D_") || typeStr == "DFF" || typeStr == "JKFF" || 
+        typeStr == "INV" || typeStr == "BUF" || typeStr == "AND" || typeStr == "NAND" ||
+        typeStr == "OR" || typeStr == "NOR" || typeStr == "XOR" || typeStr == "XNOR") {
+        ok = true;
+        return SimComponentType::SubcircuitInstance; 
+    }
+
     ok = false;
-    return SimComponentType::Resistor;
+    return SimComponentType::SubcircuitInstance;
 }
 
 int mapSubcktNodeToken(
@@ -130,6 +143,30 @@ int mapSubcktNodeToken(
     const int id = nextInternalId++;
     localNodeToId[token] = id;
     return id;
+}
+
+bool isLikelyEncrypted(const std::string& content) {
+    if (content.empty()) return false;
+    
+    // Check for common LTspice encrypted headers or binary markers
+    if (content.find("<Binary File>") != std::string::npos) return true;
+    if (content.find("* LTspice Encrypted File") != std::string::npos) return true;
+    
+    // Scan the first few hundred characters for excessive non-printable bytes
+    size_t scanLimit = std::min<size_t>(content.size(), 1024);
+    size_t controlChars = 0;
+    for (size_t i = 0; i < scanLimit; ++i) {
+        unsigned char c = static_cast<unsigned char>(content[i]);
+        // Only count true control characters (less than space)
+        // \r, \n, \t and ^Z (26) are allowed in text files
+        if (c < 32 && c != '\r' && c != '\n' && c != '\t' && c != 26) {
+            controlChars++;
+        }
+        // Characters > 127 are NOT necessarily encrypted (could be UTF-8 or legacy encoding)
+    }
+    
+    // If more than 5% of characters are true control characters in the preamble, it's likely binary
+    return (controlChars > scanLimit / 20);
 }
 
 } // namespace
@@ -250,6 +287,12 @@ bool SimModelParser::parseLibrary(
     const SimModelParseOptions& options,
     std::vector<SimParseDiagnostic>* diagnostics
 ) {
+    if (isLikelyEncrypted(content)) {
+        addDiag(diagnostics, Severity::Error, 1, options.sourceName, 
+                "Encrypted or binary LTspice model detected. These models are proprietary and cannot be simulated in Viospice.", "");
+        return false;
+    }
+
     struct LogicalLine {
         int lineNo = 0;
         std::string text;
@@ -290,7 +333,7 @@ bool SimModelParser::parseLibrary(
 
     for (const LogicalLine& ll : logicalLines) {
         const std::string tLine = trim(ll.text);
-        if (tLine.empty() || tLine[0] == '*') continue;
+        if (tLine.empty() || tLine[0] == '*' || tLine[0] == '[' || tLine[0] == '#') continue;
 
         auto tokens = split(tLine);
         if (tokens.empty()) continue;
