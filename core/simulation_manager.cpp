@@ -358,11 +358,15 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
         currentBufferSize = self->m_simBuffer.size();
     }
 
-    if (currentBufferSize > 2000) {
-        self->m_skipFactor = 10;
+    if (currentBufferSize > 5000) {
+        self->m_skipFactor = 100;
+    } else if (currentBufferSize > 2000) {
+        self->m_skipFactor = 20;
     } else if (currentBufferSize > 500) {
+        self->m_skipFactor = 5;
+    } else if (currentBufferSize > 100) {
         self->m_skipFactor = 2;
-    } else if (currentBufferSize < 100) {
+    } else {
         self->m_skipFactor = 1;
     }
 

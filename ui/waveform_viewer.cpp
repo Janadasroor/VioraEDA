@@ -667,12 +667,55 @@ void WaveformViewer::appendPoints(const QString& name, const std::vector<double>
     
     if (m_blockUpdates) return;
 
-    // Throttle the actual chart redraws so we don't spam QLineSeries with millions of points
-    // during real-time streaming. We just update the bounds roughly.
+    // Fast path: if the series is already in the chart, append to it directly
+    QLineSeries* lineSeries = nullptr;
+    for (auto* s : m_chart->series()) {
+        if (s->name() == name) {
+            lineSeries = qobject_cast<QLineSeries*>(s);
+            break;
+        }
+    }
+
+    if (lineSeries) {
+        const int batchSize = static_cast<int>(times.size());
+        const int maxBucketsInChart = 5000;
+        
+        // If the batch is very large, decimate it before appending
+        if (batchSize > 200) {
+            int step = batchSize / 100;
+            if (step < 1) step = 1;
+            QList<QPointF> decimatedPoints;
+            decimatedPoints.reserve(batchSize / step + 1);
+            for (int i = 0; i < batchSize; i += step) {
+                decimatedPoints.append(QPointF(times[i], m_acMode ? toDb(values[i]) : values[i]));
+            }
+            lineSeries->append(decimatedPoints);
+        } else {
+            for (size_t i = 0; i < times.size(); ++i) {
+                lineSeries->append(times[i], m_acMode ? toDb(values[i]) : values[i]);
+            }
+        }
+
+        // If the series has grown too large, trigger a full decimation to keep UI responsive
+        if (lineSeries->count() > maxBucketsInChart * 1.5) {
+            QMetaObject::invokeMethod(this, "updatePlot", Qt::QueuedConnection, Q_ARG(bool, false));
+        } else {
+            // Throttled auto-scale check (rough)
+            double tLast = times.back();
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            if (!axesX.isEmpty()) {
+                if (auto* ax = qobject_cast<QValueAxis*>(axesX[0])) {
+                    if (tLast > ax->max()) ax->setMax(tLast * 1.05);
+                }
+            }
+        }
+        return;
+    }
+
+    // Fallback: trigger updatePlot if not yet in chart or complex state
     int& count = m_pointCounters[name];
     count += times.size();
-    if ((count % 1000) < times.size() || count < 100) { 
-        // We only trigger updatePlot periodically to use its fast Min-Max bucket decimation
+    if ((count % 2000) < times.size() || count < 100) { 
         QMetaObject::invokeMethod(this, "updatePlot", Qt::QueuedConnection, Q_ARG(bool, false));
     }
 }
@@ -914,6 +957,21 @@ void WaveformViewer::updateCursors() {
 void WaveformViewer::updatePlot(bool autoScale) {
     if (m_blockUpdates) return;
     
+    // Save current X/Y ranges unless autoScale is requested
+    double xMin = 0, xMax = 1, yMin = -1, yMax = 1;
+    bool hasRange = false;
+    auto oldAxesX = m_chart->axes(Qt::Horizontal);
+    auto oldAxesY = m_chart->axes(Qt::Vertical);
+    if (!autoScale && !oldAxesX.isEmpty() && !oldAxesY.isEmpty()) {
+        auto* ax = qobject_cast<QValueAxis*>(oldAxesX[0]);
+        auto* ay = qobject_cast<QValueAxis*>(oldAxesY[0]);
+        if (ax && ay) {
+            xMin = ax->min(); xMax = ax->max();
+            yMin = ay->min(); yMax = ay->max();
+            hasRange = true;
+        }
+    }
+
     m_chartView->setCursorPositions(m_chartView->cursor1X(), 0, m_chartView->cursor2X(), 0, nullptr);
     m_chart->removeAllSeries();
     auto axes = m_chart->axes();
@@ -1008,39 +1066,58 @@ void WaveformViewer::updatePlot(bool autoScale) {
                     }
                     series->append(points);
                 } else {
-                    int bucketSize = totalSize / maxBuckets;
-                    QList<QPointF> points;
-                    points.reserve(maxBuckets * 2 + 1);
-                    for (int b = 0; b < maxBuckets; ++b) {
-                        int start = b * bucketSize;
-                        int end = (b == maxBuckets - 1) ? totalSize : (b + 1) * bucketSize;
-                        
-                        int minIdx = start;
-                        int maxIdx = start;
-                        double minVal = yForPlot(sortedValues[start]);
-                        double maxVal = minVal;
-                        for (int j = start + 1; j < end; ++j) {
-                            const double y = yForPlot(sortedValues[j]);
-                            if (y < minVal) { minVal = y; minIdx = j; }
-                            if (y > maxVal) { maxVal = y; maxIdx = j; }
-                        }
-                        
-                        // Append min and max in their original time order
-                        if (minIdx < maxIdx) {
-                            points.append(QPointF(sortedTime[minIdx], yForPlot(sortedValues[minIdx])));
-                            points.append(QPointF(sortedTime[maxIdx], yForPlot(sortedValues[maxIdx])));
-                        } else if (minIdx > maxIdx) {
-                            points.append(QPointF(sortedTime[maxIdx], yForPlot(sortedValues[maxIdx])));
-                            points.append(QPointF(sortedTime[minIdx], yForPlot(sortedValues[minIdx])));
-                        } else {
-                            points.append(QPointF(sortedTime[minIdx], yForPlot(sortedValues[minIdx])));
-                        }
+                    // Optimized: only decimate visible range if possible
+                    int startIdx = 0;
+                    int endIdx = totalSize;
+                    if (hasRange && !autoScale) {
+                        auto itStart = std::lower_bound(sortedTime.begin(), sortedTime.end(), xMin);
+                        auto itEnd = std::upper_bound(sortedTime.begin(), sortedTime.end(), xMax);
+                        startIdx = std::distance(sortedTime.begin(), itStart);
+                        endIdx = std::distance(sortedTime.begin(), itEnd);
+                        if (startIdx > 0) startIdx--; // include one point before for continuity
+                        if (endIdx < totalSize) endIdx++; // include one point after
                     }
-                    // Always ensure we include the absolute last point
-                    if (!points.isEmpty() && points.last().x() < sortedTime.back()) {
-                        points.append(QPointF(sortedTime.back(), yForPlot(sortedValues.back())));
+
+                    const int rangeSize = endIdx - startIdx;
+                    if (rangeSize <= maxBuckets) {
+                        QList<QPointF> points;
+                        points.reserve(rangeSize);
+                        for (int j = startIdx; j < endIdx; ++j) {
+                            points.append(QPointF(sortedTime[j], yForPlot(sortedValues[j])));
+                        }
+                        series->append(points);
+                    } else {
+                        int bucketSize = rangeSize / maxBuckets;
+                        if (bucketSize < 1) bucketSize = 1;
+                        QList<QPointF> points;
+                        points.reserve(maxBuckets * 2 + 1);
+                        for (int b = 0; b < maxBuckets; ++b) {
+                            int start = startIdx + b * bucketSize;
+                            int end = (b == maxBuckets - 1) ? endIdx : start + bucketSize;
+                            if (start >= endIdx) break;
+                            
+                            int minIdx = start;
+                            int maxIdx = start;
+                            double minVal = yForPlot(sortedValues[start]);
+                            double maxVal = minVal;
+                            for (int j = start + 1; j < std::min(end, endIdx); ++j) {
+                                const double y = yForPlot(sortedValues[j]);
+                                if (y < minVal) { minVal = y; minIdx = j; }
+                                if (y > maxVal) { maxVal = y; maxIdx = j; }
+                            }
+                            
+                            if (minIdx < maxIdx) {
+                                points.append(QPointF(sortedTime[minIdx], yForPlot(sortedValues[minIdx])));
+                                points.append(QPointF(sortedTime[maxIdx], yForPlot(sortedValues[maxIdx])));
+                            } else if (minIdx > maxIdx) {
+                                points.append(QPointF(sortedTime[maxIdx], yForPlot(sortedValues[maxIdx])));
+                                points.append(QPointF(sortedTime[minIdx], yForPlot(sortedValues[minIdx])));
+                            } else {
+                                points.append(QPointF(sortedTime[minIdx], yForPlot(sortedValues[minIdx])));
+                            }
+                        }
+                        series->append(points);
                     }
-                    series->append(points);
                 }
                 
                 const QList<QColor> colors = {QColor(0, 204, 0), QColor(0, 0, 255), QColor(255, 0, 0), QColor(0, 255, 255), QColor(255, 0, 255), QColor(255, 255, 0)};
@@ -1154,11 +1231,17 @@ void WaveformViewer::updatePlot(bool autoScale) {
             zoomFitYOnly();
             auto axesX = m_chart->axes(Qt::Horizontal);
             if (!axesX.isEmpty()) {
-                if (auto* axisX = qobject_cast<QValueAxis*>(axesX[0])) {
-                    axisX->setRange(m_preserveXMin, m_preserveXMax);
+                if (auto* axX = qobject_cast<QValueAxis*>(axesX[0])) {
+                    axX->setRange(m_preserveXMin, m_preserveXMax);
                 }
             }
             m_preserveXRangeOnce = false;
+        } else if (hasRange && !autoScale) {
+            // Restore saved ranges
+            auto axesX = m_chart->axes(Qt::Horizontal);
+            auto axesY = m_chart->axes(Qt::Vertical);
+            if (!axesX.isEmpty()) qobject_cast<QValueAxis*>(axesX[0])->setRange(xMin, xMax);
+            if (!axesY.isEmpty()) qobject_cast<QValueAxis*>(axesY[0])->setRange(yMin, yMax);
         } else {
             zoomFit();
         }
