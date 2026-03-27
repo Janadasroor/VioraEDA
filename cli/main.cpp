@@ -4134,6 +4134,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "Unknown command: " << command.toStdString() << std::endl;
         return 1;
     }
-
-    return 0;
+    std::cout.flush();
+    std::cerr.flush();
+    std::_Exit(0);
 }

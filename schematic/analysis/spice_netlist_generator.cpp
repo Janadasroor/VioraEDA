@@ -930,9 +930,8 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         SymbolDefinition* sym = SymbolLibraryManager::instance().findSymbol(comp.typeName);
         if (sym) {
             // --- AUTO-CONNECT MISSING PINS (Hidden or unplaced Units) ---
-            // Ensure pinsByNumber is populated with all pins we found in the componentPins map
-            QMap<QString, QString> pins = componentPins.value(ref);
-            
+            // Use existing 'pins' from outer scope
+
             // Check symbol definition for pins not present on the schematic
             const auto& symPins = sym->primitives();
             for (const auto& prim : symPins) {
@@ -985,18 +984,18 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                     if (!mdl && !sub) {
                         netlist += QString("* Warning: Model '%1' not found for %2\n").arg(mn, ref);
                     } else if (sub) {
-                        int symPins = sym->connectionPoints().size();
+                        int symPinsCount = sym->connectionPoints().size();
                         const auto mappingPins = sym->spiceNodeMapping();
                         if (!mappingPins.isEmpty() && line.startsWith("X", Qt::CaseInsensitive)) {
                             // For subcircuits with explicit mapping, compare against mapped simulation pins
                             // instead of raw drawable symbol pins (which may contain extra NC/alt-unit pins).
-                            symPins = mappingPins.size();
+                            symPinsCount = mappingPins.size();
                         }
                         const int subPins = static_cast<int>(sub->pinNames.size());
-                        if (symPins > 0 && subPins > 0 && symPins != subPins) {
+                        if (symPinsCount > 0 && subPins > 0 && symPinsCount != subPins) {
                             netlist += QString("* Warning: Pin count mismatch for %1 (symbol %2 vs subckt %3)\n")
                                                .arg(ref)
-                                               .arg(symPins)
+                                               .arg(symPinsCount)
                                                .arg(subPins);
                         }
                     }

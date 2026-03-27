@@ -241,6 +241,20 @@ QList<QPointF> GenericComponentItem::connectionPoints() const {
     return points;
 }
 
+QString GenericComponentItem::pinName(int index) const {
+    const QList<SymbolPrimitive> primitives = resolvedPrimitives();
+    int currentPinIdx = 0;
+    for (const auto& prim : primitives) {
+        if (prim.type == SymbolPrimitive::Pin) {
+            if (currentPinIdx == index) {
+                return QString::number(prim.data.value("number").toInt());
+            }
+            currentPinIdx++;
+        }
+    }
+    return QString::number(index + 1);
+}
+
 QRectF GenericComponentItem::boundingRect() const {
     SymbolDefinition filtered = m_symbol.clone();
     filtered.clearPrimitives();
