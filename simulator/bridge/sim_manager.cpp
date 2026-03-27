@@ -164,18 +164,19 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
     // Disconnect previous connections to avoid duplicates
     sm.disconnect(this);
 
-    QPointer<QTemporaryFile> safeTempFile(tempFile);
+    // Use a QObject parent for the file to ensure it's deleted eventually,
+    // but we also use a QPointer to track its lifetime across multiple lambdas.
+    QPointer<QTemporaryFile> safeTempFile = tempFile;
 
-    // Connect signals
-    connect(&sm, &SimulationManager::outputReceived, this, &SimManager::logMessage, Qt::UniqueConnection);
+    connect(&sm, &SimulationManager::outputReceived, this, &SimManager::logMessage, Qt::QueuedConnection);
     connect(&sm, &SimulationManager::errorOccurred, this, [this, safeTempFile](const QString& msg) {
         emit logMessage(QString("Ngspice error: %1").arg(msg));
         emit errorOccurred(msg);
         if (safeTempFile) safeTempFile->deleteLater();
         cleanupSimulation();
-    });
+    }, Qt::QueuedConnection);
 
-    connect(&sm, &SimulationManager::realTimeDataBatchReceived, this, &SimManager::realTimeDataBatchReceived, Qt::UniqueConnection);
+    connect(&sm, &SimulationManager::realTimeDataBatchReceived, this, &SimManager::realTimeDataBatchReceived, Qt::QueuedConnection);
     
     connect(&sm, &SimulationManager::rawResultsReady, this, [this, safeTempFile](const QString& path) {
         m_resultsPending = true;
@@ -213,7 +214,7 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
             qDebug() << "RawDataParser error:" << err;
             return std::make_pair(false, SimResults());
         }));
-    });
+    }, Qt::QueuedConnection);
     
     // Handle the simulation engine finishing (it fires regardless of result parsing)
     connect(&sm, &SimulationManager::simulationFinished, this, [this, safeTempFile]() {
@@ -230,7 +231,7 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
                 // But if it takes TOO long, we might still want a timeout.
             }
         });
-    });
+    }, Qt::QueuedConnection);
 
     sm.runSimulation(tempFile->fileName(), m_control);
 }
