@@ -35,6 +35,7 @@ public:
     void setSymbol(const SymbolDefinition& symbol);
     
     virtual QList<QPointF> connectionPoints() const override;
+    virtual QString pinName(int index) const override;
     virtual QList<PinElectricalType> pinElectricalTypes() const override;
     
     virtual QRectF boundingRect() const override;
