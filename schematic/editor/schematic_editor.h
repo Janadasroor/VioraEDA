@@ -14,6 +14,8 @@
 #include <QSet>
 #include <QUndoStack>
 #include <QAction>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include "schematic_view.h"
 #include "../ui/simulation_setup_dialog.h"
 #include "../ui/schematic_components_widget.h"
@@ -233,12 +235,12 @@ private:
     class ERCDiagnosticsPanel *m_ercPanel;
     class QListWidget *m_ercList;
 
-    class SimulationPanel* m_simulationPanel;
+    class SimulationPanel* m_simulationPanel = nullptr;
     SimulationSetupDialog::Config m_simConfig;
     QMap<QString, class LogicAnalyzerWindow*> m_laWindows;
 
     QDockWidget *m_geminiDock;
-    class GeminiPanel* m_geminiPanel;
+    class GeminiPanel* m_geminiPanel = nullptr;
 
     QDockWidget *m_scriptDock;
     Flux::ScriptPanel *m_scriptPanel;
@@ -264,10 +266,10 @@ private:
     QAction* m_runSimMenuAction;
     QAction* m_stopSimMenuAction;
     QAction* m_runSimToolbarAction;
-    QAction* m_pauseSimToolbarAction;
-    QAction* m_stopSimToolbarAction;
+    QAction* m_pauseSimToolbarAction = nullptr;
+    QAction* m_stopSimToolbarAction = nullptr;
     QAction* m_showDetailedLogAction = nullptr;
-    QWidget* m_simControlSubGroup;
+    QWidget* m_simControlSubGroup = nullptr;
 
     // Status bar
     QLabel *m_coordLabel;
@@ -277,8 +279,9 @@ private:
     // File state
     QString m_currentFilePath;
     bool m_isModified;
+    bool m_isSaving = false;
     bool m_simulationRunning;
-    bool m_simPaused;
+    bool m_simPaused = false;
     bool m_showVoltageOverlays;
     bool m_showCurrentOverlays;
 

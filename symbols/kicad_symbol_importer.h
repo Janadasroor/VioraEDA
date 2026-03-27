@@ -28,6 +28,7 @@ public:
      */
     static SymbolDefinition importSymbol(const QString& filePath, const QString& symbolName);
     static ImportResult importSymbolDetailed(const QString& filePath, const QString& symbolName);
+    static QMap<QString, SymbolDefinition> importLibrary(const QString& filePath);
 
 private:
     static QString extractSExpr(const QString& content, const QString& key, int& from);

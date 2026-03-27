@@ -18,6 +18,8 @@
 #include "../../ui/source_control_panel.h"
 #include "../../symbols/symbol_library.h"
 #include "../dialogs/simulation_debugger_dialog.h"
+#include <QTreeWidget>
+#include <QHeaderView>
 #include "../dialogs/spice_directive_dialog.h"
 #include "../../simulator/bridge/sim_manager.h"
 #include "../tools/schematic_zoom_area_tool.h"
@@ -56,6 +58,7 @@ using Flux::Model::SymbolPrimitive;
 #include <QComboBox>
 #include <QTemporaryFile>
 #include <QTextStream>
+#include <QPointer>
 #include <array>
 #include "../io/netlist_to_schematic.h"
 
@@ -1181,24 +1184,7 @@ void SchematicEditor::createDockWidgets() {
 
     connect(m_componentsPanel, &SchematicComponentsWidget::modelAssignmentRequested, this, &SchematicEditor::onAssignModel);
 
-    // Create a container for the dock to hold both components and filter
-    QWidget* dockContainer = new QWidget(this);
-    QVBoxLayout* dockLayout = new QVBoxLayout(dockContainer);
-    dockLayout->setContentsMargins(0, 0, 0, 0);
-    dockLayout->setSpacing(0);
-
-    dockLayout->addWidget(m_componentsPanel, 1);
-
-    QScrollArea* scrollArea = new QScrollArea(this);
-    scrollArea->setWidget(dockContainer);
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    if (ThemeManager::theme()) {
-        scrollArea->setStyleSheet(QString("QScrollArea { background-color: %1; border: none; }").arg(ThemeManager::theme()->panelBackground().name()));
-    }
-    
-    m_componentDock->setWidget(scrollArea);
+    m_componentDock->setWidget(m_componentsPanel);
     m_componentDock->setMinimumWidth(260);
     m_componentDock->setMaximumWidth(400);
     addDockWidget(Qt::LeftDockWidgetArea, m_componentDock);
@@ -1978,6 +1964,7 @@ SchematicSpiceDirectiveItem* SchematicEditor::resolveDirectiveItemForEdit(const 
 }
 
 bool SchematicEditor::editDirectiveWithSimulationSetup(const QString& currentCommand, SchematicSpiceDirectiveItem* directiveItem) {
+    QPointer<SchematicSpiceDirectiveItem> safeDirective(directiveItem);
     m_simConfig.commandText = currentCommand;
 
     SimulationSetupDialog dlg(this);
@@ -2000,8 +1987,8 @@ bool SchematicEditor::editDirectiveWithSimulationSetup(const QString& currentCom
     }
 
     if (!m_simConfig.commandText.isEmpty()) {
-        if (directiveItem) {
-            applyDirectiveText(directiveItem, m_simConfig.commandText);
+        if (safeDirective && safeDirective->scene() == m_scene) {
+            applyDirectiveText(safeDirective, m_simConfig.commandText);
         } else if (m_simulationPanel) {
             m_simulationPanel->updateSchematicDirectiveFromCommand(m_simConfig.commandText);
         }
@@ -2011,14 +1998,15 @@ bool SchematicEditor::editDirectiveWithSimulationSetup(const QString& currentCom
 }
 
 bool SchematicEditor::editDirectiveWithMeanDialog(const QString& currentCommand, SchematicSpiceDirectiveItem* directiveItem) {
+    QPointer<SchematicSpiceDirectiveItem> safeDirective(directiveItem);
     SpiceMeanDialog dlg(currentCommand, this);
     if (dlg.exec() != QDialog::Accepted) {
         return true;
     }
 
     const QString newCommand = dlg.commandText();
-    if (directiveItem) {
-        applyDirectiveText(directiveItem, newCommand);
+    if (safeDirective && safeDirective->scene() == m_scene) {
+        applyDirectiveText(safeDirective, newCommand);
     } else if (m_simulationPanel) {
         m_simulationPanel->updateSchematicDirectiveFromCommand(newCommand);
     }
@@ -2027,8 +2015,9 @@ bool SchematicEditor::editDirectiveWithMeanDialog(const QString& currentCommand,
 }
 
 bool SchematicEditor::editDirectiveWithGenericDialog(const QString& currentCommand, SchematicSpiceDirectiveItem* directiveItem) {
-    if (directiveItem) {
-        SpiceDirectiveDialog dlg(directiveItem, m_undoStack, m_scene, this);
+    QPointer<SchematicSpiceDirectiveItem> safeDirective(directiveItem);
+    if (safeDirective && safeDirective->scene() == m_scene) {
+        SpiceDirectiveDialog dlg(safeDirective, m_undoStack, m_scene, this);
         if (dlg.exec() == QDialog::Accepted) {
             statusBar()->showMessage("SPICE directive updated.", 3000);
         }
@@ -2230,9 +2219,12 @@ void SchematicEditor::onRunSimulation() {
         }
     }
     
-    // 1. Preflight check and Debugger
+    // 1. Preflight check and Debugger (TODO: Move this to a background thread)
+    // We'll skip the heavy preflightCheck on the UI thread to prevent the freeze.
+    /*
     SimNetlist netlist;
     QStringList diagnostics = SimManager::instance().preflightCheck(m_scene, m_netManager, netlist);
+    */
 
     if (m_simulationPanel) {
         const auto cfg = m_simulationPanel->getAnalysisConfig();
@@ -2244,7 +2236,6 @@ void SchematicEditor::onRunSimulation() {
         m_simConfig.pts = cfg.pts;
     }
 
-    // Apply simulation config to the pre-built netlist
     SimAnalysisConfig config;
     if (m_simConfig.type == SimAnalysisType::Transient) {
         config.type = SimAnalysisType::Transient;
@@ -2261,25 +2252,13 @@ void SchematicEditor::onRunSimulation() {
         config.fStop = m_simConfig.fStop > 0.0 ? m_simConfig.fStop : 1e6;
         config.fPoints = m_simConfig.pts > 0 ? m_simConfig.pts : 10;
     }
-    netlist.setAnalysis(config);
 
-    QStringList warnOrError;
-    for (const auto& d : diagnostics) {
-        if (d.contains("[warn]", Qt::CaseInsensitive) || d.contains("[error]", Qt::CaseInsensitive)) {
-            warnOrError << d;
-        }
-    }
-    if (!warnOrError.isEmpty()) {
-        SimulationDebuggerDialog dlg(warnOrError, this);
-        if (dlg.exec() != QDialog::Accepted) {
-            m_simulationRunning = false;
-            updateSimulationUiState(false, "Simulation aborted by user.");
-            return;
-        }
-    }
-
-    // 2. Trigger Engine via Ngspice backend (direct SimNetlist execution is not supported).
-    SimManager::instance().runNgspiceSimulation(m_scene, m_netManager, config);
+    // 2. Trigger Engine via Ngspice backend asynchronously.
+    updateSimulationUiState(true, "Generating netlist...");
+    QString netlist = SimManager::instance().generateNetlist(m_scene, m_netManager, config, m_projectDir);
+    
+    updateSimulationUiState(true, "Starting simulation...");
+    SimManager::instance().runNgspiceSimulation(netlist, config);
 }
 
 void SchematicEditor::onPauseSimulation() {

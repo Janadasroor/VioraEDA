@@ -93,6 +93,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
       m_ercList(nullptr),
       m_simulationPanel(nullptr),
       m_geminiDock(nullptr),
+      m_geminiPanel(nullptr),
       m_scriptDock(nullptr),
       m_scriptPanel(nullptr),
       m_logicEditorPanel(nullptr),
@@ -361,6 +362,11 @@ void SchematicEditor::onTabChanged(int index) {
         m_netManager = nullptr;
         m_pageFrame = nullptr;
         m_currentFilePath.clear();
+        if (m_geminiPanel) {
+            m_geminiPanel->setScene(nullptr);
+            m_geminiPanel->setNetManager(nullptr);
+            m_geminiPanel->setProjectFilePath(QString());
+        }
         updateBreadcrumbs();
         refreshHierarchyPanel();
         return;
@@ -375,6 +381,11 @@ void SchematicEditor::onTabChanged(int index) {
 
         if (m_simulationPanel) {
             m_simulationPanel->setTargetScene(m_scene, m_netManager, m_projectDir, true);
+        }
+        if (m_geminiPanel) {
+            m_geminiPanel->setScene(m_scene);
+            m_geminiPanel->setNetManager(m_netManager);
+            m_geminiPanel->setProjectFilePath(m_currentFilePath);
         }
         
         if (m_api) m_api->setScene(m_scene);
@@ -396,6 +407,11 @@ void SchematicEditor::onTabChanged(int index) {
         updateCoordinates(m_view->mapToScene(m_view->mapFromGlobal(QCursor::pos())));
     } else if (QString(current->metaObject()->className()) == "SymbolEditor") {
         // Contextually disable schematic docks/toolbars if needed
+        if (m_geminiPanel) {
+            m_geminiPanel->setScene(nullptr);
+            m_geminiPanel->setNetManager(nullptr);
+            m_geminiPanel->setProjectFilePath(QString());
+        }
     }
 
     if (m_showDetailedLogAction) {

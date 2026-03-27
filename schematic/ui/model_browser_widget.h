@@ -2,11 +2,12 @@
 #define MODEL_BROWSER_WIDGET_H
 
 #include <QWidget>
-#include <QTreeWidget>
 #include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
-#include "../../simulator/bridge/model_library_manager.h"
+#include <QTreeView>
+#include <QSortFilterProxyModel>
+#include "../../ui/spice_model_list_model.h"
 
 class ModelBrowserWidget : public QWidget {
     Q_OBJECT
@@ -20,21 +21,21 @@ signals:
 
 private slots:
     void onSearchChanged(const QString& text);
-    void onItemSelectionChanged();
+    void onItemSelectionChanged(const QModelIndex& current);
     void onApplyClicked();
     void onReloadClicked();
     void onLibraryReloaded();
 
 private:
     void setupUI();
-    void populateTree(const QVector<SpiceModelInfo>& models);
 
     QLineEdit* m_searchBox;
-    QTreeWidget* m_tree;
+    QTreeView* m_treeView;
+    SpiceModelListModel* m_model;
+    QSortFilterProxyModel* m_proxyModel;
+    
     QLabel* m_detailLabel;
     QPushButton* m_applyBtn;
-    
-    QVector<SpiceModelInfo> m_currentModels;
 };
 
 #endif // MODEL_BROWSER_WIDGET_H

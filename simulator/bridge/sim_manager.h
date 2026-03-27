@@ -17,13 +17,17 @@ public:
     void runDCOP(QGraphicsScene* scene, NetManager* netMgr);
     void runTransient(QGraphicsScene* scene, NetManager* netMgr, double tStop, double tStep);
     void runAC(QGraphicsScene* scene, NetManager* netMgr, double fStart, double fStop, int points);
+    
     void runMonteCarlo(QGraphicsScene* scene, NetManager* netMgr, int runs);
     void runParametricSweep(QGraphicsScene* scene, NetManager* netMgr, const QString& component, const QString& param, double start, double stop, int steps);
     void runSensitivity(QGraphicsScene* scene, NetManager* netMgr, const QString& targetSignal);
     void runNetlistText(const QString& netlistContent);
     
-    // Ngspice Integration
-    void runNgspiceSimulation(QGraphicsScene* scene, NetManager* netMgr, const SimAnalysisConfig& config);
+    // Async entry point for simulation
+    void runNgspiceSimulation(const QString& netlist, const SimAnalysisConfig& config);
+
+    // Helper to generate netlist on the UI thread safely
+    static QString generateNetlist(QGraphicsScene* scene, NetManager* netMgr, const SimAnalysisConfig& config, const QString& projectDir = "");
 
     // Debugger / Pre-flight check
     QStringList preflightCheck(QGraphicsScene* scene, NetManager* netMgr, SimNetlist& outNetlist);
@@ -39,6 +43,8 @@ public:
 signals:
     void simulationStarted();
     void simulationFinished(const SimResults& results);
+    void netlistGenerated(const QString& netlist, const SimAnalysisConfig& config);
+    void generationFailed(const QString& error);
     void simulationPaused(bool paused);
     void realTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
     void errorOccurred(const QString& msg);
@@ -55,6 +61,7 @@ private:
 
     SimControl* m_control = nullptr;
     bool m_paused = false;
+    SimAnalysisConfig m_lastConfig;
 
     QGraphicsScene* m_rtScene = nullptr;
     NetManager* m_rtNetMgr = nullptr;

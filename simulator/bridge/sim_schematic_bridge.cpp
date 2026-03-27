@@ -478,8 +478,10 @@ void loadProjectModelLibraries(SimNetlist& netlist, QStringList& mappingWarnings
 
     // Also load configured model libraries (e.g., ~/ViospiceLib).
     const QStringList modelPaths = ConfigManager::instance().modelPaths();
+    bool skipKicad = ConfigManager::instance().kicadDisabled();
     for (const QString& p : modelPaths) {
         if (p.trimmed().isEmpty()) continue;
+        if (skipKicad && p.contains("kicad", Qt::CaseInsensitive)) continue;
         const QString resolved = QFileInfo(p).isAbsolute() ? p : cwd.absoluteFilePath(p);
         scanModelPath(resolved);
     }

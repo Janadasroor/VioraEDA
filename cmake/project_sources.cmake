@@ -448,6 +448,12 @@ set(UI_SOURCES
     ui/plugin_manager_dialog.h
     ui/property_editor.cpp
     ui/property_editor.h
+    ui/spice_model_list_model.cpp
+    ui/spice_model_list_model.h
+    ui/symbol_list_model.cpp
+    ui/symbol_list_model.h
+    ui/splash_screen.cpp
+    ui/splash_screen.h
     core/ui/color_button.cpp
     core/ui/color_button.h
     core/ui/text_properties_dialog.cpp

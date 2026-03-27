@@ -3,6 +3,8 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
+#include <QLineEdit>
+#include <QLabel>
 #include <QHeaderView>
 #include <QFileInfo>
 #include <QGroupBox>
@@ -10,6 +12,12 @@
 
 ModelBrowserWidget::ModelBrowserWidget(QWidget* parent)
     : QWidget(parent) {
+    m_model = new SpiceModelListModel(this);
+    m_proxyModel = new QSortFilterProxyModel(this);
+    m_proxyModel->setSourceModel(m_model);
+    m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    m_proxyModel->setFilterKeyColumn(-1);
+    
     setupUI();
     
     connect(ModelLibraryManager::instance().ptr(), &ModelLibraryManager::libraryReloaded, this, &ModelBrowserWidget::onLibraryReloaded);
@@ -42,14 +50,17 @@ void ModelBrowserWidget::setupUI() {
     layout->addLayout(topLayout);
 
     // --- Tree View ---
-    m_tree = new QTreeWidget();
-    m_tree->setHeaderLabels({"Model Name", "Type"});
-    m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_tree->setAlternatingRowColors(true);
-    m_tree->setRootIsDecorated(true);
-    m_tree->setAnimated(true);
-    layout->addWidget(m_tree);
+    m_treeView = new QTreeView();
+    m_treeView->setModel(m_proxyModel);
+    m_treeView->setUniformRowHeights(true);
+    m_treeView->setSortingEnabled(true);
+    m_treeView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_treeView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_treeView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_treeView->setAlternatingRowColors(true);
+    m_treeView->setIndentation(0);
+    m_treeView->header()->setStretchLastSection(true);
+    layout->addWidget(m_treeView);
 
     // --- Detail Panel ---
     auto* detailGrp = new QGroupBox("Selection Details");
@@ -72,88 +83,51 @@ void ModelBrowserWidget::setupUI() {
 
     // --- Connections ---
     connect(m_searchBox, &QLineEdit::textChanged, this, &ModelBrowserWidget::onSearchChanged);
-    connect(m_tree, &QTreeWidget::itemSelectionChanged, this, &ModelBrowserWidget::onItemSelectionChanged);
+    connect(m_treeView->selectionModel(), &QItemSelectionModel::currentChanged, this, &ModelBrowserWidget::onItemSelectionChanged);
     connect(m_applyBtn, &QPushButton::clicked, this, &ModelBrowserWidget::onApplyClicked);
     connect(reloadBtn, &QPushButton::clicked, this, &ModelBrowserWidget::onReloadClicked);
 }
 
-void ModelBrowserWidget::populateTree(const QVector<SpiceModelInfo>& models) {
-    m_tree->clear();
-    m_currentModels = models;
-    
-    QMap<QString, QTreeWidgetItem*> categories;
-    
-    for (const auto& info : models) {
-        if (!categories.contains(info.type)) {
-            auto* catItem = new QTreeWidgetItem(m_tree);
-            catItem->setText(0, info.type);
-            catItem->setFont(0, QFont("Inter", 10, QFont::Bold));
-            catItem->setForeground(0, QColor("#3b82f6"));
-            categories[info.type] = catItem;
-            catItem->setExpanded(true);
-        }
-        
-        auto* item = new QTreeWidgetItem(categories[info.type]);
-        item->setText(0, info.name);
-        item->setText(1, info.type);
-        item->setData(0, Qt::UserRole, info.name);
-    }
-}
 
 void ModelBrowserWidget::onSearchChanged(const QString& text) {
-    populateTree(ModelLibraryManager::instance().search(text));
+    m_proxyModel->setFilterFixedString(text);
 }
 
-void ModelBrowserWidget::onItemSelectionChanged() {
-    auto* item = m_tree->currentItem();
-    if (!item || item->parent() == nullptr) {
+void ModelBrowserWidget::onItemSelectionChanged(const QModelIndex& current) {
+    if (!current.isValid()) {
         m_detailLabel->setText("Select a model to see details.");
         m_applyBtn->setEnabled(false);
         return;
     }
     
-    QString name = item->data(0, Qt::UserRole).toString();
-    SpiceModelInfo found;
-    bool ok = false;
-    for (const auto& info : m_currentModels) {
-        if (info.name == name) {
-            found = info;
-            ok = true;
-            break;
-        }
+    QModelIndex sourceIndex = m_proxyModel->mapToSource(current);
+    const auto& found = m_model->modelInfo(sourceIndex.row());
+    
+    QString details = QString("<b>Name:</b> %1<br>"
+                              "<b>Type:</b> %2<br>"
+                              "<b>Source:</b> %3<br>"
+                              "<b>Params:</b> %4")
+        .arg(found.name)
+        .arg(found.type)
+        .arg(QFileInfo(found.libraryPath).fileName())
+        .arg(found.params.join(", "));
+    
+    if (!found.description.isEmpty()) {
+        details += "<br><b>Note:</b> " + found.description;
     }
     
-    if (ok) {
-        QString details = QString("<b>Name:</b> %1<br>"
-                                  "<b>Type:</b> %2<br>"
-                                  "<b>Source:</b> %3<br>"
-                                  "<b>Params:</b> %4")
-            .arg(found.name)
-            .arg(found.type)
-            .arg(QFileInfo(found.libraryPath).fileName())
-            .arg(found.params.join(", "));
-        
-        if (!found.description.isEmpty()) {
-            details += "<br><b>Note:</b> " + found.description;
-        }
-        
-        m_detailLabel->setText(details);
-        m_applyBtn->setEnabled(true);
-        emit modelSelected(found);
-    }
+    m_detailLabel->setText(details);
+    m_applyBtn->setEnabled(true);
+    emit modelSelected(found);
 }
 
 void ModelBrowserWidget::onApplyClicked() {
-    auto* item = m_tree->currentItem();
-    if (!item) return;
+    QModelIndex current = m_treeView->currentIndex();
+    if (!current.isValid()) return;
     
-    QString name = item->data(0, Qt::UserRole).toString();
-    for (const auto& info : m_currentModels) {
-        if (info.name == name) {
-            emit applyModelRequested(info);
-            break;
-        }
-    }
+    QModelIndex sourceIndex = m_proxyModel->mapToSource(current);
+    const auto& info = m_model->modelInfo(sourceIndex.row());
+    emit applyModelRequested(info);
 }
 
 void ModelBrowserWidget::onReloadClicked() {
@@ -161,5 +135,5 @@ void ModelBrowserWidget::onReloadClicked() {
 }
 
 void ModelBrowserWidget::onLibraryReloaded() {
-    populateTree(ModelLibraryManager::instance().allModels());
+    m_model->setModels(ModelLibraryManager::instance().allModels());
 }

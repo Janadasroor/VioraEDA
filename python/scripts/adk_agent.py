@@ -3,7 +3,22 @@ import os
 import sys
 import json
 import typing
+import warnings
 from google.genai import types  # pyre-ignore[21]
+
+# Suppress ADK experimental warning for in-memory credential service as early as possible.
+# This must run before importing ADK modules because some warnings are emitted at import time.
+warnings.filterwarnings(
+    "ignore",
+    message=r"(?i).*InMemoryCredentialService.*experimental.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r".*",
+    category=UserWarning,
+    module=r"google\.adk\.auth\.credential_service\.in_memory_credential_service",
+)
 
 # Add ai_pipeline to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -71,9 +86,9 @@ RESPONSE STRUCTURE:
 """
     system_instructions = common_instructions
     if mode == "ask":
-        system_instructions += "\Mode: ASK. Focus on explaining and analyzing the circuit topology."
+        system_instructions += "\nMode: ASK. Focus on explaining and analyzing the circuit topology."
     else:
-        system_instructions += "\Mode: SCHEMATIC. Focus on design, repair, and simulation."
+        system_instructions += "\nMode: SCHEMATIC. Focus on design, repair, and simulation."
 
     agent = Agent(
         name="VioraAI",

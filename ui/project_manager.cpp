@@ -13,6 +13,7 @@
 #include "../core/settings_dialog.h"
 #include "../core/recent_workspaces.h"
 #include "../symbols/ltspice_symbol_importer.h"
+#include "../symbols/kicad_symbol_importer.h"
 #include "../simulator/bridge/model_library_manager.h"
 #include "../symbols/symbol_library.h"
 #include <QPainter>
@@ -642,6 +643,7 @@ QWidget* ProjectManager::createLauncherArea() {
     createAndStoreTile("Schematic Editor", "Capture and edit circuit schematics", ":/icons/schematic_editor.png", &ProjectManager::openSchematicEditor);
     createAndStoreTile("Symbol Editor", "Create and manage schematic symbol libraries", ":/icons/symbol_editor.png", &ProjectManager::openSymbolEditor);
     createAndStoreTile("LTspice Batch Import", "Import LTspice .asy symbols to .viosym", ":/icons/toolbar_file.png", &ProjectManager::importLtspiceBatch);
+    createAndStoreTile("KiCad Batch Import", "Import one .kicad_sym library and export all symbols to .viosym", ":/icons/toolbar_file.png", &ProjectManager::importKicadBatch);
     createAndStoreTile("Diode/JFET Import", "Import LTspice .dio/.jft model libraries by type", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceDiodeModels);
     createAndStoreTile("JFET Model Import", "Import LTspice .jft model libraries (NJF/PJF)", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceJfetModels);
     createAndStoreTile("BJT Model Import", "Import LTspice .bjt model libraries (NPN/PNP)", ":/icons/toolbar_netlist.png", &ProjectManager::importLtspiceBjtModels);
@@ -1426,6 +1428,7 @@ void ProjectManager::createMenuBar() {
     toolsMenu->addSeparator();
     QMenu* importersMenu = toolsMenu->addMenu("Importers");
     importersMenu->addAction("LTspice Batch Symbols...", this, &ProjectManager::importLtspiceBatch);
+    importersMenu->addAction("KiCad Batch Symbols (.kicad_sym)...", this, &ProjectManager::importKicadBatch);
     importersMenu->addAction("Diode/JFET Models...", this, &ProjectManager::importLtspiceDiodeModels);
     importersMenu->addAction("JFET Models...", this, &ProjectManager::importLtspiceJfetModels);
     importersMenu->addAction("BJT Models...", this, &ProjectManager::importLtspiceBjtModels);
@@ -1745,6 +1748,234 @@ void ProjectManager::importLtspiceBatch() {
     }
 
     QMessageBox::information(this, "LTspice Import", msg);
+}
+
+void ProjectManager::importKicadBatch() {
+    const QString defaultSrc = QDir::homePath() + "/ViospiceLib/sym/kicad";
+    const QString srcFile = QFileDialog::getOpenFileName(
+        this,
+        "Select KiCad Symbol Library",
+        defaultSrc,
+        "KiCad Symbols (*.kicad_sym)");
+    if (srcFile.isEmpty()) return;
+
+    const QString baseName = QFileInfo(srcFile).completeBaseName();
+    const QString defaultDst = QDir::homePath() + "/ViospiceLib/sym/kicad/" + baseName;
+    const QString dstDir = QFileDialog::getExistingDirectory(
+        this,
+        "Select Destination Viospice Symbol Folder",
+        defaultDst);
+    if (dstDir.isEmpty()) return;
+
+    QDir().mkpath(dstDir);
+
+    const bool copyModels = (QMessageBox::question(
+                                 this,
+                                 "KiCad Import",
+                                 "Copy referenced SPICE model files into a local models folder?",
+                                 QMessageBox::Yes | QMessageBox::No,
+                                 QMessageBox::Yes) == QMessageBox::Yes);
+
+    QString projectRoot;
+    if (!m_workspaceFolders.isEmpty()) {
+        projectRoot = QDir(m_workspaceFolders.first()).absolutePath();
+    } else {
+        projectRoot = QFileInfo(dstDir).absolutePath();
+    }
+
+    QString modelsDir;
+    if (copyModels) {
+        const QString defaultModels = QDir(projectRoot).filePath("models");
+        modelsDir = QFileDialog::getExistingDirectory(
+            this,
+            "Select Destination Models Folder",
+            defaultModels);
+        if (modelsDir.isEmpty()) return;
+        QDir().mkpath(modelsDir);
+    }
+
+    const QMap<QString, SymbolDefinition> imported = KicadSymbolImporter::importLibrary(srcFile);
+    if (imported.isEmpty()) {
+        QMessageBox::warning(this,
+                             "KiCad Import",
+                             "No symbols were imported. Check that the selected .kicad_sym file is valid.");
+        return;
+    }
+
+    auto sanitizeFileName = [](QString name) {
+        name = name.trimmed();
+        name.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+        name.replace(QRegularExpression("\\s+"), "_");
+        name.replace(QRegularExpression("_+"), "_");
+        if (name.isEmpty()) name = "symbol";
+        return name;
+    };
+
+    int written = 0;
+    QList<QString> failures;
+    QList<QString> modelFailures;
+    QSet<QString> usedNames;
+    QSet<QString> usedModelNames;
+    QMap<QString, QString> copiedModelBySource;
+
+    auto makeProjectRelative = [&](const QString& absPath) {
+        if (projectRoot.isEmpty()) return QDir::fromNativeSeparators(absPath);
+        const QString rel = QDir(projectRoot).relativeFilePath(absPath);
+        if (!rel.startsWith("../") && rel != "..") {
+            return QDir::fromNativeSeparators(rel);
+        }
+        return QDir::fromNativeSeparators(absPath);
+    };
+
+    auto resolveModelSourcePath = [&](const QString& rawPath) {
+        QString p = rawPath.trimmed();
+        if (p.isEmpty()) return QString();
+        if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith('\'') && p.endsWith('\''))) {
+            p = p.mid(1, p.size() - 2).trimmed();
+        }
+        p = QDir::fromNativeSeparators(p);
+        if (p.isEmpty()) return QString();
+
+        QFileInfo fi(p);
+        if (fi.isAbsolute() && fi.exists()) return fi.absoluteFilePath();
+
+        auto tryPath = [](const QString& candidate) -> QString {
+            QFileInfo cfi(candidate);
+            return cfi.exists() ? cfi.absoluteFilePath() : QString();
+        };
+
+        QString found = tryPath(QDir(QFileInfo(srcFile).absolutePath()).filePath(p));
+        if (!found.isEmpty()) return found;
+
+        for (const QString& root : m_workspaceFolders) {
+            if (root.trimmed().isEmpty()) continue;
+            found = tryPath(QDir(root).filePath(p));
+            if (!found.isEmpty()) return found;
+        }
+
+        for (const QString& root : ConfigManager::instance().libraryRoots()) {
+            if (root.trimmed().isEmpty()) continue;
+            found = tryPath(QDir(root).filePath(p));
+            if (!found.isEmpty()) return found;
+        }
+
+        found = tryPath(QDir(QDir::homePath() + "/ViospiceLib").filePath(p));
+        if (!found.isEmpty()) return found;
+        found = tryPath(QDir(QDir::homePath() + "/ViospiceLib/lib").filePath(p));
+        if (!found.isEmpty()) return found;
+
+        return QString();
+    };
+
+    QProgressDialog progress("Importing KiCad symbols...", "Cancel", 0, imported.size(), this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(300);
+    progress.show();
+
+    int idx = 0;
+    for (auto it = imported.constBegin(); it != imported.constEnd(); ++it) {
+        if (progress.wasCanceled()) break;
+        progress.setValue(idx++);
+        progress.setLabelText(QString("Importing %1").arg(it.key()));
+
+        SymbolDefinition def = it.value();
+        QString name = def.name().trimmed();
+        if (name.isEmpty()) name = it.key();
+        name = sanitizeFileName(name);
+        if (usedNames.contains(name.toLower())) {
+            int suffix = 2;
+            QString candidate;
+            do {
+                candidate = QString("%1_%2").arg(name).arg(suffix++);
+            } while (usedNames.contains(candidate.toLower()));
+            name = candidate;
+        }
+        usedNames.insert(name.toLower());
+        def.setName(name);
+
+        if (copyModels) {
+            QString modelRef = def.modelPath().trimmed();
+            if (modelRef.isEmpty()) modelRef = def.customField("Sim.Library").trimmed();
+
+            if (!modelRef.isEmpty()) {
+                const QString resolvedSource = resolveModelSourcePath(modelRef);
+                if (resolvedSource.isEmpty()) {
+                    modelFailures.append(it.key() + ": model file not found (" + modelRef + ")");
+                } else {
+                    QString copiedTarget = copiedModelBySource.value(resolvedSource);
+                    if (copiedTarget.isEmpty()) {
+                        QFileInfo srcInfo(resolvedSource);
+                        QString base = sanitizeFileName(srcInfo.completeBaseName());
+                        if (base.isEmpty()) base = "model";
+                        QString ext = srcInfo.suffix().trimmed();
+                        if (!ext.isEmpty()) ext = "." + ext;
+
+                        QString outName = base + ext;
+                        int suffix = 2;
+                        while (usedModelNames.contains(outName.toLower()) ||
+                               QFileInfo::exists(QDir(modelsDir).filePath(outName))) {
+                            outName = QString("%1_%2%3").arg(base).arg(suffix++).arg(ext);
+                        }
+                        usedModelNames.insert(outName.toLower());
+
+                        copiedTarget = QDir(modelsDir).filePath(outName);
+                        if (!QFile::copy(resolvedSource, copiedTarget)) {
+                            modelFailures.append(it.key() + ": failed to copy model (" + resolvedSource + ")");
+                            copiedTarget.clear();
+                        } else {
+                            copiedModelBySource.insert(resolvedSource, copiedTarget);
+                        }
+                    }
+
+                    if (!copiedTarget.isEmpty()) {
+                        const QString localModelRef = makeProjectRelative(copiedTarget);
+                        def.setModelSource("project");
+                        def.setModelPath(localModelRef);
+                        def.setCustomField("Sim.Library", localModelRef);
+                    }
+                }
+            }
+        }
+
+        const QString outPath = QDir(dstDir).filePath(name + ".viosym");
+        QFile file(outPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            failures.append(it.key() + ": write failed");
+            continue;
+        }
+        const QJsonDocument doc(def.toJson());
+        file.write(doc.toJson(QJsonDocument::Indented));
+        file.close();
+        written++;
+    }
+    progress.setValue(imported.size());
+
+    SymbolLibraryManager::instance().reloadUserLibraries();
+
+    QString msg = QString("Imported %1 / %2 symbols from:\n%3\n\nOutput folder:\n%4")
+                      .arg(written)
+                      .arg(imported.size())
+                      .arg(srcFile)
+                      .arg(dstDir);
+    if (copyModels) {
+        msg += QString("\n\nCopied model files: %1\nModels folder:\n%2")
+                   .arg(copiedModelBySource.size())
+                   .arg(modelsDir);
+    }
+    if (!failures.isEmpty()) {
+        const int shown = qMin(10, failures.size());
+        msg += QString("\n\nFailures (%1):\n").arg(failures.size());
+        for (int i = 0; i < shown; ++i) msg += " - " + failures[i] + "\n";
+        if (failures.size() > shown) msg += " - ...\n";
+    }
+    if (!modelFailures.isEmpty()) {
+        const int shown = qMin(10, modelFailures.size());
+        msg += QString("\n\nModel copy issues (%1):\n").arg(modelFailures.size());
+        for (int i = 0; i < shown; ++i) msg += " - " + modelFailures[i] + "\n";
+        if (modelFailures.size() > shown) msg += " - ...\n";
+    }
+
+    QMessageBox::information(this, "KiCad Import", msg);
 }
 
 void ProjectManager::importLtspiceDiodeModels() {

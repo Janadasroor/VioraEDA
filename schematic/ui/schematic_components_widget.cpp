@@ -11,46 +11,97 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QTabWidget>
+#include <QVBoxLayout>
+#include <QHeaderView>
+#include <QFileInfo>
+#include <QCoreApplication>
+#include <QDir>
+#include <QDebug>
+#include <QSet>
 
-// ─── Icon helper ────────────────────────────────────────────────────────────
-QIcon SchematicComponentsWidget::createComponentIcon(const QString& name) {
-    QString n = name.toLower();
-    QString path = ":/icons/component_file.svg";
-    if (n.contains("resistor")) path = ":/icons/comp_resistor.svg";
-    else if (n.contains("capacitor")) path = ":/icons/comp_capacitor.svg";
-    else if (n.contains("inductor")) path = ":/icons/comp_inductor.svg";
-    else if (n.contains("diode")) path = ":/icons/comp_diode.svg";
-    else if (n.contains("transistor")) path = ":/icons/comp_transistor.svg";
-    else if (n.contains("opamp")) path = ":/icons/comp_opamp.svg";
-    else if (n.contains("voltmeter")) path = ":/icons/tool_voltmeter.svg";
-    else if (n.contains("ammeter") || n.contains("current probe") || n.contains("current_probe")) path = ":/icons/tool_ammeter.svg";
-    else if (n.contains("oscilloscope") || n.contains("logic analyzer")) path = ":/icons/tool_oscilloscope.svg";
-    else if (n.contains("power meter") || n.contains("power_probe") || n.contains("power probe")) path = ":/icons/tool_power_meter.svg";
-    else if (n.contains("probe")) path = ":/icons/tool_probe.svg";
-    else if (n.contains("gate")) path = ":/icons/comp_logic.svg";
-    else if (n.contains("ic") || n.contains("ram") || n.contains("smart signal block")) path = ":/icons/comp_ic.svg";
-    else if (n.contains("gnd")) path = ":/icons/comp_gnd.svg";
-    else if (n.contains("vcc") || n.contains("vdd") || n.contains("5v") || n.contains("3.3v") || n.contains("12v") || n.contains("vbat")) path = ":/icons/comp_vcc.svg";
-    
-    QIcon icon(path);
-    PCBTheme* theme = ThemeManager::theme();
-    if (theme && theme->type() == PCBTheme::Light) {
-        QPixmap pixmap = icon.pixmap(QSize(32, 32));
-        if (!pixmap.isNull()) {
-            QPainter p(&pixmap);
-            p.setCompositionMode(QPainter::CompositionMode_SourceIn);
-            p.fillRect(pixmap.rect(), theme->textColor());
-            p.end();
-            return QIcon(pixmap);
-        }
+namespace {
+int pinCount(const SymbolDefinition& sym) {
+    int count = 0;
+    for (const auto& prim : sym.primitives()) {
+        if (prim.type == SymbolPrimitive::Pin) ++count;
     }
-    return icon;
+    return count;
 }
+
+bool hasConcreteModelName(const SymbolDefinition& sym) {
+    const QString modelName = sym.modelName().trimmed();
+    if (modelName.isEmpty()) return false;
+    const QString spiceDevice = sym.spiceModelName().trimmed();
+    return spiceDevice.isEmpty() || modelName.compare(spiceDevice, Qt::CaseInsensitive) != 0;
+}
+
+bool isResolvableSubckt(const SymbolDefinition& sym) {
+    if (!hasConcreteModelName(sym)) return false;
+    const QString modelName = sym.modelName().trimmed();
+    if (ModelLibraryManager::instance().findSubcircuit(modelName) != nullptr) return true;
+    const QString modelPath = sym.modelPath().trimmed();
+    return !modelPath.isEmpty() && QFileInfo::exists(modelPath);
+}
+
+bool isSimulatableLibrarySymbol(const SymbolDefinition& sym) {
+    if (sym.name().trimmed().isEmpty()) return false;
+    if (pinCount(sym) <= 0) return false;
+    if (sym.isPowerSymbol()) return true;
+
+    const QString spiceDevice = sym.spiceModelName().trimmed().toUpper();
+    const QString modelPath = sym.modelPath().trimmed();
+    const bool hasPath = !modelPath.isEmpty();
+    const bool hasModel = hasConcreteModelName(sym);
+
+    if (spiceDevice == "SUBCKT") {
+        return hasPath || isResolvableSubckt(sym);
+    }
+
+    if (spiceDevice.isEmpty() && !hasPath && !hasModel) return false;
+
+    // Generic subcircuit fallback: some symbols rely on modelName/modelPath without Sim.Device.
+    if (spiceDevice.isEmpty() && (hasPath || hasModel)) return true;
+
+    // Primitive/behavioral device classes that can be netlisted directly.
+    static const QSet<QString> kPrimitiveDevices = {
+        "R", "C", "L", "V", "I", "D", "Q", "M", "J",
+        "E", "F", "G", "H", "B", "SW", "A"
+    };
+    if (kPrimitiveDevices.contains(spiceDevice)) return true;
+
+    // If a device token is custom/non-standard, require explicit model linkage.
+    return hasPath || hasModel;
+}
+
+bool isBundledKicadSymLibraryPath(const QString& p) {
+    const QString np = QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(p).absoluteFilePath()));
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList roots = {
+        QDir(appDir).absoluteFilePath("viospicelib"),
+        QDir(appDir).absoluteFilePath("../viospicelib")
+    };
+    for (const QString& rootRaw : roots) {
+        QString root = QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(rootRaw).absoluteFilePath()));
+        if (!root.endsWith('/')) root += '/';
+        if (np.startsWith(root) && np.contains("/symbols/kicad/")) return true;
+    }
+    return false;
+}
+} // namespace
+
 
 // ─── Constructor ────────────────────────────────────────────────────────────
 SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
     : QWidget(parent)
 {
+    // 1. Initialize data models first
+    m_symbolListModel = new SymbolListModel(this);
+    m_proxyModel = new QSortFilterProxyModel(this);
+    m_proxyModel->setSourceModel(m_symbolListModel);
+    m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    m_proxyModel->setRecursiveFilteringEnabled(true);
+
+    // 2. Setup Base UI
     PCBTheme* theme = ThemeManager::theme();
     QString bg = theme ? theme->panelBackground().name() : "#ffffff";
     QString fg = theme ? theme->textColor().name() : "#000000";
@@ -71,9 +122,9 @@ SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
 
     // --- Tab 1: Symbols ---
     m_symbolTab = new QWidget();
-    QVBoxLayout* layout = new QVBoxLayout(m_symbolTab);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    QVBoxLayout* symbolLayout = new QVBoxLayout(m_symbolTab);
+    symbolLayout->setContentsMargins(0, 0, 0, 0);
+    symbolLayout->setSpacing(0);
 
     // ── Search bar ──────────────────────────────────────────────────────
     m_searchBox = new QLineEdit(m_symbolTab);
@@ -99,7 +150,7 @@ SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
     ).arg(inputBg, border, fg, bg));
     
     connect(m_searchBox, &QLineEdit::textChanged, this, &SchematicComponentsWidget::onSearchTextChanged);
-    layout->addWidget(m_searchBox);
+    symbolLayout->addWidget(m_searchBox);
 
     // ── Action Cards Container ──────────────────────────────────────────
     QWidget* actionContainer = new QWidget(m_symbolTab);
@@ -148,7 +199,7 @@ SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
     createActionCard("Create Custom Symbol", "Open symbol editor to draw new parts", SLOT(onCreateSymbol()));
     createActionCard("Browse Libraries", "Search millions of symbols and footprints", SLOT(onOpenLibraryBrowser()));
 
-    layout->addWidget(actionContainer);
+    symbolLayout->addWidget(actionContainer);
 
     // ── Section Header ──────────────────────────────────────────────────
     QLabel* listHeader = new QLabel("   STANDARD COMPONENTS", m_symbolTab);
@@ -161,24 +212,27 @@ SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
         "font-weight: 700;"
         "border-bottom: 1px solid %3;"
     ).arg(headerBg, theme ? theme->textSecondary().name() : "#555", border));
-    layout->addWidget(listHeader);
+    symbolLayout->addWidget(listHeader);
 
     // ── Component Tree ──────────────────────────────────────────────────
-    m_componentList = new QTreeWidget(this);
+    m_componentList = new QTreeView(this);
     m_componentList->setFrameShape(QFrame::NoFrame);
+    m_componentList->setModel(m_proxyModel);
     m_componentList->setHeaderHidden(true);
     m_componentList->setRootIsDecorated(true);
     m_componentList->setIndentation(16);
     m_componentList->setAnimated(true);
-    m_componentList->setExpandsOnDoubleClick(true);
     m_componentList->setUniformRowHeights(true);
     m_componentList->setIconSize(QSize(16, 16));
+    m_componentList->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_componentList->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_componentList->setSelectionMode(QAbstractItemView::SingleSelection);
     
     QString selBg = theme ? theme->accentColor().name() : "#007acc";
     QString treeHoverBg = (theme && theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#2a2a2a";
     
     m_componentList->setStyleSheet(QString(
-        "QTreeWidget {"
+        "QTreeView {"
         "   background-color: %1;"
         "   border: none;"
         "   color: %2;"
@@ -186,40 +240,26 @@ SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
         "   padding: 2px;"
         "   font-size: 12px;"
         "}"
-        "QTreeWidget::item {"
+        "QTreeView::item {"
         "   padding: 4px 6px;"
         "   border-radius: 4px;"
         "   margin: 1px 4px;"
         "   border: none;"
         "}"
-        "QTreeWidget::item:hover {"
+        "QTreeView::item:hover {"
         "   background-color: %3;"
         "}"
-        "QTreeWidget::item:selected {"
+        "QTreeView::item:selected {"
         "   background-color: %4;"
         "   color: #ffffff;"
         "}"
-        "QTreeWidget::branch {"
+        "QTreeView::branch {"
         "   background: transparent;"
-        "}"
-        "QTreeWidget::branch:has-children:!has-siblings:closed,"
-        "QTreeWidget::branch:closed:has-children:has-siblings {"
-        "   image: url(:/icons/chevron_right.svg);"
-        "}"
-        "QTreeWidget::branch:open:has-children:!has-siblings,"
-        "QTreeWidget::branch:open:has-children:has-siblings {"
-        "   image: url(:/icons/chevron_down.svg);"
         "}"
     ).arg(bg, fg, treeHoverBg, selBg));
 
-    connect(m_componentList, &QTreeWidget::itemClicked, this, &SchematicComponentsWidget::onItemClicked);
-    connect(m_componentList, &QTreeWidget::itemExpanded, this, [](QTreeWidgetItem* item) {
-        item->setIcon(0, QIcon(":/icons/folder_open.svg"));
-    });
-    connect(m_componentList, &QTreeWidget::itemCollapsed, this, [](QTreeWidgetItem* item) {
-        item->setIcon(0, QIcon(":/icons/folder_closed.svg"));
-    });
-    layout->addWidget(m_componentList);
+    connect(m_componentList, &QTreeView::clicked, this, &SchematicComponentsWidget::onItemClicked);
+    symbolLayout->addWidget(m_componentList);
 
     m_tabs->addTab(m_symbolTab, "Symbols");
 
@@ -247,54 +287,12 @@ void SchematicComponentsWidget::focusSearch() {
 
 // ─── Populate ───────────────────────────────────────────────────────────────
 void SchematicComponentsWidget::populate() {
-    // Reload user libraries so newly saved .viosym files appear immediately.
-    SymbolLibraryManager::instance().reloadUserLibraries();
+    // Only reload if we have no libraries
+    if (SymbolLibraryManager::instance().libraries().isEmpty()) {
+        SymbolLibraryManager::instance().reloadUserLibraries();
+    }
 
-    m_componentList->clear();
-    
-    QIcon folderIcon(":/icons/folder_open.svg");
-    QIcon componentIcon(":/icons/component_file.svg");
-    
-    // Lambda to add a category (folder style)
-    auto addCategory = [this, &folderIcon](const QString& name) -> QTreeWidgetItem* {
-        // Check if category already exists
-        for (int i = 0; i < m_componentList->topLevelItemCount(); ++i) {
-            if (m_componentList->topLevelItem(i)->text(0) == name) {
-                return m_componentList->topLevelItem(i);
-            }
-        }
-        
-        QTreeWidgetItem* category = new QTreeWidgetItem(m_componentList);
-        category->setText(0, name);
-        category->setExpanded(true);
-        category->setIcon(0, folderIcon);
-        QFont categoryFont = category->font(0);
-        categoryFont.setBold(true);
-        categoryFont.setPointSize(10);
-        category->setFont(0, categoryFont);
-        return category;
-    };
-    
-    // Lambda to add component (file style)
-    auto addComponent = [this](QTreeWidgetItem* parent, const QString& name, const QString& toolName, const QString& libName = "") -> void {
-        QTreeWidgetItem* child = new QTreeWidgetItem(parent);
-        child->setText(0, name);
-        child->setData(0, Qt::UserRole, toolName);
-        if (!libName.isEmpty()) {
-            child->setData(0, Qt::UserRole + 1, libName);
-            child->setToolTip(0, QString("Library: %1").arg(libName));
-        }
-        child->setIcon(0, createComponentIcon(name));
-        QFont itemFont = child->font(0);
-        itemFont.setPointSize(10);
-        child->setFont(0, itemFont);
-    };
-    
-    // Group symbols by category
-    QMap<QString, QList<QPair<QString, QString>>> categorizedSymbols;
-    QMap<QString, QList<QPair<QString, QString>>> userSymbols;
-    
-    // 1. Add standard built-in tools (hardcoded C++ items)
+    QVector<SymbolListModel::SymbolMetadata> builtIn;
     struct StdTool { QString name; QString category; };
     QList<StdTool> builtInTools = {
         {"Resistor", "Passives"}, {"Resistor (US)", "Passives"}, {"Resistor (IEC)", "Passives"},
@@ -333,128 +331,78 @@ void SchematicComponentsWidget::populate() {
         {"BV", "Simulation"},
         {"BI", "Simulation"}
     };
-    
-    // Build a set of user symbols to suppress duplicate built-in entries.
-    QSet<QString> userSymbolNames;
-    for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) {
-        if (lib->isBuiltIn()) continue;
-        for (const QString& name : lib->symbolNames()) userSymbolNames.insert(name.toLower());
+
+    builtIn.reserve(builtInTools.size());
+    for (const auto& t : builtInTools) {
+        builtIn.append({t.name, t.category, ""});
     }
 
-    for (const auto& tool : builtInTools) {
-        if (userSymbolNames.contains(tool.name.toLower())) continue;
-        categorizedSymbols[tool.category].append({tool.name, ""}); // "" means built-in tool
-    }
+    QMap<QString, QStringList> libs;
+    int totalLibrarySymbols = 0;
+    int simulatableLibrarySymbols = 0;
+    auto libraries = SymbolLibraryManager::instance().libraries();
+    for (auto* lib : libraries) {
+        // KiCad merged libraries are loaded as stubs and resolving every symbol here
+        // blocks editor startup. Keep launch responsive by skipping stub-only libs
+        // in this eager population path.
+        if (lib &&
+            lib->path().endsWith(".kicad_sym", Qt::CaseInsensitive) &&
+            isBundledKicadSymLibraryPath(lib->path())) {
+            continue;
+        }
 
-    // 2. Add symbols from libraries (Built-in and User)
-    for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) {
-        for (const QString& symName : lib->symbolNames()) {
-            // Avoid adding symbols that are already covered by our premium built-in tools
-            bool alreadyAdded = false;
-            for (const auto& tool : builtInTools) {
-                if (tool.name == symName) { alreadyAdded = true; break; }
-            }
-            if (alreadyAdded) continue;
+        QStringList accepted;
+        const QStringList names = lib->symbolNames();
+        totalLibrarySymbols += names.size();
 
-            // Hide built-in symbols if a user symbol with the same name exists.
-            if (lib->isBuiltIn() && userSymbolNames.contains(symName.toLower())) continue;
-
+        for (const QString& symName : names) {
             SymbolDefinition* sym = lib->findSymbol(symName);
-            if (sym) {
-                QString cat = sym->category();
-                if (cat.isEmpty()) cat = "Uncategorized";
-                
-                if (!lib->isBuiltIn()) {
-                    userSymbols[lib->name()].append({symName, lib->name()});
-                } else {
-                    categorizedSymbols[cat].append({symName, lib->name()});
-                }
-            }
+            if (!sym) continue;
+            if (!isSimulatableLibrarySymbol(*sym)) continue;
+            accepted.append(symName);
+        }
+
+        accepted.sort(Qt::CaseInsensitive);
+        if (!accepted.isEmpty()) {
+            libs[lib->name()] = accepted;
+            simulatableLibrarySymbols += accepted.size();
         }
     }
 
-    // Pass 1: User Libraries
-    for (const QString& libName : userSymbols.keys()) {
-        QTreeWidgetItem* userCat = addCategory(libName.toUpper());
-        userCat->setForeground(0, QBrush(QColor("#000000")));
-        for (const auto& symPair : userSymbols[libName]) {
-            addComponent(userCat, symPair.first, symPair.first, symPair.second);
-        }
-    }
+    qInfo() << "SchematicComponentsWidget: simulatable symbol filter kept"
+            << simulatableLibrarySymbols << "of" << totalLibrarySymbols
+            << "library symbols.";
+
+    m_symbolListModel->setSymbols(builtIn, libs);
     
-    // Sort categories with priority ones at the top
-    QStringList sortedCats = categorizedSymbols.keys();
-    sortedCats.sort();
-    QStringList priority = {"Passives", "Semiconductors", "Integrated Circuits", "Logic", "Power Symbols", "Simulation"};
-    for (int i = priority.size()-1; i >= 0; --i) {
-        if (sortedCats.removeAll(priority[i])) sortedCats.prepend(priority[i]);
-    }
-
-    for (const QString& catName : sortedCats) {
-        QTreeWidgetItem* category = addCategory(catName);
-        for (const auto& symPair : categorizedSymbols[catName]) {
-            addComponent(category, symPair.first, symPair.first, symPair.second);
+    // Expand top-level built-in categories by default
+    for (int i = 0; i < m_proxyModel->rowCount(); ++i) {
+        QModelIndex idx = m_proxyModel->index(i, 0);
+        if (m_proxyModel->data(idx, SymbolListModel::LibraryRole).toString().isEmpty()) {
+            m_componentList->expand(idx);
         }
     }
-
-    // Ensure categories are visible by default, even after previous filter use.
-    m_componentList->expandAll();
-    
-    qDebug() << "Schematic components panel populated with" << categorizedSymbols.size() << "categories.";
 }
 
 // ─── Slots ──────────────────────────────────────────────────────────────────
 void SchematicComponentsWidget::onSearchTextChanged(const QString &text) {
-    if (!m_componentList) return;
-    const QString needle = text.trimmed();
-    
-    for (int i = 0; i < m_componentList->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* category = m_componentList->topLevelItem(i);
-        bool categoryHasMatch = false;
-        
-        for (int j = 0; j < category->childCount(); ++j) {
-            QTreeWidgetItem* child = category->child(j);
-            bool matches = child->text(0).contains(needle, Qt::CaseInsensitive);
-            child->setHidden(!matches && !needle.isEmpty());
-            if (matches) categoryHasMatch = true;
-        }
-        
-        category->setHidden(!categoryHasMatch && !needle.isEmpty());
-        if (categoryHasMatch && !needle.isEmpty()) {
-            category->setExpanded(true);
-        } else if (needle.isEmpty()) {
-            category->setExpanded(true);
-        }
+    m_proxyModel->setFilterFixedString(text);
+    if (!text.isEmpty()) {
+        m_componentList->expandAll();
     }
 }
 
-void SchematicComponentsWidget::onItemClicked(QTreeWidgetItem *item, int column) {
-    Q_UNUSED(column);
-    if (item->childCount() == 0) {
-       QString toolName = item->data(0, Qt::UserRole).toString();
-       QString libName = item->data(0, Qt::UserRole + 1).toString();
-       
-       if (!toolName.isEmpty()) {
-           // Look up symbol to find default footprint
-           SymbolDefinition* sym = nullptr;
-           if (!libName.isEmpty()) {
-               SymbolLibrary* lib = SymbolLibraryManager::instance().findLibrary(libName);
-               if (lib) sym = lib->findSymbol(toolName);
-           }
-           
-           if (!sym) {
-               sym = SymbolLibraryManager::instance().findSymbol(toolName);
-           }
-           
-           if (sym) {
-               m_selectedSymbol = *sym;
-           } else {
-               m_selectedSymbol = SymbolDefinition(toolName);
-           }
+void SchematicComponentsWidget::onItemClicked(const QModelIndex& index) {
+    if (!index.isValid()) return;
 
-           emit toolSelected(toolName);
-       }
+    QModelIndex sourceIndex = m_proxyModel->mapToSource(index);
+    if (m_symbolListModel->data(sourceIndex, SymbolListModel::IsCategoryRole).toBool()) {
+        return;
     }
+
+    const auto& sym = m_symbolListModel->symbolDefinition(sourceIndex);
+    m_selectedSymbol = sym;
+    emit toolSelected(sym.name());
 }
 
 void SchematicComponentsWidget::onCreateSymbol() {

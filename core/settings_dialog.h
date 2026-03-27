@@ -51,6 +51,8 @@ private:
     QTextEdit* m_symbolPathsEdit;
     QTextEdit* m_modelPathsEdit;
     QTextEdit* m_libraryRootsEdit;
+    QCheckBox* m_kicadDisabledCheck;
+    QCheckBox* m_kicadBasicsOnlyCheck;
 
     QListWidget* m_navMenu;
     QStackedWidget* m_pagesStack;

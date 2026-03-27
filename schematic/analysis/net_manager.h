@@ -7,6 +7,8 @@
 #include <QString>
 #include <QPointF>
 #include <QStringList>
+#include <QReadWriteLock>
+#include <atomic>
 
 class WireItem;
 class SchematicItem;
@@ -72,6 +74,9 @@ private:
     QMap<QString, QList<WireItem*>> m_netWires;
     int m_nextNetId;
     QMap<QString, QList<QString>> m_busAliases;
+    
+    mutable QReadWriteLock m_lock;
+    std::atomic<bool> m_isUpdating{false};
 
     QString generateNetName();
     QString resolveBusAliasNetName(const QString& rawNetName) const;

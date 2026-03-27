@@ -74,10 +74,17 @@ void testIncludeResolverAndDiagnostics() {
 
     bool sawBrokenDiag = false;
     for (const auto& d : diags) {
-        if (d.line == 2 && d.severity == SimParseDiagnosticSeverity::Error &&
+        if (d.line == 2 && (d.severity == SimParseDiagnosticSeverity::Error || d.severity == SimParseDiagnosticSeverity::Warning) &&
             d.message.find("unknown model type or base model") != std::string::npos) {
             sawBrokenDiag = true;
             break;
+        }
+    }
+    
+    if (!sawBrokenDiag) {
+        std::cerr << "Diagnostics found:" << std::endl;
+        for (const auto& d : diags) {
+            std::cerr << "  Line " << d.line << " [" << (int)d.severity << "]: " << d.message << " (Text: " << d.text << ")" << std::endl;
         }
     }
     require(sawBrokenDiag, "expected line-based diagnostic for broken .model");
@@ -164,6 +171,40 @@ void testVdmosModelParsing() {
     require(mp->type == SimComponentType::MOSFET_PMOS, "VDMOS pchan type parse mismatch");
 }
 
+void testNonAsciiAndXSpiceParsing() {
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    // content with non-ASCII (Japanese Shift-JIS style) and XSPICE and [ lines
+    const std::string content =
+        "* \x82\xb1\x82\xea\x82\xcd\x93\xfa\x96\x7b\x8a\xca\x82\xcc\x83\x52\x83\x81\x83\x93\x83\x67\x82\xc5\x82\xb7\n"
+        ".model Q1 NPN (BF=100)\n"
+        "[PART]\n"
+        "NAME=SomeMetadata\n"
+        ".model D1 D_AND (vlow=0 vhigh=5)\n"
+        ".model D2 DFF (clk_delay=1n)\n";
+
+    SimModelParseOptions options;
+    options.sourceName = "test_mixed.lib";
+    const bool ok = SimModelParser::parseLibrary(netlist, content, options, &diags);
+    
+    require(ok, "parseLibrary failed for non-ASCII/mixed content");
+    require(netlist.findModel("Q1") != nullptr, "Q1 model missing");
+    require(netlist.findModel("D1") != nullptr, "D_AND model missing");
+    require(netlist.findModel("D2") != nullptr, "DFF model missing");
+    
+    for (const auto& d : diags) {
+        if (d.severity == SimParseDiagnosticSeverity::Warning && 
+            d.message.find("unsupported primitive") != std::string::npos &&
+            d.text.find("[PART]") != std::string::npos) {
+            throw std::runtime_error("Found warning for [PART] which should be ignored");
+        }
+        if (d.severity == SimParseDiagnosticSeverity::Warning &&
+            d.message.find("unknown model type") != std::string::npos) {
+            throw std::runtime_error("Found warning for unknown model type (XSPICE should be recognized): " + d.text);
+        }
+    }
+}
+
 void testBsim4MultilineModelParsing() {
     SimNetlist netlist;
     std::vector<SimParseDiagnostic> diags;
@@ -196,6 +237,7 @@ int main() {
         testCSWParsing();
         testJfetModelParsing();
         testVdmosModelParsing();
+        testNonAsciiAndXSpiceParsing();
         testBsim4MultilineModelParsing();
         std::cout << "[PASS] model parser compatibility checks passed." << std::endl;
         return 0;

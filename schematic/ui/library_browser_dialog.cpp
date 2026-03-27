@@ -2,6 +2,7 @@
 #include "../../core/theme_manager.h"
 #include "../../symbols/symbol_library.h"
 #include "../../core/library_index.h"
+#include "../../simulator/bridge/model_library_manager.h"
 #include "../items/generic_component_item.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -16,10 +17,76 @@
 #include <QSplitter>
 #include <QLabel>
 #include <QSet>
+#include <QFileInfo>
+#include <QCoreApplication>
+#include <QDir>
 
 using Flux::Model::SymbolPrimitive;
 
 namespace {
+int pinCount(const SymbolDefinition& sym) {
+    int count = 0;
+    for (const auto& prim : sym.primitives()) {
+        if (prim.type == SymbolPrimitive::Pin) ++count;
+    }
+    return count;
+}
+
+bool hasConcreteModelName(const SymbolDefinition& sym) {
+    const QString modelName = sym.modelName().trimmed();
+    if (modelName.isEmpty()) return false;
+    const QString spiceDevice = sym.spiceModelName().trimmed();
+    return spiceDevice.isEmpty() || modelName.compare(spiceDevice, Qt::CaseInsensitive) != 0;
+}
+
+bool isResolvableSubckt(const SymbolDefinition& sym) {
+    if (!hasConcreteModelName(sym)) return false;
+    const QString modelName = sym.modelName().trimmed();
+    if (ModelLibraryManager::instance().findSubcircuit(modelName) != nullptr) return true;
+    const QString modelPath = sym.modelPath().trimmed();
+    return !modelPath.isEmpty() && QFileInfo::exists(modelPath);
+}
+
+bool isSimulatableLibrarySymbol(const SymbolDefinition& sym) {
+    if (sym.name().trimmed().isEmpty()) return false;
+    if (pinCount(sym) <= 0) return false;
+    if (sym.isPowerSymbol()) return true;
+
+    const QString spiceDevice = sym.spiceModelName().trimmed().toUpper();
+    const QString modelPath = sym.modelPath().trimmed();
+    const bool hasPath = !modelPath.isEmpty();
+    const bool hasModel = hasConcreteModelName(sym);
+
+    if (spiceDevice == "SUBCKT") {
+        return hasPath || isResolvableSubckt(sym);
+    }
+
+    if (spiceDevice.isEmpty() && !hasPath && !hasModel) return false;
+    if (spiceDevice.isEmpty() && (hasPath || hasModel)) return true;
+
+    static const QSet<QString> kPrimitiveDevices = {
+        "R", "C", "L", "V", "I", "D", "Q", "M", "J",
+        "E", "F", "G", "H", "B", "SW", "A"
+    };
+    if (kPrimitiveDevices.contains(spiceDevice)) return true;
+    return hasPath || hasModel;
+}
+
+bool isBundledKicadSymLibraryPath(const QString& p) {
+    const QString np = QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(p).absoluteFilePath()));
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList roots = {
+        QDir(appDir).absoluteFilePath("viospicelib"),
+        QDir(appDir).absoluteFilePath("../viospicelib")
+    };
+    for (const QString& rootRaw : roots) {
+        QString root = QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(rootRaw).absoluteFilePath()));
+        if (!root.endsWith('/')) root += '/';
+        if (np.startsWith(root) && np.contains("/symbols/kicad/")) return true;
+    }
+    return false;
+}
+
 SymbolDefinition makeFallbackPreviewSymbol(const QString& name, const QString& category) {
     SymbolDefinition def(name);
     def.setCategory(category);
@@ -311,6 +378,10 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
     if (q.isEmpty()) {
         auto scanLib = [&](SymbolLibrary* lib) {
             if (!lib) return;
+            if (lib->path().endsWith(".kicad_sym", Qt::CaseInsensitive) &&
+                isBundledKicadSymLibraryPath(lib->path())) {
+                return;
+            }
             for (const QString& name : lib->symbolNames()) {
                 if (SymbolDefinition* sym = lib->findSymbol(name)) found.append(sym);
             }
@@ -355,7 +426,11 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
         m_searchResults.append(def);
     };
 
-    for (SymbolDefinition* sym : found) if (sym) appendResult(*sym);
+    for (SymbolDefinition* sym : found) {
+        if (!sym) continue;
+        if (!isSimulatableLibrarySymbol(*sym)) continue;
+        appendResult(*sym);
+    }
 
     // Include built-in schematic tools
     const QList<QPair<QString, QString>> builtInTools = {
