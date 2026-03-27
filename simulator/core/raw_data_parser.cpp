@@ -97,6 +97,20 @@ bool RawDataParser::loadRawAscii(const QString& path, RawData* out, QString* err
             numVariables = line.mid(14).trimmed().toInt();
         } else if (line.startsWith("No. Points:")) {
             numPoints = line.mid(11).trimmed().toInt();
+        } else if (line.startsWith("Command:")) {
+            QString cmd = QString::fromLatin1(line.mid(8)).trimmed().toLower();
+            if (cmd.contains("tran")) out->analysisType = SimAnalysisType::Transient;
+            else if (cmd.contains("ac")) out->analysisType = SimAnalysisType::AC;
+            else if (cmd.contains("dc")) out->analysisType = SimAnalysisType::DC;
+            else if (cmd.contains("op")) out->analysisType = SimAnalysisType::OP;
+            else if (cmd.contains("noise")) out->analysisType = SimAnalysisType::Noise;
+        } else if (line.startsWith("Title:")) {
+            QString title = QString::fromLatin1(line.mid(6)).trimmed().toLower();
+            if (out->analysisType == SimAnalysisType::OP) { // Fallback if Command missing
+                if (title.contains("transient")) out->analysisType = SimAnalysisType::Transient;
+                else if (title.contains("ac analysis")) out->analysisType = SimAnalysisType::AC;
+                else if (title.contains("dc transfer")) out->analysisType = SimAnalysisType::DC;
+            }
         } else if (line.startsWith("Flags:")) {
             const QString flags = QString::fromLatin1(line).toLower();
             if (flags.contains("complex")) isComplex = true;
@@ -269,6 +283,7 @@ bool RawDataParser::loadRawAscii(const QString& path, RawData* out, QString* err
 
 SimResults RawData::toSimResults() const {
     SimResults res;
+    res.analysisType = analysisType;
     res.xAxisName = varNames.isEmpty() ? "time" : varNames[0].toStdString();
     
     if (numPoints <= 0) return res;

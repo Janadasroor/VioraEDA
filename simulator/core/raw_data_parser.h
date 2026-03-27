@@ -10,6 +10,7 @@
 
 struct RawData {
     QStringList varNames;
+    SimAnalysisType analysisType = SimAnalysisType::OP;
     int numVariables = 0;
     int numPoints = 0;
     QVector<double> x;
