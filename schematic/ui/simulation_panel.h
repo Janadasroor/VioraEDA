@@ -18,6 +18,7 @@
 #include <QMap>
 #include <QPair>
 #include <QVariantMap>
+#include <atomic>
 #include <QDateTime>
 #include "../../simulator/bridge/sim_manager.h"
 #include "../../simulator/core/sim_results.h"
@@ -157,7 +158,7 @@ private:
     QGraphicsScene* m_scene = nullptr;
     NetManager* m_netManager = nullptr;
     QString m_projectDir;
-    bool m_acceptRealTimeStream = false;
+    std::atomic<bool> m_acceptRealTimeStream;
 
     // Signal Selection
     QListWidget* m_signalList = nullptr;
@@ -235,6 +236,8 @@ private:
     SimNetlist m_currentNetlist;
     QMap<QString, QLineSeries*> m_realTimeSeries;
     int m_realTimePointCounter = 0;
+    QSet<QString> m_persistentCheckedSignals;
+    bool m_isSimInitiator = false;
 
     // .meas post-processing
     std::vector<MeasStatement> m_measStatements;

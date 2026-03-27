@@ -175,11 +175,6 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
 
     connect(&sm, &SimulationManager::realTimeDataBatchReceived, this, &SimManager::realTimeDataBatchReceived, Qt::UniqueConnection);
     
-    // Connect RAW results ready signal - this is the "happy path" for data
-    connect(&sm, &SimulationManager::realTimeDataBatchReceived, this, [this](const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
-        emit realTimeDataBatchReceived(times, values, names);
-    });
-    
     connect(&sm, &SimulationManager::rawResultsReady, this, [this, safeTempFile](const QString& path) {
         auto* watcher = new QFutureWatcher<std::pair<bool, SimResults>>(this);
         connect(watcher, &QFutureWatcher<std::pair<bool, SimResults>>::finished, this, [this, watcher, safeTempFile]() {
