@@ -11,6 +11,7 @@ class SpiceDirectiveNetlistTest : public QObject {
 
 private slots:
     void generatesWarningsAndHonorsManualDirectives();
+    void reportsDuplicateElementsAndUnclosedSubckts();
 };
 
 void SpiceDirectiveNetlistTest::generatesWarningsAndHonorsManualDirectives() {
@@ -42,6 +43,31 @@ void SpiceDirectiveNetlistTest::generatesWarningsAndHonorsManualDirectives() {
     QVERIFY2(netlist.contains("* Warning: Manual directive source already drives schematic power rail vcc; skipped auto-generated rail source."), qPrintable(netlist));
     QVERIFY2(!netlist.contains("V_vcc vcc 0 DC"), qPrintable(netlist));
     QCOMPARE(netlist.count(".tran "), 1);
+}
+
+void SpiceDirectiveNetlistTest::reportsDuplicateElementsAndUnclosedSubckts() {
+    QGraphicsScene scene;
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        ".subckt opamp 1 2 3 4 5\n"
+        "R1 1 2 10k\n"
+        "R1 3 4 20k\n"
+        ".ac dec 10 1 1Meg",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("* Directive Warnings\n"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("* Warning: Duplicate element reference R1 in directive block"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("* Warning: Missing .ends for subcircuit opamp."), qPrintable(netlist));
+    QCOMPARE(netlist.count(".ac dec 10 1 1Meg"), 1);
+    QVERIFY2(!netlist.contains(".tran 1u 1m"), qPrintable(netlist));
 }
 
 QTEST_MAIN(SpiceDirectiveNetlistTest)

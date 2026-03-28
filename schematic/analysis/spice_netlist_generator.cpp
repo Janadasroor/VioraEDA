@@ -497,6 +497,7 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
     QSet<QString> analysisSeen;
     QMap<QString, int> modelSeen;
     QMap<QString, int> refSeen;
+    QStringList subcktStack;
     int lineNo = 0;
     for (const QString& rawLine : lines) {
         ++lineNo;
@@ -512,6 +513,23 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
                     summary.warnings.append(QString("Duplicate analysis card %1 in directive block (line %2).").arg(card, QString::number(lineNo)));
                 } else {
                     analysisSeen.insert(card);
+                }
+            }
+
+            if (card == ".subckt") {
+                const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                if (parts.size() >= 2) {
+                    subcktStack.append(parts.at(1));
+                }
+            } else if (card == ".ends") {
+                const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                if (subcktStack.isEmpty()) {
+                    summary.warnings.append(QString(".ends has no matching .subckt (line %1).").arg(lineNo));
+                } else {
+                    const QString openName = subcktStack.takeLast();
+                    if (parts.size() >= 2 && parts.at(1).compare(openName, Qt::CaseInsensitive) != 0) {
+                        summary.warnings.append(QString(".ends %1 does not match open .subckt %2 (line %3).").arg(parts.at(1), openName, QString::number(lineNo)));
+                    }
                 }
             }
 
@@ -557,6 +575,12 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
         const QChar prefix = ref.isEmpty() ? QChar() : ref.at(0);
         if ((prefix == 'V' || prefix == 'I') && parts.size() >= 2) {
             summary.drivenRailNets.insert(parts.at(1).trimmed().toUpper());
+        }
+    }
+
+    if (!subcktStack.isEmpty()) {
+        for (const QString& openSubckt : subcktStack) {
+            summary.warnings.append(QString("Missing .ends for subcircuit %1.").arg(openSubckt));
         }
     }
 
