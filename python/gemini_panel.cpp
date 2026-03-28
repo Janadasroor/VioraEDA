@@ -179,8 +179,10 @@ QString wrapUserCard(const QString& textHtml, const QString& headerHtml = QStrin
             "max-width: 84%;"
             "text-align: left;"
             "'>"
-            "%2"
-            "<div style='font-size:10px; color:#64748b; margin: 0 0 6px 0; font-weight:600; text-align:right;'>You · %3</div>"
+            "<div style='display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 6px 0;'>"
+            "<div style='font-size:10px; line-height:1;'>%2</div>"
+            "<div style='font-size:10px; color:#64748b; font-weight:600; text-align:right;'>You · %3</div>"
+            "</div>"
             "<div style='line-height: 1.55;'>%1</div>"
             "</div>"
             "</div>"
@@ -199,8 +201,10 @@ QString wrapUserCard(const QString& textHtml, const QString& headerHtml = QStrin
         "max-width: 84%;"
         "text-align: left;"
         "'>"
-        "%2"
-        "<div style='font-size:10px; color:#9fb0c8; margin: 0 0 6px 0; font-weight:600; text-align:right;'>You · %3</div>"
+        "<div style='display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 6px 0;'>"
+        "<div style='font-size:10px; line-height:1;'>%2</div>"
+        "<div style='font-size:10px; color:#9fb0c8; font-weight:600; text-align:right;'>You · %3</div>"
+        "</div>"
         "<div style='line-height: 1.55;'>%1</div>"
         "</div>"
         "</div>"
@@ -886,12 +890,7 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
             "RET</a>"
         ).arg(undoIndex);
     }
-    QString checkpointHeaderHtml;
-    if (!checkpointIconHtml.isEmpty()) {
-        checkpointHeaderHtml = QString(
-            "<div style='width:100%; text-align:right; margin: 0 0 4px 0;'>%1</div>"
-        ).arg(checkpointIconHtml);
-    }
+    const QString checkpointHeaderHtml = checkpointIconHtml;
 
     // Force clear position and insert
     m_chatArea->moveCursor(QTextCursor::End);
@@ -996,8 +995,6 @@ void GeminiPanel::onProcessReadyRead() {
                 const QString clean = sanitizeAgentTextChunk(text);
                 if (!clean.isEmpty()) {
                     m_responseBuffer += clean;
-                    m_chatArea->moveCursor(QTextCursor::End);
-                    m_chatArea->insertPlainText(clean);
                 }
                 text.clear();
             }
@@ -1006,8 +1003,6 @@ void GeminiPanel::onProcessReadyRead() {
                 QString pT = sanitizeAgentTextChunk(text.left(fT));
                 if (!pT.isEmpty()) {
                     m_responseBuffer += pT;
-                    m_chatArea->moveCursor(QTextCursor::End);
-                    m_chatArea->insertPlainText(pT);
                 }
                 text = text.mid(fT);
                 continue;
@@ -1078,14 +1073,6 @@ void GeminiPanel::onProcessFinished(int ec) {
     if (!proc || proc != m_process) return;
     if (!m_chatArea) return;
     
-    // Safety check: ensure start position is still valid (it might be invalid after clearHistory)
-    if (m_responseStartPos >= 0 && m_responseStartPos <= m_chatArea->document()->characterCount()) {
-        QTextCursor cur(m_chatArea->document());
-        cur.setPosition(m_responseStartPos);
-        cur.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
-        cur.removeSelectedText();
-    }
-
     m_thinkingPulseTimer->stop();
 
     if (!m_errorBuffer.trimmed().isEmpty()) {
