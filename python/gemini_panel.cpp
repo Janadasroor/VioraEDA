@@ -460,9 +460,10 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_chatScroll = new QScrollArea(this);
     m_chatScroll->setWidgetResizable(true);
     m_chatScroll->setFrameShape(QFrame::NoFrame);
-    m_chatScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_chatScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     m_chatScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_chatScroll->setFocusPolicy(Qt::StrongFocus); // Enable keyboard scrolling
+    m_chatScroll->viewport()->installEventFilter(this);
 
     const QString scrollBarColor = (theme && theme->type() == PCBTheme::Light) ? "#cbd5e1" : "#475569";
     const QString scrollBarHover = (theme && theme->type() == PCBTheme::Light) ? "#94a3b8" : "#64748b";
@@ -487,9 +488,11 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
 
     m_chatContainer = new QWidget(m_chatScroll);
     m_chatContainer->setStyleSheet("background: transparent;");
+    m_chatContainer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     m_chatLayout = new QVBoxLayout(m_chatContainer);
     m_chatLayout->setContentsMargins(16, 16, 16, 16);
     m_chatLayout->setSpacing(0);
+    m_chatLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
     m_chatLayout->addStretch(1);
     m_chatScroll->setWidget(m_chatContainer);
     mainLayout->addWidget(m_chatScroll, 1);
@@ -677,9 +680,11 @@ void GeminiPanel::renderChatMessage(const ChatMessage& message) {
     QTextBrowser* card = new QTextBrowser(m_chatContainer);
     card->setReadOnly(true);
     card->setOpenExternalLinks(false);
+    card->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse);
     card->setFrameShape(QFrame::NoFrame);
     card->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     card->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    card->setFocusPolicy(Qt::NoFocus);
     card->setStyleSheet("QTextBrowser { background: transparent; border: none; padding: 0; margin: 0; }");
     card->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Minimum);
     card->document()->setDocumentMargin(0);
@@ -692,6 +697,8 @@ void GeminiPanel::renderChatMessage(const ChatMessage& message) {
         "}"
     );
     connect(card, &QTextBrowser::anchorClicked, this, &GeminiPanel::onAnchorClicked);
+    card->installEventFilter(this);
+    if (card->viewport()) card->viewport()->installEventFilter(this);
 
     const QString html = chatMessageToHtml(message);
     card->setHtml(html);
@@ -1069,6 +1076,20 @@ void GeminiPanel::setUndoStack(QUndoStack* stack) {
 }
 
 bool GeminiPanel::eventFilter(QObject* watched, QEvent* event) {
+    auto isChatScrollObject = [this, watched]() -> bool {
+        if (!watched) return false;
+        if (watched == m_chatScroll || watched == m_chatContainer) return true;
+        if (m_chatScroll && watched == m_chatScroll->viewport()) return true;
+        for (QWidget* widget : std::as_const(m_chatMessageWidgets)) {
+            if (!widget) continue;
+            if (watched == widget) return true;
+            if (auto* browser = qobject_cast<QTextBrowser*>(widget)) {
+                if (browser->viewport() == watched) return true;
+            }
+        }
+        return false;
+    };
+
     if (watched == m_inputField && event && event->type() == QEvent::KeyPress) {
         auto* keyEvent = static_cast<QKeyEvent*>(event);
         const bool enterPressed = (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter);
@@ -1078,6 +1099,45 @@ bool GeminiPanel::eventFilter(QObject* watched, QEvent* event) {
             if (!wantsNewline) {
                 onSendClicked();
                 return true;
+            }
+        }
+    }
+
+    if (event && isChatScrollObject() && m_chatScroll && m_chatScroll->verticalScrollBar()) {
+        auto* bar = m_chatScroll->verticalScrollBar();
+        if (event->type() == QEvent::Wheel) {
+            auto* wheelEvent = static_cast<QWheelEvent*>(event);
+            const int delta = wheelEvent->angleDelta().y();
+            if (delta != 0) {
+                bar->setValue(bar->value() - delta);
+                return true;
+            }
+        }
+        if (event->type() == QEvent::KeyPress) {
+            auto* keyEvent = static_cast<QKeyEvent*>(event);
+            const int singleStep = std::max(24, bar->singleStep());
+            const int pageStep = std::max(80, bar->pageStep() - 24);
+            switch (keyEvent->key()) {
+            case Qt::Key_Up:
+                bar->setValue(bar->value() - singleStep);
+                return true;
+            case Qt::Key_Down:
+                bar->setValue(bar->value() + singleStep);
+                return true;
+            case Qt::Key_PageUp:
+                bar->setValue(bar->value() - pageStep);
+                return true;
+            case Qt::Key_PageDown:
+                bar->setValue(bar->value() + pageStep);
+                return true;
+            case Qt::Key_Home:
+                bar->setValue(bar->minimum());
+                return true;
+            case Qt::Key_End:
+                bar->setValue(bar->maximum());
+                return true;
+            default:
+                break;
             }
         }
     }

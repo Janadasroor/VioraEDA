@@ -43,6 +43,7 @@
 #include "../items/behavioral_current_source_item.h"
 #include "../dialogs/current_source_ltspice_dialog.h"
 #include "../dialogs/spice_directive_dialog.h"
+#include "../dialogs/spice_subcircuit_import_dialog.h"
 #include "../dialogs/signal_generator_properties_dialog.h"
 #include "../dialogs/led_properties_dialog.h"
 #include "../dialogs/switch_properties_dialog.h"
@@ -1792,6 +1793,23 @@ void SchematicEditor::onProjectAudit() {
 
 void SchematicEditor::onOpenModelArchitect() {
     addModelArchitectTab();
+}
+
+void SchematicEditor::onImportSpiceSubcircuit() {
+    SpiceSubcircuitImportDialog dlg(m_projectDir, m_currentFilePath, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const auto res = dlg.result();
+    statusBar()->showMessage(QString("Saved subcircuit %1 to %2").arg(res.subcktName, res.relativeIncludePath), 5000);
+
+    if (!res.insertIncludeDirective) return;
+
+    auto* dirItem = new SchematicSpiceDirectiveItem(QString(".include \"%1\"").arg(res.relativeIncludePath));
+    if (m_view) {
+        dirItem->setPos(m_view->mapToScene(m_view->viewport()->rect().center()));
+    }
+    m_undoStack->push(new AddItemCommand(m_scene, dirItem));
+    m_isModified = true;
 }
 
 void SchematicEditor::onOpenCommandPalette() {

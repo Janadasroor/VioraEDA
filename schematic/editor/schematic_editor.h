@@ -133,6 +133,7 @@ private slots:
     void onOpenComponentBrowser();
     void onOpenFindReplace();
     void onOpenModelArchitect();
+    void onImportSpiceSubcircuit();
     void onOpenPowerNetsManager();
     void onOpenBusAliasesManager();
     void onOpenERCRulesConfig();

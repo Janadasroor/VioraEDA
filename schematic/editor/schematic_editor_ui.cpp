@@ -360,6 +360,7 @@ void SchematicEditor::createToolBar() {
     fileMenu->addAction(createComponentIcon("New"), "New Schematic", this, &SchematicEditor::onNewSchematic, QKeySequence::New);
     fileMenu->addAction(createComponentIcon("Open"), "Open Schematic...", this, &SchematicEditor::onOpenSchematic, QKeySequence::Open);
     fileMenu->addAction(createComponentIcon("Open"), "Import ASC File...", this, &SchematicEditor::onImportAscFile);
+    fileMenu->addAction(createComponentIcon("Open"), "Import SPICE Subcircuit...", this, &SchematicEditor::onImportSpiceSubcircuit);
     fileMenu->addAction(createComponentIcon("Save"), "Save Schematic", this, &SchematicEditor::onSaveSchematic, QKeySequence::Save);
     fileMenu->addSeparator();
     fileMenu->addAction(createComponentIcon("New Symbol"), "Create New Symbol", this, &SchematicEditor::onOpenSymbolEditor);
@@ -480,6 +481,7 @@ void SchematicEditor::createToolBar() {
     toolsMenu->addAction("Clear ERC Exclusions", this, &SchematicEditor::onClearErcExclusions);
     toolsMenu->addAction("Bus Aliases...", this, &SchematicEditor::onOpenBusAliasesManager);
     toolsMenu->addAction(createComponentIcon("Netlist"), "Netlist Editor", this, &SchematicEditor::onOpenNetlistEditor);
+    toolsMenu->addAction(getThemeIcon(":/icons/tool_spice_directive.svg"), "Import SPICE Subcircuit...", this, &SchematicEditor::onImportSpiceSubcircuit);
     toolsMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "SPICE Model Architect", this, &SchematicEditor::onOpenModelArchitect);
     toolsMenu->addSeparator();
     
