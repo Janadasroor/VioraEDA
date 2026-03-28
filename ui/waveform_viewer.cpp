@@ -550,10 +550,51 @@ void WaveformViewer::clear() {
     m_nodeList->blockSignals(false);
     
     for (auto* p : m_panes) {
-        p->chart->removeAllSeries();
-        p->view->setCursorPositions(m_cursor1X, 0, m_cursor2X, 0, nullptr);
+        if (p->chart) p->chart->removeAllSeries();
+        if (p->view) p->view->setCursorPositions(m_cursor1X, 0, m_cursor2X, 0, nullptr);
     }
     m_activeSeriesName.clear();
+}
+
+void WaveformViewer::clearPane(int index) {
+    if (index == -1 && m_focusedPane) {
+        index = m_panes.indexOf(m_focusedPane);
+    }
+    if (index < 0 || index >= m_panes.size()) return;
+
+    // Remove all signals belonging to this pane
+    QList<QString> toRemove;
+    for (auto it = m_signals.begin(); it != m_signals.end(); ++it) {
+        if (it.value().paneIndex == index) {
+            toRemove.append(it.key());
+        }
+    }
+
+    m_nodeList->blockSignals(true);
+    for (const QString& name : toRemove) {
+        m_signals.remove(name);
+        m_pointCounters.remove(name);
+        // Find and remove from m_nodeList
+        for (int i = 0; i < m_nodeList->count(); ++i) {
+            if (m_nodeList->item(i)->text() == name) {
+                delete m_nodeList->takeItem(i);
+                break;
+            }
+        }
+    }
+    m_nodeList->blockSignals(false);
+
+    auto* p = m_panes[index];
+    if (p->chart) {
+        p->chart->removeAllSeries();
+    }
+    if (p->view) {
+        p->view->setCursorPositions(m_cursor1X, 0, m_cursor2X, 0, nullptr);
+    }
+    
+    if (m_activeSeriesName.isEmpty() || toRemove.contains(m_activeSeriesName)) {
+        m_activeSeriesName.clear();
+    }
 }
 
 bool WaveformViewer::currentXRange(double& minX, double& maxX) const {
@@ -2400,9 +2441,21 @@ bool WaveformViewer::getSignalData(const QString& name, QVector<double>& time, Q
 }
 
 QStringList WaveformViewer::getSignalNames() const {
-    QStringList names;
+    return m_signals.keys();
+}
+
+int WaveformViewer::focusedPaneIndex() const {
+    if (!m_focusedPane) return -1;
+    return m_panes.indexOf(m_focusedPane);
+}
+
+QStringList WaveformViewer::getSignalsInPane(int index) const {
+    QStringList result;
+    if (index < 0 || index >= m_panes.size()) return result;
     for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
-        names.append(it.key());
+        if (it.value().paneIndex == index) {
+            result.append(it.key());
+        }
     }
-    return names;
+    return result;
 }

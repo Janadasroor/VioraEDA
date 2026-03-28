@@ -84,6 +84,7 @@ public:
     void beginBatchUpdate() { m_blockUpdates = true; }
     void endBatchUpdate() { m_blockUpdates = false; updatePlot(true); }
     void clear();
+    void clearPane(int index = -1);
     void zoomFit();
     void setAcMode(bool enabled);
     bool currentXRange(double& minX, double& maxX) const;
@@ -106,6 +107,8 @@ public:
     void importSignals(const QList<SignalExport>& signalExports);
     bool getSignalData(const QString& name, QVector<double>& time, QVector<double>& values);
     QStringList getSignalNames() const;
+    int focusedPaneIndex() const;
+    QStringList getSignalsInPane(int index) const;
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -147,6 +150,9 @@ private:
     QSplitter* m_splitter;
     QListWidget *m_nodeList;
     QLabel *m_coordLabel;
+    QHBoxLayout *m_legendLayout;
+    QLabel *m_xAxisTitleLabel;
+    QWidget *m_legendContainer;
     MeasurementDialog *m_measureDialog;
     AnalysisDialog *m_analysisDialog = nullptr;
     bool m_cursorsEnabled;
@@ -188,6 +194,7 @@ private:
     void syncAxesX(QValueAxis* source);
     void zoomFitYOnly();
     void updateNodeItemStyle(QListWidgetItem* item);
+    void updateLegend();
     void showAnalysisForSeries(const QString &seriesName);
     void exportSignalsCsv();
     bool buildValueAtCursor(QString &outText) const;

@@ -42,6 +42,7 @@ signals:
     void signalUnprobed(const QString& signalName);
     void signalDifferentialProbed(const QString& pNet, const QString& nNet);
     void signalClearAllProbes();
+    void signalClearFocusedPaneProbes();
 
 private:
     ProbeKind m_kind = ProbeKind::Voltage;

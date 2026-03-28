@@ -58,6 +58,10 @@ public:
     void addModelArchitectTab();
     void addImageTab(const QString& filePath);
     void closeTab(int index);
+    
+    void onClearSimulationOverlays();
+    void onClearAllProbeMarkers();
+    void removeProbeMarkerBySignalName(const QString& signalName);
 
 private slots:
     void onZoomFit();
@@ -141,7 +145,6 @@ private slots:
     void onSimulationPaused(bool paused);
     void onTimeTravelSnapshot(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& currents);
     void onOverlayVisibilityChanged(bool showVoltage, bool showCurrent);
-    void onClearSimulationOverlays();
     
     // Manipulation slots
     void onRotateCW();

@@ -1451,6 +1451,7 @@ void SchematicEditor::createDockWidgets() {
     // Initialize Simulation Panel (but don't add to tabs yet) so Oscilloscope is available
     if (m_scene && m_netManager) {
         m_simulationPanel = new SimulationPanel(m_scene, m_netManager, m_projectDir, this);
+        m_simulationPanel->setEditor(this);
         
         SimulationPanel::AnalysisConfig pCfg;
         pCfg.type = m_simConfig.type;

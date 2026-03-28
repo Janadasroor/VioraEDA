@@ -259,8 +259,8 @@ void SchematicProbeTool::mousePressEvent(QMouseEvent* event) {
                 const QString markerKey = markerKeyFor(netName, kindTag);
 
                 if (findProbeMarker(view()->scene(), markerKey)) {
-                    emit signalClearAllProbes();
-                    removeAllProbeMarkers(view()->scene());
+                    emit signalClearFocusedPaneProbes();
+                    // Don't remove all markers here anymore, let SimulationPanel handle selective removal
                     emit signalProbed(signalName);
                     placeProbeMarker(view()->scene(), scenePos, netName, kindTag);
                 } else {
@@ -319,8 +319,8 @@ void SchematicProbeTool::mouseReleaseEvent(QMouseEvent* event) {
                 const QString markerKey = markerKeyFor(m_startNetName, "V");
 
                 if (findProbeMarker(view()->scene(), markerKey)) {
-                    emit signalClearAllProbes();
-                    removeAllProbeMarkers(view()->scene());
+                    emit signalClearFocusedPaneProbes();
+                    // Don't remove all markers here anymore
                     emit signalProbed(signalName);
                     placeProbeMarker(view()->scene(), scenePos, m_startNetName, "V");
                 } else {

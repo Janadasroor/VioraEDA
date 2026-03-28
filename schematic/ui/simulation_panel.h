@@ -39,6 +39,8 @@ public:
     void addProbe(const QString& signalName);
     void addDifferentialProbe(const QString& pNet, const QString& nNet);
     void removeProbe(const QString& signalName);
+    void onClearFocusedPaneProbes();
+    void setEditor(SchematicEditor* editor) { m_editor = editor; }
     void clearAllProbes();
     void clearAllProbesPreserveX();
     void clearResults();
@@ -161,6 +163,7 @@ private:
     void appendDerivedPowerWaveforms(SimResults& results) const;
 
     QGraphicsScene* m_scene = nullptr;
+    SchematicEditor* m_editor = nullptr;
     NetManager* m_netManager = nullptr;
     QString m_projectDir;
     std::atomic<bool> m_acceptRealTimeStream;
