@@ -40,6 +40,7 @@
 #include <QToolButton>
 #include <QKeyEvent>
 #include <QSizePolicy>
+#include <QResizeEvent>
 
 namespace {
 QString compactErrorSummary(const QString& raw, int maxLen = 180) {
@@ -650,6 +651,10 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_thinkingPulseTimer = new QTimer(this);
     m_thinkingPulseTimer->setInterval(500);
     connect(m_thinkingPulseTimer, &QTimer::timeout, this, &GeminiPanel::updateThinkingPulse);
+    m_rerenderTimer = new QTimer(this);
+    m_rerenderTimer->setSingleShot(true);
+    m_rerenderTimer->setInterval(40);
+    connect(m_rerenderTimer, &QTimer::timeout, this, &GeminiPanel::rerenderChatFromModel);
     updateApiKeyVisibility();
     updateSendEnabled();
     if (!ConfigManager::instance().geminiApiKey().isEmpty()) {
@@ -659,25 +664,62 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
 
 void GeminiPanel::setMode(const QString& m) { m_mode = m; }
 
-void GeminiPanel::appendUserMessageCard(const QString& text, const QString& headerHtml) {
+void GeminiPanel::appendChatMessage(const ChatMessage& message) {
+    m_chatMessages.append(message);
+    renderChatMessage(message);
+}
+
+QString GeminiPanel::chatMessageToHtml(const ChatMessage& message) const {
+    switch (message.kind) {
+    case ChatMessage::Kind::User:
+        return wrapUserCard(message.body.toHtmlEscaped(), message.meta);
+    case ChatMessage::Kind::ModelMarkdown: {
+        QTextDocument doc;
+        doc.setDefaultStyleSheet(markdownDocStyleSheet());
+        doc.setMarkdown(message.body);
+        return wrapModelCard(doc.toHtml());
+    }
+    case ChatMessage::Kind::SystemHtml:
+    default:
+        return message.body;
+    }
+}
+
+void GeminiPanel::renderChatMessage(const ChatMessage& message) {
     if (!m_chatArea) return;
     m_chatArea->moveCursor(QTextCursor::End);
-    m_chatArea->insertHtml(wrapUserCard(text.toHtmlEscaped(), headerHtml));
+    m_chatArea->insertHtml(chatMessageToHtml(message));
+}
+
+void GeminiPanel::rerenderChatFromModel() {
+    if (!m_chatArea) return;
+    m_chatArea->clear();
+    for (const auto& message : m_chatMessages) {
+        renderChatMessage(message);
+    }
+    scrollChatToBottom();
+}
+
+void GeminiPanel::appendUserMessageCard(const QString& text, const QString& headerHtml) {
+    ChatMessage message;
+    message.kind = ChatMessage::Kind::User;
+    message.body = text;
+    message.meta = headerHtml;
+    appendChatMessage(message);
 }
 
 void GeminiPanel::appendModelMarkdownCard(const QString& markdownText) {
-    if (!m_chatArea) return;
-    QTextDocument doc;
-    doc.setDefaultStyleSheet(markdownDocStyleSheet());
-    doc.setMarkdown(markdownText);
-    m_chatArea->moveCursor(QTextCursor::End);
-    m_chatArea->insertHtml(wrapModelCard(doc.toHtml()));
+    ChatMessage message;
+    message.kind = ChatMessage::Kind::ModelMarkdown;
+    message.body = markdownText;
+    appendChatMessage(message);
 }
 
 void GeminiPanel::appendSystemNote(const QString& html) {
-    if (!m_chatArea) return;
-    m_chatArea->moveCursor(QTextCursor::End);
-    m_chatArea->insertHtml(html);
+    ChatMessage message;
+    message.kind = ChatMessage::Kind::SystemHtml;
+    message.body = html;
+    appendChatMessage(message);
 }
 
 void GeminiPanel::scrollChatToBottom() {
@@ -934,7 +976,8 @@ void GeminiPanel::loadHistoryFromFile(const QString& filePath) {
 
     QFile file(filePath);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        m_history.clear(); 
+        m_history.clear();
+        m_chatMessages.clear();
         clearSuggestionButtons();
         m_chatArea->clear();
         m_currentChatTitle = QFileInfo(filePath).baseName();
@@ -1013,6 +1056,27 @@ bool GeminiPanel::eventFilter(QObject* watched, QEvent* event) {
     return QWidget::eventFilter(watched, event);
 }
 
+void GeminiPanel::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    if (!m_chatMessages.isEmpty() && m_rerenderTimer) {
+        m_rerenderTimer->start();
+    }
+}
+
+void GeminiPanel::changeEvent(QEvent* event) {
+    QWidget::changeEvent(event);
+    if (!event || m_chatMessages.isEmpty() || !m_rerenderTimer) return;
+    switch (event->type()) {
+    case QEvent::PaletteChange:
+    case QEvent::ApplicationPaletteChange:
+    case QEvent::StyleChange:
+        m_rerenderTimer->start();
+        break;
+    default:
+        break;
+    }
+}
+
 void GeminiPanel::updateSendEnabled() {
     if (!m_sendButton || !m_inputField) return;
     const bool hasText = !m_inputField->toPlainText().trimmed().isEmpty();
@@ -1044,7 +1108,8 @@ void GeminiPanel::clearHistory() {
         m_process = nullptr;
     }
 
-    m_history.clear(); 
+    m_history.clear();
+    m_chatMessages.clear();
     clearSuggestionButtons();
     m_chatArea->clear();
     m_currentChatTitle.clear();
@@ -1078,7 +1143,7 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
         reportError("API Key Missing",
                     "Gemini API key is not configured.\nOpen the AI panel key field, paste your key, then press SAVE.",
                     true);
-        m_chatArea->append("<div style='color: #f85149; background: #161b22; padding: 10px; border-radius: 6px; border: 1px solid #30363d;'><b>API Key Missing</b></div>");
+        appendSystemNote("<div style='color: #f85149; background: #161b22; padding: 10px; border-radius: 6px; border: 1px solid #30363d;'><b>API Key Missing</b></div>");
         m_apiKeyContainer->show(); return;
     }
     // Capture checkpoint
@@ -1242,7 +1307,7 @@ void GeminiPanel::onAnchorClicked(const QUrl& url) {
         int idx = link.mid(11).toInt();
         if (m_undoStack && idx >= 0 && idx <= m_undoStack->count()) {
             m_undoStack->setIndex(idx);
-            m_chatArea->append(QString("<div style='color: #8b949e; font-size: 11px; font-style: italic; margin: 4px 0 12px 0; text-align: right;'>[SYSTEM] Schematic reverted to checkpoint %1.</div>").arg(idx));
+            appendSystemNote(QString("<div style='color: #8b949e; font-size: 11px; font-style: italic; margin: 4px 0 12px 0; text-align: right;'>[SYSTEM] Schematic reverted to checkpoint %1.</div>").arg(idx));
         }
     } else if (link.startsWith("snippet:")) {
         QString json = link.mid(8);
@@ -1265,7 +1330,6 @@ void GeminiPanel::clearSuggestionButtons() {
 }
 
 void GeminiPanel::addSuggestionButton(const QString& label, const QString& command) {
-    if (!m_chatArea) return;
     const QString cleanLabel = label.trimmed().isEmpty() ? QString("RUN") : label.trimmed();
     const QString cleanCommand = command.trimmed().isEmpty() ? cleanLabel : command.trimmed();
     const QString key = QString("%1|%2").arg(cleanLabel.toLower(), cleanCommand.toLower());
@@ -1279,8 +1343,7 @@ void GeminiPanel::addSuggestionButton(const QString& label, const QString& comma
     const QString fg = isLight ? "#1d4ed8" : "#9cc8ff";
     const QString border = isLight ? "#bfdbfe" : "#30405a";
 
-    m_chatArea->moveCursor(QTextCursor::End);
-    m_chatArea->insertHtml(QString(
+    appendSystemNote(QString(
         "<div style='margin: 8px 0 12px 0;'>"
         "<a href='suggestion:%1' style='display:inline-block; background:%2; color:%3; border:1px solid %4; border-radius:6px; padding:6px 12px; text-decoration:none; font-size:11px; font-weight:700; text-transform:uppercase;'>%5</a>"
         "</div>")
