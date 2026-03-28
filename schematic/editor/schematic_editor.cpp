@@ -363,6 +363,17 @@ void SchematicEditor::addSchematicTab(const QString& name) {
         }
     });
 
+    connect(view, &SchematicView::snippetDropped, this, [this](const QString& json, const QPointF& pos) {
+        onSnippetGenerated(json, pos);
+    });
+
+    connect(view, &SchematicView::netlistDropped, this, [this](const QString& netlist, const QPointF& pos) {
+        // Implementation for netlist drop at pos
+        // For now, let's just use the existing netlist handling but maybe offset it
+        statusBar()->showMessage("AI Netlist dropped at position", 3000);
+        // (Logic to handle netlist at pos if possible)
+    });
+
     int idx = m_workspaceTabs->addTab(view, getThemeIcon(":/icons/comp_ic.svg"), name);
     m_workspaceTabs->setCurrentIndex(idx);
 

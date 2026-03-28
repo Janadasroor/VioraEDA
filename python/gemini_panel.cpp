@@ -18,8 +18,15 @@
 #include <QScrollBar>
 #include <QScrollArea>
 #include <QTextBrowser>
+#include <QAbstractTextDocumentLayout>
 #include <QTextCursor>
 #include <QCoreApplication>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QKeySequence>
+#include <QDrag>
+#include <QMimeData>
+#include <QMouseEvent>
 #include <QDir>
 #include <QFile>
 #include <QTimer>
@@ -603,10 +610,11 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_modelCombo->setStyleSheet(comboStyle);
     m_modelCombo->addItem("Gemini 3.1 Flash Lite Preview", "gemini-3.1-flash-lite-preview");
 
-    QPushButton* micButton = new QPushButton("VOICE", this);
-    micButton->setFixedHeight(24);
-    micButton->setStyleSheet(QString("QPushButton { background: transparent; color: %1; border: none; font-size: 10px; font-weight: bold; padding: 0 4px; } QPushButton:hover { color: %2; }")
+    m_voiceButton = new QPushButton("VOICE", this);
+    m_voiceButton->setFixedHeight(24);
+    m_voiceButton->setStyleSheet(QString("QPushButton { background: transparent; color: %1; border: none; font-size: 10px; font-weight: bold; padding: 0 4px; } QPushButton:hover { color: %2; }")
         .arg(theme ? theme->textSecondary().name() : "#888", fg));
+    connect(m_voiceButton, &QPushButton::clicked, this, &GeminiPanel::onVoiceClicked);
 
     m_sendButton = new QPushButton("SEND", this);
     m_sendButton->setFixedHeight(24);
@@ -625,7 +633,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     toolsRow->addWidget(speedCombo);
     toolsRow->addWidget(m_modelCombo);
     toolsRow->addStretch();
-    toolsRow->addWidget(micButton);
+    toolsRow->addWidget(m_voiceButton);
     toolsRow->addWidget(m_sendButton);
     toolsRow->addWidget(m_stopButton);
     composerLayout->addLayout(toolsRow);
@@ -710,13 +718,19 @@ void GeminiPanel::renderChatMessage(const ChatMessage& message) {
             - 4
     );
     card->setFixedWidth(availableWidth);
-    card->document()->setTextWidth(availableWidth - 8);
-    card->document()->adjustSize();
-    card->setFixedHeight(static_cast<int>(std::ceil(card->document()->size().height())) + 10);
+    const qreal textWidth = std::max(120, availableWidth - 8);
+    card->document()->setTextWidth(textWidth);
+    if (auto* layout = card->document()->documentLayout()) {
+        const QSizeF docSize = layout->documentSize();
+        card->setFixedHeight(static_cast<int>(std::ceil(docSize.height())) + 14);
+    } else {
+        card->document()->adjustSize();
+        card->setFixedHeight(static_cast<int>(std::ceil(card->document()->size().height())) + 14);
+    }
 
     m_chatLayout->insertWidget(m_chatLayout->count() - 1, card);
     m_chatMessageWidgets.append(card);
-    m_chatContainer->adjustSize(); // Force container to recalculate size for scroll area
+    m_chatContainer->adjustSize();
 }
 
 void GeminiPanel::rerenderChatFromModel() {
@@ -802,12 +816,123 @@ void GeminiPanel::finishAssistantRunUi(int exitCode) {
     updateSendEnabled();
 }
 
+void GeminiPanel::onVoiceClicked() {
+    if (m_isWorking) return;
+
+    static bool isRecording = false;
+    if (!isRecording) {
+        isRecording = true;
+        m_voiceButton->setText("● REC");
+        m_voiceButton->setStyleSheet("QPushButton { background: #ef4444; color: white; border-radius: 6px; font-weight: bold; font-size: 10px; padding: 0 8px; }");
+        
+        // In a real implementation, we would start QAudioInput here.
+        // For the foundation, we'll simulate a 2-second capture.
+        QTimer::singleShot(2000, this, [this]() {
+            onVoiceClicked(); // Toggle off
+        });
+        
+    } else {
+        isRecording = false;
+        m_voiceButton->setText("VOICE");
+        PCBTheme* theme = ThemeManager::theme();
+        QString fg = theme ? theme->textColor().name() : "#000000";
+        m_voiceButton->setStyleSheet(QString("QPushButton { background: transparent; color: %1; border: none; font-size: 10px; font-weight: bold; padding: 0 4px; } QPushButton:hover { color: %2; }")
+            .arg(theme ? theme->textSecondary().name() : "#888", fg));
+        
+        // Simulate sending the captured "audio" (as text for now)
+        m_inputField->setPlainText("Zoom to R1 and highlight the feedback net.");
+        onSendClicked();
+    }
+}
+
 void GeminiPanel::handleActionTag(const QString& actionText) {
     const QString action = actionText.trimmed();
     if (action.isEmpty()) return;
+    
     if (m_statusButton) m_statusButton->setText(action.toUpper());
     showToolCallBanner(action);
     appendSystemNote(QString("<div style='color: #58a6ff; font-size: 11px; margin: 5px 0;'>[ACTION] <i>%1</i></div>").arg(action.toHtmlEscaped()));
+
+    // Implementation of specific actions
+    if (action.startsWith("add_hint(")) {
+        // Simple parser for add_hint(text="...", x=0, y=0, ref="...")
+        // text is required, others optional.
+        QString params = action.mid(9);
+        if (params.endsWith(")")) params.chop(1);
+        
+        auto getParam = [&](const QString& key) -> QString {
+            QString pattern = key + "=\"";
+            int start = params.indexOf(pattern);
+            if (start == -1) {
+                // Try without quotes for numbers
+                pattern = key + "=";
+                start = params.indexOf(pattern);
+                if (start == -1) return "";
+                int end = params.indexOf(",", start + pattern.length());
+                if (end == -1) end = params.length();
+                return params.mid(start + pattern.length(), end - (start + pattern.length())).trimmed();
+            }
+            start += pattern.length();
+            int end = params.indexOf("\"", start);
+            if (end == -1) return "";
+            return params.mid(start, end - start);
+        };
+
+        QString text = getParam("text");
+        double x = getParam("x").toDouble();
+        double y = getParam("y").toDouble();
+        QString ref = getParam("ref");
+
+        if (!text.isEmpty() && m_view) {
+            m_view->addHint(text, QPointF(x, y), ref);
+        }
+    } else if (action.startsWith("zoom_to(")) {
+        QString params = action.mid(8);
+        if (params.endsWith(")")) params.chop(1);
+        
+        auto getParam = [&](const QString& key) -> QString {
+            QString pattern = key + "=\"";
+            int start = params.indexOf(pattern);
+            if (start == -1) return "";
+            start += pattern.length();
+            int end = params.indexOf("\"", start);
+            if (end == -1) return "";
+            return params.mid(start, end - start);
+        };
+
+        QString ref = getParam("ref");
+        if (!ref.isEmpty() && m_view && m_scene) {
+            for (auto* item : m_scene->items()) {
+                if (auto* sItem = dynamic_cast<SchematicItem*>(item)) {
+                    if (sItem->reference() == ref && !sItem->isSubItem()) {
+                        m_view->fitInView(sItem->sceneBoundingRect().adjusted(-150, -150, 150, 150), Qt::KeepAspectRatio);
+                        sItem->setSelected(true);
+                        break;
+                    }
+                }
+            }
+        }
+    } else if (action.startsWith("highlight_net(")) {
+        QString params = action.mid(14);
+        if (params.endsWith(")")) params.chop(1);
+        
+        auto getParam = [&](const QString& key) -> QString {
+            QString pattern = key + "=\"";
+            int start = params.indexOf(pattern);
+            if (start == -1) return "";
+            start += pattern.length();
+            int end = params.indexOf("\"", start);
+            if (end == -1) return "";
+            return params.mid(start, end - start);
+        };
+
+        QString net = getParam("name");
+        if (!net.isEmpty() && m_netManager) {
+            onItemsHighlighted(m_netManager->getRefsOnNet(net));
+        }
+    } else if (action == "clear_hints") {
+        if (m_view) m_view->clearHints();
+    }
 }
 
 void GeminiPanel::handleSuggestionTag(const QString& suggestionText) {
@@ -1105,6 +1230,53 @@ bool GeminiPanel::eventFilter(QObject* watched, QEvent* event) {
 
     if (event && isChatScrollObject() && m_chatScroll && m_chatScroll->verticalScrollBar()) {
         auto* bar = m_chatScroll->verticalScrollBar();
+        
+        if (event->type() == QEvent::MouseButtonPress) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                if (auto* browser = qobject_cast<QTextBrowser*>(watched)) {
+                    QString anchor = browser->anchorAt(me->pos());
+                    if (anchor.startsWith("snippet:") || anchor.startsWith("netlist:")) {
+                        m_dragStartPosition = me->pos();
+                        m_pressedAnchor = anchor;
+                    }
+                } else if (watched && watched->parent() && qobject_cast<QTextBrowser*>(watched->parent())) {
+                     // Check viewport clicks too
+                     auto* browser = qobject_cast<QTextBrowser*>(watched->parent());
+                     QString anchor = browser->anchorAt(me->pos());
+                     if (anchor.startsWith("snippet:") || anchor.startsWith("netlist:")) {
+                         m_dragStartPosition = me->pos();
+                         m_pressedAnchor = anchor;
+                     }
+                }
+            }
+        }
+        
+        if (event->type() == QEvent::MouseMove && !m_pressedAnchor.isEmpty()) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if ((me->pos() - m_dragStartPosition).manhattanLength() >= QApplication::startDragDistance()) {
+                QDrag* drag = new QDrag(this);
+                QMimeData* mime = new QMimeData();
+                
+                if (m_pressedAnchor.startsWith("snippet:")) {
+                    mime->setData("application/x-viospice-snippet", m_pressedAnchor.mid(8).toUtf8());
+                    mime->setText("Viora AI Snippet");
+                } else if (m_pressedAnchor.startsWith("netlist:")) {
+                    mime->setData("application/x-viospice-netlist", m_pressedAnchor.mid(8).toUtf8());
+                    mime->setText("Viora AI Netlist");
+                }
+                
+                drag->setMimeData(mime);
+                m_pressedAnchor.clear();
+                drag->exec(Qt::CopyAction);
+                return true;
+            }
+        }
+
+        if (event->type() == QEvent::MouseButtonRelease) {
+            m_pressedAnchor.clear();
+        }
+
         if (event->type() == QEvent::Wheel) {
             auto* wheelEvent = static_cast<QWheelEvent*>(event);
             const int delta = wheelEvent->angleDelta().y();
@@ -1148,6 +1320,11 @@ void GeminiPanel::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     if (!m_chatMessages.isEmpty() && m_rerenderTimer) {
         m_rerenderTimer->start();
+        QTimer::singleShot(0, this, [this]() {
+            if (m_rerenderTimer && !m_chatMessages.isEmpty()) {
+                m_rerenderTimer->start();
+            }
+        });
     }
 }
 

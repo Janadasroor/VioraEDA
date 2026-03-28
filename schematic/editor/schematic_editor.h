@@ -208,7 +208,7 @@ private:
     void onIssueItemDoubleClicked(QListWidgetItem* item);
     void updateGeminiProjectEffect();
     void onItemsHighlighted(const QStringList& references);
-    void onSnippetGenerated(const QString& jsonSnippet);
+    void onSnippetGenerated(const QString& jsonSnippet, const QPointF& pos = QPointF());
     QList<ERCViolation> getErcViolations() const;
     void updateCurrentTabTitleFromFilePath(const QString& filePath);
     SymbolDefinition buildSymbolFromSelection() const;

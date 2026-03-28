@@ -72,6 +72,7 @@ SpiceSubcircuitImportDialog::SpiceSubcircuitImportDialog(const QString& projectD
     , m_pinTable(nullptr)
     , m_insertIncludeCheck(nullptr)
     , m_openSymbolEditorCheck(nullptr)
+    , m_autoPlaceAfterSaveCheck(nullptr)
     , m_buttonBox(nullptr)
     , m_highlighter(nullptr) {
     setupUi();
@@ -143,6 +144,11 @@ void SpiceSubcircuitImportDialog::setupUi() {
     m_openSymbolEditorCheck->setChecked(true);
     mainLayout->addWidget(m_openSymbolEditorCheck);
 
+    m_autoPlaceAfterSaveCheck = new QCheckBox("Place the generated symbol in the schematic after the first save", this);
+    m_autoPlaceAfterSaveCheck->setChecked(true);
+    mainLayout->addWidget(m_autoPlaceAfterSaveCheck);
+    m_autoPlaceAfterSaveCheck->setEnabled(m_openSymbolEditorCheck->isChecked());
+
     m_statusLabel = new QLabel(this);
     m_statusLabel->setWordWrap(true);
     m_statusLabel->setTextFormat(Qt::PlainText);
@@ -155,6 +161,7 @@ void SpiceSubcircuitImportDialog::setupUi() {
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_textEdit, &QPlainTextEdit::textChanged, this, &SpiceSubcircuitImportDialog::updateFromText);
     connect(m_fileNameEdit, &QLineEdit::textChanged, this, &SpiceSubcircuitImportDialog::refreshPathPreview);
+    connect(m_openSymbolEditorCheck, &QCheckBox::toggled, m_autoPlaceAfterSaveCheck, &QWidget::setEnabled);
 }
 
 QString SpiceSubcircuitImportDialog::baseDirectory() const {
@@ -310,6 +317,7 @@ void SpiceSubcircuitImportDialog::onAccepted() {
     m_result.netlistText = netlistText.trimmed();
     m_result.insertIncludeDirective = m_insertIncludeCheck->isChecked();
     m_result.openSymbolEditor = m_openSymbolEditorCheck->isChecked();
+    m_result.autoPlaceAfterSave = m_openSymbolEditorCheck->isChecked() && m_autoPlaceAfterSaveCheck->isChecked();
 
     accept();
 }

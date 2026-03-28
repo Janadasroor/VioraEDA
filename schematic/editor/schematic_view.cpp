@@ -49,6 +49,9 @@
 #include "../analysis/schematic_erc.h"
 #include <QGraphicsEllipseItem>
 #include <QToolTip>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include "../items/schematic_hint_item.h"
 
 namespace {
@@ -1635,5 +1638,32 @@ void SchematicView::clearHints() {
             scene()->removeItem(item);
             delete item;
         }
+    }
+}
+
+void SchematicView::dragEnterEvent(QDragEnterEvent* event) {
+    if (event->mimeData()->hasFormat("application/x-viospice-snippet") ||
+        event->mimeData()->hasFormat("application/x-viospice-netlist")) {
+        event->setDropAction(Qt::CopyAction);
+        event->accept();
+    } else {
+        QGraphicsView::dragEnterEvent(event);
+    }
+}
+
+void SchematicView::dropEvent(QDropEvent* event) {
+    const QMimeData* mime = event->mimeData();
+    QPointF scenePos = mapToScene(event->position().toPoint());
+    
+    if (mime->hasFormat("application/x-viospice-snippet")) {
+        QString json = QString::fromUtf8(mime->data("application/x-viospice-snippet"));
+        emit snippetDropped(json, scenePos);
+        event->acceptProposedAction();
+    } else if (mime->hasFormat("application/x-viospice-netlist")) {
+        QString netlistText = QString::fromUtf8(mime->data("application/x-viospice-netlist"));
+        emit netlistDropped(netlistText, scenePos);
+        event->acceptProposedAction();
+    } else {
+        QGraphicsView::dropEvent(event);
     }
 }
