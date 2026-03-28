@@ -262,6 +262,28 @@ class ToolRegistry:
                     x, y = self.adapter.get_signal(f"V({signal_name})")
 
             if x is None:
+                pin_nets = self.adapter.get_component_nets(self.schematic_path, signal_name)
+                if len(pin_nets) == 2:
+                    (_, net_a), (_, net_b) = pin_nets
+                    x_a, y_a = self.adapter.get_signal(f"V({net_a})")
+                    x_b, y_b = self.adapter.get_signal(f"V({net_b})")
+                    if x_a is not None and y_a is not None and x_b is not None and y_b is not None and len(y_a) == len(y_b) and len(y_a) > 0:
+                        diff = [float(a) - float(b) for a, b in zip(y_a, y_b)]
+                        return {
+                            "signal": f"V({net_a})-V({net_b})",
+                            "component": signal_name,
+                            "pins": [
+                                {"pin": pin_nets[0][0], "net": net_a},
+                                {"pin": pin_nets[1][0], "net": net_b},
+                            ],
+                            "points": len(x_a),
+                            "t_start": x_a[0],
+                            "t_end": x_a[-1],
+                            "min": min(diff),
+                            "max": max(diff),
+                            "avg": sum(diff) / len(diff),
+                            "rms": math.sqrt(sum(v * v for v in diff) / len(diff)),
+                        }
                 return {"error": f"Signal '{signal_name}' not found in results."}
 
             return {

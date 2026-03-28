@@ -20,7 +20,7 @@ SchematicSpiceDirectiveItem::SchematicSpiceDirectiveItem(QString text, QPointF p
 void SchematicSpiceDirectiveItem::contextMenuEvent(QGraphicsSceneContextMenuEvent* event) {
     QMenu menu;
     
-    QAction* editAction = menu.addAction("Edit Simulation...");
+    QAction* editAction = menu.addAction("Edit Directive...");
     QAction* copyAction = menu.addAction("Copy");
     QAction* deleteAction = menu.addAction("Delete");
     
