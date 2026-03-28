@@ -95,6 +95,12 @@ void SchematicToolRegistryBuiltIn::registerBuiltInTools() {
     registry.registerTool("BV", []() { return new SchematicComponentTool("Voltage_Source_Behavioral"); });
     registry.registerTool("BI", []() { return new SchematicComponentTool("Current_Source_Behavioral"); });
     registry.registerTool("Behavioral Current Source", []() { return new SchematicComponentTool("Current_Source_Behavioral"); });
+    
+    registry.registerTool("VCVS (E)", []() { return new SchematicComponentTool("E"); });
+    registry.registerTool("VCCS (G)", []() { return new SchematicComponentTool("G"); });
+    registry.registerTool("CCCS (F)", []() { return new SchematicComponentTool("F"); });
+    registry.registerTool("CCVS (H)", []() { return new SchematicComponentTool("H"); });
+
     registry.registerTool("Voltmeter (DC)", []() { return new SchematicComponentTool("Voltmeter (DC)"); });
     registry.registerTool("Voltmeter (AC)", []() { return new SchematicComponentTool("Voltmeter (AC)"); });
     registry.registerTool("Ammeter (DC)", []() { return new SchematicComponentTool("Ammeter (DC)"); });

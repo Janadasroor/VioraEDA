@@ -117,327 +117,170 @@ QIcon SchematicEditor::createComponentIcon(const QString& name) {
     painter.setPen(pen);
 
     if (name == "Select") {
-        painter.drawLine(8, 8, 24, 24);
-        painter.drawLine(8, 8, 8, 24);
-        painter.drawLine(8, 8, 24, 8);
+        return getThemeIcon(":/icons/tool_select.svg");
     } else if (name == "Zoom Area") {
-        painter.drawRect(6, 6, 20, 20);
-        painter.drawLine(16, 16, 26, 26);
-        painter.drawEllipse(10, 10, 10, 10);
+        return getThemeIcon(":/icons/tool_zoom_area.svg");
     } else if (name == "Zoom Components") {
-        painter.drawRect(6, 6, 20, 20);
-        painter.drawLine(16, 16, 26, 26);
-        // Draw small IC shape inside
-        painter.drawRect(10, 10, 8, 8);
-        painter.drawLine(8, 11, 10, 11); painter.drawLine(8, 13, 10, 13); painter.drawLine(8, 15, 10, 15); painter.drawLine(8, 17, 10, 17);
-        painter.drawLine(18, 11, 20, 11); painter.drawLine(18, 13, 20, 13); painter.drawLine(18, 15, 20, 15); painter.drawLine(18, 17, 20, 17);
+        return getThemeIcon(":/icons/view_zoom_components.svg");
     } else if (name == "Sync") {
-        painter.drawArc(6, 6, 14, 14, 35 * 16, 260 * 16);
-        painter.drawLine(18, 6, 20, 9);
-        painter.drawLine(18, 6, 15, 7);
-        painter.drawArc(12, 12, 14, 14, 215 * 16, 260 * 16);
-        painter.drawLine(14, 24, 11, 22);
-        painter.drawLine(14, 24, 17, 23);
+        return getThemeIcon(":/icons/tool_sync.svg");
     } else if (name == "Leave Sheet") {
         painter.drawLine(8, 16, 24, 16); // Arrow shaft
         painter.drawLine(8, 16, 16, 8);  // Arrow head top
         painter.drawLine(8, 16, 16, 24); // Arrow head bottom
         painter.drawRect(22, 10, 4, 12); // Vertical bar (door/up)
     } else if (name == "Wire") {
-        painter.drawLine(4, 28, 12, 16);
-        painter.drawLine(12, 16, 20, 16);
-        painter.drawLine(20, 16, 28, 4);
+        return getThemeIcon(":/icons/tool_wire.svg");
     } else if (name == "Probe" || name == "Voltage Probe" || name == "Current Probe" || name == "Power Probe" || name == "Logic Probe" || name == "Simulator") {
         QString iconPath = ":/icons/tool_probe.svg";
         if (name == "Voltage Probe") iconPath = ":/icons/tool_voltage_probe.svg";
         else if (name == "Current Probe") iconPath = ":/icons/tool_current_probe.svg";
         else if (name == "Power Probe") iconPath = ":/icons/tool_power_probe.svg";
         return getThemeIcon(iconPath);
-    } else if (name == "Logic Probe") {
-        painter.drawLine(24, 5, 24, 10);
-        painter.setPen(QPen(QColor("#60a5fa"), 2));
-        painter.drawRect(7, 5, 8, 8);
-        painter.drawText(QRectF(7, 5, 8, 8), Qt::AlignCenter, "1");
     } else if (name == "Bus") {
-        painter.setPen(QPen(Qt::blue, 4));
-        painter.drawLine(4, 24, 12, 12);
-        painter.drawLine(12, 12, 28, 12);
+        return getThemeIcon(":/icons/tool_bus.svg");
     } else if (name == "Bus Entry") {
-        painter.setPen(QPen(Qt::blue, 1.5));
-        painter.drawLine(10, 22, 22, 10);
+        return getThemeIcon(":/icons/tool_bus_entry.svg");
     } else if (name == "No-Connect") {
-        painter.setPen(QPen(Qt::red, 2));
-        painter.drawLine(10, 10, 22, 22);
-        painter.drawLine(10, 22, 22, 10);
+        return getThemeIcon(":/icons/tool_no_connect.svg");
     } else if (name == "Scissors" || name == "Erase") {
-        painter.setPen(QPen(Qt::black, 2));
-        painter.drawEllipse(4, 18, 8, 8);
-        painter.drawEllipse(4, 6, 8, 8);
-        painter.drawLine(11, 19, 25, 9);
-        painter.drawLine(11, 13, 25, 23);
-        painter.setBrush(Qt::black);
-        painter.drawEllipse(11, 15, 2, 2);
-    } else if (name == "Resistor") {
-        painter.drawPolyline(QVector<QPointF>{
-            {4, 16}, {8, 16}, {10, 10}, {14, 22}, {18, 10}, {22, 22}, {24, 16}, {28, 16}
-        });
-    } else if (name == "Capacitor") {
-        painter.drawLine(4, 16, 12, 16);
-        painter.drawLine(20, 16, 28, 16);
-        painter.drawLine(12, 8, 12, 24);
-        painter.drawLine(20, 8, 20, 24);
+        return getThemeIcon(":/icons/tool_scissors.svg");
+    } else if (name == "Resistor" || name == "Resistor (US)" || name == "Resistor (IEC)") {
+        return getThemeIcon(":/icons/comp_resistor.svg");
+    } else if (name == "Capacitor" || name == "Capacitor (Non-Polar)" || name == "Capacitor (Polarized)") {
+        return getThemeIcon(":/icons/comp_capacitor.svg");
     } else if (name == "Inductor") {
-        painter.drawArc(4, 12, 8, 8, 0, 180 * 16);
-        painter.drawArc(12, 12, 8, 8, 0, 180 * 16);
-        painter.drawArc(20, 12, 8, 8, 0, 180 * 16);
-        painter.drawLine(4, 16, 4, 16); // Start point
-    } else if (name == "Spice Directive") {
-        painter.setPen(QPen(color, 2));
-        painter.drawRect(4, 4, 24, 24);
-        painter.setFont(QFont("Arial", 10, QFont::Bold));
-        painter.drawText(QRect(4, 4, 24, 24), Qt::AlignCenter, ".op");
-    } else if (name == "BV") {
-        painter.setPen(QPen(color, 2));
-        painter.drawEllipse(6, 6, 20, 20);
-        painter.setFont(QFont("Arial", 10, QFont::Bold));
-        painter.drawText(QRect(6, 6, 20, 20), Qt::AlignCenter, "B");
+        return getThemeIcon(":/icons/comp_inductor.svg");
     } else if (name == "Diode") {
-        painter.drawLine(4, 16, 28, 16);
-        QPolygonF triangle;
-        triangle << QPointF(12, 10) << QPointF(12, 22) << QPointF(20, 16);
-        painter.drawPolygon(triangle);
-        painter.drawLine(20, 10, 20, 22);
-    } else if (name == "Transistor") {
-        painter.drawEllipse(4, 4, 24, 24);
-        painter.drawLine(16, 8, 16, 24); // Base
-        painter.drawLine(16, 14, 22, 8); // Collector
-        painter.drawLine(16, 18, 22, 24); // Emitter
-    } else if (name == "IC") {
-        painter.drawRect(8, 8, 16, 16);
-        // Pins
-        painter.drawLine(4, 10, 8, 10);
-        painter.drawLine(4, 14, 8, 14);
-        painter.drawLine(4, 18, 8, 18);
-        painter.drawLine(4, 22, 8, 22);
-        painter.drawLine(24, 10, 28, 10);
-        painter.drawLine(24, 14, 28, 14);
-        painter.drawLine(24, 18, 28, 18);
-        painter.drawLine(24, 22, 28, 22);
+        return getThemeIcon(":/icons/comp_diode.svg");
+    } else if (name == "Transistor" || name == "NPN Transistor" || name == "PNP Transistor" || name == "NMOS Transistor" || name == "PMOS Transistor") {
+        return getThemeIcon(":/icons/comp_transistor.svg");
+    } else if (name == "IC" || name == "RAM") {
+        return getThemeIcon(":/icons/comp_ic.svg");
     } else if (name == "GND") {
-        painter.drawLine(8, 16, 24, 16);
-        painter.drawLine(12, 20, 20, 20);
-        painter.drawLine(15, 24, 17, 24);
-        painter.drawLine(16, 8, 16, 16);
-    } else if (name == "VCC" || name == "3.3V" || name == "5V" || name == "12V" || name == "VDD") {
-        painter.drawLine(16, 8, 16, 24);
-        painter.drawLine(12, 8, 20, 8);
-    } else if (name == "Sheet") {
-        painter.setPen(QPen(Qt::cyan, 2));
-        painter.drawRect(4, 6, 24, 18);
-        painter.setPen(QPen(Qt::cyan, 1));
-        painter.drawLine(4, 10, 28, 10);
+        return getThemeIcon(":/icons/comp_gnd.svg");
+    } else if (name == "VCC" || name == "VDD" || name == "VSS" || name == "VBAT") {
+        return getThemeIcon(":/icons/comp_vcc.svg");
+    } else if (name == "Net Label" || name == "Global Label") {
+        return getThemeIcon(":/icons/tool_net_label.svg");
+    } else if (name == "Sheet" || name == "Hierarchical Port") {
+        return getThemeIcon(name == "Sheet" ? ":/icons/tool_sheet.svg" : ":/icons/tool_hierarchical_port.svg");
+    } else if (name == "Spice Directive") {
+        return getThemeIcon(":/icons/tool_spice_directive.svg");
+    } else if (name == "BV" || name == "BI") {
+        return getThemeIcon(":/icons/comp_bv.svg");
     } else if (name == "Rectangle") {
-        painter.drawRect(4, 8, 24, 16);
+        return getThemeIcon(":/icons/tool_rect.svg");
     } else if (name == "Circle") {
-        painter.drawEllipse(4, 4, 24, 24);
+        return getThemeIcon(":/icons/tool_circle.svg");
     } else if (name == "Line") {
-        painter.drawLine(4, 28, 28, 4);
+        return getThemeIcon(":/icons/tool_line.svg");
     } else if (name == "Polygon") {
-        QPolygonF poly; poly << QPointF(16, 4) << QPointF(28, 12) << QPointF(22, 28) << QPointF(10, 28) << QPointF(4, 12);
-        painter.drawPolygon(poly);
+        return getThemeIcon(":/icons/tool_polygon.svg");
     } else if (name == "Bezier") {
-        QPainterPath path; path.moveTo(4, 24); path.cubicTo(8, 4, 24, 4, 28, 24);
-        painter.drawPath(path);
+        return getThemeIcon(":/icons/tool_bezier.svg");
     } else if (name == "Text") {
-        painter.setFont(QFont("Times", 20, QFont::Bold));
-        painter.drawText(pixmap.rect(), Qt::AlignCenter, "T");
+        return getThemeIcon(":/icons/tool_text.svg");
     } else if (name == "Voltmeter (DC)" || name == "Voltmeter (AC)") {
-        painter.drawEllipse(4, 4, 24, 24);
-        painter.setFont(QFont("Arial", 12, QFont::Bold));
-        painter.drawText(pixmap.rect(), Qt::AlignCenter, "V");
+        return getThemeIcon(":/icons/tool_voltmeter.svg");
     } else if (name == "Ammeter (DC)" || name == "Ammeter (AC)") {
-        painter.drawEllipse(4, 4, 24, 24);
-        painter.setFont(QFont("Arial", 12, QFont::Bold));
-        painter.drawText(pixmap.rect(), Qt::AlignCenter, "A");
+        return getThemeIcon(":/icons/tool_ammeter.svg");
     } else if (name == "Wattmeter" || name == "Power Meter") {
-        painter.drawEllipse(4, 4, 24, 24);
-        painter.setFont(QFont("Arial", 11, QFont::Bold));
-        painter.drawText(pixmap.rect(), Qt::AlignCenter, "W");
+        return getThemeIcon(":/icons/tool_power_meter.svg");
     } else if (name == "Frequency Counter") {
         painter.drawEllipse(4, 4, 24, 24);
         painter.setFont(QFont("Arial", 11, QFont::Bold));
         painter.drawText(pixmap.rect(), Qt::AlignCenter, "Hz");
     } else if (name == "Oscilloscope Instrument") {
-        QPainterPath wave;
-        wave.moveTo(4, 18);
-        wave.lineTo(8, 18);
-        wave.lineTo(8, 10);
-        wave.lineTo(12, 10);
-        wave.lineTo(12, 22);
-        wave.cubicTo(15, 22, 17, 8, 20, 8);
-        wave.cubicTo(22, 8, 24, 14, 28, 14);
-        painter.drawRect(3, 5, 26, 18);
-        painter.drawPath(wave);
-    } else if (name == "Net Label") {
-        painter.setFont(QFont("Arial", 10, QFont::Bold));
-        painter.drawText(pixmap.rect(), Qt::AlignCenter, "ABC");
-        painter.drawRect(2, 8, 28, 16);
+        return getThemeIcon(":/icons/tool_oscilloscope.svg");
     } else if (name == "Annotate") {
         painter.setFont(QFont("Inter", 10, QFont::Bold));
-        painter.setPen(QPen(QColor("#3b82f6"), 2)); // Blue
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : QColor("#3b82f6"), 2));
         painter.drawText(pixmap.rect(), Qt::AlignCenter, "1..N");
         painter.drawRect(2, 2, 28, 28);
     } else if (name == "ERC") {
         painter.setFont(QFont("Inter", 10, QFont::Bold));
-        painter.setPen(QPen(QColor("#10b981"), 2)); // Green
+        painter.setPen(QPen(QColor("#10b981"), 2)); // Green for success/check
         painter.drawText(pixmap.rect(), Qt::AlignCenter, "ERC");
         painter.drawRect(2, 2, 28, 28);
     } else if (name == "Rotate CW") {
-        painter.drawArc(8, 8, 16, 16, 45 * 16, 270 * 16);
-        painter.drawLine(24, 16, 28, 16);
-        painter.drawLine(24, 16, 24, 12);
+        return getThemeIcon(":/icons/tool_rotate_cw.svg");
     } else if (name == "Rotate CCW") {
-        painter.save();
-        painter.translate(0, 32);
-        painter.scale(1, -1);
-        painter.drawArc(8, 8, 16, 16, 45 * 16, -270 * 16);
-        painter.drawLine(8, 16, 4, 16);
-        painter.drawLine(8, 16, 8, 12);
-        painter.restore();
+        return getThemeIcon(":/icons/tool_rotate_ccw.svg");
     } else if (name == "Flip H") {
-        painter.drawLine(16, 4, 16, 28); // Mirror line
-        painter.drawPolygon(QPolygonF() << QPointF(6, 10) << QPointF(14, 16) << QPointF(6, 22));
-        painter.drawPolygon(QPolygonF() << QPointF(26, 10) << QPointF(18, 16) << QPointF(26, 22));
+        return getThemeIcon(":/icons/tool_flip_h.svg");
     } else if (name == "Flip V") {
-        painter.drawLine(4, 16, 28, 16); // Mirror line
-        painter.drawPolygon(QPolygonF() << QPointF(10, 6) << QPointF(16, 14) << QPointF(22, 6));
-        painter.drawPolygon(QPolygonF() << QPointF(10, 26) << QPointF(16, 18) << QPointF(22, 26));
-    } else if (name == "Simulator") {
-        // Draw Waveform ( sine + pulse mix)
-        QPainterPath wave;
-        wave.moveTo(4, 20);
-        wave.lineTo(8, 20); wave.lineTo(8, 10); wave.lineTo(12, 10); wave.lineTo(12, 20);
-        // Sine part
-        for(int x=12; x<=28; ++x) {
-            qreal y = 16 + 6 * std::sin((x-12) * 0.4);
-            wave.lineTo(x, y);
-        }
-        painter.setPen(QPen(QColor("#a78bfa"), 2)); // Purple
-        painter.drawPath(wave);
+        return getThemeIcon(":/icons/tool_flip_v.svg");
     } else if (name == "Front") {
-        painter.setBrush(color);
+        painter.setBrush(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color);
         painter.drawRect(4, 4, 16, 16);
         painter.setBrush(Qt::NoBrush);
         painter.drawRect(12, 12, 16, 16);
     } else if (name == "Back") {
         painter.drawRect(4, 4, 16, 16);
-        painter.setBrush(color);
+        painter.setBrush(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color);
         painter.drawRect(12, 12, 16, 16);
     } else if (name == "Align Left") {
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 2));
         painter.drawLine(4, 4, 4, 28);
+        painter.setPen(QPen(color, 1));
         painter.drawRect(6, 8, 10, 4);
         painter.drawRect(6, 16, 20, 4);
     } else if (name == "Align Right") {
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 2));
         painter.drawLine(28, 4, 28, 28);
+        painter.setPen(QPen(color, 1));
         painter.drawRect(18, 8, 10, 4);
         painter.drawRect(8, 16, 20, 4);
     } else if (name == "Align Top") {
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 2));
         painter.drawLine(4, 4, 28, 4);
+        painter.setPen(QPen(color, 1));
         painter.drawRect(8, 6, 4, 10);
         painter.drawRect(16, 6, 4, 20);
     } else if (name == "Align Bottom") {
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 2));
         painter.drawLine(4, 28, 28, 28);
+        painter.setPen(QPen(color, 1));
         painter.drawRect(8, 18, 4, 10);
         painter.drawRect(16, 8, 4, 20);
     } else if (name == "Center X") {
-        painter.setPen(QPen(color, 1, Qt::DashLine));
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 1, Qt::DashLine));
         painter.drawLine(16, 2, 16, 30);
-        painter.setPen(pen);
+        painter.setPen(QPen(color, 1));
         painter.drawRect(10, 8, 12, 4);
         painter.drawRect(6, 18, 20, 4);
     } else if (name == "Center Y") {
-        painter.setPen(QPen(color, 1, Qt::DashLine));
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 1, Qt::DashLine));
         painter.drawLine(2, 16, 30, 16);
-        painter.setPen(pen);
+        painter.setPen(QPen(color, 1));
         painter.drawRect(8, 10, 4, 12);
         painter.drawRect(18, 6, 4, 20);
     } else if (name == "Distribute H") {
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 1, Qt::SolidLine));
         painter.drawLine(4, 4, 4, 28);
         painter.drawLine(28, 4, 28, 28);
         painter.drawRect(10, 12, 4, 8);
         painter.drawRect(18, 12, 4, 8);
     } else if (name == "Distribute V") {
+        painter.setPen(QPen(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color, 1, Qt::SolidLine));
         painter.drawLine(4, 4, 28, 4);
         painter.drawLine(4, 28, 28, 28);
         painter.drawRect(12, 10, 8, 4);
         painter.drawRect(12, 18, 8, 4);
     } else if (name == "Search") {
-        painter.drawEllipse(8, 8, 12, 12);
-        painter.drawLine(18, 18, 26, 26);
-    } else if (name == "Global Label") {
-        // Banner shape
-        QPolygonF banner;
-        banner << QPointF(6, 10) << QPointF(20, 10) << QPointF(26, 16) 
-               << QPointF(20, 22) << QPointF(6, 22) << QPointF(2, 16);
-        painter.drawPolygon(banner);
-        painter.drawLine(6, 10, 6, 22);
-    } else if (name == "Hierarchical Port") {
-        // Port shape (trapezoid)
-        QPolygonF port;
-        port << QPointF(4, 12) << QPointF(24, 12) << QPointF(28, 16) 
-             << QPointF(24, 20) << QPointF(4, 20);
-        painter.drawPolygon(port);
-        painter.drawLine(4, 12, 4, 20);
-    } else if (name == "New") {
-        QPolygonF filePoly;
-        filePoly << QPointF(8, 4) << QPointF(18, 4) << QPointF(24, 10) << QPointF(24, 28) << QPointF(8, 28);
-        painter.drawPolygon(filePoly);
-        painter.drawLine(18, 4, 18, 10);
-        painter.drawLine(18, 10, 24, 10);
-        painter.setPen(QPen(ThemeManager::theme()->accentColor(), 3, Qt::SolidLine, Qt::RoundCap));
-        painter.drawLine(12, 20, 20, 20);
-        painter.drawLine(16, 16, 16, 24);
-    } else if (name == "Open") {
-        QPolygonF folder;
-        folder << QPointF(4, 10) << QPointF(12, 10) << QPointF(15, 6) << QPointF(28, 6) << QPointF(28, 26) << QPointF(4, 26);
-        painter.drawPolygon(folder);
-        painter.drawLine(4, 14, 28, 14);
-    } else if (name == "Save") {
-        painter.drawRect(6, 6, 20, 20);
-        painter.drawRect(10, 6, 12, 8);
-        painter.drawRect(10, 18, 12, 8);
-        painter.drawLine(12, 20, 20, 20);
-        painter.drawLine(12, 22, 20, 22);
-    } else if (name == "New Symbol") {
-        painter.drawRect(8, 8, 16, 16);
-        painter.setPen(QPen(ThemeManager::theme()->accentColor(), 2));
-        painter.drawLine(4, 12, 8, 12); painter.drawLine(4, 20, 8, 20);
-        painter.drawLine(24, 12, 28, 12); painter.drawLine(24, 20, 28, 20);
-        painter.drawLine(16, 4, 16, 8); painter.drawLine(16, 24, 16, 28);
-    } else if (name == "Netlist") {
-        painter.drawRect(6, 4, 20, 24);
-        painter.drawLine(10, 10, 22, 10);
-        painter.drawLine(10, 15, 22, 15);
-        painter.drawLine(10, 20, 18, 20);
-    } else if (name == "Exit") {
-        painter.drawArc(6, 6, 20, 20, -45 * 16, 270 * 16);
-        painter.setPen(QPen(Qt::red, 2.5, Qt::SolidLine, Qt::RoundCap));
-        painter.drawLine(16, 4, 16, 14);
-    } else if (name == "About") {
-        painter.drawEllipse(6, 6, 20, 20);
-        painter.setFont(QFont("Times New Roman", 16, QFont::Bold | QFont::StyleItalic));
-        painter.drawText(pixmap.rect(), Qt::AlignCenter, "i");
+        return getThemeIcon(":/icons/tool_search.svg");
     } else if (name == "Panel Sidebar Left") {
         painter.drawRect(6, 8, 20, 16);
-        painter.setBrush(color);
+        painter.setBrush(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color);
         painter.drawRect(6, 8, 6, 16);
     } else if (name == "Panel Bottom") {
         painter.drawRect(6, 8, 20, 16);
-        painter.setBrush(color);
+        painter.setBrush(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color);
         painter.drawRect(6, 18, 20, 6);
     } else if (name == "Panel Sidebar Right") {
         painter.drawRect(6, 8, 20, 16);
-        painter.setBrush(color);
+        painter.setBrush(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color);
         painter.drawRect(20, 8, 6, 16);
     } else if (name == "Breadcrumb Sep") {
         painter.drawLine(10, 8, 22, 16);

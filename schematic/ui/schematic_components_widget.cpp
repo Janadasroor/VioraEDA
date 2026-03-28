@@ -87,6 +87,10 @@ bool isBundledKicadSymLibraryPath(const QString& p) {
     }
     return false;
 }
+
+bool isUserLibraryPath(const QString& p) {
+    return !isBundledKicadSymLibraryPath(p);
+}
 } // namespace
 
 
@@ -329,7 +333,11 @@ void SchematicComponentsWidget::populate() {
         {"Voltage Source (Sine)", "Simulation"},
         {"Voltage Source (Pulse)", "Simulation"},
         {"BV", "Simulation"},
-        {"BI", "Simulation"}
+        {"BI", "Simulation"},
+        {"VCVS (E)", "Simulation"},
+        {"VCCS (G)", "Simulation"},
+        {"CCCS (F)", "Simulation"},
+        {"CCVS (H)", "Simulation"}
     };
 
     builtIn.reserve(builtInTools.size());
@@ -358,7 +366,13 @@ void SchematicComponentsWidget::populate() {
         for (const QString& symName : names) {
             SymbolDefinition* sym = lib->findSymbol(symName);
             if (!sym) continue;
-            if (!isSimulatableLibrarySymbol(*sym)) continue;
+            
+            // For user libraries (viosym/local sclib), show all symbols.
+            // For bundled libraries (KiCad), keep the simulatable filter to avoid noise.
+            if (isBundledKicadSymLibraryPath(lib->path())) {
+                if (!isSimulatableLibrarySymbol(*sym)) continue;
+            }
+            
             accepted.append(symName);
         }
 
