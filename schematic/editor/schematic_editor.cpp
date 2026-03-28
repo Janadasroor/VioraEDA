@@ -1249,6 +1249,9 @@ void SchematicEditor::showSimulationResults(const SimResults& results) {
     QMap<QString, double> currents;
     for (const auto& [name, val] : results.branchCurrents) currents[QString::fromStdString(name)] = val;
 
+    if (m_view) {
+        m_view->setSimulationResults(nodeVoltages, currents);
+    }
     updateSimulationOverlays(nodeVoltages, currents);
 }
 
