@@ -210,7 +210,15 @@ void GenericSymbolPropertiesDialog::addSimulationTab() {
 
     connect(m_browseSubcktButton, &QPushButton::clicked, this, [this]() {
         const QString currentModel = m_spiceModelEdit ? m_spiceModelEdit->text().trimmed() : QString();
-        SubcircuitPickerDialog dlg(currentModel, this);
+        QStringList symbolPins;
+        if (m_pinMappingTable) {
+            for (int row = 0; row < m_pinMappingTable->rowCount(); ++row) {
+                QTableWidgetItem* nameItem = m_pinMappingTable->item(row, 1);
+                symbolPins << (nameItem ? nameItem->text().trimmed() : QString());
+            }
+        }
+
+        SubcircuitPickerDialog dlg(currentModel, symbolPins, this);
         if (dlg.exec() != QDialog::Accepted) return;
 
         const QString selected = dlg.selectedModel().trimmed();

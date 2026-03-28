@@ -1,28 +1,35 @@
-# UI/UX Improvement Proposal for Viospice
+# Schematic Editor UI/UX Improvements
 
-Based on a review of the current implementation, here are several recommendations to elevate the user experience from functional to premium.
+This document outlines proposed UI/UX enhancements for the viospice schematic editor, focusing on modernizing the workflow, improving SPICE integration, and enhancing overall usability.
 
-## 1. Visual Aesthetics & Modernization
-- **High-Quality Vector Icons:** Replace programmatic and simple icons in the [SchematicEditor](file:///home/jnd/qt_projects/viospice/schematic/editor/schematic_editor.cpp#78-209) with a curated set of SVG icons. This provides a crisp, professional look at all zoom levels.
-- **Unified Design System:** Implement a consistent design tokens system (colors, spacing, typography) using `ThemeManager` across all components (including the Waveform Viewer and AI Panel).
-- **Glassmorphism & Depth:** Use subtle gradients, drop shadows, and semi-transparent backgrounds for dock headers and floating panels to create a sense of depth and hierarchy.
+## 1. Canvas & Navigation
+*   **Pan & Zoom:** Smooth, hardware-accelerated pan (middle-click drag) and zoom (scroll-wheel centered on cursor).
+*   **Grid System:** Subtle visual grid (dots or faint lines) with configurable snap-to-grid. Allow temporary snap disable (e.g., holding `Alt`).
+*   **Mini-map / Overview:** A small dockable navigator for large hierarchical designs to quickly jump to different areas.
+*   **Net Highlighting:** Hovering over a wire should slightly highlight the entire connected electrical net to quickly trace connections visually.
 
-## 2. Schematic Editor Enhancements
-- **Interactive Mini-map:** Add a persistent or toggleable mini-map in the corner of the schematic canvas for quick navigation in large designs.
-- **Smart Wiring (Auto-Router):** Implement a predictive wiring tool that suggests the most logical path between two points, avoiding component bodies automatically.
-- **Rich Context Menus:** Expand right-click menus to include common SPICE actions (e.g., "Change to Behavioral", "Add Tolerance", "Open Model File").
+## 2. Component Placement & Wiring
+*   **Smart Wiring:** Orthogonal routing by default. Wires should "rubber-band" (stay connected) when moving components.
+*   **Junction Dots:** Auto-generate clear, visible junction dots when three or more wires intersect.
+*   **Quick Add / Command Palette:** Pressing `Space` or `/` opens a quick-search palette at the cursor to instantly find and place components without digging through menus.
+*   **Standard Hotkeys:** Adopt standard EDA hotkeys (`R` for Resistor, `C` for Capacitor, `G` for Ground, `W` for Wire, `Ctrl+R` to rotate, `X`/`Y` to mirror).
 
-## 3. Simulation & Waveform Visualization
-- **Multi-Pane Waveforms:** Support splitting the [WaveformViewer](file:///home/jnd/qt_projects/viospice/ui/waveform_viewer.cpp#295-300) into multiple vertical panes to separate different signal types (e.g., Voltage vs. Current) without overlaying them.
-- **Snapped Cursors & Deltas:** Improve cursor functionality to "snap" to data points and display delta-X, delta-Y, and phase shifts prominently in a floating overlay.
-- **Real-time Thermal Heatmap:** For DC/Transient simulations, add a "Thermal Overlay" on the schematic that color-codes components based on their calculated power dissipation.
-- **Interpolated Live Plots:** Ensure real-time simulation plots use smooth anti-aliased lines and cubic spline interpolation for low-sample-rate data.
+## 3. SPICE Integration & Directives (Aligns with TODO.md)
+*   **Rich Text Directive Editor:** Instead of plain text on the canvas, SPICE directives (`.tran`, `.op`, `.options`) should have a dedicated editor panel or rich-text canvas item with:
+    *   **Syntax Highlighting:** Colorize commands, values, and comments.
+    *   **Auto-complete:** Suggest analysis types, parameters, and available `.model`/`.subckt` names.
+    *   **Inline Validation:** Red squiggly lines under malformed SPICE syntax (e.g., duplicate analysis cards as noted in TODO).
+*   **Cross-Probing:** Seamless integration with the waveform viewer. Clicking a net on the schematic adds the trace to the graph; hovering a trace highlights the net.
 
-## 4. Deep AI Integration (Viora AI)
-- **Proactive Design Hints:** Enable Viora to analyze the schematic in the background and suggest improvements (e.g., missing decoupling caps, potential net name conflicts) via subtle "Lightbulb" icons on the canvas.
-- **Drag-and-Drop Action:** Allow users to drag generated component configurations or subcircuits from the AI Panel directly onto the schematic canvas.
-- **Voice-to-Task:** Fully implement the "VOICE" feature to allow commands like "Zoom to the output stage" or "Run a 10ms transient simulation".
+## 4. Property Editing
+*   **Contextual Inspector Dock:** A dockable property inspector that updates based on the selected item, reducing the need for modal popups.
+*   **Inline Value Editing:** Double-clicking a component's value (e.g., `10k`) allows immediate text editing without opening a full component properties dialog.
+*   **SI Prefix Parsing:** Input fields should natively understand and format SI prefixes (e.g., typing `4u7` or `4.7u` correctly parses to `4.7e-6`).
 
-## 5. Component Browser
-- **Live Preview:** Show a high-fidelity preview of the symbol when hovering over a component in the browser.
-- **Smart Search:** Enhance search with natural language keywords (e.g., "Low noise op-amp" or "Fast switching diode").
+## 5. Visual Aesthetics & State
+*   **Theme Support:** Full Dark/Light mode support respecting OS preferences, with high-contrast options for component symbols to ensure readability.
+*   **Clear Selection States:** Distinct visual cues for Hovered (outline glow), Selected (solid highlight color), and Error (red outline for unconnected pins or missing models).
+
+## 6. Subcircuits & Hierarchy
+*   **Breadcrumb Navigation:** When descending into a `.subckt` block, show breadcrumbs at the top (e.g., `Main Schematic > Audio Amplifier > Pre-amp`).
+*   **Symbol Generator:** A wizard to auto-generate a rectangular symbol with pins automatically placed based on a pasted `.subckt` text definition.

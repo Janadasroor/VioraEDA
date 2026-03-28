@@ -181,6 +181,7 @@ private:
     void appendChatMessage(const ChatMessage& message);
     QString chatMessageToHtml(const ChatMessage& message) const;
     void renderChatMessage(const ChatMessage& message);
+    void resizeChatCards();
     void rerenderChatFromModel();
     void appendUserMessageCard(const QString& text, const QString& headerHtml = QString());
     void appendModelMarkdownCard(const QString& markdownText);

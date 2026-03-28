@@ -712,26 +712,44 @@ void GeminiPanel::renderChatMessage(const ChatMessage& message) {
 
     const QString html = chatMessageToHtml(message);
     card->setHtml(html);
+
+    m_chatLayout->insertWidget(m_chatLayout->count() - 1, card);
+    m_chatMessageWidgets.append(card);
+    resizeChatCards();
+}
+
+void GeminiPanel::resizeChatCards() {
+    if (!m_chatScroll || !m_chatLayout || !m_chatContainer) return;
+
+    const int scrollBarWidth = m_chatScroll->verticalScrollBar()->isVisible()
+        ? m_chatScroll->verticalScrollBar()->sizeHint().width()
+        : 0;
     const int availableWidth = std::max(
         280,
         m_chatScroll->viewport()->width()
             - m_chatLayout->contentsMargins().left()
             - m_chatLayout->contentsMargins().right()
-            - 4
+            - scrollBarWidth
+            - 8
     );
-    card->setFixedWidth(availableWidth);
-    const qreal textWidth = std::max(120, availableWidth - 8);
-    card->document()->setTextWidth(textWidth);
-    if (auto* layout = card->document()->documentLayout()) {
-        const QSizeF docSize = layout->documentSize();
-        card->setFixedHeight(static_cast<int>(std::ceil(docSize.height())) + 14);
-    } else {
-        card->document()->adjustSize();
-        card->setFixedHeight(static_cast<int>(std::ceil(card->document()->size().height())) + 14);
-    }
 
-    m_chatLayout->insertWidget(m_chatLayout->count() - 1, card);
-    m_chatMessageWidgets.append(card);
+    for (QWidget* widget : std::as_const(m_chatMessageWidgets)) {
+        auto* card = qobject_cast<QTextBrowser*>(widget);
+        if (!card) continue;
+
+        card->setFixedWidth(availableWidth);
+        const qreal textWidth = std::max(120, availableWidth - 12);
+        card->document()->setTextWidth(textWidth);
+        if (auto* layout = card->document()->documentLayout()) {
+            layout->update();
+            const QSizeF docSize = layout->documentSize();
+            card->setFixedHeight(static_cast<int>(std::ceil(docSize.height())) + 18);
+        } else {
+            card->document()->adjustSize();
+            card->setFixedHeight(static_cast<int>(std::ceil(card->document()->size().height())) + 18);
+        }
+    }
+    m_chatLayout->activate();
     m_chatContainer->adjustSize();
 }
 
@@ -746,6 +764,7 @@ void GeminiPanel::rerenderChatFromModel() {
     for (const auto& message : m_chatMessages) {
         renderChatMessage(message);
     }
+    resizeChatCards();
     scrollChatToBottom();
 }
 
@@ -1332,8 +1351,12 @@ bool GeminiPanel::eventFilter(QObject* watched, QEvent* event) {
 void GeminiPanel::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     if (!m_chatMessages.isEmpty() && m_rerenderTimer) {
+        resizeChatCards();
         m_rerenderTimer->start();
         QTimer::singleShot(0, this, [this]() {
+            if (!m_chatMessages.isEmpty()) {
+                resizeChatCards();
+            }
             if (m_rerenderTimer && !m_chatMessages.isEmpty()) {
                 m_rerenderTimer->start();
             }
