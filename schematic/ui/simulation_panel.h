@@ -53,9 +53,10 @@ public:
         double fStart;
         double fStop;
         int pts;
+        QString commandText;
     };
     void setAnalysisConfig(const AnalysisConfig& cfg);
-    AnalysisConfig getAnalysisConfig();
+    AnalysisConfig getAnalysisConfig() const;
     void setTargetScene(QGraphicsScene* scene, NetManager* netManager, const QString& projectDir, bool clearState = true);
     void removeTabState(QGraphicsScene* scene);
     QWidget* getOscilloscopeContainer() const;
@@ -82,6 +83,10 @@ public:
         };
         QList<ChartSeriesData> chartSeries;
         QList<ChartSeriesData> spectrumSeries;
+        
+        // Simulation parameters
+        AnalysisConfig analysisConfig;
+        QString commandText;
     };
 
 signals:
@@ -140,7 +145,7 @@ private:
     bool exportResultsCsvFile(const QString& path) const;
     bool exportResultsJsonFile(const QString& path) const;
     bool exportResultsReportFile(const QString& path) const;
-    double parseValue(const QString& text, double defaultVal);
+    double parseValue(const QString& text, double defaultVal) const;
     double sampleAtX(const SimWaveform& wave, double x) const;
     double estimateFrequency(const SimWaveform& wave) const;
     double estimateFftPeakHz(const SimWaveform& wave) const;

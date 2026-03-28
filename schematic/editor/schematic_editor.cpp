@@ -409,6 +409,16 @@ void SchematicEditor::onTabChanged(int index) {
 
         if (m_simulationPanel) {
             m_simulationPanel->setTargetScene(m_scene, m_netManager, m_projectDir, true);
+            
+            // Sync editor config with the newly restored tab state
+            const auto panelCfg = m_simulationPanel->getAnalysisConfig();
+            m_simConfig.type = panelCfg.type;
+            m_simConfig.stop = panelCfg.stop;
+            m_simConfig.step = panelCfg.step;
+            m_simConfig.fStart = panelCfg.fStart;
+            m_simConfig.fStop = panelCfg.fStop;
+            m_simConfig.pts = panelCfg.pts;
+            m_simConfig.commandText = panelCfg.commandText;
         }
         if (m_geminiPanel) {
             m_geminiPanel->setScene(m_scene);

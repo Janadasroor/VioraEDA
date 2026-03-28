@@ -107,16 +107,16 @@ QString wrapModelCard(const QString& bodyHtml) {
         return QString(
             "<div style='display:block; width:100%;'>"
             "<div style='"
-            "background: #ffffff;"
+            "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:1 #f8fafc);"
             "color: #1e293b;"
             "padding: 14px 16px;"
-            "border-radius: 14px;"
+            "border-radius: 12px;"
             "border: 1px solid #e2e8f0;"
             "margin: 6px 0 12px 0;"
             "max-width: 92%;"
-            "box-shadow: 0 1px 3px rgba(0,0,0,0.05);"
+            "box-shadow: 0 4px 12px rgba(0,0,0,0.08);"
             "'>"
-            "<div style='font-size:10px; color:#64748b; margin-bottom:7px; font-weight:600;'>Viora AI · %2</div>"
+            "<div style='font-size:10px; color:#64748b; margin-bottom:7px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;'>Viora AI · %2</div>"
             "%1</div>"
             "<div style='height:8px;'></div>"
             "</div>"
@@ -125,16 +125,16 @@ QString wrapModelCard(const QString& bodyHtml) {
     return QString(
         "<div style='display:block; width:100%;'>"
         "<div style='"
-        "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #0f1520, stop:1 #0c1119);"
-        "color: #d0d7de;"
-        "padding: 14px 16px;"
-        "border-radius: 14px;"
-        "border: 1px solid #2b3442;"
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a2333, stop:1 #0f1520);"
+        "color: #e6edf3;"
+        "padding: 16px;"
+        "border-radius: 12px;"
+        "border: 1px solid #30405a;"
         "margin: 6px 0 12px 0;"
         "max-width: 92%;"
-        "box-shadow: 0 2px 8px rgba(0,0,0,0.25);"
+        "box-shadow: 0 8px 24px rgba(0,0,0,0.3);"
         "'>"
-        "<div style='font-size:10px; color:#9fb0c8; margin-bottom:7px; font-weight:600;'>Viora AI · %2</div>"
+        "<div style='font-size:10px; color:#9fb0c8; margin-bottom:7px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;'>Viora AI · %2</div>"
         "%1</div>"
         "<div style='height:8px;'></div>"
         "</div>"
@@ -243,12 +243,17 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     : QWidget(parent), m_scene(scene) {
     
     PCBTheme* theme = ThemeManager::theme();
-    QString bg = theme ? theme->panelBackground().name() : "#ffffff";
+    QString bg_main = theme ? theme->panelBackground().name() : "#ffffff";
     QString fg = theme ? theme->textColor().name() : "#000000";
     QString border = theme ? theme->panelBorder().name() : "#cccccc";
     QString headerBg = (theme && theme->type() == PCBTheme::Light) ? "#f8fafc" : "#161b22";
     
-    setStyleSheet(QString("QWidget { background-color: %1; color: %2; }").arg(bg, fg));
+    // Modern Glassy Sidebar Look
+    QString glassBg = (theme && theme->type() == PCBTheme::Light) 
+        ? "rgba(255, 255, 255, 0.9)" 
+        : "rgba(24, 24, 27, 0.85)";
+    
+    setStyleSheet(QString("QWidget { background-color: %1; color: %2; }").arg(glassBg, fg));
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
@@ -267,7 +272,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_apiKeyField->setPlaceholderText("API Key...");
     m_apiKeyField->setFixedHeight(30);
     m_apiKeyField->setStyleSheet(QString("QLineEdit { background: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0 8px; }")
-        .arg(bg, fg, border));
+        .arg(bg_main, fg, border));
     
     m_saveKeyButton = new QPushButton("SAVE", m_apiKeyContainer);
     m_saveKeyButton->setFixedHeight(30);
@@ -425,7 +430,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_statusButton->setMinimumWidth(0);
     if (theme) {
         m_statusButton->setStyleSheet(QString("QPushButton { color: %1; font-weight: bold; font-size: 10px; border: 1px solid %2; border-radius: 6px; padding: 0 12px; background: %3; } QPushButton:checked { background: %1; color: %3; }")
-            .arg(theme->accentColor().name(), border, bg));
+            .arg(theme->accentColor().name(), border, bg_main));
     }
     connect(m_statusButton, &QPushButton::toggled, this, [this](bool checked){ m_thinkingDisplay->setVisible(checked); });
     m_statusButton->hide();
@@ -468,15 +473,15 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     );
     m_chatArea->setStyleSheet(QString(
         "QTextBrowser {"
-        " background-color: %1;"
+        " background-color: transparent;"
         " color: %2;"
         " border: none;"
-        " padding: 14px;"
+        " padding: 16px;"
         " font-family: 'Inter', 'Segoe UI', sans-serif;"
         " font-size: 13px;"
         " line-height: 1.6;"
         "}"
-    ).arg(bg, fg));
+    ).arg(bg_main, fg));
     m_highlighter = new SyntaxHighlighter(m_chatArea->document());
     mainLayout->addWidget(m_chatArea);
 
@@ -497,9 +502,9 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     footerLayout->setContentsMargins(12, 12, 12, 12);
 
     QWidget* composer = new QWidget(this);
-    composer->setStyleSheet(QString("QWidget { background: %1; border: 1px solid %2; border-radius: 8px; }").arg(bg, border));
+    composer->setStyleSheet(QString("QWidget { background: %1; border: 1px solid %2; border-radius: 12px; }").arg(bg_main, border));
     QVBoxLayout* composerLayout = new QVBoxLayout(composer);
-    composerLayout->setContentsMargins(10, 8, 10, 8);
+    composerLayout->setContentsMargins(12, 10, 12, 10);
     composerLayout->setSpacing(4);
 
     m_includeContextCheck = new QCheckBox(this);
@@ -538,7 +543,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
 
     QString comboStyle = QString("QComboBox { background: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0 16px 0 6px; font-size: 10px; font-weight: bold; } QComboBox::drop-down { border: none; width: 16px; } QComboBox QAbstractItemView { background: %4; color: %2; border: 1px solid %3; selection-background-color: %5; }")
         .arg((theme && theme->type() == PCBTheme::Light) ? "#f8fafc" : "#21262d")
-        .arg(fg, border, bg)
+        .arg(fg, border, bg_main)
         .arg((theme && theme->type() == PCBTheme::Light) ? "#eff6ff" : "#30363d");
 
     QComboBox* speedCombo = new QComboBox(this);

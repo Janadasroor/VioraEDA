@@ -1473,15 +1473,72 @@ void SymbolLibraryManager::createDefaultBuiltInLibrary() {
     addGate("Gate_NOR", "NOR");
     addGate("Gate_NOT", "NOT");
 
+    // === Behavioral Sources ===
+    auto addBehSource = [&](const QString& name, bool isVoltage) {
+        SymbolDefinition s(name);
+        s.setCategory("Simulation");
+        s.setReferencePrefix(isVoltage ? "B" : "B");
+        s.setDescription(isVoltage ? "Behavioral Voltage Source" : "Behavioral Current Source");
+        s.addPrimitive(SymbolPrimitive::createCircle(QPointF(0, 0), 22.5, false));
+        s.addPrimitive(SymbolPrimitive::createLine(QPointF(0, -45), QPointF(0, -22.5)));
+        s.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 45), QPointF(0, -22.5))); // Fixed end point below
+        s.primitives().last().data["y2"] = 22.5; 
+        
+        SymbolPrimitive text = SymbolPrimitive::createText(isVoltage ? "V=..." : "I=...", QPointF(0, 0), 10, QColor(Qt::black));
+        text.data["hAlign"] = "center";
+        text.data["vAlign"] = "center";
+        s.addPrimitive(text);
+        
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(0, -45), 1, "1"));
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 45), 2, "2"));
+        addSym(s);
+    };
+    addBehSource("Voltage_Source_Behavioral", true);
+    addBehSource("Current_Source_Behavioral", false);
+    // Aliases
+    SymbolDefinition bv = SymbolDefinition("BV"); 
+    bv.setCategory("Simulation");
+    bv.setReferencePrefix("B");
+    bv.addPrimitive(SymbolPrimitive::createCircle(QPointF(0, 0), 22.5, false));
+    bv.addPrimitive(SymbolPrimitive::createText("V=...", QPointF(0, 0), 10, QColor(Qt::black)));
+    bv.addPrimitive(SymbolPrimitive::createPin(QPointF(0, -45), 1, "1"));
+    bv.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 45), 2, "2"));
+    addSym(bv);
+
+    SymbolDefinition bi = SymbolDefinition("BI");
+    bi.setCategory("Simulation");
+    bi.setReferencePrefix("B");
+    bi.addPrimitive(SymbolPrimitive::createCircle(QPointF(0, 0), 22.5, false));
+    bi.addPrimitive(SymbolPrimitive::createText("I=...", QPointF(0, 0), 10, QColor(Qt::black)));
+    bi.addPrimitive(SymbolPrimitive::createPin(QPointF(0, -45), 1, "1"));
+    bi.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 45), 2, "2"));
+    addSym(bi);
+
+    // === Controlled Sources (E, G, F, H) ===
+    auto addControlledSource = [&](const QString& name, const QString& label, const QString& prefix) {
+        SymbolDefinition s(name);
+        s.setCategory("Simulation");
+        s.setReferencePrefix(prefix);
+        s.addPrimitive(SymbolPrimitive::createRect(QRectF(-25, -25, 50, 50), false));
+        SymbolPrimitive text = SymbolPrimitive::createText(label, QPointF(0, 0), 12, QColor(Qt::black));
+        text.data["hAlign"] = "center";
+        text.data["vAlign"] = "center";
+        s.addPrimitive(text);
+        
+        // Control pins (usually 1, 2) and output pins (3, 4)
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(-45, -15), 1, "C+"));
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(-45, 15), 2, "C-"));
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(45, -15), 3, "O+"));
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(45, 15), 4, "O-"));
+        
+        addSym(s);
+    };
+    addControlledSource("E", "E", "E");
+    addControlledSource("G", "G", "G");
+    addControlledSource("F", "F", "F");
+    addControlledSource("H", "H", "H");
+    
     // === Voltage Regulator ===
-    SymbolDefinition reg("VoltageRegulator");
-    reg.setCategory("Power");
-    reg.setReferencePrefix("U");
-    reg.addPrimitive(SymbolPrimitive::createRect(QRectF(-30, -20, 60, 40), false));
-    reg.addPrimitive(SymbolPrimitive::createPin(QPointF(-45, 0), 1, "IN"));
-    reg.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 35), 2, "GND"));
-    reg.addPrimitive(SymbolPrimitive::createPin(QPointF(45, 0), 3, "OUT"));
-    addSym(reg);
 
     QString baseDir = QDir::homePath() + "/ViospiceLib/sym";
     for (auto it = catLibs.begin(); it != catLibs.end(); ++it) {

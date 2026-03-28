@@ -835,7 +835,10 @@ void SimulationPanel::updateSchematicDirective() {
 
     const QString cmdText = SpiceNetlistGenerator::buildCommand(cmdParams);
 
-    // Find and remove any existing simulation command directive
+    // Find existing simulation command directive
+    SchematicSpiceDirectiveItem* found = nullptr;
+    QList<SchematicSpiceDirectiveItem*> toRemove;
+    
     for (auto* gi : m_scene->items()) {
         if (auto* existing = dynamic_cast<SchematicSpiceDirectiveItem*>(gi)) {
             if (existing->text().startsWith('.') &&
@@ -843,33 +846,44 @@ void SimulationPanel::updateSchematicDirective() {
                  existing->text().startsWith(".ac", Qt::CaseInsensitive) ||
                  existing->text().startsWith(".dc", Qt::CaseInsensitive) ||
                  existing->text().startsWith(".op", Qt::CaseInsensitive))) {
-                m_scene->removeItem(existing);
-                delete existing;
-                // DO NOT break here! We must remove ALL old directives if multiple exist.
+                if (!found) {
+                    found = existing;
+                } else {
+                    toRemove.append(existing);
+                }
             }
         }
     }
 
-    // Prefer current view center so the directive is visible
-    QPointF cmdPos(100, 200);
-    if (!m_scene->views().isEmpty()) {
-        if (auto* view = m_scene->views().first()) {
-            cmdPos = view->mapToScene(view->viewport()->rect().center());
+    if (found) {
+        found->setText(cmdText);
+        found->update();
+        // Remove duplicates if any
+        for (auto* r : toRemove) {
+            m_scene->removeItem(r);
+            delete r;
         }
     } else {
-        // Fallback: place inside page margins
-        for (auto* gi : m_scene->items()) {
-            if (auto* page = dynamic_cast<SchematicPageItem*>(gi)) {
-                qreal w = page->boundingRect().width() - 8;
-                qreal h = page->boundingRect().height() - 8;
-                cmdPos = page->mapToScene(QPointF(-w/2 + 120, h/2 - 150));
-                break;
+        // Prefer current view center so the directive is visible
+        QPointF cmdPos(100, 200);
+        if (!m_scene->views().isEmpty()) {
+            if (auto* view = m_scene->views().first()) {
+                cmdPos = view->mapToScene(view->viewport()->rect().center());
+            }
+        } else {
+            // Fallback: place inside page margins
+            for (auto* gi : m_scene->items()) {
+                if (auto* page = dynamic_cast<SchematicPageItem*>(gi)) {
+                    qreal w = page->boundingRect().width() - 8;
+                    qreal h = page->boundingRect().height() - 8;
+                    cmdPos = page->mapToScene(QPointF(-w/2 + 120, h/2 - 150));
+                    break;
+                }
             }
         }
+        auto* cmdItem = new SchematicSpiceDirectiveItem(cmdText, cmdPos);
+        m_scene->addItem(cmdItem);
     }
-
-    auto* cmdItem = new SchematicSpiceDirectiveItem(cmdText, cmdPos);
-    m_scene->addItem(cmdItem);
 }
 
 void SimulationPanel::updateCommandDisplay() {
@@ -1045,6 +1059,9 @@ SimulationPanel::TabOscilloscopeState SimulationPanel::saveCurrentTabState() con
         }
     }
 
+    state.analysisConfig = getAnalysisConfig();
+    state.commandText = m_commandLine ? m_commandLine->text() : QString();
+
     return state;
 }
 
@@ -1149,6 +1166,12 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
                 }
             }
         }
+    }
+
+    // Restore simulation parameters
+    setAnalysisConfig(state.analysisConfig);
+    if (!state.commandText.isEmpty()) {
+        updateSchematicDirectiveFromCommand(state.commandText);
     }
 }
 
@@ -1859,11 +1882,16 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
         m_param3->setText(QString::number(pts));
     }
 
-    updateCommandDisplay();
+    if (!cfg.commandText.isEmpty()) {
+        m_commandLine->setText(cfg.commandText);
+        parseCommandText(cfg.commandText);
+    } else {
+        updateCommandDisplay();
+    }
     m_buildInProgress = oldBuild;
 }
 
-SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() {
+SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
     AnalysisConfig cfg{};
     const int idx = m_analysisType ? m_analysisType->currentIndex() : 0;
     if (idx == 0) {
@@ -1889,10 +1917,10 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() {
     } else if (idx == 6) {
         cfg.type = SimAnalysisType::RealTime;
     } else {
-        cfg.type = SimAnalysisType::Transient;
-        cfg.step = 1e-6;
         cfg.stop = 10e-3;
     }
+    
+    cfg.commandText = m_commandLine ? m_commandLine->text() : QString();
 
     return cfg;
 }
@@ -2772,7 +2800,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     m_realTimeSeries.clear();
 }
 
-double SimulationPanel::parseValue(const QString& text, double defaultVal) {
+double SimulationPanel::parseValue(const QString& text, double defaultVal) const {
     double parsed = 0.0;
     if (SimValueParser::parseSpiceNumber(text, parsed)) return parsed;
     return defaultVal;

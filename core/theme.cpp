@@ -17,13 +17,13 @@ PCBTheme::PCBTheme(ThemeType type)
 
 void PCBTheme::setupDarkTheme() {
     // Main UI colors - Ultra Dark professional aesthetic
-    m_windowBackground = QColor(24, 24, 27);      // Zinc 900
-    m_panelBackground = QColor(18, 18, 20);       // Slightly darker than window for depth (~5%)
-    m_panelBorder = QColor(45, 45, 50);           // Deep borders
-    m_textColor = QColor(220, 220, 230);          // Crisp off-white
-    m_textSecondary = QColor(140, 140, 150);      // Muted secondary text
-    m_accentColor = QColor(59, 130, 246);         // Modern Tech Blue
-    m_accentHover = QColor(96, 165, 250);         // Lighter blue on hover
+    m_windowBackground = QColor(20, 20, 23);      // Deeper Zinc 950
+    m_panelBackground = QColor(24, 24, 27);       // Zinc 900
+    m_panelBorder = QColor(39, 39, 42);           // Zinc 800
+    m_textColor = QColor(244, 244, 245);          // Zinc 100
+    m_textSecondary = QColor(161, 161, 170);      // Zinc 400
+    m_accentColor = QColor(37, 99, 235);          // Blue 600
+    m_accentHover = QColor(59, 130, 246);         // Blue 500
 
     // PCB View colors
     m_canvasBackground = QColor(10, 10, 12);      // Deep canvas
@@ -73,11 +73,11 @@ void PCBTheme::setupDarkTheme() {
 void PCBTheme::setupLightTheme() {
     // Main UI colors - Clean, high-end "Studio" aesthetic
     m_windowBackground = QColor(255, 255, 255);   // Pure White
-    m_panelBackground = QColor(241, 245, 249);    // Slate 100 (~5% darker)
-    m_panelBorder = QColor(203, 213, 225);        // Slate 300 (Clearer, more visible)
-    m_textColor = QColor(30, 41, 59);             // Slate 800
-    m_textSecondary = QColor(100, 116, 139);      // Slate 500
-    m_accentColor = QColor(37, 99, 235);          // Modern Blue 600
+    m_panelBackground = QColor(248, 250, 252);    // Slate 50
+    m_panelBorder = QColor(226, 232, 240);        // Slate 200
+    m_textColor = QColor(15, 23, 42);             // Slate 900
+    m_textSecondary = QColor(71, 85, 105);        // Slate 600
+    m_accentColor = QColor(37, 99, 235);          // Blue 600
     m_accentHover = QColor(29, 78, 216);          // Blue 700
 
     // PCB View colors
@@ -247,27 +247,30 @@ QString PCBTheme::widgetStylesheet() const {
         "   background-color: %11;"
         "   color: %16;"
         "   border: 1px solid %4;"
-        "   border-radius: 6px;"
-        "   padding: 6px 10px;"
+        "   border-radius: 8px;"
+        "   padding: 6px 12px;"
         "}"
         "QLineEdit:focus, QTextEdit:focus {"
         "   border-color: %5;"
+        "   background-color: %3;"
         "   outline: none;"
         "}"
         "QPushButton {"
-        "   background-color: %12;"
+        "   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 %12, stop:1 %13);"
         "   border: 1px solid %4;"
-        "   border-radius: 6px;"
+        "   border-radius: 8px;"
         "   padding: 8px 20px;"
         "   color: %2;"
         "   font-weight: 600;"
         "}"
         "QPushButton:hover {"
-        "   background-color: %13;"
+        "   background: %13;"
         "   border-color: %5;"
         "}"
         "QPushButton:pressed {"
         "   background-color: %4;"
+        "   padding-top: 9px;"
+        "   padding-bottom: 7px;"
         "}"
         "QTreeWidget, QListWidget, QTableWidget {"
         "   background-color: %3;"
@@ -336,15 +339,15 @@ QString PCBTheme::toolbarStylesheet() const {
         "QToolButton {"
         "   background-color: transparent;"
         "   border: 1px solid transparent;"
-        "   border-radius: 6px;"
-        "   padding: 6px;"
+        "   border-radius: 8px;"
+        "   padding: 4px;"
         "}"
         "QToolButton:hover {"
         "   background-color: %3;"
         "   border-color: %2;"
         "}"
         "QToolButton:checked {"
-        "   background-color: %4;"
+        "   background-color: %3;"
         "   border: 1px solid %5;"
         "}"
     ).arg(m_windowBackground.name())
@@ -363,21 +366,22 @@ QString PCBTheme::dockStylesheet() const {
         "QDockWidget {"
         "   background-color: %1;"
         "   border: 1px solid %4;"
+        "   border-radius: 10px;"
         "}"
         "QDockWidget::title {"
-        "   background: %2;"
-        "   padding: 10px 16px;"
+        "   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 %2, stop:1 %1);"
+        "   padding: 12px 16px;"
         "   font-weight: 800;"
         "   font-size: 10px;"
-        "   letter-spacing: 1px;"
+        "   letter-spacing: 1.2px;"
         "   text-transform: uppercase;"
         "   color: %3;"
         "   border-bottom: 1px solid %4;"
         "}"
         "QTabBar::tab {"
-        "   background-color: %1;"
+        "   background-color: transparent;"
         "   color: %3;"
-        "   padding: 10px 20px;"
+        "   padding: 10px 24px;"
         "   border: none;"
         "   font-size: 11px;"
         "   font-weight: 600;"
@@ -385,9 +389,8 @@ QString PCBTheme::dockStylesheet() const {
         "QTabBar::tab:selected {"
         "   background-color: %6;"
         "   color: %5;"
-        "   border-top: 2px solid rgba(0,0,0,0.1);"
-        "   border-left: 1px solid rgba(0,0,0,0.05);"
-        "   padding-top: 11px;"
+        "   border-bottom: 2px solid %5;"
+        "   padding-bottom: 8px;"
         "}"
     ).arg(m_panelBackground.name())
      .arg(titleBg)
