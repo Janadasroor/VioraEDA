@@ -16,6 +16,7 @@
 #include "../ui/simulation_panel.h"
 #include "../ui/logic_analyzer_window.h"
 #include "../../ui/source_control_panel.h"
+#include "../ui/schematic_minimap.h"
 #include "../../symbols/symbol_library.h"
 #include "../dialogs/simulation_debugger_dialog.h"
 #include <QTreeWidget>
@@ -415,6 +416,11 @@ void SchematicEditor::createToolBar() {
     connect(crosshairAct, &QAction::toggled, this, [this](bool checked) {
         if (m_view) m_view->setShowCrosshair(checked);
     });
+
+    m_toggleMiniMapAction = viewMenu->addAction("Show Mini-map");
+    m_toggleMiniMapAction->setCheckable(true);
+    m_toggleMiniMapAction->setShortcut(QKeySequence("Ctrl+M"));
+    connect(m_toggleMiniMapAction, &QAction::toggled, this, &SchematicEditor::onToggleMiniMap);
 
     QMenu* gridStyleMenu = viewMenu->addMenu("Grid Style");
     QActionGroup* gridStyleGroup = new QActionGroup(this);

@@ -9,6 +9,13 @@ target_include_directories(FluxSchematic PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/core
     ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/bridge
 )
+
+# New Phase 2 Components
+target_sources(FluxSchematic PRIVATE
+    ui/schematic_minimap.cpp
+    ui/schematic_minimap.h
+)
+
 if(VIOSPICE_ENGINE_FOUND)
     target_include_directories(FluxSchematic PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
 endif()

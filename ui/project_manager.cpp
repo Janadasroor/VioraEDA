@@ -16,6 +16,7 @@
 #include "../symbols/kicad_symbol_importer.h"
 #include "../simulator/bridge/model_library_manager.h"
 #include "../symbols/symbol_library.h"
+#include "image_preview_panel.h"
 #include <QPainter>
 #include <QPixmap>
 #include "project.h"
@@ -794,7 +795,8 @@ void ProjectManager::addFolderToTree(const QString& folderPath, QTreeWidgetItem*
     QStringList projectExtensions = {
         "flux", "sch", "kicad_sch", "SchDoc", "flxsch",            // Schematics
         "sym", "sclib", "lib", "model", "viosym",                 // Symbols / Models
-        "cir", "net", "sp", "spice"                               // Netlists
+        "cir", "net", "sp", "spice",                               // Netlists
+        "png", "jpg", "jpeg", "bmp", "svg", "gif", "webp"          // Images
     };
 
     for (const QString& f : allFiles) {
@@ -1086,6 +1088,23 @@ void ProjectManager::onProjectTreeItemDoubleClicked(QTreeWidgetItem* item, int c
         viewer->setAttribute(Qt::WA_DeleteOnClose);
         viewer->loadFile(path);
         viewer->show();
+    } else if (path.endsWith(".png", Qt::CaseInsensitive) || 
+               path.endsWith(".jpg", Qt::CaseInsensitive) || 
+               path.endsWith(".jpeg", Qt::CaseInsensitive) ||
+               path.endsWith(".bmp", Qt::CaseInsensitive) ||
+               path.endsWith(".svg", Qt::CaseInsensitive) ||
+               path.endsWith(".gif", Qt::CaseInsensitive) ||
+               path.endsWith(".webp", Qt::CaseInsensitive)) {
+        ImagePreviewPanel* preview = new ImagePreviewPanel(nullptr);
+        preview->setAttribute(Qt::WA_DeleteOnClose);
+        preview->setWindowTitle("Image Preview - " + QFileInfo(path).fileName());
+        preview->resize(800, 600);
+        if (preview->loadImage(path)) {
+            preview->show();
+        } else {
+            delete preview;
+            QMessageBox::warning(this, "Open Image", "Failed to load image: " + path);
+        }
     }
 }
 

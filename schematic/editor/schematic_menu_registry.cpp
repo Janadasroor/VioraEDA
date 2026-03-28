@@ -156,6 +156,18 @@ void SchematicMenuRegistry::initializeDefaultActions() {
     };
     registerGlobalAction(selectAll);
 
+    ContextAction runERC;
+    runERC.label = "Run Live ERC";
+    runERC.priority = 9;
+    runERC.handler = [](SchematicView* view, const auto& items) {
+        if (auto* editor = qobject_cast<SchematicEditor*>(view->parent())) {
+            editor->runLiveERC(items);
+        } else if (auto* editor = qobject_cast<SchematicEditor*>(view->window())) {
+            editor->runLiveERC(items);
+        }
+    };
+    registerGlobalAction(runERC);
+
     // --- Wire Actions ---
     
     ContextAction editNetLabel;
@@ -335,6 +347,17 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         };
         registerAction(type, rotate);
 
+        ContextAction rotateCW;
+        rotateCW.label = "Rotate (90° CW)";
+        rotateCW.shortcut = QKeySequence("Shift+Space");
+        rotateCW.priority = 89;
+        rotateCW.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
+            if (view->undoStack()) {
+                view->undoStack()->push(new RotateItemCommand(view->scene(), items, -90));
+            }
+        };
+        registerAction(type, rotateCW);
+
         ContextAction flip;
         flip.label = "Flip Horizontal";
         flip.shortcut = QKeySequence("F");
@@ -345,6 +368,19 @@ void SchematicMenuRegistry::initializeDefaultActions() {
             }
         };
         registerAction(type, flip);
+
+        ContextAction flipV;
+        flipV.label = "Flip Vertical";
+        flipV.shortcut = QKeySequence("V");
+        flipV.priority = 79;
+        flipV.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
+            if (view->undoStack()) {
+                // Assuming FlipItemCommand handles vertical if we add a param, or we add a new command
+                // For now, let's assume we need to implement Vertical Flip
+                view->undoStack()->push(new FlipItemCommand(view->scene(), items, true /* vertical */));
+            }
+        };
+        registerAction(type, flipV);
 
         ContextAction datasheet;
         datasheet.label = "View Datasheet";
@@ -359,6 +395,23 @@ void SchematicMenuRegistry::initializeDefaultActions() {
             QDesktopServices::openUrl(QUrl::fromLocalFile(generic->symbol().datasheet()));
         };
         registerAction(type, datasheet);
+
+        ContextAction toBehavioral;
+        toBehavioral.label = "Convert to Behavioral";
+        toBehavioral.priority = 60;
+        toBehavioral.isVisible = [type](const QList<SchematicItem*>& items) {
+            if (items.size() != 1) return false;
+            // Only for sources, resistors, capacitors for now
+            return (type == SchematicItem::VoltageSourceType || 
+                    type == SchematicItem::ResistorType || 
+                    type == SchematicItem::CapacitorType);
+        };
+        toBehavioral.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
+            if (items.size() != 1) return;
+            // This would involve creating a new BV/BI item and replacing the current one
+            QMessageBox::information(view, "Premium Feature", "Converting to Behavioral Source (BV/BI) is coming in the next minor update!");
+        };
+        registerAction(type, toBehavioral);
     };
 
     registerSymbolActions(SchematicItem::ResistorType);

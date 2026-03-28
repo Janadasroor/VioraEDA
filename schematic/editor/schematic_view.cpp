@@ -340,6 +340,7 @@ void SchematicView::wheelEvent(QWheelEvent *event) {
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta);
         event->accept();
     }
+    emit transformationChanged();
 }
 
 void SchematicView::mousePressEvent(QMouseEvent *event) {
@@ -1087,64 +1088,7 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
         targetSItem->setSelected(true);
     }
 
-    // Centralized routing: for components already handled in SchematicEditor::onItemDoubleClicked,
-    // route right-click directly to the same handler to keep behavior in one place.
-    if (targetSItem) {
-        const QString t = targetSItem->itemTypeName();
-        const QString prefix = targetSItem->referencePrefix();
-
-        const bool isRoutedSpiceDirective = (targetSItem->itemType() == SchematicItem::SpiceDirectiveType);
-        const bool isRoutedSource = (targetSItem->itemType() == SchematicItem::VoltageSourceType) ||
-                                    (targetSItem->itemType() == SchematicItem::CurrentSourceType);
-        const bool isRoutedDiode = (prefix.compare("D", Qt::CaseInsensitive) == 0);
-        const bool isRoutedJFET = (t.compare("njf", Qt::CaseInsensitive) == 0 ||
-                                   t.compare("pjf", Qt::CaseInsensitive) == 0 ||
-                                   prefix.compare("JN", Qt::CaseInsensitive) == 0 ||
-                                   prefix.compare("JP", Qt::CaseInsensitive) == 0);
-        const bool isRoutedBJT = (t.compare("Transistor", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("Transistor_PNP", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("npn", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("npn2", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("npn3", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("npn4", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("pnp", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("pnp2", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("pnp4", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("lpnp", Qt::CaseInsensitive) == 0 ||
-                                  prefix.compare("QN", Qt::CaseInsensitive) == 0 ||
-                                  prefix.compare("QP", Qt::CaseInsensitive) == 0);
-        const bool isRoutedMOS = (t.compare("Transistor_NMOS", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("Transistor_PMOS", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("nmos", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("nmos4", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("pmos", Qt::CaseInsensitive) == 0 ||
-                                  t.compare("pmos4", Qt::CaseInsensitive) == 0 ||
-                                  prefix.compare("MN", Qt::CaseInsensitive) == 0 ||
-                                  prefix.compare("MP", Qt::CaseInsensitive) == 0);
-        const bool isRoutedMesfet = (t.compare("mesfet", Qt::CaseInsensitive) == 0 ||
-                                     prefix.compare("Z", Qt::CaseInsensitive) == 0);
-        const bool isRoutedControlledSource = (t.compare("f", Qt::CaseInsensitive) == 0 ||
-                                               t.compare("cccs", Qt::CaseInsensitive) == 0 ||
-                                               t.compare("h", Qt::CaseInsensitive) == 0 ||
-                                               t.compare("ccvs", Qt::CaseInsensitive) == 0 ||
-                                               t.compare("tline", Qt::CaseInsensitive) == 0 ||
-                                               t.compare("ltline", Qt::CaseInsensitive) == 0 ||
-                                               prefix.compare("T", Qt::CaseInsensitive) == 0 ||
-                                               prefix.compare("O", Qt::CaseInsensitive) == 0);
-        const bool isRoutedLed = (t == "LED" || t == "Blinking LED");
-        const bool isRoutedSwitch = (t == "Switch");
-        const bool isRoutedVoltageControlledSwitch = (t == "Voltage Controlled Switch");
-        const bool isRoutedBehavioralCurrent = (t.compare("Current_Source_Behavioral", Qt::CaseInsensitive) == 0 ||
-                                                t.compare("bi", Qt::CaseInsensitive) == 0 ||
-                                                t.compare("bi2", Qt::CaseInsensitive) == 0);
-
-        if (isRoutedSpiceDirective || isRoutedSource || isRoutedDiode || isRoutedJFET ||
-            isRoutedBJT || isRoutedMOS || isRoutedMesfet || isRoutedControlledSource ||
-            isRoutedLed || isRoutedSwitch || isRoutedVoltageControlledSwitch || isRoutedBehavioralCurrent) {
-            emit itemDoubleClicked(targetSItem);
-            return;
-        }
-    }
+    // (selection logic above ensures targetSItem is selected)
 
     QList<SchematicItem*> selectedItems;
     for (auto* it : scene()->selectedItems()) {
@@ -1157,38 +1101,25 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
         menu.setStyleSheet(ThemeManager::theme()->widgetStylesheet());
     }
 
-    auto actions = (ConfigManager::instance().isFeatureEnabled("ux.context_menu_v2", true))
-                   ? SchematicMenuRegistry::instance().getActions(selectedItems)
-                   : std::vector<ContextAction>();
-    bool hasWireInfoAction = false;
-    for (const auto& actionData : actions) {
-        if (actionData.label == "Info...") {
-            hasWireInfoAction = true;
-            break;
-        }
-    }
+    auto actions = SchematicMenuRegistry::instance().getActions(selectedItems);
     
+    bool hasWireInfoAction = false;
     if (actions.empty()) {
-        // Fallback for empty canvas if no global actions registered
-        menu.addAction(QIcon(":/icons/view_fit.svg"), "Zoom Fit (F)", [this](){ 
-            if (scene() && scene()->itemsBoundingRect().isValid()) {
-                fitInView(scene()->itemsBoundingRect().adjusted(-50,-50,50,50), Qt::KeepAspectRatio);
-            }
-        });
-        menu.addAction("Select All", [this](){
-            if (scene()) {
-                for (auto* it : scene()->items()) it->setSelected(true);
-            }
-        });
+        // Standard fallback if no actions registered (unlikely with global actions)
+        menu.addAction("No Actions Available")->setEnabled(false);
     } else {
         for (const auto& actionData : actions) {
             if (actionData.isSeparator) {
                 menu.addSeparator();
                 continue;
             }
+            if (actionData.label == "Info...") hasWireInfoAction = true;
             
             QAction* act = menu.addAction(actionData.icon, actionData.label);
-            if (!actionData.shortcut.isEmpty()) act->setShortcut(actionData.shortcut);
+            if (!actionData.shortcut.isEmpty()) {
+                act->setShortcut(actionData.shortcut);
+                act->setToolTip(actionData.label + " (" + actionData.shortcut.toString() + ")");
+            }
             act->setEnabled(actionData.isEnabled(selectedItems));
             
             connect(act, &QAction::triggered, this, [this, actionData, selectedItems]() {
@@ -1408,32 +1339,37 @@ void SchematicView::drawBackground(QPainter *painter, const QRectF &rect) {
 
     painter->restore();
 }
-    void SchematicView::drawForeground(QPainter *painter, const QRectF &rect) {
-        if (!m_showCrosshair) return;
+
+void SchematicView::scrollContentsBy(int dx, int dy) {
+    QGraphicsView::scrollContentsBy(dx, dy);
+    emit transformationChanged();
+}
+void SchematicView::drawForeground(QPainter *painter, const QRectF &rect) {
+    if (!m_showCrosshair) return;
+
+    painter->save();
     
-        painter->save();
-        
-            // Set up crosshair pen
-            PCBTheme* theme = ThemeManager::theme();
-            QColor crossColor = theme ? theme->accentColor() : QColor(99, 102, 241);
-            crossColor.setAlpha(120); // Semi-transparent
-                // Use cosmetic pen so thickness doesn't change with zoom
-        QPen pen(crossColor, 0);
-        painter->setPen(pen);
-        
-        // Draw horizontal line
-        painter->drawLine(QPointF(rect.left(), m_cursorScenePos.y()), 
-                          QPointF(rect.right(), m_cursorScenePos.y()));
-        
-        // Draw vertical line
-        painter->drawLine(QPointF(m_cursorScenePos.x(), rect.top()), 
-                          QPointF(m_cursorScenePos.x(), rect.bottom()));
-        
-        painter->restore();
-    }
+    // Set up crosshair pen
+    PCBTheme* theme = ThemeManager::theme();
+    QColor crossColor = theme ? theme->accentColor() : QColor(99, 102, 241);
+    crossColor.setAlpha(120); // Semi-transparent
     
-    void SchematicView::updateHoverHighlight(SchematicItem* item) {
+    // Use cosmetic pen so thickness doesn't change with zoom
+    QPen pen(crossColor, 0);
+    painter->setPen(pen);
     
+    // Draw horizontal line
+    painter->drawLine(QPointF(rect.left(), m_cursorScenePos.y()), 
+                      QPointF(rect.right(), m_cursorScenePos.y()));
+    
+    // Draw vertical line
+    painter->drawLine(QPointF(m_cursorScenePos.x(), rect.top()), 
+                      QPointF(m_cursorScenePos.x(), rect.bottom()));
+    
+    painter->restore();
+}
+
+void SchematicView::updateHoverHighlight(SchematicItem* item) {
     if (item == m_lastHoveredItem) return;
     
     clearHoverHighlights();

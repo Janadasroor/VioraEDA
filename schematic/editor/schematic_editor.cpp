@@ -21,6 +21,7 @@
 #include "../items/schematic_spice_directive_item.h"
 #include "../ui/simulation_setup_dialog.h"
 #include "../ui/simulation_panel.h"
+#include "../ui/schematic_minimap.h"
 #include "schematic_item.h"
 #include "schematic_page_item.h"
 #include <QDir>
@@ -144,6 +145,9 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     createDrawingToolbar();
     connectSimulationSignals();
     updateSimulationUiState(false);
+
+    // Initial Mini-map state (hidden by default)
+    if (m_toggleMiniMapAction) m_toggleMiniMapAction->setChecked(false);
 
     // Restore UI State after docks/toolbars are created
     bool restoredWindowState = false;
@@ -439,6 +443,23 @@ void SchematicEditor::onTabChanged(int index) {
         
         if (m_logicEditorPanel) m_logicEditorPanel->setScene(m_scene, m_netManager);
         
+        // Update Mini-map if visible
+        if (m_miniMap && m_miniMap->isVisible()) {
+            m_miniMap->setParent(m_view);
+            m_miniMap->setScene(m_scene);
+            m_miniMap->updateViewportRect();
+            m_miniMap->show();
+            m_miniMap->raise();
+            
+            // Re-connect transformation signal
+            connect(m_view, &SchematicView::transformationChanged, m_miniMap, &SchematicMiniMap::updateViewportRect, Qt::UniqueConnection);
+
+            // Reposition
+            int x = m_view->viewport()->width() - m_miniMap->width() - 20;
+            int y = m_view->viewport()->height() - m_miniMap->height() - 20;
+            m_miniMap->move(x, y);
+        }
+
         onSelectionChanged();
         updateBreadcrumbs();
         refreshHierarchyPanel();
@@ -589,6 +610,7 @@ void SchematicEditor::onZoomFit() {
     QTimer::singleShot(0, m_view, [this, fitRect]() {
         m_view->fitInView(fitRect, Qt::KeepAspectRatio);
         m_view->viewport()->update();
+        if (m_miniMap) m_miniMap->updateViewportRect();
     });
 }
 
@@ -1297,6 +1319,20 @@ void SchematicEditor::addSimulationTab(const QString& name) {
     int idx = m_workspaceTabs->addTab(m_simulationPanel, getThemeIcon(":/icons/tool_oscilloscope.svg"), name);
     m_workspaceTabs->setCurrentIndex(idx);
 }
+
+void SchematicEditor::addImageTab(const QString& filePath) {
+    auto* preview = new ImagePreviewPanel(this);
+    if (preview->loadImage(filePath)) {
+        preview->setProperty("filePath", filePath);
+        int idx = m_workspaceTabs->addTab(preview, getThemeIcon(":/icons/toolbar_file.png"), QFileInfo(filePath).fileName());
+        m_workspaceTabs->setCurrentIndex(idx);
+        statusBar()->showMessage(QString("Opened image: %1").arg(filePath), 3000);
+    } else {
+        delete preview;
+        QMessageBox::warning(this, "Open Image", "Failed to load image: " + filePath);
+    }
+}
+
 void SchematicEditor::onToggleLeftSidebar() {
     bool visible = false;
     if (m_componentDock && m_componentDock->isVisible()) visible = true;
@@ -1328,4 +1364,35 @@ void SchematicEditor::onToggleRightSidebar() {
     if (m_ercDock) m_ercDock->setVisible(!visible);
     if (m_sourceControlDock) m_sourceControlDock->setVisible(!visible);
     ConfigManager::instance().saveWindowState("SchematicEditor", saveGeometry(), saveState());
+}
+void SchematicEditor::onToggleMiniMap(bool visible) {
+    if (visible) {
+        if (!m_miniMap) {
+            m_miniMap = new SchematicMiniMap(m_view, m_view); // Make it a child of the current view
+            m_miniMap->setFixedSize(220, 160);
+        }
+        
+        // Ensure it's child of the current active view
+        if (m_view && m_miniMap->parent() != m_view) {
+            m_miniMap->setParent(m_view);
+        }
+
+        m_miniMap->setScene(m_scene);
+        m_miniMap->updateViewportRect();
+        m_miniMap->show();
+        m_miniMap->raise();
+        
+        // Position at bottom-right of viewport
+        if (m_view) {
+            int x = m_view->viewport()->width() - m_miniMap->width() - 20;
+            int y = m_view->viewport()->height() - m_miniMap->height() - 20;
+            m_miniMap->move(x, y);
+        }
+
+        if (m_view) {
+            connect(m_view, &SchematicView::transformationChanged, m_miniMap, &SchematicMiniMap::updateViewportRect, Qt::UniqueConnection);
+        }
+    } else {
+        if (m_miniMap) m_miniMap->hide();
+    }
 }

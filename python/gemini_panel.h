@@ -13,6 +13,7 @@
 #include <QUrl>
 #include <QLabel>
 #include <QList>
+#include <QSet>
 
 class QTextEdit;
 class QTimer;
@@ -20,6 +21,7 @@ class QDialog;
 class QListWidget;
 class QPlainTextEdit;
 class QToolButton;
+class QHBoxLayout;
 
 /**
  * @brief Reusable AI Assistant panel for both dock widgets and dialogs.
@@ -150,6 +152,13 @@ private:
     void populateErrorDialogHistory();
     void selectErrorHistoryRow(int row);
     void updateSendEnabled();
+    void clearSuggestionButtons();
+    void addSuggestionButton(const QString& label, const QString& command);
+    void triggerSuggestionCommand(const QString& command);
+
+    QWidget* m_suggestionBar = nullptr;
+    QHBoxLayout* m_suggestionLayout = nullptr;
+    QSet<QString> m_suggestionKeys;
 };
 
 #endif // GEMINI_PANEL_H

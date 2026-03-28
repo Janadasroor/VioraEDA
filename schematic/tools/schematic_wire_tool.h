@@ -93,7 +93,7 @@ private:
     QString m_style;
     
     // --- Router & visual helpers ---
-    std::unique_ptr<WireRouter> m_router;
+    mutable std::unique_ptr<WireRouter> m_router;
     QGraphicsEllipseItem* m_snapIndicator = nullptr;
     QList<QGraphicsEllipseItem*> m_committedMarkers; // Visual dots at committed points
     QPointF m_lastPreviewTarget;

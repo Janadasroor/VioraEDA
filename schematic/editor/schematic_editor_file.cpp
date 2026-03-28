@@ -165,6 +165,14 @@ bool isTextFile(const QString& path) {
     return exts.contains(ext);
 }
 
+bool isImageFile(const QString& path) {
+    const QString ext = QFileInfo(path).suffix().toLower();
+    static const QSet<QString> exts = {
+        "png", "jpg", "jpeg", "bmp", "svg", "gif", "webp"
+    };
+    return exts.contains(ext);
+}
+
 enum class HighlightMode {
     Plain,
     Json,
@@ -643,6 +651,11 @@ bool SchematicEditor::openFile(const QString& filePath) {
         const int idx = m_workspaceTabs->addTab(editor, getThemeIcon(":/icons/tool_search.svg"), QFileInfo(filePath).fileName());
         m_workspaceTabs->setCurrentIndex(idx);
         statusBar()->showMessage(QString("Opened: %1").arg(filePath), 3000);
+        return true;
+    }
+
+    if (isImageFile(filePath)) {
+        addImageTab(filePath);
         return true;
     }
 

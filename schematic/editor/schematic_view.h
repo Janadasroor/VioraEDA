@@ -81,6 +81,7 @@ signals:
     void runLiveERC(const QList<SchematicItem*>& items);
     void netProbed(const QString& netName);
     void editSimulationDirective(const QString& commandText);
+    void transformationChanged();
 
 public:
     void setGridSize(double size);
@@ -126,6 +127,7 @@ protected:
     void contextMenuEvent(QContextMenuEvent *event) override;
     void drawBackground(QPainter *painter, const QRectF &rect) override;
     void drawForeground(QPainter *painter, const QRectF &rect) override;
+    void scrollContentsBy(int dx, int dy) override;
 
 private slots:
     void handleAutoScroll();
