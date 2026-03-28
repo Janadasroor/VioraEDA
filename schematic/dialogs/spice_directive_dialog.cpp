@@ -78,6 +78,32 @@ QString firstToken(const QString& line) {
     return line.section(QRegularExpression("\\s+"), 0, 0).trimmed();
 }
 
+QStringList collapseSpiceContinuationLines(const QString& text) {
+    QStringList collapsed;
+    QString current;
+
+    const QStringList lines = text.split('\n');
+    for (const QString& rawLine : lines) {
+        const QString trimmed = rawLine.trimmed();
+        if (trimmed.startsWith('+')) {
+            const QString continuation = trimmed.mid(1).trimmed();
+            if (current.isEmpty()) {
+                current = continuation;
+            } else if (!continuation.isEmpty()) {
+                if (!current.endsWith(' ')) current += ' ';
+                current += continuation;
+            }
+            continue;
+        }
+
+        if (!current.isEmpty()) collapsed.append(current);
+        current = rawLine;
+    }
+
+    if (!current.isEmpty()) collapsed.append(current);
+    return collapsed;
+}
+
 }
 
 SpiceDirectiveDialog::SpiceDirectiveDialog(SchematicSpiceDirectiveItem* item, QUndoStack* undoStack, QGraphicsScene* scene, QWidget* parent)
@@ -182,7 +208,7 @@ void SpiceDirectiveDialog::validateDirectiveText() {
     if (!m_commandEdit || !m_validationLabel || !m_okButton) return;
 
     const QString text = m_commandEdit->toPlainText();
-    const QStringList lines = text.split('\n');
+    const QStringList lines = collapseSpiceContinuationLines(text);
     const QSet<QString> sceneRefs = schematicReferences(m_scene);
     const QSet<QString> existingModelNames = schematicDirectiveModelNames(m_scene, m_item);
     const QSet<QString> powerRails = powerRailNetNames(m_scene);
@@ -199,7 +225,7 @@ void SpiceDirectiveDialog::validateDirectiveText() {
         const QString line = rawLine.trimmed();
         const int lineNo = i + 1;
 
-        if (line.isEmpty() || isCommentLine(line) || line.startsWith('+')) continue;
+        if (line.isEmpty() || isCommentLine(line)) continue;
 
         if (isDirectiveLine(line)) {
             const QString card = firstToken(line).toLower();
@@ -329,7 +355,7 @@ void SpiceDirectiveDialog::updatePreview() {
     QStringList preview;
     preview << "* SPICE block preview";
 
-    const QStringList lines = text.split('\n');
+    const QStringList lines = collapseSpiceContinuationLines(text);
     for (const QString& rawLine : lines) {
         const QString line = rawLine.trimmed();
         if (line.isEmpty()) {
@@ -337,10 +363,6 @@ void SpiceDirectiveDialog::updatePreview() {
             continue;
         }
         if (isCommentLine(line)) {
-            preview << line;
-            continue;
-        }
-        if (line.startsWith('+')) {
             preview << line;
             continue;
         }

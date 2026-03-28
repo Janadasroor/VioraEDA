@@ -27,9 +27,44 @@ namespace {
 struct UserSpiceContentSummary {
     QSet<QString> declaredModelFiles;
     QSet<QString> declaredModelNames;
+    QSet<QString> declaredElementRefs;
+    QSet<QString> drivenRailNets;
+    QStringList warnings;
     bool hasExplicitAnalysisCard = false;
     bool hasElementCards = false;
 };
+
+QStringList collapseSpiceContinuationLines(const QString& text) {
+    QStringList collapsed;
+    QString current;
+
+    const QStringList lines = text.split('\n');
+    for (const QString& rawLine : lines) {
+        const QString trimmed = rawLine.trimmed();
+
+        if (trimmed.startsWith('+')) {
+            const QString continuation = trimmed.mid(1).trimmed();
+            if (current.isEmpty()) {
+                current = continuation;
+            } else if (!continuation.isEmpty()) {
+                if (!current.endsWith(' ')) current += ' ';
+                current += continuation;
+            }
+            continue;
+        }
+
+        if (!current.isEmpty()) {
+            collapsed.append(current);
+        }
+        current = rawLine;
+    }
+
+    if (!current.isEmpty()) {
+        collapsed.append(current);
+    }
+
+    return collapsed;
+}
 
 bool naturalPinLessThan(const QString& s1, const QString& s2) {
     bool ok1, ok2;
@@ -458,17 +493,26 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
         ".disto", ".meas", ".step", ".sens"
     };
 
-    const QStringList lines = text.split('\n');
+    const QStringList lines = collapseSpiceContinuationLines(text);
+    QSet<QString> analysisSeen;
+    QMap<QString, int> modelSeen;
+    QMap<QString, int> refSeen;
+    int lineNo = 0;
     for (const QString& rawLine : lines) {
+        ++lineNo;
         const QString line = rawLine.trimmed();
         if (line.isEmpty()) continue;
         if (line.startsWith('*') || line.startsWith(';') || line.startsWith('#')) continue;
-        if (line.startsWith('+')) continue;
 
         if (line.startsWith('.')) {
             const QString card = line.section(QRegularExpression("\\s+"), 0, 0).trimmed().toLower();
             if (analysisCards.contains(card)) {
                 summary.hasExplicitAnalysisCard = true;
+                if (analysisSeen.contains(card)) {
+                    summary.warnings.append(QString("Duplicate analysis card %1 in directive block (line %2).").arg(card, QString::number(lineNo)));
+                } else {
+                    analysisSeen.insert(card);
+                }
             }
 
             const QRegularExpressionMatch includeMatch = includeDirectiveRe.match(line);
@@ -485,7 +529,13 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
             if (card == ".model") {
                 QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
                 if (parts.size() >= 2) {
-                    summary.declaredModelNames.insert(parts[1].toLower());
+                    const QString modelName = parts[1].toLower();
+                    if (modelSeen.contains(modelName)) {
+                        summary.warnings.append(QString("Duplicate .model %1 in directive block (lines %2 and %3).").arg(parts[1]).arg(modelSeen.value(modelName)).arg(lineNo));
+                    } else {
+                        modelSeen.insert(modelName, lineNo);
+                    }
+                    summary.declaredModelNames.insert(modelName);
                 }
             }
 
@@ -493,6 +543,21 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
         }
 
         summary.hasElementCards = true;
+        const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        if (parts.isEmpty()) continue;
+
+        const QString ref = parts.first().toUpper();
+        if (refSeen.contains(ref)) {
+            summary.warnings.append(QString("Duplicate element reference %1 in directive block (lines %2 and %3).").arg(parts.first()).arg(refSeen.value(ref)).arg(lineNo));
+        } else {
+            refSeen.insert(ref, lineNo);
+        }
+        summary.declaredElementRefs.insert(ref);
+
+        const QChar prefix = ref.isEmpty() ? QChar() : ref.at(0);
+        if ((prefix == 'V' || prefix == 'I') && parts.size() >= 2) {
+            summary.drivenRailNets.insert(parts.at(1).trimmed().toUpper());
+        }
     }
 
     return summary;
@@ -511,6 +576,9 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     netlist += "* Custom SPICE Directives\n";
     QSet<QString> switchModelsAdded;
     QSet<QString> userDeclaredModelFiles;
+    QSet<QString> userElementRefs;
+    QSet<QString> userDrivenRailNets;
+    QStringList directiveWarnings;
     bool hasExplicitAnalysisCard = false;
     bool hasUserElementCards = false;
     for (QGraphicsItem* item : scene->items()) {
@@ -522,6 +590,9 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                         const UserSpiceContentSummary summary = summarizeUserSpiceText(cmd, projectDir);
                         userDeclaredModelFiles.unite(summary.declaredModelFiles);
                         switchModelsAdded.unite(summary.declaredModelNames);
+                        userElementRefs.unite(summary.declaredElementRefs);
+                        userDrivenRailNets.unite(summary.drivenRailNets);
+                        directiveWarnings.append(summary.warnings);
                         hasExplicitAnalysisCard = hasExplicitAnalysisCard || summary.hasExplicitAnalysisCard;
                         hasUserElementCards = hasUserElementCards || summary.hasElementCards;
                         
@@ -579,6 +650,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
     // Auto-embed .model lines for referenced component models
     QStringList embeddedModelLines;
+    QStringList runtimeWarnings;
     for (const auto& comp : pkg.components) {
         if (comp.excludeFromSim) continue;
         QString modelName = comp.value.trimmed();
@@ -606,7 +678,10 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                          comp.reference.startsWith("MP", Qt::CaseInsensitive)) ? "BS250" : "2N7000";
         }
         if (modelName.isEmpty()) continue;
-        if (switchModelsAdded.contains(modelName.toLower())) continue;
+        if (switchModelsAdded.contains(modelName.toLower())) {
+            runtimeWarnings.append(QString("Skipped auto-generated model %1 because it is already declared manually.").arg(modelName));
+            continue;
+        }
 
         const SimModel* mdl = ModelLibraryManager::instance().findModel(modelName);
         if (mdl) {
@@ -878,8 +953,15 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             if (!netName.isEmpty() && netName.toUpper() != "GND" && netName != "0") {
                 const QString v = inferPowerVoltage(netName, value);
                 powerNetVoltages[netName] = v;
+                if (userDrivenRailNets.contains(netName.toUpper())) {
+                    runtimeWarnings.append(QString("Manual directive source already drives schematic power rail %1; skipped auto-generated rail source.").arg(netName));
+                }
             }
             continue;
+        }
+
+        if (userElementRefs.contains(refKey)) {
+            runtimeWarnings.append(QString("Manual directive element %1 collides with schematic reference %2.").arg(ref, ref));
         }
 
         if (emittedRefs.contains(refKey)) {
@@ -1695,12 +1777,27 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     }
 
     // 4. Generate Voltage Sources for Power Rails
+    if (!directiveWarnings.isEmpty() || !runtimeWarnings.isEmpty()) {
+        netlist += "* Directive Warnings\n";
+        for (const QString& warning : directiveWarnings) {
+            netlist += QString("* Warning: %1\n").arg(warning);
+        }
+        for (const QString& warning : runtimeWarnings) {
+            netlist += QString("* Warning: %1\n").arg(warning);
+        }
+        netlist += "\n";
+    }
+
     if (!hasUserElementCards && !powerNetVoltages.isEmpty()) {
         netlist += "\n* Power Supply Rails\n";
         for (auto it = powerNetVoltages.constBegin(); it != powerNetVoltages.constEnd(); ++it) {
             QString net = it.key();
             QString voltage = it.value();
             if (net.trimmed().isEmpty()) continue;
+
+            if (userDrivenRailNets.contains(net.toUpper())) {
+                continue;
+            }
             
             QString spiceNet = QString(net).replace(" ", "_");
             netlist += QString("V_%1 %2 0 DC %3\n").arg(spiceNet).arg(spiceNet).arg(voltage);
