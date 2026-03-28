@@ -462,34 +462,28 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_chatScroll->setFrameShape(QFrame::NoFrame);
     m_chatScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_chatScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_chatScroll->setFocusPolicy(Qt::StrongFocus); // Enable keyboard scrolling
+
+    const QString scrollBarColor = (theme && theme->type() == PCBTheme::Light) ? "#cbd5e1" : "#475569";
+    const QString scrollBarHover = (theme && theme->type() == PCBTheme::Light) ? "#94a3b8" : "#64748b";
+
     m_chatScroll->setStyleSheet(QString(
-        "QScrollArea {"
-        " background-color: transparent;"
-        " border: none;"
-        "}"
-        "QScrollArea > QWidget > QWidget {"
-        " background-color: transparent;"
-        "}"
+        "QScrollArea { background-color: transparent; border: none; }"
         "QScrollBar:vertical {"
-        " background: transparent;"
-        " width: 12px;"
-        " margin: 4px 2px 4px 2px;"
+        " background: rgba(0,0,0,0.05);"
+        " width: 10px;"
+        " margin: 0px;"
         "}"
         "QScrollBar::handle:vertical {"
-        " background: rgba(71, 85, 105, 1.0);"
-        " min-height: 30px;"
-        " border-radius: 6px;"
+        " background: %1;"
+        " min-height: 40px;"
+        " border-radius: 5px;"
+        " margin: 2px;"
         "}"
-        "QScrollBar::handle:vertical:hover {"
-        " background: rgba(51, 65, 85, 1.0);"
-        "}"
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
-        " height: 0px;"
-        "}"
-        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
-        " background: transparent;"
-        "}"
-    ));
+        "QScrollBar::handle:vertical:hover { background: %2; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }"
+    ).arg(scrollBarColor, scrollBarHover));
 
     m_chatContainer = new QWidget(m_chatScroll);
     m_chatContainer->setStyleSheet("background: transparent;");
@@ -715,6 +709,7 @@ void GeminiPanel::renderChatMessage(const ChatMessage& message) {
 
     m_chatLayout->insertWidget(m_chatLayout->count() - 1, card);
     m_chatMessageWidgets.append(card);
+    m_chatContainer->adjustSize(); // Force container to recalculate size for scroll area
 }
 
 void GeminiPanel::rerenderChatFromModel() {
