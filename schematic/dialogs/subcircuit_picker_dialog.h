@@ -7,12 +7,15 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
+class QPlainTextEdit;
 
 class SubcircuitPickerDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit SubcircuitPickerDialog(const QString& currentModel = QString(), QWidget* parent = nullptr);
+    explicit SubcircuitPickerDialog(const QString& currentModel = QString(),
+                                    const QStringList& symbolPins = {},
+                                    QWidget* parent = nullptr);
 
     QString selectedModel() const;
 
@@ -23,11 +26,14 @@ private slots:
 
 private:
     void loadModels(const QString& currentModel);
+    void updateComparisonPreview(const QString& modelName);
 
     QString m_selectedModel;
+    QStringList m_symbolPins;
     QLineEdit* m_searchEdit = nullptr;
     QListWidget* m_modelList = nullptr;
     QLabel* m_detailLabel = nullptr;
+    QPlainTextEdit* m_pinPreview = nullptr;
 };
 
 #endif
