@@ -185,6 +185,8 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/voltage_source_custom_waveform_dialog.h
     schematic/dialogs/spice_directive_dialog.cpp
     schematic/dialogs/spice_directive_dialog.h
+    schematic/dialogs/spice_subcircuit_import_dialog.cpp
+    schematic/dialogs/spice_subcircuit_import_dialog.h
     schematic/dialogs/spice_mean_dialog.cpp
     schematic/dialogs/spice_mean_dialog.h
     schematic/dialogs/simulation_debugger_dialog.cpp
