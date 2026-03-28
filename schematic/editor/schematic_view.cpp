@@ -741,6 +741,35 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
         clearHoverHighlights();
     }
 
+    // Heatmap / On-Canvas Results Tooltip
+    if (m_heatmapEnabled && (!m_simNodeVoltages.isEmpty() || !m_simBranchCurrents.isEmpty()) && !m_isPanning && isSelectTool) {
+        QString tooltipText;
+        if (m_netManager) {
+            QString netName = m_netManager->findNetAtPoint(scenePos);
+            if (!netName.isEmpty() && m_simNodeVoltages.contains(netName)) {
+                tooltipText = QString("Net: %1\nVoltage: %2 V").arg(netName).arg(m_simNodeVoltages[netName], 0, 'f', 3);
+            }
+        }
+        if (tooltipText.isEmpty()) {
+            QGraphicsItem* item = itemAt(event->pos());
+            SchematicItem* sItem = owningSchematicItem(item);
+            if (sItem && isProbeableSchematicComponent(sItem)) {
+                QString ref = sItem->reference();
+                if (!ref.isEmpty() && m_simBranchCurrents.contains(ref)) {
+                    tooltipText = QString("Component: %1\nCurrent: %2 A").arg(ref).arg(m_simBranchCurrents[ref], 0, 'f', 3);
+                }
+            }
+        }
+
+        if (!tooltipText.isEmpty()) {
+            QToolTip::showText(event->globalPosition().toPoint(), tooltipText, this);
+        } else {
+            QToolTip::hideText();
+        }
+    } else if (isSelectTool) {
+        QToolTip::hideText();
+    }
+
     if (!probeCursorActive && m_probeCursorVisible) {
         clearProbeCursorOverlay();
     }
@@ -1488,6 +1517,16 @@ void SchematicView::clearLiveERCMarkers() {
         delete m;
     }
     m_liveErcMarkers.clear();
+}
+
+void SchematicView::setSimulationResults(const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& branchCurrents) {
+    m_simNodeVoltages = nodeVoltages;
+    m_simBranchCurrents = branchCurrents;
+}
+
+void SchematicView::clearSimulationResults() {
+    m_simNodeVoltages.clear();
+    m_simBranchCurrents.clear();
 }
 
 void SchematicView::handleAutoScroll() {

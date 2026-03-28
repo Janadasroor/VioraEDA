@@ -121,6 +121,9 @@ public:
     void setHeatmapEnabled(bool enabled) { m_heatmapEnabled = enabled; viewport()->update(); }
     bool isHeatmapEnabled() const { return m_heatmapEnabled; }
     
+    void setSimulationResults(const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& branchCurrents);
+    void clearSimulationResults();
+
     void setHandToolActive(bool active);
     bool isHandToolActive() const { return m_handToolActive; }
 
@@ -178,6 +181,9 @@ private:
     bool m_handToolActive = false;
     SelectionFilter m_selectionFilter = SelectAll;
     bool m_heatmapEnabled = false;
+
+    QMap<QString, double> m_simNodeVoltages;
+    QMap<QString, double> m_simBranchCurrents;
 
     QTimer* m_autoScrollTimer;
     QPoint m_autoScrollDelta;
