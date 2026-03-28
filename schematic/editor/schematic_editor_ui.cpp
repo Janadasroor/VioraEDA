@@ -204,13 +204,13 @@ QIcon SchematicEditor::createComponentIcon(const QString& name) {
         painter.drawText(pixmap.rect(), Qt::AlignCenter, "ERC");
         painter.drawRect(2, 2, 28, 28);
     } else if (name == "Rotate CW") {
-        return getThemeIcon(":/icons/tool_rotate_cw.svg");
+        return getThemeIcon(":/icons/tool_rotate.svg");
     } else if (name == "Rotate CCW") {
         return getThemeIcon(":/icons/tool_rotate_ccw.svg");
     } else if (name == "Flip H") {
-        return getThemeIcon(":/icons/tool_flip_h.svg");
+        return getThemeIcon(":/icons/flip_h.svg");
     } else if (name == "Flip V") {
-        return getThemeIcon(":/icons/tool_flip_v.svg");
+        return getThemeIcon(":/icons/flip_v.svg");
     } else if (name == "Front") {
         painter.setBrush(ThemeManager::theme() ? ThemeManager::theme()->accentColor() : color);
         painter.drawRect(4, 4, 16, 16);
@@ -1557,6 +1557,34 @@ void SchematicEditor::createDrawingToolbar() {
     drawToolbar->setMovable(false);
     drawToolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
     drawToolbar->setOrientation(Qt::Vertical);
+    
+    // Consistent styling with left toolbars
+    drawToolbar->setStyleSheet(
+        "QToolBar#DrawingToolbar {"
+        "  background-color: #1e1e1e;"
+        "  border-left: 1px solid #3c3c3c;"
+        "  padding: 6px 4px;"
+        "  spacing: 2px;"
+        "  min-width: 42px;"
+        "}"
+        "QToolBar#DrawingToolbar QToolButton {"
+        "  background: transparent;"
+        "  border: 1px solid transparent;"
+        "  border-radius: 4px;"
+        "  padding: 5px;"
+        "  margin: 1px 2px;"
+        "  color: #cccccc;"
+        "}"
+        "QToolBar#DrawingToolbar QToolButton:hover {"
+        "  border-color: #555;"
+        "  background-color: #3c3c3c;"
+        "}"
+        "QToolBar#DrawingToolbar QToolButton:checked, QToolBar#DrawingToolbar QToolButton:pressed {"
+        "  background-color: #094771;"
+        "  border-color: #094771;"
+        "  color: white;"
+        "}"
+    );
 
     // Attempt to join the existing exclusive group
     QActionGroup* group = nullptr;
