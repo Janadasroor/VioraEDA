@@ -485,6 +485,26 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_highlighter = new SyntaxHighlighter(m_chatArea->document());
     mainLayout->addWidget(m_chatArea);
 
+    m_suggestionBar = new QWidget(this);
+    m_suggestionBar->hide();
+    m_suggestionBar->setStyleSheet(QString("QWidget { background-color: %1; border-top: 1px solid %2; }")
+        .arg((theme && theme->type() == PCBTheme::Light) ? "#f8fafc" : "#0f1520", border));
+    QHBoxLayout* suggestionBarLayout = new QHBoxLayout(m_suggestionBar);
+    suggestionBarLayout->setContentsMargins(12, 8, 12, 8);
+    suggestionBarLayout->setSpacing(8);
+
+    QLabel* suggestionLabel = new QLabel("Suggested:", m_suggestionBar);
+    suggestionLabel->setStyleSheet(QString("color: %1; font-size: 10px; font-weight: bold; text-transform: uppercase;")
+        .arg(theme ? theme->textSecondary().name() : "#8b949e"));
+    suggestionBarLayout->addWidget(suggestionLabel);
+
+    m_suggestionLayout = new QHBoxLayout();
+    m_suggestionLayout->setContentsMargins(0, 0, 0, 0);
+    m_suggestionLayout->setSpacing(6);
+    suggestionBarLayout->addLayout(m_suggestionLayout, 1);
+    suggestionBarLayout->addStretch(1);
+    mainLayout->addWidget(m_suggestionBar);
+
     // Thinking Tray
     m_thinkingDisplay = new QTextEdit(this);
     m_thinkingDisplay->setReadOnly(true);
@@ -676,6 +696,7 @@ void GeminiPanel::loadHistoryFromFile(const QString& filePath) {
     QFile file(filePath);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         m_history.clear(); 
+        clearSuggestionButtons();
         m_chatArea->clear();
         m_currentChatTitle = QFileInfo(filePath).baseName();
 
@@ -781,6 +802,7 @@ void GeminiPanel::clearHistory() {
     }
 
     m_history.clear(); 
+    clearSuggestionButtons();
     m_chatArea->clear();
     m_currentChatTitle.clear();
     m_leftover.clear();
@@ -806,6 +828,7 @@ void GeminiPanel::clearHistory() {
 
 void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     if (m_isWorking) return;
+    clearSuggestionButtons();
     QString key = ConfigManager::instance().geminiApiKey();
     if (key.isEmpty()) {
         reportError("API Key Missing",
@@ -939,9 +962,11 @@ void GeminiPanel::onProcessReadyRead() {
             } else if (text.startsWith("<SUGGESTION>")) {
                 int end = text.indexOf("</SUGGESTION>");
                 if (end != -1) {
-                    QString sug = text.mid(12, end - 12); QStringList pts = sug.split("|");
-                    QString lbl = pts.at(0), cmd = pts.size() > 1 ? pts.at(1) : lbl;
-                    m_chatArea->moveCursor(QTextCursor::End); m_chatArea->insertHtml(QString("<div style='margin: 12px 0;'><a href='suggestion:%2' style='background: #21262d; color: #58a6ff; border: 1px solid #30363d; border-radius: 6px; padding: 4px 12px; text-decoration: none; font-size: 12px;'>[SUGGESTION] %1</a></div>").arg(lbl.toHtmlEscaped()).arg(cmd.toHtmlEscaped()));
+                    const QString sug = text.mid(12, end - 12).trimmed();
+                    const int splitPos = sug.indexOf('|');
+                    const QString lbl = (splitPos >= 0 ? sug.left(splitPos) : sug).trimmed();
+                    const QString cmd = (splitPos >= 0 ? sug.mid(splitPos + 1) : lbl).trimmed();
+                    addSuggestionButton(lbl, cmd);
                     text = text.mid(end + 7);
                     } else { m_leftover = text; text.clear(); }
                     } else if (text.startsWith("<SNIPPET>")) {
@@ -1036,11 +1061,7 @@ void GeminiPanel::onStopClicked() { if (m_process && m_process->state() != QProc
 void GeminiPanel::onAnchorClicked(const QUrl& url) { 
     QString link = url.toString(); 
     if (link.startsWith("suggestion:")) { 
-        QString cmd = link.mid(11); 
-        emit suggestionTriggered(cmd); 
-        m_statusButton->setText("EXEC: " + cmd.toUpper()); 
-        m_statusButton->show(); 
-        QTimer::singleShot(2000, m_statusButton, &QPushButton::hide); 
+        triggerSuggestionCommand(link.mid(11));
     } else if (link.startsWith("checkpoint:")) {
         int idx = link.mid(11).toInt();
         if (m_undoStack && idx >= 0 && idx <= m_undoStack->count()) {
@@ -1062,6 +1083,71 @@ void GeminiPanel::onAnchorClicked(const QUrl& url) {
         QTimer::singleShot(2000, m_statusButton, &QPushButton::hide);
     }
 }
+
+void GeminiPanel::clearSuggestionButtons() {
+    if (!m_suggestionLayout) return;
+    while (QLayoutItem* item = m_suggestionLayout->takeAt(0)) {
+        if (QWidget* w = item->widget()) {
+            w->deleteLater();
+        }
+        delete item;
+    }
+    m_suggestionKeys.clear();
+    if (m_suggestionBar) {
+        m_suggestionBar->hide();
+    }
+}
+
+void GeminiPanel::addSuggestionButton(const QString& label, const QString& command) {
+    if (!m_suggestionLayout || !m_suggestionBar) return;
+    const QString cleanLabel = label.trimmed().isEmpty() ? QString("RUN") : label.trimmed();
+    const QString cleanCommand = command.trimmed().isEmpty() ? cleanLabel : command.trimmed();
+    const QString key = QString("%1|%2").arg(cleanLabel.toLower(), cleanCommand.toLower());
+    if (m_suggestionKeys.contains(key)) return;
+    m_suggestionKeys.insert(key);
+
+    PCBTheme* theme = ThemeManager::theme();
+    const bool isLight = theme && theme->type() == PCBTheme::Light;
+    QPushButton* btn = new QPushButton(cleanLabel.toUpper(), m_suggestionBar);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedHeight(26);
+    btn->setStyleSheet(QString(
+        "QPushButton {"
+        " background: %1;"
+        " color: %2;"
+        " border: 1px solid %3;"
+        " border-radius: 6px;"
+        " padding: 0 10px;"
+        " font-size: 11px;"
+        " font-weight: 700;"
+        " text-transform: uppercase;"
+        "}"
+        "QPushButton:hover { background: %4; border-color: %5; }"
+    )
+        .arg(isLight ? "#eff6ff" : "#1d2738",
+             isLight ? "#1d4ed8" : "#9cc8ff",
+             isLight ? "#bfdbfe" : "#30405a",
+             isLight ? "#dbeafe" : "#243249",
+             isLight ? "#93c5fd" : "#4b6a93"));
+
+    connect(btn, &QPushButton::clicked, this, [this, cleanCommand]() {
+        triggerSuggestionCommand(cleanCommand);
+    });
+    m_suggestionLayout->addWidget(btn);
+    m_suggestionBar->show();
+}
+
+void GeminiPanel::triggerSuggestionCommand(const QString& command) {
+    const QString cmd = command.trimmed();
+    if (cmd.isEmpty()) return;
+    emit suggestionTriggered(cmd);
+    if (m_statusButton) {
+        m_statusButton->setText("EXEC: " + cmd.toUpper());
+        m_statusButton->show();
+        QTimer::singleShot(2000, m_statusButton, &QPushButton::hide);
+    }
+}
+
 void GeminiPanel::updateThinkingPulse() { m_pulseStep = (m_pulseStep + 1) % 4; QString dots = QString(".").repeated(m_pulseStep); QString base = m_statusButton->text().replace(".", ""); m_statusButton->setText(base + dots); }
 void GeminiPanel::updateContextCheckbox() { 
     if (m_mode == "ask") m_includeContextCheck->setToolTip("Attach Full Circuit Context for Explanation");

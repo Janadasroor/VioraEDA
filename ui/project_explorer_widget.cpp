@@ -95,6 +95,36 @@ public:
                 }
             }
         }
+        
+        if (role == Qt::DecorationRole) {
+            QFileSystemModel* fs = qobject_cast<QFileSystemModel*>(sourceModel());
+            if (fs) {
+                QModelIndex srcIndex = mapToSource(index);
+                QString fileName = fs->fileName(srcIndex).toLower();
+                
+                if (fs->isDir(srcIndex)) {
+                    return QIcon(":/icons/folder_closed.svg");
+                }
+                
+                if (fileName.endsWith(".flxsch") || fileName.endsWith(".sch"))
+                    return QIcon(":/icons/file_flux_sch.png");
+                if (fileName.endsWith(".kicad_sch"))
+                    return QIcon(":/icons/file_kicad_sch.png");
+                if (fileName.endsWith(".schdoc"))
+                    return QIcon(":/icons/file_altium_sch.png");
+                if (fileName.endsWith(".viosym") || fileName.endsWith(".sym") || fileName.endsWith(".sclib"))
+                    return QIcon(":/icons/symbol_editor.png");
+                if (fileName.endsWith(".cir") || fileName.endsWith(".net") || fileName.endsWith(".spice") || 
+                    fileName.endsWith(".model") || fileName.endsWith(".lib") || fileName.endsWith(".sub"))
+                    return QIcon(":/icons/tool_spice_directive.svg");
+                if (fileName.endsWith(".png") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || 
+                    fileName.endsWith(".bmp") || fileName.endsWith(".svg") || fileName.endsWith(".gif") || fileName.endsWith(".webp"))
+                    return QIcon(":/icons/tool_image.svg");
+                if (fileName.endsWith(".txt") || fileName.endsWith(".md") || fileName.endsWith(".json") || fileName.endsWith(".log"))
+                    return QIcon(":/icons/tool_text.svg");
+            }
+        }
+        
         return QSortFilterProxyModel::data(index, role);
     }
 
@@ -137,6 +167,8 @@ protected:
                fileName.endsWith(".flxsch") ||
                fileName.endsWith(".cir") || fileName.endsWith(".spice") || fileName.endsWith(".net") ||
                fileName.endsWith(".lib") || fileName.endsWith(".sclib") ||
+               fileName.endsWith(".png") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") ||
+               fileName.endsWith(".bmp") || fileName.endsWith(".svg") || fileName.endsWith(".gif") ||
                fileName.contains(filterRegularExpression());
     }
 };

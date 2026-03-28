@@ -630,10 +630,14 @@ QList<QPointF> SchematicWireTool::buildRoutePoints(const QPointF& start, const Q
         return buildFortyFiveRoute(start, target, modifiers);
     case ManhattanMode:
     default:
+        // Manhattan mode: try smart routing first if not forced
+        if (!modifiers.testFlag(Qt::ControlModifier) && !modifiers.testFlag(Qt::AltModifier)) {
+            return buildSmartRoute(start, target);
+        }
         break;
     }
 
-    // Manhattan mode: always use clean L-shape (Proteus-style)
+    // Manhattan mode (forced): always use clean L-shape (Proteus-style)
     const bool forceH = modifiers.testFlag(Qt::ControlModifier);
     const bool forceV = modifiers.testFlag(Qt::AltModifier);
     

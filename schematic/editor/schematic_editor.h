@@ -21,6 +21,7 @@
 #include "../ui/schematic_components_widget.h"
 #include "../ui/project_explorer_widget.h"
 #include "../ui/flux_script_panel.h"
+#include "../ui/image_preview_panel.h"
 #include "flux/core/net_manager.h"
 #include "schematic_layout_optimizer.h"
 #include "../analysis/schematic_erc_rules.h"
@@ -55,6 +56,7 @@ public:
                                 const SymbolDefinition& preBuiltDef = SymbolDefinition());
     void addSimulationTab(const QString& name = "Simulation Results");
     void addModelArchitectTab();
+    void addImageTab(const QString& filePath);
     void closeTab(int index);
 
 private slots:
@@ -148,6 +150,9 @@ private slots:
     void onFlipVertical();
     void onBringToFront();
     void onSendToBack();
+    
+    // UI Phase 2 slots
+    void onToggleMiniMap(bool visible);
     void onAlignLeft();
     void onAlignRight();
     void onAlignTop();
@@ -296,6 +301,10 @@ private:
     // Project context
     QString m_projectName;
     QString m_projectDir;
+
+    // UI Phase 2 Components
+    class SchematicMiniMap* m_miniMap = nullptr;
+    QAction* m_toggleMiniMapAction = nullptr;
 
     // Undo/Redo
     QUndoStack *m_undoStack;

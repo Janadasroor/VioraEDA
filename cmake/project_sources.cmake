@@ -428,6 +428,8 @@ set(UI_SOURCES
     ui/spice_model_architect.h
     ui/project_explorer_widget.cpp
     ui/project_explorer_widget.h
+    ui/image_preview_panel.cpp
+    ui/image_preview_panel.h
     ui/git_backend.cpp
     ui/git_backend.h
     ui/source_control_manager.cpp
