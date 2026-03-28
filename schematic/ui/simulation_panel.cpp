@@ -16,6 +16,7 @@
 #include "../io/schematic_file_io.h"
 #include "../../simulator/bridge/sim_schematic_bridge.h"
 #include "../analysis/net_manager.h"
+#include "../editor/schematic_editor.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -453,6 +454,7 @@ void SimulationPanel::addProbe(const QString& signalName) {
                 for (size_t i = 0; i < w->yPhase.size(); ++i) phase.append(w->yPhase[i]);
                 m_waveformViewer->addSignal(matchedName, time, values, phase);
             } else {
+                qDebug() << "SimulationPanel: addProbe - Found waveform for" << matchedName << "Points:" << values.size();
                 m_waveformViewer->addSignal(matchedName, time, values);
             }
         };
@@ -569,6 +571,7 @@ void SimulationPanel::addProbe(const QString& signalName) {
         }
 
         m_waveformViewer->setSignalChecked(matchedName, true);
+        m_waveformViewer->updatePlot(true);
     }
     
     // If a transient simulation is running, add to real-time series
@@ -738,8 +741,40 @@ void SimulationPanel::clearAllProbes() {
     if (m_waveformViewer) {
         m_waveformViewer->clear();
     }
+    m_persistentCheckedSignals.clear();
     if (m_logOutput) {
         m_logOutput->append(QString("Cleared %1 probe(s).").arg(count));
+    }
+}
+
+void SimulationPanel::onClearFocusedPaneProbes() {
+    if (!m_waveformViewer || !m_signalList) return;
+    
+    int focusedIndex = m_waveformViewer->focusedPaneIndex();
+    if (focusedIndex < 0) focusedIndex = 0; 
+    
+    QStringList paneSignals = m_waveformViewer->getSignalsInPane(focusedIndex);
+    
+    m_signalList->blockSignals(true);
+    for (const QString& sig : paneSignals) {
+        for (int i = 0; i < m_signalList->count(); ++i) {
+            auto* item = m_signalList->item(i);
+            if (item->text() == sig) {
+                delete m_signalList->takeItem(i);
+                break;
+            }
+        }
+        m_persistentCheckedSignals.remove(sig);
+        m_realTimeSeries.remove(sig); // Avoid dangling pointers
+        if (m_editor) {
+            m_editor->removeProbeMarkerBySignalName(sig);
+        }
+    }
+    m_signalList->blockSignals(false);
+    
+    m_waveformViewer->clearPane(focusedIndex);
+    if (m_logOutput) {
+        m_logOutput->append(QString("Cleared focused pane (%1 signals removed).").arg(paneSignals.size()));
     }
 }
 
@@ -2397,6 +2432,8 @@ void SimulationPanel::onTimelineValueChanged(int value) {
 }
 
 void SimulationPanel::plotBuiltinResults(const SimResults& results) {
+    // Disable real-time data while clearing to avoid race conditions
+    m_acceptRealTimeStream = false;
     if (m_signalList) {
         for (int i = 0; i < m_signalList->count(); ++i) {
             if (m_signalList->item(i)->checkState() == Qt::Checked) {

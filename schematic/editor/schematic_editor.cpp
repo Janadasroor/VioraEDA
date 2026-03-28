@@ -356,7 +356,7 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     connect(view, &SchematicView::netProbed, this, [this](const QString& netName) {
         if (m_simulationPanel) {
             if (m_simulationPanel->hasProbe(netName)) {
-                m_simulationPanel->clearAllProbesPreserveX();
+                m_simulationPanel->onClearFocusedPaneProbes();
             }
             m_simulationPanel->addProbe(netName);
             statusBar()->showMessage("Probed signal: " + netName, 3000);
@@ -869,7 +869,9 @@ void SchematicEditor::ensureProbeToolConnected() {
         connect(probeTool, &SchematicProbeTool::signalDifferentialProbed,
                 m_simulationPanel, &SimulationPanel::addDifferentialProbe, Qt::UniqueConnection);
         connect(probeTool, &SchematicProbeTool::signalClearAllProbes,
-                m_simulationPanel, &SimulationPanel::clearAllProbesPreserveX, Qt::UniqueConnection);
+                this, &SchematicEditor::onClearAllProbeMarkers, Qt::UniqueConnection);
+        connect(probeTool, &SchematicProbeTool::signalClearFocusedPaneProbes,
+                m_simulationPanel, &SimulationPanel::onClearFocusedPaneProbes, Qt::UniqueConnection);
     }
 }
 
@@ -1177,6 +1179,55 @@ void SchematicEditor::onClearSimulationOverlays() {
     
     if (statusBar()) {
         statusBar()->showMessage("Simulation overlays cleared.", 3000);
+    }
+}
+
+void SchematicEditor::onClearAllProbeMarkers() {
+    if (!m_scene) return;
+    QList<QGraphicsItem*> toDelete;
+    for (auto* item : m_scene->items()) {
+        if (dynamic_cast<SchematicWaveformMarker*>(item)) {
+            toDelete.append(item);
+        } else if (item->data(0).toString() == "probe_dot") {
+            toDelete.append(item);
+        }
+    }
+    for (auto* item : toDelete) {
+        m_scene->removeItem(item);
+        delete item;
+    }
+    // Also notify SimulationPanel if it was a global clear
+    if (m_simulationPanel) m_simulationPanel->clearAllProbesPreserveX();
+}
+
+void SchematicEditor::removeProbeMarkerBySignalName(const QString& signalName) {
+    if (!m_scene || signalName.isEmpty()) return;
+    
+    QString kind = "V", net = signalName;
+    if (signalName.startsWith("V(", Qt::CaseInsensitive) && signalName.endsWith(")")) {
+        QString core = signalName.mid(2, signalName.length() - 3);
+        if (core.contains(",")) return;
+        net = core; kind = "V";
+    } else if (signalName.startsWith("I(", Qt::CaseInsensitive) && signalName.endsWith(")")) {
+        net = signalName.mid(2, signalName.length() - 3); kind = "I";
+    } else if (signalName.startsWith("P(", Qt::CaseInsensitive) && signalName.endsWith(")")) {
+        net = signalName.mid(2, signalName.length() - 3); kind = "P";
+    }
+
+    const QString key = (kind + ":" + net).toUpper();
+    QList<QGraphicsItem*> toDelete;
+    for (auto* item : m_scene->items()) {
+        if (auto* marker = dynamic_cast<SchematicWaveformMarker*>(item)) {
+            if ((marker->kind() + ":" + marker->netName()).toUpper() == key) {
+                toDelete.append(marker);
+            }
+        } else if (item->data(0).toString() == "probe_dot" && item->data(1).toString().toUpper() == key) {
+            toDelete.append(item);
+        }
+    }
+    for (auto* item : toDelete) {
+        m_scene->removeItem(item);
+        delete item;
     }
 }
 

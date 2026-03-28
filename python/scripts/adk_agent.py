@@ -4,6 +4,7 @@ import sys
 import json
 import typing
 import warnings
+from collections import deque
 from google.genai import types  # pyre-ignore[21]
 
 # Suppress ADK experimental warning for in-memory credential service as early as possible.
@@ -88,6 +89,12 @@ RESPONSE STRUCTURE:
 1. Technical analysis.
 2. Result (value + unit).
 3. Suggestions using <SUGGESTION>Label|command</SUGGESTION>.
+
+TOOL-CALL GUARDRAILS:
+- Never repeat the same tool call with the same arguments more than 2 times.
+- If tools return no new information twice in a row, stop tool-calling and explain the blocker clearly.
+- Avoid alternating loops (example: list_nodes -> get_signal_data -> list_nodes -> get_signal_data).
+- After failed attempts, ask at most one concise clarification question.
 """
     system_instructions = common_instructions
     if mode == "ask":
@@ -117,6 +124,12 @@ RESPONSE STRUCTURE:
     try:
         session = await session_service.create_session(user_id="viora-user", app_name="VioraSpice")
         new_msg = types.Content(role="user", parts=[types.Part(text=prompt_text)])
+        max_tool_calls = 24
+        max_same_tool_streak = 4
+        max_abab_repeat_window = 8
+        tool_call_count = 0
+        tool_history = deque(maxlen=32)
+        emitted_call_keys: set[str] = set()
         
         async for _event in runner.run_async(
             user_id="viora-user",
@@ -129,7 +142,54 @@ RESPONSE STRUCTURE:
             
             if hasattr(event, "get_function_calls") and event.get_function_calls():  # pyre-ignore[16]
                 for call in event.get_function_calls():  # pyre-ignore[16]
-                    output_stream.write(f"<ACTION>Using tool: {call.name}...</ACTION>")
+                    call_name = str(getattr(call, "name", "") or "").strip()
+                    call_args = getattr(call, "args", None)
+                    if isinstance(call_args, dict):
+                        args_key = json.dumps(call_args, sort_keys=True, ensure_ascii=False)
+                    else:
+                        args_key = str(call_args)
+                    call_key = f"{call_name}|{args_key}"
+
+                    # De-duplicate repeated function-call events from stream updates.
+                    if call_key not in emitted_call_keys:
+                        output_stream.write(f"<ACTION>Using tool: {call_name}...</ACTION>")
+                        emitted_call_keys.add(call_key)
+
+                    tool_call_count += 1
+                    tool_history.append(call_name)
+
+                    # Guard 1: hard maximum tool calls per request.
+                    if tool_call_count >= max_tool_calls:
+                        output_stream.write(
+                            "I stopped because tool-calling exceeded the safe limit for one request. "
+                            "This usually means the simulator did not return stable data. "
+                            "Please try: run simulation once, then ask for a specific signal like V(Net6) or I(R3)."
+                        )
+                        output_stream.flush()
+                        return
+
+                    # Guard 2: same tool repeated too many times in a row.
+                    if len(tool_history) >= max_same_tool_streak:
+                        tail = list(tool_history)[-max_same_tool_streak:]
+                        if len(set(tail)) == 1:
+                            output_stream.write(
+                                f"I stopped because `{tail[-1]}` was repeated without progress. "
+                                "The netlist or simulation results may be unavailable in this run."
+                            )
+                            output_stream.flush()
+                            return
+
+                    # Guard 3: ABAB loop pattern (A,B,A,B,...), common in discovery loops.
+                    if len(tool_history) >= max_abab_repeat_window:
+                        tail = list(tool_history)[-max_abab_repeat_window:]
+                        if len(set(tail)) == 2 and all(tail[i] == tail[i % 2] for i in range(max_abab_repeat_window)):
+                            output_stream.write(
+                                "I stopped because the tool calls entered a repeated discovery loop. "
+                                "Please provide one exact target signal (example: V(Net6), V(R3:1)-V(R3:2), or I(V1)) "
+                                "or run simulation first."
+                            )
+                            output_stream.flush()
+                            return
             
             if hasattr(event, "content") and event.content and hasattr(event.content, "parts"):  # pyre-ignore[16]
                 for part in event.content.parts:  # pyre-ignore[16]

@@ -425,7 +425,8 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
         QPointF scenePos = mapToScene(event->pos());
         
         // --- LTspice Style: Interactive Probing ---
-        if (m_simulationRunning || m_probingEnabled) {
+        bool toolIsInstrument = m_currentTool && (m_currentTool->name().contains("meter", Qt::CaseInsensitive) || m_currentTool->name().contains("probe", Qt::CaseInsensitive));
+        if (!toolIsInstrument && (m_simulationRunning || m_probingEnabled)) {
             // Detect wire/label under cursor
             bool isWireOrLabel = false;
             QString probedNet;
