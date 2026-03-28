@@ -18,6 +18,9 @@
 #include <QKeyEvent>
 #include <QRubberBand>
 #include <QToolBar>
+#include <QApplication>
+#include <QToolButton>
+#include <QMenu>
 #include <QStatusBar>
 #include <QFileDialog>
 #include <QGraphicsLayout>
@@ -1452,18 +1455,39 @@ void WaveformViewer::updateLegend() {
             QString name = listItem->text();
             QColor color = listItem->foreground().color();
             
-            auto* tag = new QLabel(name, m_legendContainer);
+            auto* tag = new QToolButton(m_legendContainer);
+            tag->setText(name);
+            tag->setCursor(Qt::PointingHandCursor);
+            tag->setAutoRaise(true);
             tag->setStyleSheet(QString(
-                "QLabel {"
+                "QToolButton {"
                 "  color: %1;"
                 "  font-weight: bold;"
                 "  border: 1px solid %1;"
                 "  padding: 1px 8px;"
-                "  border-radius: 3px;"
+                "  border-radius: 4px;"
                 "  font-size: 10px;"
                 "  background: rgba(%2, %3, %4, 15);"
                 "}"
+                "QToolButton:hover {"
+                "  background: rgba(%2, %3, %4, 40);"
+                "}"
             ).arg(color.name()).arg(color.red()).arg(color.green()).arg(color.blue()));
+
+            connect(tag, &QToolButton::clicked, this, [this, name]() {
+                if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
+                    showAnalysisForSeries(name);
+                } else {
+                    // Normal click focus in the list
+                    for (int i = 0; i < m_nodeList->count(); ++i) {
+                        if (m_nodeList->item(i)->text() == name) {
+                            m_nodeList->setCurrentRow(i);
+                            break;
+                        }
+                    }
+                }
+            });
+
             m_legendLayout->insertWidget(insertIdx++, tag);
         }
     }
