@@ -40,6 +40,7 @@ except ImportError as e:
 
 try:
     from ai_pipeline.ai_tools.tools import ToolRegistry  # pyre-ignore[21]
+    from ai_pipeline.services.memory_store import format_memory_context, update_memory  # pyre-ignore[21]
 except ImportError as e:
     print(json.dumps({"error": f"Could not import ToolRegistry: {str(e)}"}), file=sys.stderr)
     sys.exit(1)
@@ -74,10 +75,11 @@ def get_tools(registry):
         FunctionTool(execute_commands),
     ]
 
-async def run_agent(prompt_text, project_path, context="", mode="schematic", model_name="gemini-2.5-flash-lite", output_stream=sys.stdout):
+async def run_agent(prompt_text, project_path, context="", mode="schematic", model_name="gemini-2.5-flash-lite", history_json="", output_stream=sys.stdout):
     # 2. Setup Tool Registry
     registry = ToolRegistry(project_path)
     tools = get_tools(registry)
+    memory_context = format_memory_context(project_path, history_json)
 
     # 3. Define the Agent
     common_instructions = """
@@ -95,6 +97,11 @@ TOOL-CALL GUARDRAILS:
 - If tools return no new information twice in a row, stop tool-calling and explain the blocker clearly.
 - Avoid alternating loops (example: list_nodes -> get_signal_data -> list_nodes -> get_signal_data).
 - After failed attempts, ask at most one concise clarification question.
+
+MEMORY POLICY:
+- Treat persistent memory as project-scoped working memory, not ground truth.
+- Reuse remembered preferences, notes, and recent decisions when they help.
+- If current schematic context conflicts with memory, trust the current context.
 """
     system_instructions = common_instructions
     if mode == "ask":
@@ -102,9 +109,13 @@ TOOL-CALL GUARDRAILS:
     else:
         system_instructions += "\nMode: SCHEMATIC. Focus on design, repair, and simulation."
 
+    full_context = context
+    if memory_context:
+        full_context = f"{context}\n\nPersistent memory:\n{memory_context}".strip()
+
     agent = Agent(
         name="VioraAI",
-        instruction=f"{system_instructions}\n\nContext:\n{context}",
+        instruction=f"{system_instructions}\n\nContext:\n{full_context}",
         tools=tools,
         model=model_name
     )
@@ -130,6 +141,7 @@ TOOL-CALL GUARDRAILS:
         tool_call_count = 0
         tool_history = deque(maxlen=32)
         emitted_call_keys: set[str] = set()
+        response_chunks = []
         
         async for _event in runner.run_async(
             user_id="viora-user",
@@ -194,9 +206,12 @@ TOOL-CALL GUARDRAILS:
             if hasattr(event, "content") and event.content and hasattr(event.content, "parts"):  # pyre-ignore[16]
                 for part in event.content.parts:  # pyre-ignore[16]
                     if hasattr(part, "text") and part.text:  # pyre-ignore[16]
+                        response_chunks.append(str(part.text))
                         output_stream.write(part.text)  # pyre-ignore[16]
             
             output_stream.flush()
+
+        update_memory(project_path, prompt_text, "".join(response_chunks).strip())
 
     except Exception as e:
         sys.stderr.write(f"ADK Runner Error: {str(e)}\n")
@@ -215,5 +230,6 @@ if __name__ == "__main__":
     m_project_path = get_arg("--project_path") or ""
     m_mode = get_arg("--mode") or "schematic"
     m_model = get_arg("--model") or "gemini-2.5-flash-lite"
+    m_history = get_arg("--history") or ""
 
-    asyncio.run(run_agent(m_prompt, m_project_path, m_context, m_mode, m_model))
+    asyncio.run(run_agent(m_prompt, m_project_path, m_context, m_mode, m_model, m_history))

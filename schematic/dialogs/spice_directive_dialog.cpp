@@ -1,11 +1,14 @@
 #include "spice_directive_dialog.h"
 #include "../editor/schematic_commands.h"
 #include "../ui/spice_highlighter.h"
+#include "../items/power_item.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSplitter>
 #include <QRegularExpression>
 #include <QSet>
+#include <QTextCursor>
 
 namespace {
 
@@ -25,6 +28,44 @@ QSet<QString> schematicReferences(QGraphicsScene* scene) {
     return refs;
 }
 
+QSet<QString> schematicDirectiveModelNames(QGraphicsScene* scene, const SchematicSpiceDirectiveItem* self) {
+    QSet<QString> names;
+    if (!scene) return names;
+
+    for (QGraphicsItem* item : scene->items()) {
+        auto* directive = dynamic_cast<SchematicSpiceDirectiveItem*>(item);
+        if (!directive || directive == self) continue;
+
+        const QStringList lines = directive->text().split('\n');
+        for (const QString& rawLine : lines) {
+            const QString line = rawLine.trimmed();
+            if (!line.startsWith(".model", Qt::CaseInsensitive)) continue;
+            const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) names.insert(parts.at(1).toUpper());
+        }
+    }
+
+    return names;
+}
+
+QSet<QString> powerRailNetNames(QGraphicsScene* scene) {
+    QSet<QString> rails;
+    if (!scene) return rails;
+
+    for (QGraphicsItem* item : scene->items()) {
+        auto* schematicItem = dynamic_cast<SchematicItem*>(item);
+        if (!schematicItem) continue;
+        if (schematicItem->itemType() != SchematicItem::PowerType) continue;
+
+        const QString value = schematicItem->value().trimmed();
+        if (!value.isEmpty()) rails.insert(value.toUpper());
+        const QString ref = schematicItem->reference().trimmed();
+        if (!ref.isEmpty()) rails.insert(ref.toUpper());
+    }
+
+    return rails;
+}
+
 bool isCommentLine(const QString& line) {
     return line.startsWith('*') || line.startsWith(';') || line.startsWith('#');
 }
@@ -40,7 +81,7 @@ QString firstToken(const QString& line) {
 }
 
 SpiceDirectiveDialog::SpiceDirectiveDialog(SchematicSpiceDirectiveItem* item, QUndoStack* undoStack, QGraphicsScene* scene, QWidget* parent)
-    : QDialog(parent), m_item(item), m_undoStack(undoStack), m_scene(scene), m_commandEdit(nullptr), m_validationLabel(nullptr), m_okButton(nullptr), m_cancelButton(nullptr), m_highlighter(nullptr)
+    : QDialog(parent), m_item(item), m_undoStack(undoStack), m_scene(scene), m_commandEdit(nullptr), m_validationLabel(nullptr), m_previewEdit(nullptr), m_okButton(nullptr), m_cancelButton(nullptr), m_highlighter(nullptr)
 {
     setupUi();
     loadFromItem();
@@ -48,8 +89,10 @@ SpiceDirectiveDialog::SpiceDirectiveDialog(SchematicSpiceDirectiveItem* item, QU
     connect(m_okButton, &QPushButton::clicked, this, &SpiceDirectiveDialog::onAccepted);
     connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_commandEdit, &QPlainTextEdit::textChanged, this, &SpiceDirectiveDialog::validateDirectiveText);
+    connect(m_commandEdit, &QPlainTextEdit::textChanged, this, &SpiceDirectiveDialog::updatePreview);
 
     validateDirectiveText();
+    updatePreview();
 }
 
 void SpiceDirectiveDialog::setupUi() {
@@ -68,14 +111,25 @@ void SpiceDirectiveDialog::setupUi() {
         ".subckt opamp 1 2 3 4 5 ... .ends opamp", this);
     mainLayout->addWidget(infoLabel);
 
-    m_commandEdit = new QPlainTextEdit(this);
+    QSplitter* splitter = new QSplitter(Qt::Vertical, this);
+
+    m_commandEdit = new QPlainTextEdit(splitter);
     m_commandEdit->setPlaceholderText("Vcc vcc 0 DC 15\nVee vee 0 DC -15\nVin in 0 SIN(0 1 1k)\n\nR1 in inv 10k\nR2 out inv 100k\n\nX1 0 inv out vcc vee opamp\n.subckt opamp 1 2 3 4 5\nE1 3 0 1 2 100k\nR1 3 0 1k\n.ends opamp\n\n.tran 10u 10m");
     QFont font("Courier New");
     font.setStyleHint(QFont::Monospace);
     font.setPointSize(10);
     m_commandEdit->setFont(font);
     m_highlighter = new SpiceHighlighter(m_commandEdit->document());
-    mainLayout->addWidget(m_commandEdit);
+
+    m_previewEdit = new QTextBrowser(splitter);
+    m_previewEdit->setOpenLinks(false);
+    m_previewEdit->setReadOnly(true);
+    m_previewEdit->setFont(font);
+    m_previewEdit->setPlaceholderText("Directive preview will appear here.");
+
+    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(1, 2);
+    mainLayout->addWidget(splitter);
 
     m_validationLabel = new QLabel(this);
     m_validationLabel->setWordWrap(true);
@@ -130,11 +184,14 @@ void SpiceDirectiveDialog::validateDirectiveText() {
     const QString text = m_commandEdit->toPlainText();
     const QStringList lines = text.split('\n');
     const QSet<QString> sceneRefs = schematicReferences(m_scene);
+    const QSet<QString> existingModelNames = schematicDirectiveModelNames(m_scene, m_item);
+    const QSet<QString> powerRails = powerRailNetNames(m_scene);
 
     QStringList errors;
     QStringList warnings;
     QStringList analysisCards;
     QMap<QString, int> elementLineByRef;
+    QMap<QString, int> modelLineByName;
     QStringList subcktStack;
 
     for (int i = 0; i < lines.size(); ++i) {
@@ -167,6 +224,26 @@ void SpiceDirectiveDialog::validateDirectiveText() {
                                       .arg(endName, openName);
                     }
                 }
+            } else if (card == ".model") {
+                const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                if (parts.size() < 2) {
+                    errors << QString("Line %1: .model is missing a model name.").arg(lineNo);
+                } else {
+                    const QString modelName = parts.at(1).toUpper();
+                    if (modelLineByName.contains(modelName)) {
+                        warnings << QString("Line %1: duplicate .model %2 (first seen on line %3).")
+                                        .arg(lineNo)
+                                        .arg(parts.at(1))
+                                        .arg(modelLineByName.value(modelName));
+                    } else {
+                        modelLineByName.insert(modelName, lineNo);
+                    }
+                    if (existingModelNames.contains(modelName)) {
+                        warnings << QString("Line %1: .model %2 duplicates a model declared in another directive block.")
+                                        .arg(lineNo)
+                                        .arg(parts.at(1));
+                    }
+                }
             }
 
             static const QSet<QString> kAnalysisCards = {
@@ -191,6 +268,20 @@ void SpiceDirectiveDialog::validateDirectiveText() {
 
         if (sceneRefs.contains(normalizedRef)) {
             warnings << QString("Line %1: element reference %2 conflicts with an existing schematic reference.").arg(lineNo).arg(token);
+        }
+
+        const QChar prefix = normalizedRef.isEmpty() ? QChar() : normalizedRef.at(0);
+        if ((prefix == 'V' || prefix == 'I') && !powerRails.isEmpty()) {
+            const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                const QString netName = parts.at(1).trimmed().toUpper();
+                if (powerRails.contains(netName)) {
+                    warnings << QString("Line %1: source %2 drives rail %3, which already exists as a schematic power rail.")
+                                    .arg(lineNo)
+                                    .arg(token)
+                                    .arg(parts.at(1));
+                }
+            }
         }
     }
 
@@ -224,4 +315,40 @@ void SpiceDirectiveDialog::validateDirectiveText() {
     }
 
     m_okButton->setEnabled(errors.isEmpty());
+}
+
+void SpiceDirectiveDialog::updatePreview() {
+    if (!m_commandEdit || !m_previewEdit) return;
+
+    const QString text = m_commandEdit->toPlainText().trimmed();
+    if (text.isEmpty()) {
+        m_previewEdit->setPlainText("Directive preview will appear here.");
+        return;
+    }
+
+    QStringList preview;
+    preview << "* SPICE block preview";
+
+    const QStringList lines = text.split('\n');
+    for (const QString& rawLine : lines) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty()) {
+            preview << QString();
+            continue;
+        }
+        if (isCommentLine(line)) {
+            preview << line;
+            continue;
+        }
+        if (line.startsWith('+')) {
+            preview << line;
+            continue;
+        }
+        preview << line;
+    }
+
+    m_previewEdit->setPlainText(preview.join('\n'));
+    QTextCursor cursor = m_previewEdit->textCursor();
+    cursor.movePosition(QTextCursor::Start);
+    m_previewEdit->setTextCursor(cursor);
 }
