@@ -21,6 +21,7 @@ class QDialog;
 class QListWidget;
 class QPlainTextEdit;
 class QToolButton;
+class QResizeEvent;
 
 /**
  * @brief Reusable AI Assistant panel for both dock widgets and dialogs.
@@ -46,6 +47,8 @@ public:
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
 public slots:
     void clearHistory();
@@ -82,6 +85,17 @@ private:
         QString details;
     };
 
+    struct ChatMessage {
+        enum class Kind {
+            User,
+            ModelMarkdown,
+            SystemHtml
+        };
+        Kind kind = Kind::SystemHtml;
+        QString body;
+        QString meta;
+    };
+
     QGraphicsScene* m_scene;
     class NetManager* m_netManager = nullptr;
     class QUndoStack* m_undoStack = nullptr;
@@ -106,6 +120,7 @@ private:
 
     // Pulse animation
     QTimer* m_thinkingPulseTimer;
+    QTimer* m_rerenderTimer = nullptr;
     int m_pulseStep = 0;
 
     // API Key UI
@@ -144,6 +159,7 @@ private:
     QPushButton* m_statusButton;
     
     QList<QVariantMap> m_history;
+    QList<ChatMessage> m_chatMessages;
     std::function<QString()> m_contextProvider;
 
     void refreshModelList();
@@ -157,6 +173,10 @@ private:
     void selectErrorHistoryRow(int row);
     void showToolCallBanner(const QString& actionText = QString());
     void hideToolCallBanner();
+    void appendChatMessage(const ChatMessage& message);
+    QString chatMessageToHtml(const ChatMessage& message) const;
+    void renderChatMessage(const ChatMessage& message);
+    void rerenderChatFromModel();
     void appendUserMessageCard(const QString& text, const QString& headerHtml = QString());
     void appendModelMarkdownCard(const QString& markdownText);
     void appendSystemNote(const QString& html);
