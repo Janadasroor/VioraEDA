@@ -70,6 +70,7 @@
 #include "../../core/sync_manager.h"
 #include "../../core/config_manager.h"
 #include "../../symbols/symbol_library.h"
+#include "../../symbols/symbol_editor.h"
 #include "../../ui/spice_model_architect.h"
 #include <QGraphicsDropShadowEffect>
 #include <QApplication>
@@ -1860,7 +1861,32 @@ void SchematicEditor::onImportSpiceSubcircuit() {
 
     if (res.openSymbolEditor) {
         const SymbolDefinition def = buildImportedSubcktSymbol(res);
-        openSymbolEditorWindow(def.name(), def);
+        SymbolEditor* editor = new SymbolEditor(def, nullptr);
+        editor->setAttribute(Qt::WA_DeleteOnClose);
+        editor->setWindowTitle("Symbol Editor - " + def.name());
+
+        QString projectKey = m_projectDir;
+        if (projectKey.isEmpty() && !m_currentFilePath.isEmpty()) {
+            projectKey = QFileInfo(m_currentFilePath).absolutePath();
+        }
+        editor->setProjectKey(projectKey);
+        connect(editor, &SymbolEditor::symbolSaved, this, [this](const SymbolDefinition&) {
+            if (m_componentsPanel) m_componentsPanel->populate();
+        });
+
+        connect(editor, &SymbolEditor::placeInSchematicRequested, this, &SchematicEditor::onPlaceSymbolInSchematic);
+
+        if (res.autoPlaceAfterSave) {
+            auto placed = std::make_shared<bool>(false);
+            connect(editor, &SymbolEditor::symbolSaved, this, [this, placed](const SymbolDefinition& sym) {
+                if (*placed) return;
+                *placed = true;
+                onPlaceSymbolInSchematic(sym);
+                statusBar()->showMessage(QString("Placed generated symbol %1 in schematic").arg(sym.name()), 5000);
+            });
+        }
+
+        editor->show();
     }
 
     m_isModified = true;

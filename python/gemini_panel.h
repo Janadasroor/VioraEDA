@@ -78,6 +78,7 @@ private slots:
     void onModelFetchFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void onDismissErrorClicked();
     void onViewErrorDetailsClicked();
+    void onVoiceClicked();
 
 private:
     struct ErrorRecord {
@@ -114,6 +115,7 @@ private:
     QPushButton* m_historyMenuButton = nullptr;
     QPushButton* m_stopButton;
     QPushButton* m_thinkingToggleButton;
+    QPushButton* m_voiceButton = nullptr;
     QWidget* m_toolCallBanner = nullptr;
     QLabel* m_toolCallTitle = nullptr;
     QLabel* m_toolCallSubtitle = nullptr;
@@ -197,6 +199,8 @@ private:
     void triggerSuggestionCommand(const QString& command);
 
     QSet<QString> m_suggestionKeys;
+    QPoint m_dragStartPosition;
+    QString m_pressedAnchor;
 };
 
 #endif // GEMINI_PANEL_H

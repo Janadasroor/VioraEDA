@@ -80,6 +80,8 @@ signals:
     void syncSheetRequested(class SchematicSheetItem* sheet);
     void runLiveERC(const QList<SchematicItem*>& items);
     void netProbed(const QString& netName);
+    void snippetDropped(const QString& json, const QPointF& pos);
+    void netlistDropped(const QString& netlist, const QPointF& pos);
     void editSimulationDirective(const QString& commandText);
     void transformationChanged();
 
@@ -138,6 +140,8 @@ protected:
     void drawBackground(QPainter *painter, const QRectF &rect) override;
     void drawForeground(QPainter *painter, const QRectF &rect) override;
     void scrollContentsBy(int dx, int dy) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private slots:
     void handleAutoScroll();
@@ -149,6 +153,7 @@ private:
     double m_zoomFactor;
     double m_gridSize;
     GridStyle m_gridStyle;
+    bool m_gridVisible = true;
     bool m_snapToGrid;
     bool m_snapToPin;
     bool m_showCrosshair;

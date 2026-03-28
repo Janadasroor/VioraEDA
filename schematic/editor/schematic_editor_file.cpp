@@ -1315,7 +1315,7 @@ void SchematicEditor::onItemsHighlighted(const QStringList& references) {
     }
 }
 
-void SchematicEditor::onSnippetGenerated(const QString& jsonSnippet) {
+void SchematicEditor::onSnippetGenerated(const QString& jsonSnippet, const QPointF& pos) {
     if (!m_scene || !m_api) return;
 
     QJsonDocument doc = QJsonDocument::fromJson(jsonSnippet.toUtf8());
@@ -1335,16 +1335,19 @@ void SchematicEditor::onSnippetGenerated(const QString& jsonSnippet) {
 
     m_undoStack->beginMacro("Place AI Snippet");
 
-    // Calculate offset to place at center of current view
-    QPointF center = m_view ? m_view->mapToScene(m_view->viewport()->rect().center()) : QPointF(0,0);
+    // Calculate anchor point
+    QPointF anchor = pos;
+    if (anchor.isNull()) {
+        anchor = m_view ? m_view->mapToScene(m_view->viewport()->rect().center()) : QPointF(0,0);
+    }
 
     for (const auto& val : items) {
         QJsonObject obj = val.toObject();
         QString type = obj["type"].toString();
-        QPointF pos(obj["x"].toDouble() + center.x(), obj["y"].toDouble() + center.y());
+        QPointF itemPos(obj["x"].toDouble() + anchor.x(), obj["y"].toDouble() + anchor.y());
         QString ref = obj["reference"].toString();
 
-        m_api->addComponent(type, pos, ref, obj);
+        m_api->addComponent(type, itemPos, ref, obj);
     }
     m_undoStack->endMacro();
 
