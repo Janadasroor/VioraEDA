@@ -659,6 +659,32 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
 
 void GeminiPanel::setMode(const QString& m) { m_mode = m; }
 
+void GeminiPanel::appendUserMessageCard(const QString& text, const QString& headerHtml) {
+    if (!m_chatArea) return;
+    m_chatArea->moveCursor(QTextCursor::End);
+    m_chatArea->insertHtml(wrapUserCard(text.toHtmlEscaped(), headerHtml));
+}
+
+void GeminiPanel::appendModelMarkdownCard(const QString& markdownText) {
+    if (!m_chatArea) return;
+    QTextDocument doc;
+    doc.setDefaultStyleSheet(markdownDocStyleSheet());
+    doc.setMarkdown(markdownText);
+    m_chatArea->moveCursor(QTextCursor::End);
+    m_chatArea->insertHtml(wrapModelCard(doc.toHtml()));
+}
+
+void GeminiPanel::appendSystemNote(const QString& html) {
+    if (!m_chatArea) return;
+    m_chatArea->moveCursor(QTextCursor::End);
+    m_chatArea->insertHtml(html);
+}
+
+void GeminiPanel::scrollChatToBottom() {
+    if (!m_chatArea) return;
+    m_chatArea->verticalScrollBar()->setValue(m_chatArea->verticalScrollBar()->maximum());
+}
+
 void GeminiPanel::setProjectFilePath(const QString& path) {
     if (m_projectFilePath == path) return;
     m_projectFilePath = path;
@@ -754,17 +780,14 @@ void GeminiPanel::loadHistoryFromFile(const QString& filePath) {
             QVariantMap msg; msg["role"] = roleStr; msg["text"] = text; m_history.append(msg);
 
             if (roleStr == "user") {
-                m_chatArea->insertHtml(wrapUserCard(text.toHtmlEscaped()));
+                appendUserMessageCard(text);
             } else {
-                QTextDocument doc;
-                doc.setDefaultStyleSheet(markdownDocStyleSheet());
-                doc.setMarkdown(text);
-                m_chatArea->insertHtml(wrapModelCard(doc.toHtml()));
+                appendModelMarkdownCard(text);
             }
 
-            m_chatArea->insertHtml("<div style='height: 4px;'></div>");
+            appendSystemNote("<div style='height: 4px;'></div>");
         }
-        m_chatArea->verticalScrollBar()->setValue(m_chatArea->verticalScrollBar()->maximum());
+        scrollChatToBottom();
     }
 }
 void GeminiPanel::updateApiKeyVisibility() {
@@ -863,7 +886,7 @@ void GeminiPanel::clearHistory() {
     if (m_sendButton) m_sendButton->show();
 
     hideErrorBanner();
-    m_chatArea->append("<div style='color: #8b949e; font-style: italic; margin-top: 10px;'>[SYSTEM] New conversation started.</div>");
+    appendSystemNote("<div style='color: #8b949e; font-style: italic; margin-top: 10px;'>[SYSTEM] New conversation started.</div>");
 }
 
 void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
@@ -893,11 +916,10 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     const QString checkpointHeaderHtml = checkpointIconHtml;
 
     // Force clear position and insert
-    m_chatArea->moveCursor(QTextCursor::End);
-    m_chatArea->insertHtml(wrapUserCard(text.toHtmlEscaped(), checkpointHeaderHtml));
+    appendUserMessageCard(text, checkpointHeaderHtml);
 
-    m_chatArea->insertHtml("<div style='height: 6px;'></div>");
-    m_chatArea->verticalScrollBar()->setValue(m_chatArea->verticalScrollBar()->maximum());
+    appendSystemNote("<div style='height: 6px;'></div>");
+    scrollChatToBottom();
     
     // Capture the start position for streaming response AFTER prompt is in
     m_chatArea->moveCursor(QTextCursor::End); 
@@ -912,14 +934,14 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
         QPainter p(&img); p.translate(-r.topLeft()); m_scene->render(&p, QRectF(), r); p.end();
         QByteArray ba; QBuffer buf(&ba); buf.open(QIODevice::WriteOnly); img.save(&buf, "PNG");
         args << "--image" << QString::fromLatin1(ba.toBase64());
-        m_chatArea->append("<div style='color: #8b949e; font-size: 10px; text-align: right; margin: 0 0 10px 0;'>[SYSTEM] Viewport snapshot attached</div>");
+        appendSystemNote("<div style='color: #8b949e; font-size: 10px; text-align: right; margin: 0 0 10px 0;'>[SYSTEM] Viewport snapshot attached</div>");
     }
     if (includeContext && m_scene) {
         QJsonObject ctx = SchematicFileIO::serializeSceneToJson(m_scene);
         QString fs = SchematicFileIO::convertToFluxScript(m_scene, m_netManager); 
         if (!fs.isEmpty()) ctx["fluxscript"] = fs;
         args << "--context" << QString::fromUtf8(QJsonDocument(ctx).toJson(QJsonDocument::Compact));
-        m_chatArea->append("<div style='color: #8b949e; font-size: 10px; text-align: right; margin: 0 0 14px 0;'>[SYSTEM] Context attached</div>");
+        appendSystemNote("<div style='color: #8b949e; font-size: 10px; text-align: right; margin: 0 0 14px 0;'>[SYSTEM] Context attached</div>");
     }
     if (!m_history.isEmpty()) { QJsonArray ha; for (const auto& m : m_history) ha.append(QJsonObject::fromVariantMap(m)); args << "--history" << QJsonDocument(ha).toJson(QJsonDocument::Compact); }
     const QString selectedModel = m_modelCombo ? m_modelCombo->currentData().toString() : QString();
@@ -1095,10 +1117,7 @@ void GeminiPanel::onProcessFinished(int ec) {
         cleanResponse.replace(QRegularExpression(R"(\n{3,})"), "\n\n");
         cleanResponse = cleanResponse.trimmed();
         QVariantMap ai; ai["role"] = "model"; ai["text"] = cleanResponse; m_history.append(ai);
-        QTextDocument doc;
-        doc.setDefaultStyleSheet(markdownDocStyleSheet());
-        doc.setMarkdown(cleanResponse);
-        m_chatArea->insertHtml(wrapModelCard(doc.toHtml()));
+        appendModelMarkdownCard(cleanResponse);
         auto ext = [&](const QString& l, const QString& t) { int s = cleanResponse.indexOf("```" + l, 0, Qt::CaseInsensitive); if (s != -1) { s += t.length(); int e = cleanResponse.indexOf("```", s); if (e != -1) return cleanResponse.mid(s, e - s).trimmed(); } return QString(); };
         QString code;
         if (m_mode == "symbol") code = ext("json", "```json"); else if (m_mode == "logic") code = ext("python", "```python"); else code = ext("fluxscript", "```fluxscript");

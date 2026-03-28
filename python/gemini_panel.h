@@ -157,6 +157,10 @@ private:
     void selectErrorHistoryRow(int row);
     void showToolCallBanner(const QString& actionText = QString());
     void hideToolCallBanner();
+    void appendUserMessageCard(const QString& text, const QString& headerHtml = QString());
+    void appendModelMarkdownCard(const QString& markdownText);
+    void appendSystemNote(const QString& html);
+    void scrollChatToBottom();
     void updateSendEnabled();
     void clearSuggestionButtons();
     void addSuggestionButton(const QString& label, const QString& command);
