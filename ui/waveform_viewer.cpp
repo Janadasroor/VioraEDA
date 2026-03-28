@@ -481,7 +481,20 @@ void WaveformViewer::setupUi() {
     mainArea->addWidget(m_splitter, 1);
 
     layout->addLayout(mainArea);
-    
+ 
+    m_legendContainer = new QWidget(this);
+    m_legendContainer->setStyleSheet("background: #1a1a1a; border-top: 1px solid #333;");
+    m_legendLayout = new QHBoxLayout(m_legendContainer);
+    m_legendLayout->setContentsMargins(10, 2, 10, 2);
+    m_legendLayout->setSpacing(15);
+
+    m_xAxisTitleLabel = new QLabel("Time (s)", this);
+    m_xAxisTitleLabel->setStyleSheet("color: #aaa; font-weight: bold; font-size: 10px; text-transform: uppercase;");
+    m_legendLayout->addWidget(m_xAxisTitleLabel);
+    m_legendLayout->addStretch();
+
+    layout->addWidget(m_legendContainer);
+ 
     auto *footer = new QHBoxLayout();
     m_coordLabel = new QLabel("Ready");
     m_coordLabel->setStyleSheet("font-family: monospace; color: #00ff00;");
@@ -975,7 +988,7 @@ void WaveformViewer::updatePlot(bool autoScale) {
         if (autoScale) {
             pane->axisX->setRange(globalMinX, globalMaxX);
         }
-        pane->axisX->setTitleText(m_acMode ? "Frequency (Hz)" : "Time (s)");
+        pane->axisX->setTitleVisible(false); // Using in-line legend instead
         
         if (autoScale && paneStats.contains(pane)) {
             auto& stats = paneStats[pane];
@@ -987,6 +1000,8 @@ void WaveformViewer::updatePlot(bool autoScale) {
             (pane->type == SignalType::VOLTAGE ? "Voltage (V)" : 
              pane->type == SignalType::CURRENT ? "Current (A)" : "Value"));
     }
+
+    updateLegend();
 
     for (int i = 0; i < m_nodeList->count(); ++i) {
         QListWidgetItem* item = m_nodeList->item(i);
@@ -1413,6 +1428,44 @@ void WaveformViewer::updateNodeItemStyle(QListWidgetItem* item) {
     } else {
         item->setForeground(isDark ? QColor("#71717a") : QColor("#9ca3af"));
         item->setFont(QFont("Inter", 9, QFont::Normal));
+    }
+}
+
+void WaveformViewer::updateLegend() {
+    if (!m_legendLayout || !m_nodeList) return;
+    
+    m_xAxisTitleLabel->setText(m_acMode ? "FREQUENCY (HZ)" : "TIME (S)");
+
+    // Clear everything except the title and the stretch
+    while (m_legendLayout->count() > 2) {
+        QLayoutItem* item = m_legendLayout->takeAt(1);
+        if (item->widget()) {
+            item->widget()->deleteLater();
+        }
+        delete item;
+    }
+    
+    int insertIdx = 1;
+    for (int i = 0; i < m_nodeList->count(); ++i) {
+        QListWidgetItem* listItem = m_nodeList->item(i);
+        if (listItem->checkState() == Qt::Checked) {
+            QString name = listItem->text();
+            QColor color = listItem->foreground().color();
+            
+            auto* tag = new QLabel(name, m_legendContainer);
+            tag->setStyleSheet(QString(
+                "QLabel {"
+                "  color: %1;"
+                "  font-weight: bold;"
+                "  border: 1px solid %1;"
+                "  padding: 1px 8px;"
+                "  border-radius: 3px;"
+                "  font-size: 10px;"
+                "  background: rgba(%2, %3, %4, 15);"
+                "}"
+            ).arg(color.name()).arg(color.red()).arg(color.green()).arg(color.blue()));
+            m_legendLayout->insertWidget(insertIdx++, tag);
+        }
     }
 }
 
