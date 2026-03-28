@@ -225,6 +225,21 @@ void GenericSymbolPropertiesDialog::addSimulationTab() {
         if (selected.isEmpty()) return;
         if (m_spiceModelEdit) m_spiceModelEdit->setText(selected);
 
+        if ((dlg.applySmartMapRequested() || dlg.applyByOrderRequested()) && m_pinMappingTable) {
+            const QStringList subcktPins = dlg.applySmartMapRequested()
+                ? dlg.selectedSuggestedMapping()
+                : dlg.selectedSubcktPins();
+            for (int row = 0; row < m_pinMappingTable->rowCount(); ++row) {
+                QTableWidgetItem* mapItem = m_pinMappingTable->item(row, 2);
+                if (!mapItem) continue;
+                if (row < subcktPins.size()) {
+                    mapItem->setText(subcktPins.at(row));
+                } else {
+                    mapItem->setText(QString());
+                }
+            }
+        }
+
         for (int i = 1; i < m_subcktPicker->count(); ++i) {
             if (m_subcktPicker->itemData(i).toString().compare(selected, Qt::CaseInsensitive) == 0) {
                 m_subcktPicker->setCurrentIndex(i);
