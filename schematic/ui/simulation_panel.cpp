@@ -334,6 +334,7 @@ void SimulationPanel::appendDerivedPowerWaveforms(SimResults& results) const {
         existing.insert(QString::fromStdString(w.name).toUpper());
     }
 
+    std::vector<SimWaveform> powerWaves;
     for (QGraphicsItem* gi : m_scene->items()) {
         auto* item = dynamic_cast<SchematicItem*>(gi);
         if (!item) continue;
@@ -344,7 +345,7 @@ void SimulationPanel::appendDerivedPowerWaveforms(SimResults& results) const {
         const QString powerName = QString("P(%1)").arg(ref);
         if (existing.contains(powerName.toUpper())) continue;
 
-        const QStringList nets = connectedNetsForItem(item, false); // Do NOT update nets in loop!
+        const QStringList nets = connectedNetsForItem(item, false);
         if (nets.size() < 2) continue;
 
         const SimWaveform* currentWave = findWave(QString("I(%1)").arg(ref));
@@ -355,16 +356,21 @@ void SimulationPanel::appendDerivedPowerWaveforms(SimResults& results) const {
         const size_t count = std::min({currentWave->xData.size(), currentWave->yData.size(), posWave->yData.size(), negWave->yData.size()});
         if (count == 0) continue;
 
-        SimWaveform powerWave;
-        powerWave.name = powerName.toStdString();
-        powerWave.xData.reserve(count);
-        powerWave.yData.reserve(count);
+        SimWaveform pWave;
+        pWave.name = powerName.toStdString();
+        pWave.xData.reserve(count);
+        pWave.yData.reserve(count);
         for (size_t i = 0; i < count; ++i) {
-            powerWave.xData.push_back(currentWave->xData[i]);
-            powerWave.yData.push_back((posWave->yData[i] - negWave->yData[i]) * currentWave->yData[i]);
+            pWave.xData.push_back(currentWave->xData[i]);
+            pWave.yData.push_back((posWave->yData[i] - negWave->yData[i]) * currentWave->yData[i]);
         }
-        existing.insert(powerName.toUpper());
-        results.waveforms.push_back(std::move(powerWave));
+        powerWaves.push_back(std::move(pWave));
+    }
+    
+    if (!powerWaves.empty()) {
+        results.waveforms.insert(results.waveforms.end(), 
+                                 std::make_move_iterator(powerWaves.begin()), 
+                                 std::make_move_iterator(powerWaves.end()));
     }
 }
 
@@ -2165,7 +2171,6 @@ QString SimulationPanel::generateSpiceNetlist() {
 void SimulationPanel::onSimResultsReady(const SimResults& results) {
     m_acceptRealTimeStream = false; // Stop accepting real-time data immediately
     m_isSimInitiator = false;      // This panel was the initiator, but the simulation is now done.
-    qDebug() << "[CRASH_TRACE] onSimResultsReady START - type:" << (int)results.analysisType;
     if (!results.isSchemaCompatible()) {
         m_logOutput->append(QString("Unsupported simulator results schema v%1 (expected v%2).")
                             .arg(results.schemaVersion)
@@ -2174,49 +2179,39 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
     }
 
     SimResults effectiveResults = results;
-    qDebug() << "[CRASH_TRACE] effectiveResults waveforms size:" << effectiveResults.waveforms.size();
-    for (size_t i = 0; i < effectiveResults.waveforms.size(); ++i) {
-        qDebug() << "[CRASH_TRACE] waveform" << i << ":" << QString::fromStdString(effectiveResults.waveforms[i].name) << "size:" << effectiveResults.waveforms[i].xData.size();
-    }
     appendDerivedPowerWaveforms(effectiveResults);
 
     if (m_hasLastResults) {
         m_previousResults = std::move(m_lastResults);
-        m_hasPreviousResults = true;
     }
     m_lastResults = effectiveResults;
     m_hasLastResults = true;
-    m_lastRunTimestampUtc = QDateTime::currentDateTimeUtc();
-
-    m_logOutput->append("Built-in simulation finished.");
-    for (const auto& d : effectiveResults.diagnostics) {
-        onLogReceived(QString("[Diag] %1").arg(QString::fromStdString(d)));
-    }
-    for (const auto& s : effectiveResults.fixSuggestions) {
-        onLogReceived(QString("[Fix] %1").arg(QString::fromStdString(s)));
-    }
 
     // ── Timeline Initialization ──────────────────────────────────────
     bool isTransient = (effectiveResults.analysisType == SimAnalysisType::Transient);
     m_timelineSlider->setEnabled(isTransient);
-            if (isTransient) {
-            m_timelineSlider->blockSignals(true);
-            m_timelineSlider->setValue(1000); // Start at end
-            m_timelineSlider->blockSignals(false);
-            
-            if (!effectiveResults.waveforms.empty() && !effectiveResults.waveforms.front().xData.empty()) {
-                m_timelineLabel->setText(QString::number(effectiveResults.waveforms.front().xData.back(), 'g', 4) + " s");
-            }
-        } else {
-    
+    if (isTransient) {
+        m_timelineSlider->blockSignals(true);
+        m_timelineSlider->setValue(1000); // Start at end
+        m_timelineSlider->blockSignals(false);
+        
+        if (!effectiveResults.waveforms.empty() && !effectiveResults.waveforms.front().xData.empty()) {
+            m_timelineLabel->setText(QString::number(effectiveResults.waveforms.front().xData.back(), 'g', 4) + " s");
+        }
+    } else {
         m_timelineLabel->setText("--- s");
     }
 
-    qDebug() << "[CRASH_TRACE] before plotBuiltinResults";
+    if (m_waveformViewer) {
+        m_waveformViewer->beginBatchUpdate();
+    }
+
     plotBuiltinResults(effectiveResults);
-    qDebug() << "[CRASH_TRACE] before evaluateMeasStatements";
     evaluateMeasStatements(effectiveResults);
-    qDebug() << "[CRASH_TRACE] onSimResultsReady END - No Log Dialog for testing";
+
+    if (m_waveformViewer) {
+        m_waveformViewer->endBatchUpdate();
+    }
 }
 
 void SimulationPanel::showDetailedLog() {
@@ -2431,18 +2426,30 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     if (m_logicAnalyzer) m_logicAnalyzer->beginBatchUpdate();
 
     QSet<QString> currentWaveNames;
-    m_chart->removeAllSeries();
-    auto axes = m_chart->axes();
-    for (auto* a : axes) {
-        m_chart->removeAxis(a);
-        a->deleteLater();
+    
+    // Safer clearing of series and axes
+    const auto seriesList = m_chart->series();
+    for (auto* series : seriesList) {
+        m_chart->removeSeries(series);
+        series->deleteLater();
     }
     
-    m_spectrumChart->removeAllSeries();
-    auto specAxes = m_spectrumChart->axes();
-    for (auto* a : specAxes) {
-        m_spectrumChart->removeAxis(a);
-        a->deleteLater();
+    const auto axesList = m_chart->axes();
+    for (auto* axis : axesList) {
+        m_chart->removeAxis(axis);
+        axis->deleteLater();
+    }
+    
+    const auto specSeriesList = m_spectrumChart->series();
+    for (auto* series : specSeriesList) {
+        m_spectrumChart->removeSeries(series);
+        series->deleteLater();
+    }
+    
+    const auto specAxesList = m_spectrumChart->axes();
+    for (auto* axis : specAxesList) {
+        m_spectrumChart->removeAxis(axis);
+        axis->deleteLater();
     }
 
     m_signalList->blockSignals(true);

@@ -34,6 +34,7 @@ signals:
     void legendCtrlClicked(const QString &seriesName);
     void contextMenuRequested(const QPoint &globalPos);
     void zoomRectCompleted(const QRectF &valueRect);
+    void clicked();
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -128,6 +129,7 @@ private slots:
     void exportImage();
     void onExpressionSubmitted(const QString &expression, const QColor &color = QColor(), const QString &targetName = QString());
     void onLegendCtrlClicked(const QString &seriesName);
+    void onPaneClicked();
 
 private:
     enum class SignalType { VOLTAGE, CURRENT, POWER, OTHER };
@@ -141,6 +143,7 @@ private:
     };
 
     QList<ChartPane*> m_panes;
+    ChartPane* m_focusedPane = nullptr;
     QSplitter* m_splitter;
     QListWidget *m_nodeList;
     QLabel *m_coordLabel;
@@ -170,7 +173,7 @@ private:
         QColor customColor;
         double lineWidth = 1.5;
         Qt::PenStyle penStyle = Qt::SolidLine;
-        int paneIndex = 0;
+        int paneIndex = -1;
     };
     
     QMap<QString, SignalData> m_signals;

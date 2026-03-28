@@ -2,7 +2,6 @@
 #define GEMINI_PANEL_H
 
 #include <QWidget>
-#include <QTextBrowser>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QCheckBox>
@@ -22,6 +21,8 @@ class QListWidget;
 class QPlainTextEdit;
 class QToolButton;
 class QResizeEvent;
+class QScrollArea;
+class QVBoxLayout;
 
 /**
  * @brief Reusable AI Assistant panel for both dock widgets and dialogs.
@@ -94,13 +95,16 @@ private:
         Kind kind = Kind::SystemHtml;
         QString body;
         QString meta;
+        QString timestamp;
     };
 
     QGraphicsScene* m_scene;
     class NetManager* m_netManager = nullptr;
     class QUndoStack* m_undoStack = nullptr;
-    QTextBrowser* m_chatArea;
-    class SyntaxHighlighter* m_highlighter = nullptr;
+    QScrollArea* m_chatScroll = nullptr;
+    QWidget* m_chatContainer = nullptr;
+    QVBoxLayout* m_chatLayout = nullptr;
+    QList<QWidget*> m_chatMessageWidgets;
     QTextEdit* m_thinkingDisplay;
     QTextEdit* m_inputField;
     QPushButton* m_sendButton;
@@ -148,7 +152,6 @@ private:
     QString m_lastGeneratedCode;
     QString m_lastErrorTitle;
     QString m_lastErrorDetails;
-    int m_responseStartPos = 0;
     bool m_isWorking = false;
     QString m_mode = "schematic";
     QString m_projectFilePath;
