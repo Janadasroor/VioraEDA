@@ -21,7 +21,6 @@ class QDialog;
 class QListWidget;
 class QPlainTextEdit;
 class QToolButton;
-class QHBoxLayout;
 
 /**
  * @brief Reusable AI Assistant panel for both dock widgets and dialogs.
@@ -156,8 +155,6 @@ private:
     void addSuggestionButton(const QString& label, const QString& command);
     void triggerSuggestionCommand(const QString& command);
 
-    QWidget* m_suggestionBar = nullptr;
-    QHBoxLayout* m_suggestionLayout = nullptr;
     QSet<QString> m_suggestionKeys;
 };
 

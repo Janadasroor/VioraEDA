@@ -18,6 +18,7 @@
 #include <QShortcut>
 #include <QStyledItemDelegate>
 #include <QPainter>
+#include <QPainterPath>
 
 class ProjectExplorerDelegate : public QStyledItemDelegate {
     QFileSystemModel* m_fsModel;
@@ -100,28 +101,71 @@ public:
             QFileSystemModel* fs = qobject_cast<QFileSystemModel*>(sourceModel());
             if (fs) {
                 QModelIndex srcIndex = mapToSource(index);
-                QString fileName = fs->fileName(srcIndex).toLower();
+                QString fileName = fs->fileName(srcIndex);
+                bool isDir = fs->isDir(srcIndex);
                 
-                if (fs->isDir(srcIndex)) {
-                    return QIcon(":/icons/folder_closed.svg");
+                // --- Modern Procedural Icon Generator ---
+                const int size = 20;
+                QPixmap pixmap(size * 2, size * 2); // High DPI
+                pixmap.setDevicePixelRatio(2.0);
+                pixmap.fill(Qt::transparent);
+                
+                QPainter painter(&pixmap);
+                painter.setRenderHint(QPainter::Antialiasing);
+                
+                PCBTheme* theme = ThemeManager::theme();
+                bool isLight = theme && theme->type() == PCBTheme::Light;
+                
+                QColor accent = QColor("#64748b"); // Default
+                QString label;
+                
+                if (isDir) {
+                    accent = isLight ? QColor("#64748b") : QColor("#94a3b8");
+                    QRectF folderBase(2, 6, 16, 10);
+                    QRectF folderTab(2, 3, 7, 4);
+                    QPainterPath fpath;
+                    fpath.addRoundedRect(folderBase, 2, 2);
+                    fpath.addRoundedRect(folderTab, 1.5, 1.5);
+                    painter.setPen(QPen(accent, 1.5));
+                    painter.setBrush(accent.lighter(isLight ? 160 : 120));
+                    painter.drawPath(fpath);
+                    return QIcon(pixmap);
+                } else {
+                    QString fn = fileName.toLower();
+                    if (fn.endsWith(".flxsch") || fn.endsWith(".sch") || fn.endsWith(".flux")) { accent = QColor("#3b82f6"); label = "S"; }
+                    else if (fn.endsWith(".kicad_sch")) { accent = QColor("#10b981"); label = "K"; }
+                    else if (fn.endsWith(".schdoc")) { accent = QColor("#f97316"); label = "A"; }
+                    else if (fn.endsWith(".sym") || fn.endsWith(".viosym") || fn.endsWith(".sclib") || fn.endsWith(".lib")) { accent = QColor("#8b5cf6"); label = "L"; }
+                    else if (fn.endsWith(".cir") || fn.endsWith(".net") || fn.endsWith(".spice") || fn.endsWith(".model")) { accent = QColor("#06b6d4"); label = "N"; }
+                    else if (fn.endsWith(".png") || fn.endsWith(".jpg") || fn.endsWith(".jpeg") || fn.endsWith(".bmp") || fn.endsWith(".svg") || fn.endsWith(".gif") || fn.endsWith(".webp")) { accent = QColor("#ec4899"); label = "I"; }
+                    else if (fn.endsWith(".md") || fn.endsWith(".txt") || fn.endsWith(".json")) { accent = QColor("#94a3b8"); label = "D"; }
+                    else { label = "F"; }
+
+                    QRectF docRect(4, 2, 12, 16);
+                    QPainterPath dpath;
+                    dpath.addRoundedRect(docRect, 2, 2);
+                    
+                    // Fill with slightly tinted background
+                    QColor fillColor = isLight ? QColor("#ffffff") : QColor("#1e293b");
+                    painter.setPen(QPen(accent, 1.2));
+                    painter.setBrush(fillColor);
+                    painter.drawPath(dpath);
+                    
+                    // Color bar at bottom for extra vibe
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(accent);
+                    painter.drawRoundedRect(4, 15, 12, 3, 1, 1);
+                    
+                    // Draw Label
+                    painter.setPen(isLight ? accent.darker(150) : accent.lighter(150));
+                    QFont font = painter.font();
+                    font.setPointSize(7);
+                    font.setBold(true);
+                    painter.setFont(font);
+                    painter.drawText(docRect.adjusted(0, 0, 0, -2), Qt::AlignCenter, label);
+                    
+                    return QIcon(pixmap);
                 }
-                
-                if (fileName.endsWith(".flxsch") || fileName.endsWith(".sch"))
-                    return QIcon(":/icons/file_flux_sch.png");
-                if (fileName.endsWith(".kicad_sch"))
-                    return QIcon(":/icons/file_kicad_sch.png");
-                if (fileName.endsWith(".schdoc"))
-                    return QIcon(":/icons/file_altium_sch.png");
-                if (fileName.endsWith(".viosym") || fileName.endsWith(".sym") || fileName.endsWith(".sclib"))
-                    return QIcon(":/icons/symbol_editor.png");
-                if (fileName.endsWith(".cir") || fileName.endsWith(".net") || fileName.endsWith(".spice") || 
-                    fileName.endsWith(".model") || fileName.endsWith(".lib") || fileName.endsWith(".sub"))
-                    return QIcon(":/icons/tool_spice_directive.svg");
-                if (fileName.endsWith(".png") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || 
-                    fileName.endsWith(".bmp") || fileName.endsWith(".svg") || fileName.endsWith(".gif") || fileName.endsWith(".webp"))
-                    return QIcon(":/icons/tool_image.svg");
-                if (fileName.endsWith(".txt") || fileName.endsWith(".md") || fileName.endsWith(".json") || fileName.endsWith(".log"))
-                    return QIcon(":/icons/tool_text.svg");
             }
         }
         
