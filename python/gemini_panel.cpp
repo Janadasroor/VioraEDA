@@ -16,6 +16,8 @@
 #include <QJsonObject>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QScrollArea>
+#include <QTextBrowser>
 #include <QTextCursor>
 #include <QCoreApplication>
 #include <QDir>
@@ -26,8 +28,6 @@
 #include <QBuffer>
 #include <QPainter>
 #include <QGraphicsView>
-#include <QSyntaxHighlighter>
-#include <QTextCharFormat>
 #include <QRegularExpression>
 #include <QSet>
 #include <QDockWidget>
@@ -41,6 +41,8 @@
 #include <QKeyEvent>
 #include <QSizePolicy>
 #include <QResizeEvent>
+#include <cmath>
+#include <utility>
 
 namespace {
 QString compactErrorSummary(const QString& raw, int maxLen = 180) {
@@ -123,9 +125,9 @@ QString markdownDocStyleSheet() {
     );
 }
 
-QString wrapModelCard(const QString& bodyHtml) {
+QString wrapModelCard(const QString& bodyHtml, const QString& timestamp) {
     bool isLight = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
-    const QString ts = nowTimeChip();
+    const QString ts = timestamp.isEmpty() ? nowTimeChip() : timestamp;
     if (isLight) {
         return QString(
             "<div style='display:block; width:100%;'>"
@@ -164,107 +166,57 @@ QString wrapModelCard(const QString& bodyHtml) {
     ).arg(bodyHtml, ts);
 }
 
-QString wrapUserCard(const QString& textHtml, const QString& headerHtml = QString()) {
+QString wrapUserCard(const QString& textHtml, const QString& headerHtml, const QString& timestamp) {
     bool isLight = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
-    const QString ts = nowTimeChip();
+    const QString ts = timestamp.isEmpty() ? nowTimeChip() : timestamp;
     if (isLight) {
         return QString(
-            "<div style='display:block; width:100%; margin: 6px 0 12px 0; text-align: right;'>"
+            "<div style='display:block; width:100%; margin: 8px 0 14px 0; text-align: right;'>"
             "<div class='user-card' style='"
-            "background: #f1f5f9;"
-            "color: #334155;"
-            "padding: 10px 12px;"
-            "border-radius: 14px;"
-            "border: 1px solid #e2e8f0;"
+            "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #e8f1ff, stop:1 #dcecff);"
+            "color: #10263f;"
+            "padding: 11px 13px;"
+            "border-radius: 16px 16px 6px 16px;"
+            "border: 1px solid #b9d3f1;"
             "display: inline-block;"
             "max-width: 84%;"
             "text-align: left;"
+            "box-shadow: 0 6px 16px rgba(37, 99, 235, 0.15);"
             "'>"
             "<div style='display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 6px 0;'>"
             "<div style='font-size:10px; line-height:1;'>%2</div>"
-            "<div style='font-size:10px; color:#64748b; font-weight:600; text-align:right;'>You · %3</div>"
+            "<div style='font-size:10px; color:#345678; font-weight:700; text-align:right;'>You · %3</div>"
             "</div>"
-            "<div style='line-height: 1.55;'>%1</div>"
+            "<div style='line-height: 1.58;'>%1</div>"
             "</div>"
             "</div>"
             "<div style='height:8px;'></div>"
         ).arg(textHtml, headerHtml, ts);
     }
     return QString(
-        "<div style='display:block; width:100%; margin: 6px 0 12px 0; text-align: right;'>"
+        "<div style='display:block; width:100%; margin: 8px 0 14px 0; text-align: right;'>"
         "<div class='user-card' style='"
-        "background: #182131;"
-        "color: #e6edf3;"
-        "padding: 10px 12px;"
-        "border-radius: 14px;"
-        "border: 1px solid #30405a;"
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2d4669, stop:1 #233a58);"
+        "color: #f1f7ff;"
+        "padding: 11px 13px;"
+        "border-radius: 16px 16px 6px 16px;"
+        "border: 1px solid #4e6f98;"
         "display: inline-block;"
         "max-width: 84%;"
         "text-align: left;"
+        "box-shadow: 0 8px 20px rgba(8, 27, 56, 0.40);"
         "'>"
         "<div style='display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 6px 0;'>"
         "<div style='font-size:10px; line-height:1;'>%2</div>"
-        "<div style='font-size:10px; color:#9fb0c8; font-weight:600; text-align:right;'>You · %3</div>"
+        "<div style='font-size:10px; color:#c4d9f2; font-weight:700; text-align:right;'>You · %3</div>"
         "</div>"
-        "<div style='line-height: 1.55;'>%1</div>"
+        "<div style='line-height: 1.58;'>%1</div>"
         "</div>"
         "</div>"
         "<div style='height:8px;'></div>"
     ).arg(textHtml, headerHtml, ts);
 }
 } // namespace
-
-class SyntaxHighlighter : public QSyntaxHighlighter {
-public:
-    SyntaxHighlighter(QTextDocument* parent) : QSyntaxHighlighter(parent) {
-        HighlightingRule rule;
-        bool isLight = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
-        
-        keywordFormat.setForeground(QColor(isLight ? "#0550ae" : "#569cd6"));
-        keywordFormat.setFontWeight(QFont::Bold);
-        QStringList keywords = {
-            "def", "class", "if", "else", "elif", "for", "while", "return", "import", "from",
-            "True", "False", "None", "self", "net", "component", "and", "or", "not", "in", "is", "lambda"
-        };
-        for (const QString& keyword : keywords) {
-            rule.pattern = QRegularExpression("\\b" + keyword + "\\b");
-            rule.format = keywordFormat;
-            highlightingRules.append(rule);
-        }
-        functionFormat.setForeground(QColor(isLight ? "#8250df" : "#dcdcaa"));
-        rule.pattern = QRegularExpression("\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()");
-        rule.format = functionFormat;
-        highlightingRules.append(rule);
-        stringFormat.setForeground(QColor(isLight ? "#0a3069" : "#ce9178"));
-        rule.pattern = QRegularExpression("\".*?\"");
-        rule.format = stringFormat;
-        highlightingRules.append(rule);
-        rule.pattern = QRegularExpression("'.*?'");
-        highlightingRules.append(rule);
-        commentFormat.setForeground(QColor(isLight ? "#6e7781" : "#6a9955"));
-        rule.pattern = QRegularExpression("#[^\\n]*");
-        rule.format = commentFormat;
-        highlightingRules.append(rule);
-        numberFormat.setForeground(QColor(isLight ? "#0550ae" : "#b5cea8"));
-        rule.pattern = QRegularExpression("\\b[0-9]+(\\.[0-9]+)?\\b");
-        rule.format = numberFormat;
-        highlightingRules.append(rule);
-    }
-protected:
-    void highlightBlock(const QString& text) override {
-        for (const HighlightingRule& rule : highlightingRules) {
-            QRegularExpressionMatchIterator it = rule.pattern.globalMatch(text);
-            while (it.hasNext()) {
-                QRegularExpressionMatch match = it.next();
-                setFormat(match.capturedStart(), match.capturedLength(), rule.format);
-            }
-        }
-    }
-private:
-    struct HighlightingRule { QRegularExpression pattern; QTextCharFormat format; };
-    QList<HighlightingRule> highlightingRules;
-    QTextCharFormat keywordFormat, functionFormat, stringFormat, commentFormat, numberFormat;
-};
 
 GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent) 
     : QWidget(parent), m_scene(scene) {
@@ -485,32 +437,49 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_errorBanner->hide();
     mainLayout->addWidget(m_errorBanner);
 
-    // Chat Area
-    m_chatArea = new QTextBrowser(this);
-    m_chatArea->setReadOnly(true);
-    m_chatArea->setOpenExternalLinks(false);
-    connect(m_chatArea, &QTextBrowser::anchorClicked, this, &GeminiPanel::onAnchorClicked);
-    m_chatArea->document()->setDefaultStyleSheet(
-        "a.undo-link {"
-        "  opacity: 0.0;"
-        "}"
-        ".user-card:hover a.undo-link {"
-        "  opacity: 1.0;"
-        "}"
-    );
-    m_chatArea->setStyleSheet(QString(
-        "QTextBrowser {"
+    // Chat Area (widget-per-message renderer)
+    m_chatScroll = new QScrollArea(this);
+    m_chatScroll->setWidgetResizable(true);
+    m_chatScroll->setFrameShape(QFrame::NoFrame);
+    m_chatScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_chatScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_chatScroll->setStyleSheet(QString(
+        "QScrollArea {"
         " background-color: transparent;"
-        " color: %2;"
         " border: none;"
-        " padding: 16px;"
-        " font-family: 'Inter', 'Segoe UI', sans-serif;"
-        " font-size: 13px;"
-        " line-height: 1.6;"
         "}"
-    ).arg(bg_main, fg));
-    m_highlighter = new SyntaxHighlighter(m_chatArea->document());
-    mainLayout->addWidget(m_chatArea, 1);
+        "QScrollArea > QWidget > QWidget {"
+        " background-color: transparent;"
+        "}"
+        "QScrollBar:vertical {"
+        " background: transparent;"
+        " width: 10px;"
+        " margin: 4px 2px 4px 2px;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        " background: rgba(100, 116, 139, 0.75);"
+        " min-height: 30px;"
+        " border-radius: 5px;"
+        "}"
+        "QScrollBar::handle:vertical:hover {"
+        " background: rgba(71, 85, 105, 0.95);"
+        "}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+        " height: 0px;"
+        "}"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+        " background: transparent;"
+        "}"
+    ));
+
+    m_chatContainer = new QWidget(m_chatScroll);
+    m_chatContainer->setStyleSheet("background: transparent;");
+    m_chatLayout = new QVBoxLayout(m_chatContainer);
+    m_chatLayout->setContentsMargins(16, 16, 16, 16);
+    m_chatLayout->setSpacing(0);
+    m_chatLayout->addStretch(1);
+    m_chatScroll->setWidget(m_chatContainer);
+    mainLayout->addWidget(m_chatScroll, 1);
 
     // Thinking Tray
     m_thinkingDisplay = new QTextEdit(this);
@@ -665,19 +634,23 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
 void GeminiPanel::setMode(const QString& m) { m_mode = m; }
 
 void GeminiPanel::appendChatMessage(const ChatMessage& message) {
-    m_chatMessages.append(message);
-    renderChatMessage(message);
+    ChatMessage normalized = message;
+    if (normalized.timestamp.isEmpty()) {
+        normalized.timestamp = nowTimeChip();
+    }
+    m_chatMessages.append(normalized);
+    renderChatMessage(normalized);
 }
 
 QString GeminiPanel::chatMessageToHtml(const ChatMessage& message) const {
     switch (message.kind) {
     case ChatMessage::Kind::User:
-        return wrapUserCard(message.body.toHtmlEscaped(), message.meta);
+        return wrapUserCard(message.body.toHtmlEscaped(), message.meta, message.timestamp);
     case ChatMessage::Kind::ModelMarkdown: {
         QTextDocument doc;
         doc.setDefaultStyleSheet(markdownDocStyleSheet());
         doc.setMarkdown(message.body);
-        return wrapModelCard(doc.toHtml());
+        return wrapModelCard(doc.toHtml(), message.timestamp);
     }
     case ChatMessage::Kind::SystemHtml:
     default:
@@ -686,14 +659,53 @@ QString GeminiPanel::chatMessageToHtml(const ChatMessage& message) const {
 }
 
 void GeminiPanel::renderChatMessage(const ChatMessage& message) {
-    if (!m_chatArea) return;
-    m_chatArea->moveCursor(QTextCursor::End);
-    m_chatArea->insertHtml(chatMessageToHtml(message));
+    if (!m_chatLayout || !m_chatContainer || !m_chatScroll) return;
+
+    QTextBrowser* card = new QTextBrowser(m_chatContainer);
+    card->setReadOnly(true);
+    card->setOpenExternalLinks(false);
+    card->setFrameShape(QFrame::NoFrame);
+    card->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    card->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    card->setStyleSheet("QTextBrowser { background: transparent; border: none; padding: 0; margin: 0; }");
+    card->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Minimum);
+    card->document()->setDocumentMargin(0);
+    card->document()->setDefaultStyleSheet(
+        "a.undo-link {"
+        "  opacity: 0.0;"
+        "}"
+        ".user-card:hover a.undo-link {"
+        "  opacity: 1.0;"
+        "}"
+    );
+    connect(card, &QTextBrowser::anchorClicked, this, &GeminiPanel::onAnchorClicked);
+
+    const QString html = chatMessageToHtml(message);
+    card->setHtml(html);
+    const int availableWidth = std::max(
+        280,
+        m_chatScroll->viewport()->width()
+            - m_chatLayout->contentsMargins().left()
+            - m_chatLayout->contentsMargins().right()
+            - 4
+    );
+    card->setFixedWidth(availableWidth);
+    card->document()->setTextWidth(availableWidth - 8);
+    card->document()->adjustSize();
+    card->setFixedHeight(static_cast<int>(std::ceil(card->document()->size().height())) + 10);
+
+    m_chatLayout->insertWidget(m_chatLayout->count() - 1, card);
+    m_chatMessageWidgets.append(card);
 }
 
 void GeminiPanel::rerenderChatFromModel() {
-    if (!m_chatArea) return;
-    m_chatArea->clear();
+    if (!m_chatLayout || !m_chatContainer) return;
+    for (QWidget* w : std::as_const(m_chatMessageWidgets)) {
+        if (!w) continue;
+        m_chatLayout->removeWidget(w);
+        w->deleteLater();
+    }
+    m_chatMessageWidgets.clear();
     for (const auto& message : m_chatMessages) {
         renderChatMessage(message);
     }
@@ -723,8 +735,10 @@ void GeminiPanel::appendSystemNote(const QString& html) {
 }
 
 void GeminiPanel::scrollChatToBottom() {
-    if (!m_chatArea) return;
-    m_chatArea->verticalScrollBar()->setValue(m_chatArea->verticalScrollBar()->maximum());
+    if (!m_chatScroll) return;
+    if (auto* bar = m_chatScroll->verticalScrollBar()) {
+        bar->setValue(bar->maximum());
+    }
 }
 
 void GeminiPanel::beginAssistantRunUi() {
@@ -979,7 +993,7 @@ void GeminiPanel::loadHistoryFromFile(const QString& filePath) {
         m_history.clear();
         m_chatMessages.clear();
         clearSuggestionButtons();
-        m_chatArea->clear();
+        rerenderChatFromModel();
         m_currentChatTitle = QFileInfo(filePath).baseName();
 
         QTextStream in(&file);
@@ -1111,13 +1125,12 @@ void GeminiPanel::clearHistory() {
     m_history.clear();
     m_chatMessages.clear();
     clearSuggestionButtons();
-    m_chatArea->clear();
+    rerenderChatFromModel();
     m_currentChatTitle.clear();
     m_leftover.clear();
     m_responseBuffer.clear();
     m_thinkingBuffer.clear();
     m_errorBuffer.clear();
-    m_responseStartPos = 0;
     m_isWorking = false;
     m_errorHistory.clear();
     if (m_errorHistoryList) m_errorHistoryList->clear();
@@ -1167,10 +1180,6 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     appendSystemNote("<div style='height: 6px;'></div>");
     scrollChatToBottom();
     
-    // Capture the start position for streaming response AFTER prompt is in
-    m_chatArea->moveCursor(QTextCursor::End); 
-    m_responseStartPos = m_chatArea->textCursor().position();
-
     QVariantMap msg; msg["role"] = "user"; msg["text"] = text; m_history.append(msg);
     QStringList args; args << text;
 
@@ -1247,7 +1256,7 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
 
 void GeminiPanel::onProcessReadyRead() {
     QProcess* proc = qobject_cast<QProcess*>(sender());
-    if (!proc || proc != m_process || !m_chatArea) return;
+    if (!proc || proc != m_process || !m_chatScroll) return;
     const QByteArray d = proc->readAllStandardOutput();
     if (d.isEmpty()) return;
     processAgentStdoutChunk(QString::fromUtf8(d));
@@ -1257,7 +1266,7 @@ void GeminiPanel::onProcessReadyRead() {
 void GeminiPanel::onProcessFinished(int ec) {
     QProcess* proc = qobject_cast<QProcess*>(sender());
     if (!proc || proc != m_process) return;
-    if (!m_chatArea) return;
+    if (!m_chatScroll) return;
     
     finishAssistantRunUi(ec);
     

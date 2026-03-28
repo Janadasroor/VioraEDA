@@ -130,6 +130,7 @@ void VioChartView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void VioChartView::mousePressEvent(QMouseEvent *event) {
+    emit clicked();
     if (event->button() == Qt::MiddleButton) {
         m_panning = true;
         m_panStart = event->position();
@@ -225,6 +226,10 @@ void VioChartView::mouseReleaseEvent(QMouseEvent *event) {
     if (event->button() == Qt::MiddleButton) {
         m_panning = false;
         setCursor(Qt::ArrowCursor);
+        event->accept();
+        return;
+    }
+    if (event->button() == Qt::RightButton) {
         event->accept();
         return;
     }
@@ -490,17 +495,51 @@ void WaveformViewer::setupUi() {
 }
 
 void WaveformViewer::setupStyle() {
+    PCBTheme* theme = ThemeManager::theme();
+    bool isDark = theme && theme->type() == PCBTheme::Dark;
+    
     for (auto* p : m_panes) {
-        p->chart->setTheme(QChart::ChartThemeDark);
-        p->chart->setBackgroundBrush(QBrush(QColor(20, 20, 20)));
-        p->chart->setPlotAreaBackgroundBrush(QBrush(QColor(15, 15, 15)));
-        p->chart->setTitleBrush(QBrush(Qt::white));
+        if (isDark) {
+            p->chart->setTheme(QChart::ChartThemeDark);
+            p->chart->setBackgroundBrush(QBrush(QColor(24, 24, 27))); 
+            p->chart->setPlotAreaBackgroundBrush(QBrush(QColor(15, 15, 18)));
+            p->chart->setTitleBrush(QBrush(QColor("#f4f4f5")));
+        } else {
+            p->chart->setTheme(QChart::ChartThemeLight);
+            p->chart->setBackgroundBrush(QBrush(Qt::white));
+            p->chart->setPlotAreaBackgroundBrush(QBrush(Qt::white));
+            p->chart->setTitleBrush(QBrush(QColor("#111827")));
+        }
+        
+        QColor labelColor = isDark ? QColor("#a1a1aa") : QColor("#4b5563");
+        QColor titleColor = isDark ? QColor("#e4e4e7") : QColor("#1f2937");
+        QColor gridColor = isDark ? QColor(63, 63, 70, 80) : QColor(209, 213, 219, 120);
+
+        if (p->axisX) {
+            p->axisX->setLabelsColor(labelColor);
+            p->axisX->setTitleBrush(QBrush(titleColor));
+            p->axisX->setGridLineColor(gridColor);
+        }
+        if (p->axisY) {
+            p->axisY->setLabelsColor(labelColor);
+            p->axisY->setTitleBrush(QBrush(titleColor));
+            p->axisY->setGridLineColor(gridColor);
+        }
     }
-    m_nodeList->setStyleSheet(R"(
-        QListWidget { background: #f3f4f6; color: #111827; border: 1px solid #e5e7eb; }
-        QListWidget::item { padding: 2px 4px; color: #374151; }
-        QListWidget::item:selected { background: #dbeafe; color: #111827; }
-    )");
+    
+    if (isDark) {
+        m_nodeList->setStyleSheet(R"(
+            QListWidget { background: #18181b; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 4px; }
+            QListWidget::item { padding: 6px 8px; border-bottom: 1px solid #27272a; }
+            QListWidget::item:selected { background: #2563eb; color: white; }
+        )");
+    } else {
+        m_nodeList->setStyleSheet(R"(
+            QListWidget { background: #ffffff; color: #111827; border: 1px solid #e5e7eb; border-radius: 4px; }
+            QListWidget::item { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }
+            QListWidget::item:selected { background: #dbeafe; color: #1e40af; }
+        )");
+    }
 }
 
 void WaveformViewer::clear() {
@@ -558,6 +597,12 @@ void WaveformViewer::addSignal(const QString& name, const QVector<double>& time,
     else if (lowerName.contains("#branch") || lowerName.startsWith("i(")) data.type = SignalType::CURRENT;
     else if (lowerName.startsWith("p(")) data.type = SignalType::POWER;
     else data.type = SignalType::OTHER;
+    
+    if (m_focusedPane) {
+        data.paneIndex = m_panes.indexOf(m_focusedPane);
+    } else {
+        data.paneIndex = -1; // Default: automatic
+    }
     
     data.time = time;
     data.values = values;
@@ -908,7 +953,12 @@ void WaveformViewer::updatePlot(bool autoScale) {
             QString name = item->text();
             if (m_signals.contains(name)) {
                 const auto& data = m_signals[name];
-                ChartPane* pane = getPaneForType(data.type);
+                ChartPane* pane = nullptr;
+                if (data.paneIndex >= 0 && data.paneIndex < m_panes.size()) {
+                    pane = m_panes[data.paneIndex];
+                } else {
+                    pane = getPaneForType(data.type);
+                }
                 
                 auto* series = new QLineSeries();
                 series->setName(name);
@@ -1081,8 +1131,25 @@ WaveformViewer::ChartPane* WaveformViewer::createPane(WaveformViewer::SignalType
     
     connect(pane->view, &VioChartView::mouseMoved, this, &WaveformViewer::onMouseMoved);
     connect(pane->view, &VioChartView::cursorsMoved, this, &WaveformViewer::updateCursors);
+    connect(pane->view, &VioChartView::contextMenuRequested, this, &WaveformViewer::onContextMenuRequested);
+    connect(pane->view, &VioChartView::clicked, this, &WaveformViewer::onPaneClicked);
     
     return pane;
+}
+
+void WaveformViewer::removePane(int index) {
+    if (index < 0 || index >= m_panes.size() || m_panes.size() <= 1) return;
+    
+    auto* p = m_panes.takeAt(index);
+    if (p == m_focusedPane) m_focusedPane = nullptr;
+
+    if (p->view) {
+        p->view->hide();
+        p->view->deleteLater();
+    }
+    // Chart and Axes are children of the QChartView/QChart and will be deleted.
+    delete p;
+    updatePlot(true);
 }
 
 void WaveformViewer::syncAxesX(QValueAxis* source) {
@@ -1096,6 +1163,21 @@ void WaveformViewer::syncAxesX(QValueAxis* source) {
         }
     }
     m_blockUpdates = false;
+}
+
+void WaveformViewer::onPaneClicked() {
+    auto* view = qobject_cast<VioChartView*>(sender());
+    if (!view) return;
+
+    for (auto* pane : m_panes) {
+        if (pane->view == view) {
+            m_focusedPane = pane;
+            // Use border highlight to avoid covering signals
+            pane->view->setStyleSheet("VioChartView { border: 2px solid #55aaff; background: transparent; }");
+        } else {
+            pane->view->setStyleSheet("VioChartView { border: none; background: transparent; }");
+        }
+    }
 }
 
 WaveformViewer::ChartPane* WaveformViewer::getPaneForType(WaveformViewer::SignalType type) {
@@ -1138,6 +1220,11 @@ void WaveformViewer::onContextMenuRequested(const QPoint &globalPos) {
     crosshairAct->setChecked(!m_panes.isEmpty() && m_panes.first()->view->isCrosshairEnabled());
 
     menu.addSeparator();
+    QAction* addPaneAct = menu.addAction("Add Plan");
+    QAction* remPaneAct = menu.addAction("Remove Current Plan");
+    if (m_panes.size() <= 1) remPaneAct->setEnabled(false);
+
+    menu.addSeparator();
 
     QAction* copyAct = menu.addAction("Copy Value at Cursor");
     QString copyText;
@@ -1150,6 +1237,14 @@ void WaveformViewer::onContextMenuRequested(const QPoint &globalPos) {
     menu.addSeparator();
     QAction* exportImgAct = menu.addAction("Export Image...");
 
+    ChartPane* targetPane = nullptr;
+    for (auto* p : m_panes) {
+        if (p->view->rect().contains(p->view->mapFromGlobal(globalPos))) {
+            targetPane = p;
+            break;
+        }
+    }
+
     QAction* chosen = menu.exec(globalPos);
     if (!chosen) return;
 
@@ -1158,7 +1253,13 @@ void WaveformViewer::onContextMenuRequested(const QPoint &globalPos) {
     else if (chosen == resetAct) resetZoom();
     else if (chosen == cursorsAct) toggleCursors();
     else if (chosen == crosshairAct) toggleCrosshair();
-    else if (chosen == copyAct) {
+    else if (chosen == addPaneAct) {
+        createPane(SignalType::OTHER);
+        updatePlot(true);
+    } else if (chosen == remPaneAct && targetPane) {
+        int idx = m_panes.indexOf(targetPane);
+        if (idx >= 0) removePane(idx);
+    } else if (chosen == copyAct) {
         QClipboard* cb = QApplication::clipboard();
         if (cb) cb->setText(copyText);
     } else if (chosen == exportAct) {
@@ -1253,10 +1354,21 @@ void WaveformViewer::exportSignalsCsv() {
 
 void WaveformViewer::updateNodeItemStyle(QListWidgetItem* item) {
     if (!item) return;
+    PCBTheme* theme = ThemeManager::theme();
+    bool isDark = theme && theme->type() == PCBTheme::Dark;
+
     if (item->checkState() == Qt::Checked) {
-        item->setForeground(QColor("#111827"));
+        // High-contrast palettes for light/dark modes
+        static const QStringList darkPalette = { "#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c" };
+        static const QStringList lightPalette = { "#1d4ed8", "#047857", "#b45309", "#b91c1c", "#6d28d9", "#be185d", "#0f766e", "#c2410c" };
+        
+        const QStringList& palette = isDark ? darkPalette : lightPalette;
+        int row = m_nodeList->row(item);
+        item->setForeground(QColor(palette[row % palette.size()]));
+        item->setFont(QFont("Inter", 9, QFont::Bold));
     } else {
-        item->setForeground(QColor("#6b7280"));
+        item->setForeground(isDark ? QColor("#71717a") : QColor("#9ca3af"));
+        item->setFont(QFont("Inter", 9, QFont::Normal));
     }
 }
 
