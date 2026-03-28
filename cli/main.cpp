@@ -66,6 +66,7 @@
 #include "simulator/bridge/sim_manager.h"
 #include "simulator/core/sim_value_parser.h"
 #include "simulator/bridge/model_library_manager.h"
+#include "simulator/core/raw_data_parser.h"
 
 namespace {
 bool g_quiet = false;
@@ -178,13 +179,6 @@ public:
     void release() {}
 };
 
-struct RawData {
-    QStringList varNames;
-    int numVariables = 0;
-    int numPoints = 0;
-    QVector<double> x;
-    QVector<QVector<double>> y;
-};
 
 static bool resolveBaseSignalIndex(const RawData& data, const QString& name, int* outIndex, QString* error) {
     if (outIndex) *outIndex = -1;
@@ -461,125 +455,6 @@ static int nearestIndex(const QVector<double>& xs, double t) {
     return (d0 <= d1) ? (lo - 1) : lo;
 }
 
-static bool loadRawAscii(const QString& path, RawData* out, QString* error) {
-    if (!out) return false;
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        if (error) *error = "Could not open raw file: " + path;
-        return false;
-    }
-
-    QByteArray allData = file.readAll();
-    file.close();
-
-    if (allData.isEmpty()) {
-        if (error) *error = "Raw file is empty: " + path;
-        return false;
-    }
-
-    const char* dataPtr = allData.constData();
-    const char* endPtr = dataPtr + allData.size();
-
-    auto readLine = [&]() -> QByteArray {
-        const char* start = dataPtr;
-        while (dataPtr < endPtr && *dataPtr != '\n' && *dataPtr != '\r') {
-            dataPtr++;
-        }
-        QByteArray line(start, dataPtr - start);
-        if (dataPtr < endPtr && *dataPtr == '\r') dataPtr++;
-        if (dataPtr < endPtr && *dataPtr == '\n') dataPtr++;
-        return line.trimmed();
-    };
-
-    bool collectingData = false;
-    bool isBinary = false;
-    int numVariables = 0;
-    int numPoints = 0;
-    QStringList varNames;
-
-    while (dataPtr < endPtr) {
-        QByteArray line = readLine();
-        if (line.isEmpty()) continue;
-
-        if (line.startsWith("No. Variables:")) {
-            numVariables = line.mid(14).trimmed().toInt();
-        } else if (line.startsWith("No. Points:")) {
-            numPoints = line.mid(11).trimmed().toInt();
-        } else if (line.startsWith("Variables:")) {
-            for (int i = 0; i < numVariables; ++i) {
-                QByteArray vLine = readLine();
-                QStringList parts = QString::fromLatin1(vLine).split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-                if (parts.size() >= 2) varNames << parts[1];
-            }
-        } else if (line.startsWith("Values:")) {
-            collectingData = true;
-            isBinary = false;
-            break;
-        } else if (line.startsWith("Binary:")) {
-            collectingData = true;
-            isBinary = true;
-            break;
-        }
-    }
-
-    if (!collectingData || varNames.isEmpty() || numVariables <= 0) {
-        if (error) *error = "Raw file missing Variables/Values/Binary sections: " + path;
-        return false;
-    }
-
-    out->numVariables = numVariables;
-    out->numPoints = numPoints;
-    out->varNames = varNames;
-    
-    if (numPoints > 0) {
-        out->x.reserve(numPoints);
-        out->y.resize(numVariables - 1);
-        for (int i = 0; i < out->y.size(); ++i) out->y[i].reserve(numPoints);
-
-        if (isBinary) {
-            if (!g_quiet) std::cerr << "RawDataParser (CLI): Using binary parsing mode" << std::endl;
-            qint64 totalDoubles = (qint64)numPoints * numVariables;
-            qint64 remainingBytes = endPtr - dataPtr;
-            if (remainingBytes >= totalDoubles * (qint64)sizeof(double)) {
-                for (int p = 0; p < numPoints; ++p) {
-                    double val;
-                    memcpy(&val, dataPtr, sizeof(double));
-                    dataPtr += sizeof(double);
-                    out->x.push_back(val);
-                    for (int v = 1; v < numVariables; ++v) {
-                        memcpy(&val, dataPtr, sizeof(double));
-                        dataPtr += sizeof(double);
-                        out->y[v - 1].push_back(val);
-                    }
-                }
-            } else {
-                if (error) *error = QString("Raw file binary payload is incomplete: %1 (Expected %2 bytes, got %3)").arg(path).arg(totalDoubles * sizeof(double)).arg(remainingBytes);
-                return false;
-            }
-        } else {
-            auto getNextValue = [&]() -> double {
-                while (dataPtr < endPtr) {
-                    const char* start = dataPtr;
-                    while (dataPtr < endPtr && !isspace(*dataPtr)) dataPtr++;
-                    QByteArray word(start, dataPtr - start);
-                    while (dataPtr < endPtr && isspace(*dataPtr)) dataPtr++;
-                    if (!word.isEmpty()) return word.toDouble();
-                }
-                return 0.0;
-            };
-
-            for (int p = 0; p < numPoints; ++p) {
-                getNextValue(); // skip index
-                out->x.push_back(getNextValue());
-                for (int v = 1; v < numVariables; ++v) {
-                    out->y[v - 1].push_back(getNextValue());
-                }
-            }
-        }
-    }
-
-    return true;
-}
 using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 
@@ -2345,7 +2220,7 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
         if (exportRequested && okResult) {
             RawData data;
             QString err;
-            if (loadRawAscii(rawPath, &data, &err)) {
+            if (RawDataParser::loadRawAscii(rawPath, &data, &err)) {
                 QStringList signalNames = parser.values("signal");
                 if (signalNames.isEmpty()) {
                     for (int i = 1; i < data.varNames.size(); ++i) signalNames << data.varNames[i];
@@ -2460,7 +2335,7 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
     if (exportRequested) {
         RawData data;
         QString err;
-        if (!loadRawAscii(rawPath, &data, &err)) {
+        if (!RawDataParser::loadRawAscii(rawPath, &data, &err)) {
             std::cerr << "Error: " << err.toStdString() << std::endl;
             return false;
         }
@@ -2809,7 +2684,7 @@ bool runNetlistValidate(const QString& filePath, const QCommandLineParser& parse
 bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
     RawData data;
     QString error;
-    if (!loadRawAscii(filePath, &data, &error)) {
+    if (!RawDataParser::loadRawAscii(filePath, &data, &error)) {
         std::cerr << "Error: " << error.toStdString() << std::endl;
         return false;
     }
@@ -2881,7 +2756,7 @@ bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
 bool runRawExport(const QString& filePath, const QCommandLineParser& parser) {
     RawData data;
     QString error;
-    if (!loadRawAscii(filePath, &data, &error)) {
+    if (!RawDataParser::loadRawAscii(filePath, &data, &error)) {
         std::cerr << "Error: " << error.toStdString() << std::endl;
         return false;
     }
@@ -3684,7 +3559,7 @@ int main(int argc, char *argv[]) {
         
         QObject::connect(&sm, &SimulationManager::rawResultsReady, [&](const QString& path) {
             RawData rd;
-            if (loadRawAscii(path, &rd, &lastError)) {
+            if (RawDataParser::loadRawAscii(path, &rd, &lastError)) {
                 // Simplified SimResults conversion for CLI
                 results.analysisType = t;
                 for (int i = 0; i < rd.varNames.size(); ++i) {
@@ -3695,7 +3570,8 @@ int main(int argc, char *argv[]) {
                     wave.yData = std::vector<double>(rd.y[i-1].begin(), rd.y[i-1].end());
                     results.waveforms.push_back(wave);
                     
-                    if (t == SimAnalysisType::OP && !rd.y[i-1].isEmpty()) {
+                    // Populate summaries for AI context (use first point for non-OP as a "current state" hint)
+                    if (!rd.y[i-1].isEmpty()) {
                         QString qName = QString::fromStdString(wave.name);
                         if (qName.startsWith("V(", Qt::CaseInsensitive)) {
                              results.nodeVoltages[rd.varNames[i].mid(2, rd.varNames[i].size() - 3).toStdString()] = rd.y[i-1][0];

@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import shutil
+import re
 
 class SimulationAdapter:
     def __init__(self, flux_cmd_path=None):
@@ -30,7 +31,7 @@ class SimulationAdapter:
         ])
         self.flux_cmd_path = self._resolve_cli_path(candidates)
         self.last_results = None
-        self.last_error = None
+        self.last_error = ""
 
     @staticmethod
     def _resolve_cli_path(candidates):
@@ -52,8 +53,44 @@ class SimulationAdapter:
         signals = [w["name"] for w in results.get("waveforms", [])]
         return sorted(list(set(nodes + signals)))
 
+    def get_component_nets(self, schematic_path, component_ref):
+        """Returns ordered pin-to-net mappings for a component using the schematic netlist JSON."""
+        self.last_error = ""
+        if not os.path.exists(schematic_path):
+            self.last_error = f"Schematic file not found: {schematic_path}"
+            return []
+
+        cmd = [
+            self.flux_cmd_path,
+            "schematic-netlist",
+            schematic_path,
+            "--format",
+            "json",
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            output = (result.stdout or "").strip()
+            if not output:
+                self.last_error = f"schematic-netlist produced no output. Error: {(result.stderr or '').strip()}"
+                return []
+            data = json.loads(output)
+            nets = data.get("nets", [])
+            pin_pairs = []
+            for net in nets:
+                net_name = str(net.get("name", "")).strip()
+                for pin in net.get("pins", []):
+                    ref = str(pin.get("ref", "")).strip()
+                    pin_name = str(pin.get("pin", "")).strip()
+                    if ref.upper() == str(component_ref).strip().upper() and net_name:
+                        pin_pairs.append((pin_name, net_name))
+            pin_pairs.sort(key=lambda pair: int(pair[0]) if str(pair[0]).isdigit() else 9999)
+            return pin_pairs
+        except Exception as e:
+            self.last_error = f"Failed to resolve component nets: {str(e)}"
+            return []
+
     def run_simulation(self, schematic_path, analysis_type="op", stop_time="10m", step_size="100u"):
-        self.last_error = None
+        self.last_error = ""
         if not os.path.exists(schematic_path):
             self.last_error = f"Schematic file not found: {schematic_path}"
             return None
@@ -79,22 +116,29 @@ class SimulationAdapter:
             cmd.extend(["--stop", stop_time, "--step", step_size])
 
         try:
-            # We use _Exit(0) in flux-cmd, so it might return 0 but we should check stdout.
+            with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+                log.write(f"\n--- Simulation Run: {analysis_type} ---\n")
+                log.write(f"Cmd: {' '.join(cmd)}\n")
+            
             result = subprocess.run(cmd, capture_output=True, text=True)
-            # Some builds may not expose --json; retry once without it.
+            
+            with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+                log.write(f"Return code: {result.returncode}\n")
+                log.write(f"Stdout length: {len(result.stdout)}\n")
+                if result.stderr:
+                    log.write(f"Stderr: {result.stderr[:500]}...\n")
+                if len(result.stdout) > 0:
+                    log.write(f"Stdout start: {result.stdout[:200]}\n")
+
             if "Unknown option 'json'" in (result.stderr or ""):
                 cmd = [c for c in cmd if c != "--json"]
                 result = subprocess.run(cmd, capture_output=True, text=True)
-            if not result.stdout.strip():
-                self.last_error = f"Simulation produced no output. Error: {(result.stderr or '').strip()}"
-                return None
-            
-            # Find the JSON part in case there's extra logging.
+                
             output = result.stdout.strip()
             if not output:
                 self.last_error = f"Simulation produced no output. Error: {(result.stderr or '').strip()}"
                 return None
-
+            
             # Fast search for the JSON block
             json_start = output.find('{')
             json_end = output.rfind('}')
@@ -103,9 +147,17 @@ class SimulationAdapter:
                 try:
                     json_data = output[json_start : json_end + 1]
                     self.last_results = json.loads(json_data)
+                    with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+                        waves = self.last_results.get("waveforms", [])
+                        nodes = self.last_results.get("nodeVoltages", {})
+                        log.write(f"Parsed success. Waveforms: {len(waves)}, Nodes: {len(nodes)}\n")
+                        if waves:
+                            log.write(f"First 5 waves: {', '.join([w.get('name','') for w in waves[:5]])}\n")
                     return self.last_results
                 except json.JSONDecodeError as e:
                     self.last_error = f"Failed to parse JSON: {str(e)}"
+                    with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+                        log.write(f"JSON Parse Error: {str(e)}\n")
             
             self.last_error = "Simulation output did not contain valid JSON."
             return None
@@ -125,21 +177,26 @@ class SimulationAdapter:
             if name == target:
                 return wave.get("x"), wave.get("y")
         
-        # 2. Try adding/removing V() or I() wrappers
-        alt_targets = []
-        if target.startswith("V(") and target.endswith(")"):
-            alt_targets.append(target[2:-1])
+        # 2. Try common variations
+        alt_targets = set()
+        # Strip wrappers
+        m = re.match(r"^[VI]\((.*)\)$", target, re.I)
+        if m:
+            clean = m.group(1).strip()
+            alt_targets.add(clean)
         else:
-            alt_targets.append(f"V({target})")
-            
-        if target.startswith("I(") and target.endswith(")"):
-            alt_targets.append(target[2:-1])
-        else:
-            alt_targets.append(f"I({target})")
-
+            alt_targets.add(f"V({target})")
+            alt_targets.add(f"I({target})")
+        
+        # Case-insensitive search on waveforms
         for alt in alt_targets:
             for wave in self.last_results.get("waveforms", []):
-                if str(wave.get("name", "")).strip().upper() == alt:
+                w_name = str(wave.get("name", "")).strip().upper()
+                if w_name == alt:
+                    return wave.get("x"), wave.get("y")
+                # Also try matching without V() wrapper if the waveform name has it
+                m_wave = re.match(r"^[VI]\((.*)\)$", w_name, re.I)
+                if m_wave and m_wave.group(1).strip() == alt:
                     return wave.get("x"), wave.get("y")
 
         # 3. Match in nodeVoltages

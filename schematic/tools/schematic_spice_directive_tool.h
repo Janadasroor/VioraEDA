@@ -12,7 +12,7 @@ class SchematicSpiceDirectiveTool : public SchematicTool {
 public:
     explicit SchematicSpiceDirectiveTool(QObject* parent = nullptr);
 
-    QString tooltip() const override { return "SPICE Directive: Add SPICE commands and models (.tran, .model, etc.)"; }
+    QString tooltip() const override { return "SPICE Directive: Add commands, subcircuits, or raw LTspice-style netlist blocks"; }
     QString iconName() const override { return "tool_text"; } // Reuse text icon for now, or use a specialized one
 
     void mouseReleaseEvent(QMouseEvent* event) override;

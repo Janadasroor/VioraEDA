@@ -20,14 +20,18 @@ void SpiceDirectiveDialog::setupUi() {
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-    QLabel* infoLabel = new QLabel("Enter SPICE commands:\n"
+    QLabel* infoLabel = new QLabel("Enter SPICE commands or LTspice-style netlist blocks:\n"
         ".tran .ac .op .dc .noise .four .tf .disto .sens\n"
         ".model .param .subckt .ends .include .lib .endl\n"
-        ".func .global .ic .nodeset .options .temp .step .meas .print", this);
+        ".func .global .ic .nodeset .options .temp .step .meas .print\n\n"
+        "You can also paste component and subcircuit lines such as:\n"
+        "Vcc vcc 0 DC 15\n"
+        "X1 0 inv out vcc vee opamp\n"
+        ".subckt opamp 1 2 3 4 5 ... .ends opamp", this);
     mainLayout->addWidget(infoLabel);
 
     m_commandEdit = new QPlainTextEdit(this);
-    m_commandEdit->setPlaceholderText(".tran 0 10m 10u\n.noise V(out) V1 10 1 1Meg\n.param RVAL=1k");
+    m_commandEdit->setPlaceholderText("Vcc vcc 0 DC 15\nVee vee 0 DC -15\nVin in 0 SIN(0 1 1k)\n\nR1 in inv 10k\nR2 out inv 100k\n\nX1 0 inv out vcc vee opamp\n.subckt opamp 1 2 3 4 5\nE1 3 0 1 2 100k\nR1 3 0 1k\n.ends opamp\n\n.tran 10u 10m");
     QFont font("Courier New");
     font.setStyleHint(QFont::Monospace);
     font.setPointSize(10);

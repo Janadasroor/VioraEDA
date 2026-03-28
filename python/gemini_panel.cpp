@@ -41,6 +41,7 @@
 #include <QKeyEvent>
 #include <QSizePolicy>
 #include <QResizeEvent>
+#include <QTemporaryDir>
 #include <cmath>
 #include <utility>
 
@@ -1259,7 +1260,21 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     pArgs << sPath << args;
     
     if (!m_mode.isEmpty()) pArgs << "--mode" << m_mode;
-    if (!m_projectFilePath.isEmpty()) pArgs << "--project_path" << m_projectFilePath;
+    QString agentProjectPath = m_projectFilePath;
+    if (m_scene) {
+        const QString snapshotDir = QDir::tempPath() + "/viospice_ai_snapshots";
+        QDir().mkpath(snapshotDir);
+        const QString snapshotPath = snapshotDir + QString("/active_%1.flxsch")
+            .arg(QDateTime::currentMSecsSinceEpoch());
+        QFile snapshotFile(snapshotPath);
+        if (snapshotFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            const QJsonObject snapshot = SchematicFileIO::serializeSceneToJson(m_scene);
+            snapshotFile.write(QJsonDocument(snapshot).toJson(QJsonDocument::Indented));
+            snapshotFile.close();
+            agentProjectPath = snapshotPath;
+        }
+    }
+    if (!agentProjectPath.isEmpty()) pArgs << "--project_path" << agentProjectPath;
 
     m_process->start(py, pArgs);
 }

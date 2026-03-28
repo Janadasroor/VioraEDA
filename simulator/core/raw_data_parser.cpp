@@ -12,42 +12,37 @@ std::string normalizeWaveformName(const std::string& rawName) {
     const QString q = QString::fromStdString(rawName).trimmed();
     if (q.isEmpty()) return rawName;
 
-    QString normalized = q;
-    static const QRegularExpression currentWrapperRe(
-        "^i\\s*\\(\\s*(.+)\\s*\\)$",
-        QRegularExpression::CaseInsensitiveOption);
-    if (const auto wrapped = currentWrapperRe.match(normalized); wrapped.hasMatch()) {
-        normalized = wrapped.captured(1).trimmed();
-    }
-
-    // Canonical current probe form expected by UI: I(<ref>)
-    // ngspice often emits device currents as @r1[i], @m1[id], ...
-    static const QRegularExpression deviceCurrentRe(
-        "^@\\s*([A-Za-z0-9_.$:+-]+)\\s*\\[\\s*i[a-z]*\\s*\\]$",
-        QRegularExpression::CaseInsensitiveOption);
-    if (const auto m = deviceCurrentRe.match(normalized); m.hasMatch()) {
-        return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
-    }
-
-    // ngspice voltage-source/current-defined branch naming: v1#branch
+    // Handle v1#branch -> I(V1)
     static const QRegularExpression branchRe(
         "^\\s*([A-Za-z0-9_.$:+-]+)\\s*#\\s*branch\\s*$",
         QRegularExpression::CaseInsensitiveOption);
-    if (const auto m = branchRe.match(normalized); m.hasMatch()) {
+    if (const auto m = branchRe.match(q); m.hasMatch()) {
         return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
     }
 
-    // ngspice may also emit source currents as i(v1)
-    static const QRegularExpression namedCurrentRe(
-        "^\\s*([A-Za-z0-9_.$:+-]+)\\s*$",
+    static const QRegularExpression wrapperRe(
+        "^(v|i)\\s*\\(\\s*(.+)\\s*\\)$",
         QRegularExpression::CaseInsensitiveOption);
-    if (const auto m = namedCurrentRe.match(normalized); m.hasMatch() &&
-        currentWrapperRe.match(q).hasMatch()) {
+    
+    auto match = wrapperRe.match(q);
+    if (!match.hasMatch()) {
+        // If no wrapper, just return uppercase for consistency if it looks like a net
+        return q.toUpper().toStdString();
+    }
+
+    QString type = match.captured(1).toUpper(); // V or I
+    QString content = match.captured(2).trimmed();
+
+    // Handle device currents: @r1[i] -> I(R1)
+    static const QRegularExpression deviceCurrentRe(
+        "^@\\s*([A-Za-z0-9_.$:+-]+)\\s*\\[\\s*i[a-z]*\\s*\\]$",
+        QRegularExpression::CaseInsensitiveOption);
+    if (const auto m = deviceCurrentRe.match(content); m.hasMatch()) {
         return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
     }
 
-    // Keep already-canonical names and everything else unchanged.
-    return rawName;
+    // Handle generic wrappers: v(net1) -> V(NET1)
+    return QString("%1(%2)").arg(type, content.toUpper()).toStdString();
 }
 } // namespace
 
@@ -118,8 +113,11 @@ bool RawDataParser::loadRawAscii(const QString& path, RawData* out, QString* err
             for (int i = 0; i < numVariables; ++i) {
                 QByteArray vLine = readLine();
                 QStringList parts = QString::fromLatin1(vLine).split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-                if (parts.size() >= 2) varNames << parts[1];
-                else if (parts.size() == 1 && i == 0) varNames << "time";
+                if (parts.size() >= 2) {
+                    varNames << QString::fromStdString(normalizeWaveformName(parts[1].toStdString()));
+                } else if (parts.size() == 1 && i == 0) {
+                    varNames << "time";
+                }
             }
         } else if (line.startsWith("Values:")) {
             collectingData = true;
