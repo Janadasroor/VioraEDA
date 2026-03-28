@@ -1101,9 +1101,12 @@ WaveformViewer::ChartPane* WaveformViewer::createPane(WaveformViewer::SignalType
     pane->chart->setTheme(QChart::ChartThemeDark);
     pane->chart->setBackgroundBrush(QBrush(QColor(20, 20, 20)));
     pane->chart->setPlotAreaBackgroundBrush(QBrush(QColor(15, 15, 15)));
+    pane->chart->setMargins(QMargins(2, 2, 2, 2));
+    pane->chart->layout()->setContentsMargins(0, 0, 0, 0);
     pane->chart->legend()->hide();
     
     pane->view = new VioChartView(pane->chart);
+    pane->view->setContentsMargins(0, 0, 0, 0);
     pane->view->setRenderHint(QPainter::Antialiasing);
     pane->view->setRubberBand(QChartView::RectangleRubberBand);
     pane->view->setInteractive(true);
@@ -1172,10 +1175,10 @@ void WaveformViewer::onPaneClicked() {
     for (auto* pane : m_panes) {
         if (pane->view == view) {
             m_focusedPane = pane;
-            // Use border highlight to avoid covering signals
-            pane->view->setStyleSheet("VioChartView { border: 2px solid #55aaff; background: transparent; }");
+            // Use border highlight with zero padding/margin to save space
+            pane->view->setStyleSheet("VioChartView { border: 2px solid #55aaff; background: transparent; padding: 0px; margin: 0px; }");
         } else {
-            pane->view->setStyleSheet("VioChartView { border: none; background: transparent; }");
+            pane->view->setStyleSheet("VioChartView { border: none; background: transparent; padding: 0px; margin: 0px; }");
         }
     }
 }
