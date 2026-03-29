@@ -27,6 +27,9 @@ public:
     QString geminiApiKey() const;
     void setGeminiApiKey(const QString& key);
 
+    QString geminiGlobalInstructions() const;
+    void setGeminiGlobalInstructions(const QString& instructions);
+
     QString octopartApiKey() const;
     void setOctopartApiKey(const QString& key);
 
@@ -98,6 +101,7 @@ private:
     int m_autoSaveInterval;
     QString m_currentTheme;
     QString m_geminiApiKey;
+    QString m_geminiGlobalInstructions;
     QStringList m_symbolPaths;
     QStringList m_modelPaths;
     QStringList m_libraryRoots;

@@ -29,6 +29,13 @@ void ConfigManager::setGeminiApiKey(const QString& key) {
     m_settings.sync();
 }
 
+QString ConfigManager::geminiGlobalInstructions() const { return m_geminiGlobalInstructions; }
+void ConfigManager::setGeminiGlobalInstructions(const QString& instructions) {
+    m_geminiGlobalInstructions = instructions;
+    m_settings.setValue("api/geminiInstructions", m_geminiGlobalInstructions);
+    m_settings.sync();
+}
+
 QString ConfigManager::octopartApiKey() const { return m_settings.value("api/octopartKey").toString(); }
 void ConfigManager::setOctopartApiKey(const QString& key) {
     m_settings.setValue("api/octopartKey", key);
@@ -146,6 +153,7 @@ void ConfigManager::save() {
     m_settings.setValue("autoSave/interval", m_autoSaveInterval);
     m_settings.setValue("appearance/theme", m_currentTheme);
     m_settings.setValue("api/geminiKey", m_geminiApiKey);
+    m_settings.setValue("api/geminiInstructions", m_geminiGlobalInstructions);
     m_settings.setValue("libraries/symbols", m_symbolPaths);
     m_settings.setValue("libraries/models", m_modelPaths);
     m_settings.setValue("libraries/roots", m_libraryRoots);
@@ -171,6 +179,7 @@ void ConfigManager::load() {
     m_autoSaveInterval = m_settings.value("autoSave/interval", 5).toInt();
     m_currentTheme = m_settings.value("appearance/theme", "Dark").toString();
     m_geminiApiKey = m_settings.value("api/geminiKey", "").toString();
+    m_geminiGlobalInstructions = m_settings.value("api/geminiInstructions", "").toString();
     m_symbolPaths = m_settings.value("libraries/symbols").toStringList();
     m_modelPaths = m_settings.value("libraries/models").toStringList();
     m_libraryRoots = m_settings.value("libraries/roots").toStringList();

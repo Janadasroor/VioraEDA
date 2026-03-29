@@ -311,6 +311,86 @@ QString rewriteLtspiceTriggeredPulseSource(const QString& line, QStringList* war
     return rewrittenLines.join("\n");
 }
 
+QString rewriteLtspiceTriggeredPwlSource(const QString& line, QStringList* warnings = nullptr) {
+    static const QRegularExpression sourceRe(
+        "^\\s*(V\\S*)\\s+(\\S+)\\s+(\\S+)\\s+(.+)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = sourceRe.match(line);
+    if (!match.hasMatch()) return line;
+
+    const QString ref = match.captured(1).trimmed();
+    const QString nplus = match.captured(2).trimmed();
+    const QString nminus = match.captured(3).trimmed();
+    const QString rest = match.captured(4).trimmed();
+    if (!rest.startsWith("PWL", Qt::CaseInsensitive)) return line;
+
+    static const QRegularExpression triggerRe("\\bTrigger\\s*=\\s*(.+?)(?=\\s+tripd[vt]\\s*=|$)", QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch triggerMatch = triggerRe.match(rest);
+    if (!triggerMatch.hasMatch()) return line;
+
+    QString stepExpr;
+    const QString triggerExpr = triggerMatch.captured(1).trimmed();
+    if (!convertLtspiceConditionToStepExpr(triggerExpr, &stepExpr)) return line;
+
+    QString pwlExpr = rest;
+    pwlExpr.remove(triggerRe);
+    pwlExpr = pwlExpr.simplified();
+
+    const QString hiddenNode = QString("%1__trigger_src").arg(ref);
+    const QString hiddenRef = QString("V__TRIGSRC_%1").arg(ref);
+    const QString bufferRef = QString("B__TRIGBUF_%1").arg(ref);
+
+    QStringList rewrittenLines;
+    rewrittenLines << QString("%1 %2 %3 %4").arg(hiddenRef, hiddenNode, nminus, pwlExpr);
+    rewrittenLines << QString("%1 %2 %3 V={(%4)*V(%5,%6)}").arg(bufferRef, nplus, nminus, stepExpr, hiddenNode, nminus);
+
+    if (warnings) {
+        warnings->append(QString("Approximated LTspice PWL Trigger= behavior on %1 by gating a hidden PWL source with the trigger expression.").arg(ref));
+        warnings->append(QString("LTspice triggered PWL restart semantics are only partially emulated for %1; the waveform is gated by the trigger but not restarted on each trigger event.").arg(ref));
+    }
+    return rewrittenLines.join("\n");
+}
+
+QString rewriteLtspiceTriggeredWaveSource(const QString& line, const QString& kind, QStringList* warnings = nullptr) {
+    static const QRegularExpression sourceRe(
+        "^\\s*(V\\S*)\\s+(\\S+)\\s+(\\S+)\\s+(.+)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = sourceRe.match(line);
+    if (!match.hasMatch()) return line;
+
+    const QString ref = match.captured(1).trimmed();
+    const QString nplus = match.captured(2).trimmed();
+    const QString nminus = match.captured(3).trimmed();
+    const QString rest = match.captured(4).trimmed();
+    if (!rest.startsWith(kind, Qt::CaseInsensitive)) return line;
+
+    static const QRegularExpression triggerRe("\\bTrigger\\s*=\\s*(.+?)(?=\\s+tripd[vt]\\s*=|$)", QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch triggerMatch = triggerRe.match(rest);
+    if (!triggerMatch.hasMatch()) return line;
+
+    QString stepExpr;
+    const QString triggerExpr = triggerMatch.captured(1).trimmed();
+    if (!convertLtspiceConditionToStepExpr(triggerExpr, &stepExpr)) return line;
+
+    QString sourceExpr = rest;
+    sourceExpr.remove(triggerRe);
+    sourceExpr = sourceExpr.simplified();
+
+    const QString hiddenNode = QString("%1__trigger_src").arg(ref);
+    const QString hiddenRef = QString("V__TRIGSRC_%1").arg(ref);
+    const QString bufferRef = QString("B__TRIGBUF_%1").arg(ref);
+
+    QStringList rewrittenLines;
+    rewrittenLines << QString("%1 %2 %3 %4").arg(hiddenRef, hiddenNode, nminus, sourceExpr);
+    rewrittenLines << QString("%1 %2 %3 V={(%4)*V(%5,%6)}").arg(bufferRef, nplus, nminus, stepExpr, hiddenNode, nminus);
+
+    if (warnings) {
+        warnings->append(QString("Approximated LTspice %1 Trigger= behavior on %2 by gating a hidden %1 source with the trigger expression.").arg(kind.toUpper(), ref));
+        warnings->append(QString("LTspice triggered %1 restart semantics are only partially emulated for %2; the waveform is gated by the trigger but not restarted on each trigger event.").arg(kind.toUpper(), ref));
+    }
+    return rewrittenLines.join("\n");
+}
+
 QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warnings = nullptr) {
     struct RewriteRule {
         QString name;
@@ -377,6 +457,38 @@ QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warn
     return out;
 }
 
+QString rewriteLtspiceBSourceLaplaceOptions(const QString& line, QStringList* warnings = nullptr) {
+    static const QRegularExpression bSourceRe(
+        "^\\s*(B\\S+)\\s+\\S+\\s+\\S+\\s+(?:V|I|R|P)\\s*=.*$",
+        QRegularExpression::CaseInsensitiveOption);
+    if (!bSourceRe.match(line).hasMatch()) return line;
+
+    QString out = line;
+    const QString original = line.trimmed();
+
+    static const QRegularExpression laplaceRe("\\blaplace\\s*=\\s*(\\{[^}]*\\}|\\S+)", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression windowRe("\\bwindow\\s*=\\s*\\S+", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression nfftRe("\\bnfft\\s*=\\s*\\S+", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression mtolRe("\\bmtol\\s*=\\s*\\S+", QRegularExpression::CaseInsensitiveOption);
+
+    const QRegularExpressionMatch laplaceMatch = laplaceRe.match(out);
+    if (!laplaceMatch.hasMatch()) return line;
+
+    const QString laplaceExpr = laplaceMatch.captured(1).trimmed();
+    out.remove(laplaceRe);
+    out.remove(windowRe);
+    out.remove(nfftRe);
+    out.remove(mtolRe);
+    out = out.simplified();
+
+    if (warnings) {
+        warnings->append(QString("Dropped LTspice B-source laplace= transform from %1 because this ngspice configuration does not accept LTspice-style Laplace options on B-sources.").arg(original));
+        warnings->append(QString("Preserved the underlying behavioral source but removed laplace/window/nfft/mtol options; resulting behavior may differ from LTspice. Dropped Laplace expression: %1").arg(laplaceExpr));
+    }
+
+    return out;
+}
+
 void appendLtspiceBSourceOptionWarnings(const QString& line, QStringList* warnings) {
     if (!warnings) return;
 
@@ -397,7 +509,7 @@ void appendLtspiceBSourceOptionWarnings(const QString& line, QStringList* warnin
         trimmed.contains(QRegularExpression("\\bwindow\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
         trimmed.contains(QRegularExpression("\\bnfft\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
         trimmed.contains(QRegularExpression("\\bmtol\\s*=", QRegularExpression::CaseInsensitiveOption))) {
-        warnings->append(QString("LTspice B-source Laplace options detected and passed through unchanged; ngspice compatibility may differ: %1").arg(trimmed));
+        warnings->append(QString("LTspice B-source Laplace options detected; VioSpice will drop them if needed to keep ngspice loadable: %1").arg(trimmed));
     }
 }
 
@@ -418,13 +530,19 @@ void appendLtspiceSourceOptionWarnings(const QString& line, QStringList* warning
         return;
     }
 
-    if (rest.contains(QRegularExpression("\\bTrigger\\s*=", QRegularExpression::CaseInsensitiveOption))) {
-        if (rest.startsWith("PULSE", Qt::CaseInsensitive)) {
-            warnings->append(QString("LTspice PULSE Trigger= detected on %1; VioSpice will approximate it by gating a hidden pulse source.").arg(ref));
-        } else {
-            warnings->append(QString("LTspice triggered source restart semantics are not yet emulated for %1; Trigger= is passed through unchanged: %2").arg(ref, line.trimmed()));
+        if (rest.contains(QRegularExpression("\\bTrigger\\s*=", QRegularExpression::CaseInsensitiveOption))) {
+            if (rest.startsWith("PULSE", Qt::CaseInsensitive)) {
+                warnings->append(QString("LTspice PULSE Trigger= detected on %1; VioSpice will approximate it by gating a hidden pulse source.").arg(ref));
+            } else if (rest.startsWith("PWL", Qt::CaseInsensitive)) {
+                warnings->append(QString("LTspice PWL Trigger= detected on %1; VioSpice will approximate it by gating a hidden PWL source.").arg(ref));
+            } else if (rest.startsWith("SINE", Qt::CaseInsensitive) || rest.startsWith("EXP", Qt::CaseInsensitive) ||
+                       rest.startsWith("SFFM", Qt::CaseInsensitive)) {
+                warnings->append(QString("LTspice %1 Trigger= detected on %2; VioSpice will approximate it by gating a hidden %1 source.")
+                                     .arg(rest.section('(', 0, 0).trimmed().toUpper(), ref));
+            } else {
+                warnings->append(QString("LTspice triggered source restart semantics are not yet emulated for %1; Trigger= is passed through unchanged: %2").arg(ref, line.trimmed()));
+            }
         }
-    }
     if (rest.contains(QRegularExpression("\\btripdv\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
         rest.contains(QRegularExpression("\\btripdt\\s*=", QRegularExpression::CaseInsensitiveOption))) {
         warnings->append(QString("LTspice source step-rejection options tripdv=/tripdt= detected on %1 and passed through unchanged: %2").arg(ref, line.trimmed()));
@@ -493,7 +611,12 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
     appendLtspiceBSourceOptionWarnings(out, warnings);
     appendLtspiceSourceOptionWarnings(out, warnings);
 
+    out = rewriteLtspiceBSourceLaplaceOptions(out, warnings);
     out = rewriteLtspiceTriggeredPulseSource(out, warnings);
+    out = rewriteLtspiceTriggeredPwlSource(out, warnings);
+    out = rewriteLtspiceTriggeredWaveSource(out, "SINE", warnings);
+    out = rewriteLtspiceTriggeredWaveSource(out, "EXP", warnings);
+    out = rewriteLtspiceTriggeredWaveSource(out, "SFFM", warnings);
     out = rewriteLtspiceVoltageSourceExtras(out, warnings);
 
     if (emulateStartup) {
