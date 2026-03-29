@@ -98,7 +98,14 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
             const QString ref = bMatch.captured(1).trimmed();
             const QString nplus = bMatch.captured(2).trimmed();
             const QString nminus = bMatch.captured(3).trimmed();
-            const QString expr = bMatch.captured(4).trimmed();
+            QString expr = bMatch.captured(4).trimmed();
+
+            // Strip outer braces if present for cleaner parsing
+            bool hadBraces = false;
+            if (expr.startsWith('{') && expr.endsWith('}')) {
+                expr = expr.mid(1, expr.length() - 2).trimmed();
+                hadBraces = true;
+            }
 
             static const QRegularExpression idtTailRe(
                 "^(.*?)(?:([+\\-])\\s*)?([^\\s+\\-]+)?\\s*\\*?\\s*idt\\((.+)\\)\\s*$",
@@ -118,13 +125,26 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
                 const QString intLeakRef = QString("R__INTLEAK_%1").arg(ref);
 
                 QString rewrittenExpr = prefix;
-                if (rewrittenExpr.isEmpty()) rewrittenExpr = QString("V(%1)").arg(intNode);
-                else rewrittenExpr += QString(" + V(%1)").arg(intNode);
+                if (rewrittenExpr.isEmpty()) {
+                    rewrittenExpr = QString("V(%1)").arg(intNode);
+                } else {
+                    // Ensure prefix doesn't have unbalanced braces after split
+                    if (prefix.count('{') > prefix.count('}')) prefix += "}";
+                    if (prefix.count('}') > prefix.count('{')) prefix.prepend("{");
+                    rewrittenExpr = prefix + QString(" + V(%1)").arg(intNode);
+                }
+
+                // If the original had braces, ensure the new one does too (handled by the bExprRe block usually, 
+                // but we might be multiline now, so bExprRe won't match the whole 'out')
+                if (hadBraces && !rewrittenExpr.startsWith('{')) {
+                    rewrittenExpr = "{" + rewrittenExpr + "}";
+                }
 
                 QStringList rewrittenLines;
                 rewrittenLines << QString("%1 0 %2 I=(%3)*(%4)").arg(intDrvRef, intNode, coeff, innerExpr);
                 rewrittenLines << QString("%1 %2 0 1").arg(intCapRef, intNode);
                 rewrittenLines << QString("%1 %2 0 1G").arg(intLeakRef, intNode);
+                rewrittenLines << QString(".ic V(%1)=0").arg(intNode);
                 rewrittenLines << QString("%1 %2 %3 V=%4").arg(ref, nplus, nminus, rewrittenExpr);
                 out = rewrittenLines.join("\n");
                 if (warnings) {
@@ -135,21 +155,26 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
     }
 
     {
-        static const QRegularExpression bExprRe(
-            "^\\s*(B\\S+\\s+\\S+\\s+\\S+\\s+)([VI])\\s*=\\s*(.+)$",
-            QRegularExpression::CaseInsensitiveOption);
-        const QRegularExpressionMatch bExprMatch = bExprRe.match(out);
-        if (bExprMatch.hasMatch()) {
-            const QString head = bExprMatch.captured(1);
-            const QString kind = bExprMatch.captured(2);
-            QString expr = bExprMatch.captured(3).trimmed();
-            if (!expr.startsWith('{') && !expr.endsWith('}')) {
-                out = QString("%1%2={%3}").arg(head, kind, expr);
-                if (warnings) {
-                    warnings->append(QString("Wrapped LTspice-style behavioral source expression in braces for ngspice: %1").arg(line.trimmed()));
+        // Handle multiline B-sources if idt expansion happened
+        QStringList lines = out.split('\n');
+        for (int i = 0; i < lines.size(); ++i) {
+            static const QRegularExpression bExprRe(
+                "^\\s*(B\\S+\\s+\\S+\\s+\\S+\\s+)([VI])\\s*=\\s*(.+)$",
+                QRegularExpression::CaseInsensitiveOption);
+            const QRegularExpressionMatch bExprMatch = bExprRe.match(lines[i]);
+            if (bExprMatch.hasMatch()) {
+                const QString head = bExprMatch.captured(1);
+                const QString kind = bExprMatch.captured(2);
+                QString expr = bExprMatch.captured(3).trimmed();
+                if (!(expr.startsWith('{') && expr.endsWith('}'))) {
+                    lines[i] = QString("%1%2={%3}").arg(head, kind, expr);
+                    if (warnings && !out.contains("\n")) { // Only warn once for simple lines
+                        warnings->append(QString("Wrapped LTspice-style behavioral source expression in braces for ngspice: %1").arg(line.trimmed()));
+                    }
                 }
             }
         }
+        out = lines.join("\n");
     }
 
     if (out.contains("if(", Qt::CaseInsensitive) && out.contains(" V={", Qt::CaseInsensitive)) {
@@ -238,15 +263,37 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
             const QString tstop = tranMatch.captured(2).trimmed();
             const QString tstart = tranMatch.captured(3).trimmed();
             const QString tmax = tranMatch.captured(4).trimmed();
-            const QString tail = tranMatch.captured(5).simplified();
+            QString tail = tranMatch.captured(5).simplified();
+
+            // Map unsupported LTspice 'startup' to ngspice 'uic'
+            bool changed = false;
+            bool useUic = false;
+            if (tail.contains("startup", Qt::CaseInsensitive)) {
+                tail.remove("startup", Qt::CaseInsensitive);
+                tail = tail.trimmed();
+                useUic = true;
+                changed = true;
+                if (warnings) {
+                    warnings->append(QString("Mapped LTspice 'startup' keyword to ngspice 'uic' to ensure stable controller initialization."));
+                }
+            }
+
             if ((tstep == "0" || tstep == "0.0") && !tmax.isEmpty()) {
                 out = QString(".tran %1 %2").arg(tmax, tstop);
                 if (!tstart.isEmpty()) out += " " + tstart;
-                out += " " + tmax;
+                out += " " + tmax; // Re-add tmax as the 4th parameter for ngspice tmax behavior
+                if (useUic) out += " uic";
                 if (!tail.isEmpty()) out += " " + tail;
                 if (warnings) {
                     warnings->append(QString("Rewrote .tran with zero print step to preserve LTspice tmax behavior for ngspice: %1").arg(line.trimmed()));
                 }
+            } else if (changed || !tail.isEmpty() || out != tranMatch.captured(0)) {
+                // Update the line to reflect stripped startup or other changes
+                out = QString(".tran %1 %2").arg(tstep, tstop);
+                if (!tstart.isEmpty()) out += " " + tstart;
+                if (!tmax.isEmpty()) out += " " + tmax;
+                if (useUic) out += " uic";
+                if (!tail.isEmpty()) out += " " + tail;
             }
         }
     }

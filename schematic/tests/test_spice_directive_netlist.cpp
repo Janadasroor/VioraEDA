@@ -4,9 +4,13 @@
 #include "../items/power_item.h"
 #include "../items/schematic_spice_directive_item.h"
 #include "../../core/simulation_manager.h"
+#include "../../simulator/core/raw_data_parser.h"
 
+#include <QEventLoop>
+#include <QFileInfo>
 #include <QGraphicsScene>
 #include <QTemporaryFile>
+#include <QTimer>
 #include <QTextStream>
 
 class SpiceDirectiveNetlistTest : public QObject {
@@ -20,6 +24,7 @@ private slots:
     void rewritesLtspiceBooleanOperators();
     void warnsAboutLtspiceMeasForms();
     void loadsBoostConverterLtspiceDirectiveInNgspice();
+    void boostConverterFeedbackDoesNotRunAway();
 };
 
 void SpiceDirectiveNetlistTest::generatesWarningsAndHonorsManualDirectives() {
@@ -223,15 +228,18 @@ void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {
     QVERIFY2(netlist.contains("Cout Cout__rser 0 220u"), qPrintable(netlist));
     QVERIFY2(netlist.contains("R__RSER_L1 in L1__rser {DCR}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("L1 L1__rser sw1 10u"), qPrintable(netlist));
-    QVERIFY2(netlist.contains("B__INTDRV_B_pi 0 B_pi__idt I=({Ki})*(V(err))"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__INTDRV_B_pi 0 B_pi__idt I={({Ki})*(V(err))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("C__INT_B_pi B_pi__idt 0 1"), qPrintable(netlist));
     QVERIFY2(netlist.contains("R__INTLEAK_B_pi B_pi__idt 0 1G"), qPrintable(netlist));
-    QVERIFY2(netlist.contains("B_pi pi_out 0 V={Kp}*V(err) + V(B_pi__idt)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".ic V(B_pi__idt)=0"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B_pi pi_out 0 V={{Kp}*V(err) + V(B_pi__idt)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains(".model D_ideal D(Is=1e-14 Rs=10m Cjo=10p N=1)"), qPrintable(netlist));
     QVERIFY2(netlist.contains("B_err err 0 V={V(target_voltage)-V(out)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("B_duty duty 0 V={max(0.05,min(0.90,V(pi_out)))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("B_pwm1 ctrl1 0 V={max(0,min(1,(V(duty)-V(saw1))*1000))}"), qPrintable(netlist));
-    QVERIFY2(netlist.contains(".tran 100n 5m 0 100n startup"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".tran 100n 5m 0 100n uic"), qPrintable(netlist));
+    // Check that 'startup' is NOT in any active command line
+    QVERIFY2(!netlist.contains(QRegularExpression("^\\.tran.*\\bstartup\\b", QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption)), qPrintable(netlist));
     QVERIFY2(!netlist.contains("\n.end\n.end\n"), qPrintable(netlist));
 
     QTemporaryFile temp;
@@ -242,6 +250,92 @@ void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {
 
     QString error;
     QVERIFY2(SimulationManager::instance().validateNetlist(temp.fileName(), &error), qPrintable(error));
+}
+
+void SpiceDirectiveNetlistTest::boostConverterFeedbackDoesNotRunAway() {
+    if (!SimulationManager::instance().isAvailable()) {
+        QSKIP("Ngspice is not available in this build.");
+    }
+
+    QGraphicsScene scene;
+    auto* directive = new SchematicSpiceDirectiveItem(
+        ".options cshunt=1p\n"
+        ".param Fsw=100k\n"
+        ".param V_in=12\n"
+        ".param Kp=0.02\n"
+        ".param Ki=500\n"
+        ".param Tperiod={1/Fsw}\n"
+        ".param Tstep={Tperiod/10}\n"
+        ".param DCR=15m\n"
+        ".param ESR=20m\n"
+        ".param Rds_on=5m\n"
+        ".param Vd_fwd=0.4\n"
+        "Vin in 0 {V_in}\n"
+        "Cout out 0 220u Rser={ESR}\n"
+        "I_load out 0 PWL(0 1 1.9m 1 2.0m 10 3.9m 10 4.0m 8)\n"
+        ".model SW_ideal SW(Ron={Rds_on} Roff=1Meg Vt=0.5)\n"
+        ".model D_ideal D(Ron=10m Vfwd={Vd_fwd} Cjo=10p)\n"
+        "V_ref target_voltage 0 PWL(0 12 1m 24)\n"
+        "B_err err 0 V=V(target_voltage) - V(out)\n"
+        "B_pi pi_out 0 V={Kp}*V(err) + {Ki}*idt(V(err))\n"
+        "B_duty duty 0 V=max(0.05, min(0.90, V(pi_out)))\n"
+        "V_saw1 saw1 0 PULSE(0 1 0 {Tperiod - 20n} 10n 10n {Tperiod})\n"
+        "B_pwm1 ctrl1 0 V=max(0, min(1, (V(duty)-V(saw1))*1000))\n"
+        "L1 in sw1 10u Rser={DCR}\n"
+        "S1 sw1 0 ctrl1 0 SW_ideal\n"
+        "D1 sw1 out D_ideal\n"
+        ".tran 0 5m 0 100n startup\n"
+        ".end",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "100n";
+    params.stop = "5m";
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QTemporaryFile temp;
+    QVERIFY2(temp.open(), "Failed to create temporary netlist file.");
+    QTextStream out(&temp);
+    out << netlist;
+    out.flush();
+
+    QString rawPath;
+    QString error;
+    bool finished = false;
+    auto& sim = SimulationManager::instance();
+    QObject::connect(&sim, &SimulationManager::rawResultsReady, &sim, [&](const QString& path) { rawPath = path; });
+    QObject::connect(&sim, &SimulationManager::errorOccurred, &sim, [&](const QString& msg) { error = msg; });
+    QObject::connect(&sim, &SimulationManager::simulationFinished, &sim, [&]() { finished = true; });
+
+    sim.runSimulation(temp.fileName());
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(&sim, &SimulationManager::simulationFinished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(20000);
+    loop.exec();
+
+    QVERIFY2(finished, qPrintable(error));
+    QVERIFY2(!rawPath.isEmpty(), qPrintable(error));
+
+    RawData data;
+    QString parseError;
+    QVERIFY2(RawDataParser::loadRawAscii(rawPath, &data, &parseError), qPrintable(parseError));
+    int outIndex = -1;
+    for (int i = 0; i < data.varNames.size(); ++i) {
+        if (data.varNames.at(i).compare("v(out)", Qt::CaseInsensitive) == 0) {
+            outIndex = i;
+            break;
+        }
+    }
+    QVERIFY2(outIndex >= 1, qPrintable(data.varNames.join(", ")));
+    QVERIFY2(!data.y[outIndex - 1].isEmpty(), "No V(out) samples in RAW data.");
+
+    const double finalVout = data.y[outIndex - 1].last();
+    QVERIFY2(finalVout < 100.0, qPrintable(QString("V(out) runaway: %1 V").arg(finalVout)));
 }
 
 QTEST_MAIN(SpiceDirectiveNetlistTest)
