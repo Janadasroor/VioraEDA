@@ -3234,14 +3234,19 @@ QWidget* SymbolEditor::createSymbolMetadataWidget() {
     modelPathLabel->setWordWrap(true);
     spiceLayout->addRow("Path:", modelPathLabel);
 
-    m_subcktMappingTable = new QTableWidget(0, 3);
-    m_subcktMappingTable->setHorizontalHeaderLabels({"Symbol Pin", "Symbol Name", "Subckt Pin"});
+    m_subcktMappingTable = new QTableWidget(0, 4);
+    m_subcktMappingTable->setHorizontalHeaderLabels({"Symbol Pin", "Symbol Name", "Subckt Pin", "Status"});
     m_subcktMappingTable->horizontalHeader()->setStretchLastSection(true);
     m_subcktMappingTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_subcktMappingTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_subcktMappingTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_subcktMappingTable->verticalHeader()->setVisible(false);
     m_subcktMappingTable->setMinimumHeight(180);
     spiceLayout->addRow("Node Mapping:", m_subcktMappingTable);
+    m_subcktMappingSummaryLabel = new QLabel();
+    m_subcktMappingSummaryLabel->setWordWrap(true);
+    m_subcktMappingSummaryLabel->setTextFormat(Qt::PlainText);
+    spiceLayout->addRow("Mapping Summary:", m_subcktMappingSummaryLabel);
      
     form->addRow(spiceGroup);
     
