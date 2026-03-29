@@ -30,6 +30,7 @@ private slots:
     void rewritesLtspiceBooleanOperators();
     void rewritesIdtWithInitialConditionAndReset();
     void rewritesLtspiceBehavioralHelperFunctions();
+    void approximatesUnsupportedBehavioralTimeFunctions();
     void warnsAboutLtspiceBehavioralAndTriggeredSourceOptions();
     void warnsAboutLtspiceMeasForms();
     void rewritesVoltageSourceInstanceExtras();
@@ -199,6 +200,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBehavioralHelperFunctions() {
         "BINV out2 0 V=inv(V(b))\n"
         "BUR out3 0 V=uramp(V(c)-1)\n"
         "BLIM out4 0 V=limit(V(x), -1, 2)\n"
+        "BDNL out7 0 V=dnlim(V(y), 1, 0.2)\n"
         "BIF out6 0 V={if(V(in)>1, limit(uramp(V(in)-1), 0, 2), 0)}\n"
         "BMOD out5 0 V=idtmod(V(err), 0, 1, 0)\n"
         ".tran 1u 1m",
@@ -216,6 +218,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBehavioralHelperFunctions() {
     QVERIFY2(netlist.contains("BINV out2 0 V={(1-u((V(b))-(0.5)))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BUR out3 0 V={((V(c)-1)*u(V(c)-1))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BLIM out4 0 V={min(max((V(x)),min((-1),(2))),max((-1),(2)))}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("BDNL out7 0 V={max((V(y)),(1))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BIF out6 0 V={((min(max((((V(in)-1)*u(V(in)-1))),min((0),(2))),max((0),(2))))*(u((V(in))-(1))))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("B__INTDRV_BMOD 0 BMOD__idt I={(1)*(V(err))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains(".ic V(BMOD__idt)=0"), qPrintable(netlist));
@@ -224,6 +227,29 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBehavioralHelperFunctions() {
     QVERIFY2(netlist.contains("Rewrote LTspice-style if(...) to ngspice-safe expression"), qPrintable(netlist));
     QVERIFY2(netlist.contains("Expanded LTspice idtmod(...) in BMOD into an explicit behavioral integrator for ngspice."), qPrintable(netlist));
     QVERIFY2(netlist.contains("Approximated LTspice idtmod(...) for BMOD by wrapping the explicit integrator output with modulus 1 and offset 0."), qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::approximatesUnsupportedBehavioralTimeFunctions() {
+    QGraphicsScene scene;
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "BDEL out1 0 V={delay(V(a), 1u)}\n"
+        "BABS out2 0 V={absdelay(V(b), 2u, 10u)}\n"
+        ".tran 1u 1m",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("BDEL out1 0 V={(V(a))}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("BABS out2 0 V={(V(b))}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice delay(...) by passing through its input expression because this ngspice configuration does not support delay(...)."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice absdelay(...) by passing through its input expression because this ngspice configuration does not support absdelay(...)."), qPrintable(netlist));
 }
 
 void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOptions() {

@@ -529,6 +529,7 @@ QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warn
         {"inv", 1, 1},
         {"uramp", 1, 1},
         {"limit", 3, 3},
+        {"dnlim", 3, 3},
     };
 
     QString out = line;
@@ -546,6 +547,9 @@ QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warn
         }
         if (name.compare("limit", Qt::CaseInsensitive) == 0) {
             return QString("min(max((%1),min((%2),(%3))),max((%2),(%3)))").arg(args.at(0), args.at(1), args.at(2));
+        }
+        if (name.compare("dnlim", Qt::CaseInsensitive) == 0) {
+            return QString("max((%1),(%2))").arg(args.at(0), args.at(1));
         }
         return QString();
     };
@@ -578,6 +582,45 @@ QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warn
 
     if (changed && warnings) {
         warnings->append(QString("Rewrote LTspice behavioral helper functions for ngspice compatibility in: %1").arg(line.trimmed()));
+    }
+
+    return out;
+}
+
+QString rewriteUnsupportedLtspiceBehavioralTimeFunctions(const QString& line, QStringList* warnings = nullptr) {
+    QString out = line;
+    struct FuncSpec { QString name; int minArgs; int maxArgs; };
+    const QList<FuncSpec> funcs = {
+        {"absdelay", 2, 3},
+        {"delay", 2, 3},
+    };
+
+    bool changed = false;
+    bool replaced = true;
+    while (replaced) {
+        replaced = false;
+        for (const FuncSpec& func : funcs) {
+            const int nameIndex = out.indexOf(QRegularExpression(QString("\\b%1\\s*\\(").arg(QRegularExpression::escape(func.name)),
+                                                                    QRegularExpression::CaseInsensitiveOption));
+            if (nameIndex < 0) continue;
+            const int openIndex = out.indexOf('(', nameIndex);
+            const int closeIndex = findMatchingParen(out, openIndex);
+            if (closeIndex < 0) continue;
+
+            const QString inner = out.mid(openIndex + 1, closeIndex - openIndex - 1);
+            const QStringList args = splitTopLevelSpiceArgs(inner);
+            if (args.size() < func.minArgs || args.size() > func.maxArgs) continue;
+
+            const QString passthroughExpr = QString("(%1)").arg(args.at(0).trimmed());
+            out.replace(nameIndex, closeIndex - nameIndex + 1, passthroughExpr);
+            changed = true;
+            replaced = true;
+            if (warnings) {
+                warnings->append(QString("Approximated LTspice %1(...) by passing through its input expression because this ngspice configuration does not support %1(...). Original line: %2")
+                                     .arg(func.name, line.trimmed()));
+            }
+            break;
+        }
     }
 
     return out;
@@ -1002,8 +1045,13 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
 
     if ((out.contains("buf(", Qt::CaseInsensitive) || out.contains("inv(", Qt::CaseInsensitive) ||
          out.contains("uramp(", Qt::CaseInsensitive) || out.contains("limit(", Qt::CaseInsensitive) ||
+         out.contains("dnlim(", Qt::CaseInsensitive) ||
          out.contains("idtmod(", Qt::CaseInsensitive)) && out.contains("={", Qt::CaseInsensitive)) {
         out = rewriteLtspiceBehavioralFunctions(out, warnings);
+    }
+
+    if ((out.contains("delay(", Qt::CaseInsensitive) || out.contains("absdelay(", Qt::CaseInsensitive)) && out.contains("={", Qt::CaseInsensitive)) {
+        out = rewriteUnsupportedLtspiceBehavioralTimeFunctions(out, warnings);
     }
 
     if (out.contains(" V={", Qt::CaseInsensitive)) {
