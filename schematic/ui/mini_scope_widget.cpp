@@ -39,8 +39,8 @@ QString unitForTrace(const QString& name) {
 MiniScopeWidget::MiniScopeWidget(QWidget* parent) : QWidget(parent) {
     setBackgroundRole(QPalette::Base);
     setAutoFillBackground(true);
-    setMinimumSize(250, 150);
-    setStyleSheet("background-color: #1e1e1e; border: 1px solid #3e3e42; border-radius: 4px;");
+    setMinimumSize(400, 250);
+    setStyleSheet("background-color: #0a0a0a; border: 2px solid #333; border-radius: 2px;");
 }
 
 void MiniScopeWidget::setMultiTraceData(const QMap<QString, QVector<QPointF>>& traces) {
@@ -156,11 +156,25 @@ void MiniScopeWidget::paintEvent(QPaintEvent*) {
     int h = height();
     int graphW = w - 100; // Leave space for legend
 
-    // Draw Grid
-    painter.setPen(QPen(QColor(60, 60, 60), 1, Qt::DashLine));
+    // Draw Grid (Professional Scope Style)
+    painter.setPen(QPen(QColor(40, 50, 40), 1));
+    // Vertical lines
+    for (int i = 0; i <= 10; ++i) {
+        int x = i * graphW / 10;
+        painter.drawLine(x, 0, x, h);
+    }
+    // Horizontal lines
+    for (int i = 0; i <= 8; ++i) {
+        int y = i * h / 8;
+        painter.drawLine(0, y, graphW, y);
+    }
+
+    // Centered crosshairs (brighter)
+    painter.setPen(QPen(QColor(60, 80, 60), 1, Qt::DashLine));
     painter.drawLine(0, h / 2, graphW, h / 2);
     painter.drawLine(graphW / 2, 0, graphW / 2, h);
-    painter.setPen(QPen(QColor(40, 40, 40), 1));
+    
+    painter.setPen(QPen(QColor(80, 80, 80), 2));
     painter.drawLine(graphW, 0, graphW, h);
 
     if (m_traces.isEmpty()) {
@@ -189,7 +203,15 @@ void MiniScopeWidget::paintEvent(QPaintEvent*) {
             path.lineTo(mapX(data.points[i].x()), mapY(data.points[i].y()));
         }
 
-        painter.setPen(QPen(data.color, 1.5));
+        painter.setPen(QPen(data.color, 1.8));
+        
+        // Add a subtle outer glow for a phosphor effect
+        QColor glowColor = data.color;
+        glowColor.setAlpha(60);
+        painter.setPen(QPen(glowColor, 4.0));
+        painter.drawPath(path);
+        
+        painter.setPen(QPen(data.color, 1.8));
         painter.drawPath(path);
 
         // Draw Legend & Measurements

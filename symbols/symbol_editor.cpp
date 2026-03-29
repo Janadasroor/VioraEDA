@@ -1655,6 +1655,7 @@ QGraphicsItem* SymbolEditor::buildVisual(const SymbolPrimitive& prim, int index)
 void SymbolEditor::setSymbolDefinition(const SymbolDefinition& def) {
     m_undoStack->clear();
     applySymbolDefinition(def);
+    markSubcktMappingSynchronized();
 }
 
 void SymbolEditor::applySymbolDefinition(const SymbolDefinition& def) {
@@ -1788,6 +1789,101 @@ QStringList SymbolEditor::currentSymbolPinNames() const {
     return pinNames;
 }
 
+QString SymbolEditor::currentSymbolPinSignature() const {
+    QStringList parts;
+    QList<const SymbolPrimitive*> pinPrimitives;
+    for (const SymbolPrimitive& prim : m_symbol.primitives()) {
+        if (prim.type == SymbolPrimitive::Pin) pinPrimitives.append(&prim);
+    }
+
+    std::sort(pinPrimitives.begin(), pinPrimitives.end(), [](const SymbolPrimitive* a, const SymbolPrimitive* b) {
+        return a->data.value("number").toInt() < b->data.value("number").toInt();
+    });
+
+    for (const SymbolPrimitive* prim : pinPrimitives) {
+        parts << QString("%1:%2")
+                     .arg(prim->data.value("number").toInt())
+                     .arg(prim->data.value("name").toString().trimmed());
+    }
+    return parts.join("|");
+}
+
+void SymbolEditor::markSubcktMappingSynchronized() {
+    m_subcktMappingPinSignature = currentSymbolPinSignature();
+    refreshSubcktMappingStatus();
+}
+
+QStringList SymbolEditor::currentSubcktPinNames() const {
+    QStringList pins;
+    const QString modelName = m_modelNameEdit ? m_modelNameEdit->text().trimmed() : QString();
+    if (modelName.isEmpty()) return pins;
+
+    const SimSubcircuit* sub = ModelLibraryManager::instance().findSubcircuit(modelName);
+    if (!sub) return pins;
+    for (const std::string& pin : sub->pinNames) {
+        pins << QString::fromStdString(pin);
+    }
+    return pins;
+}
+
+QStringList SymbolEditor::buildSmartSubcktMapping(const QStringList& subcktPins) const {
+    QStringList mapping;
+    const QStringList symbolPins = currentSymbolPinNames();
+    for (int i = 0; i < symbolPins.size(); ++i) mapping << QString();
+
+    QMap<QString, int> subcktIndexByNormalized;
+    for (int i = 0; i < subcktPins.size(); ++i) {
+        const QString normalized = normalizePinNameForStatus(subcktPins.at(i));
+        if (!normalized.isEmpty() && !subcktIndexByNormalized.contains(normalized)) {
+            subcktIndexByNormalized.insert(normalized, i);
+        }
+    }
+
+    QSet<int> usedSubcktIndexes;
+    for (int i = 0; i < symbolPins.size(); ++i) {
+        const QString normalized = normalizePinNameForStatus(symbolPins.at(i));
+        if (normalized.isEmpty()) continue;
+        auto it = subcktIndexByNormalized.constFind(normalized);
+        if (it != subcktIndexByNormalized.constEnd() && !usedSubcktIndexes.contains(it.value())) {
+            mapping[i] = subcktPins.at(it.value());
+            usedSubcktIndexes.insert(it.value());
+        }
+    }
+
+    for (int i = 0; i < mapping.size() && i < subcktPins.size(); ++i) {
+        if (mapping[i].isEmpty() && !usedSubcktIndexes.contains(i)) {
+            mapping[i] = subcktPins.at(i);
+            usedSubcktIndexes.insert(i);
+        }
+    }
+
+    return mapping;
+}
+
+void SymbolEditor::applySubcktMappingList(const QStringList& mappedPins) {
+    QMap<int, QString> mapping;
+    QList<const SymbolPrimitive*> pinPrimitives;
+    for (const SymbolPrimitive& prim : m_symbol.primitives()) {
+        if (prim.type == SymbolPrimitive::Pin) pinPrimitives.append(&prim);
+    }
+
+    std::sort(pinPrimitives.begin(), pinPrimitives.end(), [](const SymbolPrimitive* a, const SymbolPrimitive* b) {
+        return a->data.value("number").toInt() < b->data.value("number").toInt();
+    });
+
+    for (int i = 0; i < pinPrimitives.size(); ++i) {
+        const int pinNumber = pinPrimitives.at(i)->data.value("number").toInt();
+        const QString pinName = pinPrimitives.at(i)->data.value("name").toString().trimmed();
+        const QString mappedPin = (i < mappedPins.size()) ? mappedPins.at(i).trimmed() : QString();
+        mapping.insert(pinNumber, mappedPin.isEmpty() ? pinName : mappedPin);
+    }
+
+    m_symbol.setSpiceNodeMapping(mapping);
+    updateSubcktMappingTable();
+    markSubcktMappingSynchronized();
+    updateCodePreview();
+}
+
 void SymbolEditor::openSubcircuitPicker() {
     const QString currentModel = m_modelNameEdit ? m_modelNameEdit->text().trimmed() : QString();
     SubcircuitPickerDialog dlg(currentModel, currentSymbolPinNames(), this);
@@ -1811,28 +1907,47 @@ void SymbolEditor::openSubcircuitPicker() {
         const QStringList subcktPins = dlg.applySmartMapRequested()
             ? dlg.selectedSuggestedMapping()
             : dlg.selectedSubcktPins();
-
-        QMap<int, QString> mapping;
-        QList<const SymbolPrimitive*> pinPrimitives;
-        for (const SymbolPrimitive& prim : m_symbol.primitives()) {
-            if (prim.type == SymbolPrimitive::Pin) pinPrimitives.append(&prim);
-        }
-
-        std::sort(pinPrimitives.begin(), pinPrimitives.end(), [](const SymbolPrimitive* a, const SymbolPrimitive* b) {
-            return a->data.value("number").toInt() < b->data.value("number").toInt();
-        });
-
-        for (int i = 0; i < pinPrimitives.size(); ++i) {
-            const int pinNumber = pinPrimitives.at(i)->data.value("number").toInt();
-            const QString pinName = pinPrimitives.at(i)->data.value("name").toString().trimmed();
-            const QString mappedPin = (i < subcktPins.size()) ? subcktPins.at(i).trimmed() : QString();
-            mapping.insert(pinNumber, mappedPin.isEmpty() ? pinName : mappedPin);
-        }
-
-        m_symbol.setSpiceNodeMapping(mapping);
-        updateSubcktMappingTable();
+        applySubcktMappingList(subcktPins);
     }
 
+    updateCodePreview();
+}
+
+void SymbolEditor::onApplySmartSubcktMapping() {
+    const QStringList subcktPins = currentSubcktPinNames();
+    if (subcktPins.isEmpty()) {
+        QMessageBox::information(this, "Smart Map", "Select a valid subcircuit model before applying smart mapping.");
+        return;
+    }
+    applySubcktMappingList(buildSmartSubcktMapping(subcktPins));
+}
+
+void SymbolEditor::onApplyOrderedSubcktMapping() {
+    const QStringList subcktPins = currentSubcktPinNames();
+    if (subcktPins.isEmpty()) {
+        QMessageBox::information(this, "Map By Order", "Select a valid subcircuit model before applying ordered mapping.");
+        return;
+    }
+    applySubcktMappingList(subcktPins);
+}
+
+void SymbolEditor::onClearSubcktMapping() {
+    QMap<int, QString> mapping;
+    QList<const SymbolPrimitive*> pinPrimitives;
+    for (const SymbolPrimitive& prim : m_symbol.primitives()) {
+        if (prim.type == SymbolPrimitive::Pin) pinPrimitives.append(&prim);
+    }
+    std::sort(pinPrimitives.begin(), pinPrimitives.end(), [](const SymbolPrimitive* a, const SymbolPrimitive* b) {
+        return a->data.value("number").toInt() < b->data.value("number").toInt();
+    });
+    for (const SymbolPrimitive* prim : pinPrimitives) {
+        const int pinNumber = prim->data.value("number").toInt();
+        const QString pinName = prim->data.value("name").toString().trimmed();
+        mapping.insert(pinNumber, pinName);
+    }
+    m_symbol.setSpiceNodeMapping(mapping);
+    updateSubcktMappingTable();
+    markSubcktMappingSynchronized();
     updateCodePreview();
 }
 
@@ -3147,6 +3262,7 @@ void SymbolEditor::createSymbolInfoPanel() {
     connect(m_prefixEdit, &QLineEdit::textChanged, this, &SymbolEditor::updateCodePreview);
     connect(m_descriptionEdit, &QLineEdit::textChanged, this, &SymbolEditor::updateCodePreview);
     connect(m_categoryCombo, &QComboBox::currentTextChanged, this, &SymbolEditor::updateCodePreview);
+    connect(m_modelNameEdit, &QLineEdit::textChanged, this, &SymbolEditor::refreshSubcktMappingStatus);
 }
 
 QWidget* SymbolEditor::createSymbolMetadataWidget() {
@@ -3236,17 +3352,37 @@ QWidget* SymbolEditor::createSymbolMetadataWidget() {
 
     m_subcktMappingTable = new QTableWidget(0, 4);
     m_subcktMappingTable->setHorizontalHeaderLabels({"Symbol Pin", "Symbol Name", "Subckt Pin", "Status"});
-    m_subcktMappingTable->horizontalHeader()->setStretchLastSection(true);
+    m_subcktMappingTable->horizontalHeader()->setStretchLastSection(false);
     m_subcktMappingTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_subcktMappingTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_subcktMappingTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     m_subcktMappingTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_subcktMappingTable->verticalHeader()->setVisible(false);
     m_subcktMappingTable->setMinimumHeight(180);
     spiceLayout->addRow("Node Mapping:", m_subcktMappingTable);
+    auto* mappingButtonRow = new QHBoxLayout();
+    auto* smartMapButton = new QPushButton("Smart Map");
+    auto* orderedMapButton = new QPushButton("Map By Order");
+    auto* clearMapButton = new QPushButton("Clear Mapping");
+    mappingButtonRow->addWidget(smartMapButton);
+    mappingButtonRow->addWidget(orderedMapButton);
+    mappingButtonRow->addWidget(clearMapButton);
+    mappingButtonRow->addStretch(1);
+    spiceLayout->addRow(QString(), mappingButtonRow);
     m_subcktMappingSummaryLabel = new QLabel();
     m_subcktMappingSummaryLabel->setWordWrap(true);
     m_subcktMappingSummaryLabel->setTextFormat(Qt::PlainText);
     spiceLayout->addRow("Mapping Summary:", m_subcktMappingSummaryLabel);
+    m_subcktSyncLabel = new QLabel();
+    m_subcktSyncLabel->setWordWrap(true);
+    m_subcktSyncLabel->setTextFormat(Qt::PlainText);
+    spiceLayout->addRow("Sync Status:", m_subcktSyncLabel);
+    connect(m_subcktMappingTable, &QTableWidget::cellChanged, this, [this](int, int) {
+        markSubcktMappingSynchronized();
+    });
+    connect(smartMapButton, &QPushButton::clicked, this, &SymbolEditor::onApplySmartSubcktMapping);
+    connect(orderedMapButton, &QPushButton::clicked, this, &SymbolEditor::onApplyOrderedSubcktMapping);
+    connect(clearMapButton, &QPushButton::clicked, this, &SymbolEditor::onClearSubcktMapping);
      
     form->addRow(spiceGroup);
     
@@ -4670,13 +4806,231 @@ void SymbolEditor::updateSubcktMappingTable() {
         pinNameItem->setFlags(pinNameItem->flags() & ~Qt::ItemIsEditable);
 
         auto* subcktPinItem = new QTableWidgetItem(subcktPin);
+        auto* statusItem = new QTableWidgetItem();
+        statusItem->setFlags(statusItem->flags() & ~Qt::ItemIsEditable);
 
         m_subcktMappingTable->setItem(row, 0, pinNumberItem);
         m_subcktMappingTable->setItem(row, 1, pinNameItem);
         m_subcktMappingTable->setItem(row, 2, subcktPinItem);
+        m_subcktMappingTable->setItem(row, 3, statusItem);
     }
 
     m_subcktMappingTable->blockSignals(false);
+    refreshSubcktMappingStatus();
+}
+
+void SymbolEditor::refreshSubcktMappingStatus() {
+    if (!m_subcktMappingTable) return;
+
+    const QString modelName = m_modelNameEdit ? m_modelNameEdit->text().trimmed() : QString();
+    const QString currentPinSignature = currentSymbolPinSignature();
+    const bool mappingOutOfSync = !m_subcktMappingPinSignature.isEmpty() && currentPinSignature != m_subcktMappingPinSignature;
+    QStringList subcktPins;
+    QMap<QString, int> subcktIndexByNormalized;
+    if (!modelName.isEmpty()) {
+        if (const SimSubcircuit* sub = ModelLibraryManager::instance().findSubcircuit(modelName)) {
+            for (size_t i = 0; i < sub->pinNames.size(); ++i) {
+                const QString pin = QString::fromStdString(sub->pinNames[i]);
+                subcktPins << pin;
+                const QString normalized = normalizePinNameForStatus(pin);
+                if (!normalized.isEmpty() && !subcktIndexByNormalized.contains(normalized)) {
+                    subcktIndexByNormalized.insert(normalized, static_cast<int>(i));
+                }
+            }
+        }
+    }
+
+    QMap<QString, int> usageCount;
+    for (int row = 0; row < m_subcktMappingTable->rowCount(); ++row) {
+        if (QTableWidgetItem* subcktPinItem = m_subcktMappingTable->item(row, 2)) {
+            const QString key = subcktPinItem->text().trimmed().toUpper();
+            if (!key.isEmpty()) usageCount[key] += 1;
+        }
+    }
+
+    QMap<QString, int> counts;
+    auto increment = [&counts](const QString& key) {
+        counts[key] = counts.value(key) + 1;
+    };
+
+    const bool haveModel = !modelName.isEmpty();
+    const bool haveKnownSubckt = !subcktPins.isEmpty();
+    for (int row = 0; row < m_subcktMappingTable->rowCount(); ++row) {
+        QTableWidgetItem* pinNumberItem = m_subcktMappingTable->item(row, 0);
+        QTableWidgetItem* pinNameItem = m_subcktMappingTable->item(row, 1);
+        QTableWidgetItem* subcktPinItem = m_subcktMappingTable->item(row, 2);
+        QTableWidgetItem* statusItem = m_subcktMappingTable->item(row, 3);
+        if (!pinNumberItem || !pinNameItem || !subcktPinItem || !statusItem) continue;
+
+        const QString symbolPin = pinNameItem->text().trimmed();
+        const QString mappedPin = subcktPinItem->text().trimmed();
+        const QString normalizedSymbol = normalizePinNameForStatus(symbolPin);
+        const QString normalizedMapped = normalizePinNameForStatus(mappedPin);
+
+        MappingStatusInfo status;
+        if (mappedPin.isEmpty()) {
+            status = {"Missing", "No subcircuit pin is assigned for this symbol pin.", QColor("#b91c1c")};
+            increment("missing");
+        } else if (usageCount.value(mappedPin.toUpper()) > 1) {
+            status = {"Duplicate", QString("Subcircuit pin '%1' is assigned more than once.").arg(mappedPin), QColor("#b91c1c")};
+            increment("duplicate");
+        } else if (!haveModel) {
+            status = {"Manual", "Pick a subcircuit model to evaluate mapping quality.", QColor("#475569")};
+            increment("manual");
+        } else if (!haveKnownSubckt) {
+            status = {"Unknown", QString("Model '%1' is not indexed as a subcircuit.").arg(modelName), QColor("#b45309")};
+            increment("unknown");
+        } else {
+            const bool existsByName = std::any_of(subcktPins.begin(), subcktPins.end(), [&](const QString& candidate) {
+                return candidate.compare(mappedPin, Qt::CaseInsensitive) == 0;
+            });
+            const int normalizedIndex = subcktIndexByNormalized.value(normalizedMapped, -1);
+            const bool rowMatchesOrder = row < subcktPins.size() && subcktPins.at(row).compare(mappedPin, Qt::CaseInsensitive) == 0;
+            const bool normalizedMatchesSymbol = !normalizedSymbol.isEmpty() && normalizedSymbol == normalizedMapped;
+
+            if (existsByName && symbolPin.compare(mappedPin, Qt::CaseInsensitive) == 0) {
+                status = {"Exact", "Mapped pin matches the symbol pin name exactly.", QColor("#15803d")};
+                increment("exact");
+            } else if (normalizedIndex >= 0 && normalizedMatchesSymbol) {
+                status = {"Alias", QString("Mapped via normalized alias to subcircuit pin '%1'.").arg(subcktPins.at(normalizedIndex)), QColor("#0f766e")};
+                increment("alias");
+            } else if (rowMatchesOrder) {
+                status = {"Order", "Mapped by pin order rather than by matching names.", QColor("#b45309")};
+                increment("order");
+            } else if (existsByName || normalizedIndex >= 0) {
+                status = {"Manual", "Mapped to a valid subcircuit pin, but not by exact name or order.", QColor("#475569")};
+                increment("manual");
+            } else {
+                status = {"Unknown", QString("Mapped pin '%1' does not exist on subcircuit '%2'.").arg(mappedPin, modelName), QColor("#b91c1c")};
+                increment("unknown");
+            }
+        }
+
+        statusItem->setText(status.label);
+        statusItem->setToolTip(status.detail);
+        statusItem->setForeground(QBrush(status.color));
+        const QColor bg = status.color.lighter(185);
+        pinNumberItem->setBackground(QBrush(bg));
+        pinNameItem->setBackground(QBrush(bg));
+        subcktPinItem->setBackground(QBrush(bg));
+        statusItem->setBackground(QBrush(bg));
+        pinNumberItem->setForeground(QBrush(status.color.darker(125)));
+        pinNameItem->setToolTip(status.detail);
+        subcktPinItem->setToolTip(status.detail);
+        pinNumberItem->setToolTip(status.detail);
+    }
+
+    if (m_subcktMappingSummaryLabel) {
+        QStringList parts;
+        auto appendCount = [&](const QString& key, const QString& label) {
+            const int value = counts.value(key);
+            if (value > 0) parts << QString("%1 %2").arg(value).arg(label);
+        };
+        appendCount("exact", "exact");
+        appendCount("alias", "alias");
+        appendCount("order", "order fallback");
+        appendCount("manual", "manual");
+        appendCount("duplicate", "duplicate");
+        appendCount("unknown", "unknown");
+        appendCount("missing", "missing");
+
+        QString summary;
+        if (!haveModel) {
+            summary = "Select a subcircuit model to evaluate mapping quality.";
+        } else if (!haveKnownSubckt) {
+            summary = QString("Model '%1' is not currently indexed as a subcircuit.").arg(modelName);
+        } else {
+            summary = QString("Subcircuit '%1' has %2 pin(s).").arg(modelName).arg(subcktPins.size());
+            if (!parts.isEmpty()) summary += "  Status: " + parts.join(", ");
+        }
+        m_subcktMappingSummaryLabel->setText(summary);
+    }
+
+    if (m_subcktSyncLabel) {
+        if (mappingOutOfSync) {
+            m_subcktSyncLabel->setText("Pin names or numbers changed since the last mapping update. Re-run Smart Map or Map By Order, or edit the mapping table manually.");
+            QPalette palette = m_subcktSyncLabel->palette();
+            palette.setColor(QPalette::WindowText, QColor("#b45309"));
+            m_subcktSyncLabel->setPalette(palette);
+        } else {
+            m_subcktSyncLabel->setText("Mapping is in sync with the current symbol pin names and numbers.");
+            QPalette palette = m_subcktSyncLabel->palette();
+            palette.setColor(QPalette::WindowText, QColor("#15803d"));
+            m_subcktSyncLabel->setPalette(palette);
+        }
+    }
+}
+
+bool SymbolEditor::validateCurrentSymbolForSave(QStringList* errors, QStringList* warnings) const {
+    if (errors) errors->clear();
+    if (warnings) warnings->clear();
+
+    const SymbolDefinition def = symbolDefinition();
+    const QString modelName = def.modelName().trimmed();
+    const QString modelPath = def.modelPath().trimmed();
+    const QString modelSource = def.modelSource().trimmed().toLower();
+    const bool hasBinding = !modelName.isEmpty() || !modelPath.isEmpty() || modelSource == "project" || modelSource == "library" || modelSource == "absolute";
+    if (!hasBinding) return true;
+
+    if (modelName.isEmpty() && errors) {
+        errors->append("SPICE model binding is enabled but Model Name is empty.");
+    }
+    if (modelPath.isEmpty() && errors) {
+        errors->append("SPICE model binding is enabled but Model File is empty.");
+    }
+    if (!modelPath.isEmpty()) {
+        const QString resolved = resolveModelPathForEditor(modelPath, modelSource, m_projectKey);
+        if (resolved.isEmpty() && warnings) {
+            warnings->append(QString("Model file '%1' could not be resolved from the current source settings.").arg(modelPath));
+        }
+    }
+
+    const SimSubcircuit* sub = modelName.isEmpty() ? nullptr : ModelLibraryManager::instance().findSubcircuit(modelName);
+    if (!sub) return errors ? errors->isEmpty() : true;
+
+    QStringList subcktPins;
+    QSet<QString> expectedPins;
+    for (const std::string& pin : sub->pinNames) {
+        const QString name = QString::fromStdString(pin).trimmed();
+        subcktPins << name;
+        expectedPins.insert(name.toUpper());
+    }
+
+    QMap<int, QString> mapping = def.spiceNodeMapping();
+    QList<const SymbolPrimitive*> pinPrimitives;
+    for (const SymbolPrimitive& prim : def.primitives()) {
+        if (prim.type == SymbolPrimitive::Pin) pinPrimitives.append(&prim);
+    }
+    std::sort(pinPrimitives.begin(), pinPrimitives.end(), [](const SymbolPrimitive* a, const SymbolPrimitive* b) {
+        return a->data.value("number").toInt() < b->data.value("number").toInt();
+    });
+
+    QSet<QString> usedPins;
+    for (const SymbolPrimitive* prim : pinPrimitives) {
+        const int pinNumber = prim->data.value("number").toInt();
+        const QString symbolPinName = prim->data.value("name").toString().trimmed();
+        const QString mappedPin = mapping.value(pinNumber).trimmed();
+        if (mappedPin.isEmpty()) {
+            if (warnings) warnings->append(QString("Symbol pin %1 (%2) has no mapped subcircuit pin.").arg(pinNumber).arg(symbolPinName));
+            continue;
+        }
+
+        const QString upper = mappedPin.toUpper();
+        if (usedPins.contains(upper)) {
+            if (errors) errors->append(QString("Subcircuit pin '%1' is assigned more than once.").arg(mappedPin));
+        }
+        usedPins.insert(upper);
+
+        if (!expectedPins.contains(upper) && warnings) {
+            warnings->append(QString("Mapped pin '%1' for symbol pin %2 is not present on subcircuit '%3'.").arg(mappedPin).arg(pinNumber).arg(modelName));
+        }
+    }
+
+    if (pinPrimitives.size() != subcktPins.size() && warnings) {
+        warnings->append(QString("Pin count mismatch: symbol has %1 pin(s) while subcircuit '%2' has %3 pin(s).").arg(pinPrimitives.size()).arg(modelName).arg(subcktPins.size()));
+    }
+
+    return errors ? errors->isEmpty() : true;
 }
 
 void SymbolEditor::onPinTableItemChanged(int row, int col) {
@@ -6555,7 +6909,7 @@ void SymbolEditor::tryAutoDetectModelName() {
     const QString rawPath = m_modelPathEdit->text().trimmed();
     if (rawPath.isEmpty()) return;
     const QString source = m_modelSourceCombo->currentData().toString();
-    const QString resolved = resolveModelPathForEditor(rawPath, source);
+    const QString resolved = resolveModelPathForEditor(rawPath, source, m_projectKey);
     if (resolved.isEmpty()) return;
     const QString prefix = m_prefixEdit ? m_prefixEdit->text() : QString();
     const QString detected = detectModelNameFromFile(resolved, prefix);

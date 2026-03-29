@@ -825,8 +825,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
         }
     } else if (item->itemTypeName() == "OscilloscopeInstrument") {
         if (auto* osc = dynamic_cast<OscilloscopeItem*>(item)) {
-            OscilloscopePropertiesDialog dlg(osc, m_undoStack, m_scene, this);
-            dlg.exec();
+            openOscilloscopeWindow(osc);
             return;
         }
     } else if (item->itemTypeName() == "SignalGenerator") {
