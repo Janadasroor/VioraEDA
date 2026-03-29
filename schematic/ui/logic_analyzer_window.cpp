@@ -1,4 +1,8 @@
 #include "logic_analyzer_window.h"
+#if __has_include("../../core/remote_display_server.h") && __has_include(<QtWebSockets/QWebSocketServer>)
+#include "../../core/remote_display_server.h"
+#define VIOSPICE_HAS_REMOTE_DISPLAY 1
+#endif
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -8,6 +12,10 @@
 #include <QLabel>
 #include <QInputDialog>
 #include <QCloseEvent>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDateTime>
+#include <QUuid>
 #include <algorithm>
 
 LogicAnalyzerWindow::LogicAnalyzerWindow(const QString& title, QWidget* parent)
@@ -120,6 +128,9 @@ void LogicAnalyzerWindow::setChannels(const QStringList& nets) {
 void LogicAnalyzerWindow::updateData(const SimResults& results) {
     if (!m_la) return;
     
+    QJsonObject remoteData;
+    QJsonArray remoteTraces;
+    
     m_la->beginBatchUpdate();
     for (const auto& wave : results.waveforms) {
         QString waveName = QString::fromStdString(wave.name);
@@ -135,13 +146,46 @@ void LogicAnalyzerWindow::updateData(const SimResults& results) {
         if (found) {
             QVector<QPointF> pts;
             pts.reserve((int)wave.xData.size());
-            for (size_t i = 0; i < wave.xData.size(); ++i) {
-                pts.append(QPointF(wave.xData[i], wave.yData[i]));
+            
+            QJsonArray xArray;
+            QJsonArray yArray;
+            
+            size_t total = wave.xData.size();
+            size_t step = (total > 500) ? total / 500 : 1;
+
+            for (size_t i = 0; i < total; i += step) {
+                double x = wave.xData[i];
+                double y = wave.yData[i];
+                pts.append(QPointF(x, y));
+                xArray.append(x);
+                yArray.append(y);
             }
             m_la->setChannelData(waveName, pts);
+            
+            QJsonObject traceObj;
+            traceObj["name"] = waveName;
+            traceObj["x"] = xArray;
+            traceObj["y"] = yArray;
+            remoteTraces.append(traceObj);
         }
     }
     m_la->endBatchUpdate();
+    
+    // Broadcast to remote clients
+    remoteData["traces"] = remoteTraces;
+    remoteData["timebase"] = m_timeDivSpin->value();
+    
+    static qint64 lastBroadcast = 0;
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - lastBroadcast > 50) { 
+        QUuid uid = QUuid::fromString(m_id);
+        if (uid.isNull()) uid = QUuid::createUuidV5(QUuid(), m_id.toUtf8());
+        
+#ifdef VIOSPICE_HAS_REMOTE_DISPLAY
+        RemoteDisplayServer::instance().broadcastUpdate("logicanalyzer", uid, remoteData);
+#endif
+        lastBroadcast = now;
+    }
 }
 
 void LogicAnalyzerWindow::clear() {

@@ -10,6 +10,7 @@
 //   - schematic_editor_file.cpp   : File I/O, export, ERC, netlist, settings
 
 #include "schematic_editor.h"
+#include "../../core/remote_display_server.h"
 #include "../../symbols/symbol_editor.h"
 #include "../../symbols/symbol_library.h"
 #include "../../core/library_index.h"
@@ -146,6 +147,20 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     createDrawingToolbar();
     connectSimulationSignals();
     updateSimulationUiState(false);
+
+    // --- Remote Display Server ---
+    auto& remoteServer = RemoteDisplayServer::instance();
+    remoteServer.start();
+    if (remoteServer.isRunning()) {
+        m_remoteLabel->setText("Remote: " + remoteServer.serverUrl());
+        m_remoteLabel->setStyleSheet("color: #059669; font-weight: bold;"); // Green
+    }
+
+#if VIOSPICE_HAS_QT_WEBSOCKETS
+    connect(&remoteServer, &RemoteDisplayServer::clientConnected, this, [this](const QString& addr) {
+        statusBar()->showMessage("Remote Display Connected: " + addr, 3000);
+    });
+#endif
 
     // Initial Mini-map state (hidden by default)
     if (m_toggleMiniMapAction) m_toggleMiniMapAction->setChecked(false);

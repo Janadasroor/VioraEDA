@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VioSpice Remote Display</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 0 10px;
+        }
+        .status {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .status.connected { background-color: #1b5e20; color: #fff; }
+        .status.disconnected { background-color: #b71c1c; color: #fff; }
+        
+        .instrument-card {
+            background-color: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .instrument-header {
+            padding: 10px;
+            background-color: #252525;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        canvas {
+            width: 100%;
+            height: 300px;
+            display: block;
+            background-color: #050a05;
+        }
+        .controls {
+            padding: 10px;
+            font-size: 12px;
+            display: flex;
+            gap: 15px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div style="font-weight: bold; color: #00e676;">VioSpice Remote</div>
+        <div id="connection-status" class="status disconnected">Disconnected</div>
+    </header>
+
+    <div id="instruments-container">
+        <!-- Live instruments will appear here -->
+        <div style="text-align: center; color: #666; margin-top: 50px;">
+            Waiting for simulation data...
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let instruments = {};
+        const container = document.getElementById('instruments-container');
+        const statusEl = document.getElementById('connection-status');
+
+        function connect() {
+            const host = window.location.hostname || 'localhost';
+            const port = 8080;
+            
+            // Try to connect to the VioSpice WebSocket server
+            socket = new WebSocket(`ws://${host}:${port}`);
+
+            socket.onopen = () => {
+                statusEl.innerText = 'Connected';
+                statusEl.className = 'status connected';
+                container.innerHTML = ''; // Clear waiting message
+            };
+
+            socket.onclose = () => {
+                statusEl.innerText = 'Disconnected';
+                statusEl.className = 'status disconnected';
+                setTimeout(connect, 2000); // Auto-reconnect
+            };
+
+            socket.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'oscilloscope' || msg.type === 'logicanalyzer') {
+                    updateInstrument(msg);
+                }
+            };
+        }
+
+        function updateInstrument(msg) {
+            let inst = instruments[msg.id];
+            if (!inst) {
+                inst = createInstrumentUI(msg);
+                instruments[msg.id] = inst;
+            }
+            
+            drawWaveforms(inst.canvas, msg.data, msg.type);
+            inst.info.innerText = `Timebase: ${formatTime(msg.data.timebase)}`;
+        }
+
+        function createInstrumentUI(msg) {
+            const card = document.createElement('div');
+            card.className = 'instrument-card';
+            
+            const header = document.createElement('div');
+            header.className = 'instrument-header';
+            header.innerHTML = `<span>${msg.type.toUpperCase()}: ${msg.data.name || 'Instrument'}</span>`;
+            
+            const info = document.createElement('span');
+            info.style.fontWeight = 'normal';
+            header.appendChild(info);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 600;
+            canvas.height = 300;
+
+            const controls = document.createElement('div');
+            controls.className = 'controls';
+            controls.innerHTML = `<span>Live Streaming</span> <span style="margin-left: auto">ID: ${msg.id.substring(0,8)}</span>`;
+
+            card.appendChild(header);
+            card.appendChild(canvas);
+            card.appendChild(controls);
+            container.appendChild(card);
+
+            return { canvas, info };
+        }
+
+        function drawWaveforms(canvas, data, type) {
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Background
+            ctx.fillStyle = '#050a05';
+            ctx.fillRect(0, 0, w, h);
+
+            // Grid
+            ctx.strokeStyle = '#1a251a';
+            ctx.lineWidth = 1;
+            for(let x=0; x<w; x+=w/10) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+            for(let y=0; y<h; y+=h/8) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+
+            if (!data.traces) return;
+
+            // Find global X range for scaling
+            let minX = Infinity, maxX = -Infinity;
+            data.traces.forEach(t => {
+                if (t.x.length > 0) {
+                    minX = Math.min(minX, t.x[0]);
+                    maxX = Math.max(maxX, t.x[t.x.length-1]);
+                }
+            });
+
+            if (maxX <= minX) return;
+
+            data.traces.forEach((trace, idx) => {
+                if (trace.x.length < 2) return;
+
+                ctx.strokeStyle = trace.color || (type === 'oscilloscope' ? '#ffff00' : '#00e676');
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+
+                for (let i = 0; i < trace.x.length; i++) {
+                    const px = ((trace.x[i] - minX) / (maxX - minX)) * w;
+                    
+                    let py;
+                    if (type === 'logicanalyzer') {
+                        // Stack logic traces
+                        const chanH = h / data.traces.length;
+                        const base = (idx + 0.8) * chanH;
+                        py = base - (trace.y[i] > 2.5 ? chanH * 0.6 : 0);
+                    } else {
+                        // Oscilloscope: center at h/2, assume +/- range
+                        py = (h / 2) - (trace.y[i] * 20); // Simple scaling
+                    }
+
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+            });
+        }
+
+        function formatTime(t) {
+            if (t < 1e-6) return (t * 1e9).toFixed(1) + ' ns';
+            if (t < 1e-3) return (t * 1e6).toFixed(1) + ' μs';
+            if (t < 1) return (t * 1e3).toFixed(1) + ' ms';
+            return t.toFixed(2) + ' s';
+        }
+
+        connect();
+    </script>
+</body>
+</html>

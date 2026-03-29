@@ -2,8 +2,12 @@
 #define SIM_MANAGER_QT_H
 
 #include <QObject>
+#include <QStringList>
 #include "../core/sim_results.h"
-#include "sim_schematic_bridge.h"
+#include "../core/sim_netlist.h"
+
+class QGraphicsScene;
+class NetManager;
 
 /**
  * @brief Thread-safe (future) Manager for the simulation module.
@@ -13,6 +17,11 @@ class SimManager : public QObject {
 public:
     virtual ~SimManager();
     static SimManager& instance();
+
+    struct PendingStepRun {
+        QString netlist;
+        QString label;
+    };
 
     void runDCOP(QGraphicsScene* scene, NetManager* netMgr);
     void runTransient(QGraphicsScene* scene, NetManager* netMgr, double tStop, double tStep);
@@ -58,11 +67,18 @@ private slots:
 private:
     explicit SimManager(QObject* parent = nullptr);
     void startNgspiceWithNetlist(const QString& netlistContent);
+    void startNextStepSweepRun();
+    void mergeStepSweepResults(const SimResults& runResults, const QString& stepLabel, int runIndex);
 
     SimControl* m_control = nullptr;
     bool m_paused = false;
     bool m_resultsPending = false;
     SimAnalysisConfig m_lastConfig;
+
+    QList<PendingStepRun> m_pendingStepRuns;
+    SimResults m_stepSweepResults;
+    QString m_activeStepLabel;
+    int m_completedStepRuns = 0;
 
     QGraphicsScene* m_rtScene = nullptr;
     NetManager* m_rtNetMgr = nullptr;

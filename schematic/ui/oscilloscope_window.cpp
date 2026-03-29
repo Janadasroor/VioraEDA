@@ -1,4 +1,8 @@
 #include "oscilloscope_window.h"
+#if __has_include("../../core/remote_display_server.h") && __has_include(<QtWebSockets/QWebSocketServer>)
+#include "../../core/remote_display_server.h"
+#define VIOSPICE_HAS_REMOTE_DISPLAY 1
+#endif
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -10,6 +14,8 @@
 #include <QPushButton>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QJsonArray>
+#include <QDateTime>
 #include "flux/core/net_manager.h"
 
 OscilloscopeWindow::OscilloscopeWindow(const QUuid& itemId, const QString& itemName, QWidget* parent)
@@ -121,6 +127,8 @@ void OscilloscopeWindow::updateResults(const SimResults& results, NetManager* ne
     m_lastNetManager = netManager;
 
     QMap<QString, QVector<QPointF>> visibleTraces;
+    QJsonObject remoteData;
+    QJsonArray remoteTraces;
     
     for (int i = 0; i < 4; ++i) {
         if (!m_config.channels[i].enabled) continue;
@@ -139,17 +147,49 @@ void OscilloscopeWindow::updateResults(const SimResults& results, NetManager* ne
             QVector<QPointF> points;
             points.reserve(targetWave->xData.size());
             
+            QJsonArray xArray;
+            QJsonArray yArray;
+
             double scale = m_config.channels[i].scale;
             double offset = m_config.channels[i].offset;
+
+            // Downsample for remote display if needed (max 500 points)
+            size_t total = targetWave->xData.size();
+            size_t step = (total > 500) ? total / 500 : 1;
             
-            for (size_t s = 0; s < targetWave->xData.size(); ++s) {
-                points.append(QPointF(targetWave->xData[s], (targetWave->yData[s] * scale) + offset));
+            for (size_t s = 0; s < total; s += step) {
+                double x = targetWave->xData[s];
+                double y = (targetWave->yData[s] * scale) + offset;
+                points.append(QPointF(x, y));
+                xArray.append(x);
+                yArray.append(y);
             }
             visibleTraces[QString("CH%1").arg(i+1)] = points;
+
+            QJsonObject traceObj;
+            traceObj["channel"] = i + 1;
+            traceObj["x"] = xArray;
+            traceObj["y"] = yArray;
+            traceObj["color"] = m_config.channels[i].color.name();
+            remoteTraces.append(traceObj);
         }
     }
     
     m_scopeDisplay->setMultiTraceData(visibleTraces);
+
+    // Broadcast to remote clients
+    remoteData["traces"] = remoteTraces;
+    remoteData["timebase"] = m_config.timebase;
+    remoteData["name"] = m_itemName;
+    
+    static qint64 lastBroadcast = 0;
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - lastBroadcast > 50) { // Max 20fps for remote
+#ifdef VIOSPICE_HAS_REMOTE_DISPLAY
+        RemoteDisplayServer::instance().broadcastUpdate("oscilloscope", m_itemId, remoteData);
+#endif
+        lastBroadcast = now;
+    }
 }
 
 void OscilloscopeWindow::clear() {

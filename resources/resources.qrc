@@ -124,5 +124,6 @@
         <file>icons/tool_run.svg</file>
         <file>library/builtin.sclib</file>
         <file>library/builtin.fplib</file>
+        <file>remote_display.html</file>
     </qresource>
 </RCC>

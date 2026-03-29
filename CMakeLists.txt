@@ -13,6 +13,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml)
+find_package(Qt${QT_VERSION_MAJOR} QUIET COMPONENTS WebSockets)
+if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
+    set(VIOSPICE_HAS_QT_WEBSOCKETS ON)
+else()
+    set(VIOSPICE_HAS_QT_WEBSOCKETS OFF)
+    message(WARNING "Qt WebSockets not found. Remote display streaming will be disabled.")
+endif()
 
 # --- VIOSPICE ENGINE Support ---
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")

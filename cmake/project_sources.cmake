@@ -30,6 +30,8 @@ set(CORE_SOURCES
     core/diagnostics/debugger.h
     core/bom_manager.cpp
     core/bom_manager.h
+    core/remote_display_server.cpp
+    core/remote_display_server.h
     core/plugins/plugin_manager.cpp
     core/plugins/plugin_manager.h
     core/plugins/plugin_catalog_client.cpp

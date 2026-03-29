@@ -300,6 +300,7 @@ private:
     QLabel *m_gridLabel;
     QLabel *m_layerLabel;
     QLabel *m_netLabel;
+    QLabel *m_remoteLabel;
 
     // File state
     QString m_currentFilePath;
