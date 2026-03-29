@@ -27,6 +27,7 @@ private slots:
     void rewritesLtspiceBooleanOperators();
     void rewritesIdtWithInitialConditionAndReset();
     void rewritesLtspiceBehavioralHelperFunctions();
+    void warnsAboutLtspiceBehavioralAndTriggeredSourceOptions();
     void warnsAboutLtspiceMeasForms();
     void loadsBoostConverterLtspiceDirectiveInNgspice();
     void boostConverterFeedbackDoesNotRunAway();
@@ -210,6 +211,30 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBehavioralHelperFunctions() {
     QVERIFY2(netlist.contains("BMOD out5 0 V={idtmod(V(err), 0, 1, 0)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("Rewrote LTspice behavioral helper functions"), qPrintable(netlist));
     QVERIFY2(netlist.contains("idtmod(...) detected and passed through unchanged"), qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOptions() {
+    QGraphicsScene scene;
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "BOPT out 0 V={V(a)} ic=1 tripdv=0.1 tripdt=1n laplace={1/(s+1)} window=1m nfft=1024 mtol=1e-3\n"
+        "VTRIG out2 0 PULSE(0 1 0 1n 1n 5u 10u) Trigger=V(clk)>0.5 tripdv=0.2 tripdt=1n\n"
+        ".tran 1u 1m",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("LTspice B-source instance option ic= detected and passed through unchanged"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice B-source step-rejection options tripdv=/tripdt= detected and passed through unchanged"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice B-source Laplace options detected and passed through unchanged"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice triggered source restart semantics are not yet emulated"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice source step-rejection options tripdv=/tripdt= detected on VTRIG and passed through unchanged"), qPrintable(netlist));
 }
 
 void SpiceDirectiveNetlistTest::warnsAboutLtspiceMeasForms() {
