@@ -312,7 +312,9 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceStepFourAndWaveDirectives() {
 
     const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
 
-    QVERIFY2(netlist.contains("LTspice .step detected in line 1; verify ngspice compatibility for sweep syntax, nesting, and file= forms."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice .step detected in line 1; this ngspice configuration reports .step as unimplemented, so VioSpice will omit it from the active netlist."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("* .step param RLOAD LIST 5 10 15"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("* LTspice .step omitted: this ngspice configuration reports .step as unimplemented"), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice .four detected in line 2; verify Fourier-analysis compatibility and output behavior in ngspice."), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice .wave detected in line 3; ngspice does not support LTspice WAV export directives."), qPrintable(netlist));
 }

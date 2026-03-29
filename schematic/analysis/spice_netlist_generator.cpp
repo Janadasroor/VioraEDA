@@ -2034,7 +2034,7 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
             }
 
             if (card == ".step") {
-                summary.warnings.append(QString("LTspice .step detected in line %1; verify ngspice compatibility for sweep syntax, nesting, and file= forms.").arg(lineNo));
+                summary.warnings.append(QString("LTspice .step detected in line %1; this ngspice configuration reports .step as unimplemented, so VioSpice will omit it from the active netlist.").arg(lineNo));
             }
 
             if (card == ".four") {
@@ -2137,15 +2137,22 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
                             const bool emulateStartupOnLine = summary.hasLtspiceStartup && subcktDepth == 0;
                             QString lineToWrite = rewriteLtspiceDirectiveLine(trimmedCmdLine, &directiveWarnings, emulateStartupOnLine);
-                            if (trimmedCmdLine.startsWith(".mean", Qt::CaseInsensitive)) {
-                                const QString converted = normalizeMeanDirective(trimmedCmdLine);
-                                if (converted != trimmedCmdLine) {
-                                    netlist += "* " + trimmedCmdLine + "\n";
-                                    netlist += converted + "\n";
-                                    updateSubcktDepthForLine(trimmedCmdLine, subcktDepth);
-                                    continue;
-                                }
-                            }
+        if (trimmedCmdLine.startsWith(".mean", Qt::CaseInsensitive)) {
+            const QString converted = normalizeMeanDirective(trimmedCmdLine);
+            if (converted != trimmedCmdLine) {
+                netlist += "* " + trimmedCmdLine + "\n";
+                netlist += converted + "\n";
+                updateSubcktDepthForLine(trimmedCmdLine, subcktDepth);
+                continue;
+            }
+        }
+
+        if (trimmedCmdLine.startsWith(".step", Qt::CaseInsensitive)) {
+            netlist += "* " + trimmedCmdLine + "\n";
+            netlist += "* LTspice .step omitted: this ngspice configuration reports .step as unimplemented\n";
+            updateSubcktDepthForLine(trimmedCmdLine, subcktDepth);
+            continue;
+        }
 
                             if (trimmedCmdLine.startsWith(".meas", Qt::CaseInsensitive)) {
                                 lineToWrite = normalizeLtspiceMeasDirective(lineToWrite, &directiveWarnings);

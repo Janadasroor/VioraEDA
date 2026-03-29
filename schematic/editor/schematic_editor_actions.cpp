@@ -20,6 +20,7 @@
 #include "../items/led_item.h"
 #include "../items/smart_signal_item.h"
 #include "../ui/logic_editor_panel.h"
+#include "../ui/logic_analyzer_window.h"
 #include "../ui/schematic_components_widget.h"
 #include "../ui/library_browser_dialog.h"
 #include "../../ui/help_window.h"
@@ -824,10 +825,29 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             return;
         }
     } else if (item->itemTypeName() == "OscilloscopeInstrument") {
-        if (auto* osc = dynamic_cast<OscilloscopeItem*>(item)) {
-            openOscilloscopeWindow(osc);
-            return;
+        // Support both specialized OscilloscopeItem and InstrumentProbeItem(Oscilloscope)
+        openOscilloscopeWindow(item);
+        return;
+    } else if (item->itemTypeName().contains("LogicAnalyzer", Qt::CaseInsensitive) || 
+               item->itemTypeName().contains("Logic Analyzer", Qt::CaseInsensitive)) {
+        
+        QString id = item->id().toString();
+        if (id.isEmpty()) id = QString("LA_%1").arg(reinterpret_cast<quintptr>(item), 0, 16);
+
+        if (!m_laWindows.contains(id)) {
+            auto* win = new LogicAnalyzerWindow("Logic Analyzer - " + item->reference(), this);
+            win->setInstrumentId(id);
+            connect(win, &LogicAnalyzerWindow::windowClosing, this, [this](const QString& windowId) {
+                m_laWindows.remove(windowId);
+            });
+            m_laWindows[id] = win;
         }
+
+        const QStringList nets = resolveConnectedInstrumentNets(item);
+        m_laWindows[id]->setChannels(nets);
+        m_laWindows[id]->show();
+        m_laWindows[id]->raise();
+        return;
     } else if (item->itemTypeName() == "SignalGenerator") {
         if (auto* gen = dynamic_cast<SignalGeneratorItem*>(item)) {
             SignalGeneratorPropertiesDialog dlg(gen, m_undoStack, m_scene, this);

@@ -106,43 +106,43 @@ QString markdownDocStyleSheet() {
     bool isLight = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
     if (isLight) {
         return QString(
-            "body { color: #1e293b; }"
-            "p { margin: 0 0 10px 0; line-height: 1.7; }"
-            "h1, h2, h3, h4 { color: #0f172a; margin: 12px 0 8px 0; font-weight: 700; }"
-            "h1 { font-size: 18px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }"
+            "body { color: #334155; font-family: 'Inter', -apple-system, sans-serif; font-size: 13px; }"
+            "p { margin: 0 0 12px 0; line-height: 1.6; }"
+            "h1, h2, h3, h4 { color: #0f172a; margin: 16px 0 8px 0; font-weight: 700; }"
+            "h1 { font-size: 18px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; }"
             "h2 { font-size: 16px; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px; }"
             "h3 { font-size: 14px; }"
-            "ul, ol { margin: 6px 0 12px 22px; }"
-            "li { margin: 0 0 6px 0; line-height: 1.6; }"
-            "blockquote { margin: 10px 0; padding: 8px 12px; border-left: 3px solid #3b82f6; background: #eff6ff; color: #1e40af; }"
-            "code { background: #f1f5f9; color: #2563eb; border: 1px solid #e2e8f0; border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; }"
-            "pre { margin: 12px 0; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }"
+            "ul, ol { margin: 8px 0 16px 24px; padding: 0; }"
+            "li { margin: 0 0 8px 0; line-height: 1.6; }"
+            "blockquote { margin: 12px 0; padding: 10px 16px; border-left: 4px solid #3b82f6; background: #f8faff; color: #1e40af; border-radius: 0 8px 8px 0; }"
+            "code { background: #f1f5f9; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 4px; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; }"
+            "pre { margin: 16px 0; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }"
             "pre code { background: transparent; border: none; padding: 0; color: #334155; font-size: 12px; }"
-            "table { border-collapse: collapse; margin: 10px 0; width: 100%; }"
-            "th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }"
-            "th { background: #f1f5f9; color: #0f172a; }"
-            "a { color: #2563eb; text-decoration: none; }"
-            "a:hover { text-decoration: underline; }"
+            "table { border-collapse: collapse; margin: 12px 0; width: 100%; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; }"
+            "th, td { border: 1px solid #f1f5f9; padding: 8px 10px; text-align: left; }"
+            "th { background: #f8fafc; color: #475569; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }"
+            "a { color: #2563eb; text-decoration: none; font-weight: 500; }"
+            "a:hover { text-decoration: underline; color: #1d4ed8; }"
         );
     }
     return QString(
-        "body { color: #d0d7de; }"
-        "p { margin: 0 0 10px 0; line-height: 1.7; }"
-        "h1, h2, h3, h4 { color: #f0f6fc; margin: 12px 0 8px 0; font-weight: 700; }"
-        "h1 { font-size: 18px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }"
-        "h2 { font-size: 16px; border-bottom: 1px solid #2d333b; padding-bottom: 4px; }"
+        "body { color: #e2e8f0; font-family: 'Inter', -apple-system, sans-serif; font-size: 13px; }"
+        "p { margin: 0 0 12px 0; line-height: 1.6; }"
+        "h1, h2, h3, h4 { color: #f8fafc; margin: 16px 0 8px 0; font-weight: 700; }"
+        "h1 { font-size: 18px; border-bottom: 2px solid #1e293b; padding-bottom: 8px; }"
+        "h2 { font-size: 16px; border-bottom: 1px solid #1e293b; padding-bottom: 4px; }"
         "h3 { font-size: 14px; }"
-        "ul, ol { margin: 6px 0 12px 22px; }"
-        "li { margin: 0 0 6px 0; line-height: 1.6; }"
-        "blockquote { margin: 10px 0; padding: 8px 12px; border-left: 3px solid #58a6ff; background: #0f1723; color: #9fb4c8; }"
-        "code { background: #111927; color: #c3e0ff; border: 1px solid #233043; border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; }"
-        "pre { margin: 12px 0; padding: 12px; background: #0b1220; border: 1px solid #2b3b52; border-radius: 8px; }"
-        "pre code { background: transparent; border: none; padding: 0; color: #c9d1d9; font-size: 12px; }"
-        "table { border-collapse: collapse; margin: 10px 0; width: 100%; }"
-        "th, td { border: 1px solid #30363d; padding: 6px 8px; text-align: left; }"
-        "th { background: #161b22; color: #f0f6fc; }"
-        "a { color: #58a6ff; text-decoration: none; }"
-        "a:hover { text-decoration: underline; }"
+        "ul, ol { margin: 8px 0 16px 24px; padding: 0; }"
+        "li { margin: 0 0 8px 0; line-height: 1.6; }"
+        "blockquote { margin: 12px 0; padding: 10px 16px; border-left: 4px solid #60a5fa; background: #0f172a; color: #dbeafe; border-radius: 0 8px 8px 0; }"
+        "code { background: #1e293b; color: #93c5fd; border: 1px solid #334155; border-radius: 4px; padding: 2px 4px; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; }"
+        "pre { margin: 16px 0; padding: 14px; background: #0b1222; border: 1px solid #1e293b; border-radius: 10px; }"
+        "pre code { background: transparent; border: none; padding: 0; color: #cbd5e1; font-size: 12px; }"
+        "table { border-collapse: collapse; margin: 12px 0; width: 100%; border-radius: 8px; overflow: hidden; border: 1px solid #1e293b; }"
+        "th, td { border: 1px solid #1e293b; padding: 8px 10px; text-align: left; }"
+        "th { background: #111827; color: #94a3b8; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }"
+        "a { color: #60a5fa; text-decoration: none; font-weight: 500; }"
+        "a:hover { text-decoration: underline; color: #93c5fd; }"
     );
 }
 
@@ -153,36 +153,40 @@ QString wrapModelCard(const QString& bodyHtml, const QString& timestamp) {
         return QString(
             "<div style='display:block; width:100%;'>"
             "<div style='"
-            "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:1 #fcfdfe);"
-            "color: #1e293b;"
-            "padding: 16px 20px;"
-            "border-radius: 16px 16px 16px 4px;"
+            "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:1 #f8fafc);"
+            "color: #334155;"
+            "padding: 18px 22px;"
+            "border-radius: 20px 20px 20px 4px;"
             "border: 1px solid #e2e8f0;"
             "margin: 8px 0 16px 0;"
-            "max-width: 88%;"
-            "box-shadow: 0 10px 25px rgba(0,0,0,0.06);"
+            "max-width: 90%;"
+            "box-shadow: 0 12px 30px rgba(0,0,0,0.05);"
             "'>"
-            "<div style='font-size:10px; color:#64748b; margin-bottom:8px; font-weight:700; text-transform:uppercase; letter-spacing:0.8px;'>"
-            "<span style='background:#f1f5f9; padding:2px 6px; border-radius:4px;'>VIORA AI</span> · %2</div>"
-            "<div style='line-height: 1.6;'>%1</div></div>"
+            "<div style='margin-bottom:12px;'>"
+            "<span style='background:#f1f5f9; color:#475569; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.8px;'>VIORA AI</span>"
+            "<span style='color:#94a3b8; font-size:10px; margin-left:10px; font-weight:600;'>%2</span>"
+            "</div>"
+            "<div>%1</div></div>"
             "</div>"
         ).arg(bodyHtml, ts);
     }
     return QString(
         "<div style='display:block; width:100%;'>"
         "<div style='"
-        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #111a2c, stop:1 #0a0f18);"
-        "color: #ecf2f8;"
-        "padding: 16px 20px;"
-        "border-radius: 16px 16px 16px 4px;"
-        "border: 1px solid #2d3e5a;"
+        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #111a2e, stop:1 #0a0f18);"
+        "color: #f1f5f9;"
+        "padding: 18px 22px;"
+        "border-radius: 20px 20px 20px 4px;"
+        "border: 1px solid #1e293b;"
         "margin: 8px 0 16px 0;"
-        "max-width: 88%;"
-        "box-shadow: 0 12px 30px rgba(0,0,0,0.3);"
+        "max-width: 90%;"
+        "box-shadow: 0 20px 40px rgba(0,0,0,0.4);"
         "'>"
-        "<div style='font-size:10px; color:#94a3b8; margin-bottom:8px; font-weight:700; text-transform:uppercase; letter-spacing:0.8px;'>"
-        "<span style='background:#1e293b; padding:2px 6px; border-radius:4px; border: 1px solid #334155;'>VIORA AI</span> · %2</div>"
-        "<div style='line-height: 1.6;'>%1</div></div>"
+        "<div style='margin-bottom:12px;'>"
+        "<span style='background:#1e293b; color:#94a3b8; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.8px; border: 1px solid #334155;'>VIORA AI</span>"
+        "<span style='color:#64748b; font-size:10px; margin-left:10px; font-weight:600;'>%2</span>"
+        "</div>"
+        "<div>%1</div></div>"
         "</div>"
     ).arg(bodyHtml, ts);
 }
@@ -192,45 +196,45 @@ QString wrapUserCard(const QString& textHtml, const QString& headerHtml, const Q
     const QString ts = timestamp.isEmpty() ? nowTimeChip() : timestamp;
     if (isLight) {
         return QString(
-            "<div style='display:block; width:100%; margin: 10px 0 18px 0; text-align: right;'>"
+            "<div style='display:block; width:100%; margin: 12px 0 20px 0; text-align: right;'>"
             "<div class='user-card' style='"
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:1 #2563eb);"
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:1 #1d4ed8);"
             "color: #ffffff;"
-            "padding: 12px 18px;"
-            "border-radius: 16px 16px 4px 16px;"
+            "padding: 14px 20px;"
+            "border-radius: 20px 20px 4px 20px;"
             "border: none;"
             "display: inline-block;"
-            "max-width: 80%;"
+            "max-width: 84%;"
             "text-align: left;"
-            "box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);"
+            "box-shadow: 0 10px 25px rgba(37, 99, 235, 0.25);"
             "'>"
-            "<div style='display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 6px 0;'>"
-            "<div style='font-size:10px; line-height:1; font-weight:700; color:#eff6ff;'>YOU · %3</div>"
-            "<div style='font-size:10px; color:#eff6ff; text-align:right;'>%2</div>"
+            "<div style='display:flex; align-items:center; justify-content:space-between; margin:0 0 8px 0;'>"
+            "<div style='font-size:10px; font-weight:800; color:#eff6ff; text-transform:uppercase; letter-spacing:0.5px;'>YOU · %3</div>"
+            "<div style='font-size:10px; color:rgba(255,255,255,0.85); text-align:right;'>%2</div>"
             "</div>"
-            "<div style='line-height: 1.55; font-weight: 500;'>%1</div>"
+            "<div style='line-height: 1.6; font-weight: 500; font-size:13px;'>%1</div>"
             "</div>"
             "</div>"
         ).arg(textHtml, headerHtml, ts);
     }
     return QString(
-        "<div style='display:block; width:100%; margin: 10px 0 18px 0; text-align: right;'>"
+        "<div style='display:block; width:100%; margin: 12px 0 20px 0; text-align: right;'>"
         "<div class='user-card' style='"
-        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1d4ed8, stop:1 #1e40af);"
+        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1e3a8a, stop:1 #1e40af);"
         "color: #f8fafc;"
-        "padding: 12px 18px;"
-        "border-radius: 16px 16px 4px 16px;"
-        "border: 1px solid rgba(255,255,255,0.1);"
+        "padding: 14px 20px;"
+        "border-radius: 20px 20px 4px 20px;"
+        "border: 1px solid rgba(255,255,255,0.08);"
         "display: inline-block;"
-        "max-width: 80%;"
+        "max-width: 84%;"
         "text-align: left;"
-        "box-shadow: 0 8px 20px rgba(0, 0, 0, 0.40);"
+        "box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);"
         "'>"
-        "<div style='display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 6px 0;'>"
-        "<div style='font-size:10px; line-height:1; font-weight:700; color:#bfdbfe;'>YOU · %3</div>"
-        "<div style='font-size:10px; color:#bfdbfe; text-align:right;'>%2</div>"
+        "<div style='display:flex; align-items:center; justify-content:space-between; margin:0 0 8px 0;'>"
+        "<div style='font-size:10px; font-weight:800; color:#bfdbfe; text-transform:uppercase; letter-spacing:0.5px;'>YOU · %3</div>"
+        "<div style='font-size:10px; color:rgba(191,219,254,0.7); text-align:right;'>%2</div>"
         "</div>"
-        "<div style='line-height: 1.55;'>%1</div>"
+        "<div style='line-height: 1.6; font-size:13px;'>%1</div>"
         "</div>"
         "</div>"
     ).arg(textHtml, headerHtml, ts);
@@ -240,22 +244,26 @@ QString wrapActionCard(const QString& title, const QString& details, const QStri
     bool isLight = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
     if (isLight) {
         return QString(
-            "<div style='margin: 12px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px;'>"
-            "<div style='display:flex; align-items:center; gap:8px;'>"
-            "<span style='font-size:12px;'>%3</span>"
-            "<span style='color: #0f172a; font-weight: 700; font-size: 11px; text-transform: uppercase;'>%1</span>"
+            "<div style='margin: 16px 0; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px;'>"
+            "<div style='display:flex; align-items:center; gap:10px;'>"
+            "<div style='background: #fff; width:24px; height:24px; border-radius:50%%; display:flex; align-items:center; justify-content:center; border: 1px solid #cbd5e1; font-size:12px;'>%3</div>"
+            "<div>"
+            "<div style='color: #0f172a; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;'>%1</div>"
+            "<div style='color: #64748b; font-size: 11px; margin-top: 2px;'>%2</div>"
             "</div>"
-            "<div style='color: #64748b; font-size: 11px; margin-top: 4px;'>%2</div>"
+            "</div>"
             "</div>"
         ).arg(title, details, iconHtml);
     }
     return QString(
-        "<div style='margin: 12px 0; background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 14px;'>"
-        "<div style='display:flex; align-items:center; gap:8px;'>"
-        "<span style='font-size:12px;'>%3</span>"
-        "<span style='color: #f1f5f9; font-weight: 700; font-size: 11px; text-transform: uppercase;'>%1</span>"
+        "<div style='margin: 16px 0; background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 12px 16px;'>"
+        "<div style='display:flex; align-items:center; gap:10px;'>"
+        "<div style='background: #1e293b; width:24px; height:24px; border-radius:50%%; display:flex; align-items:center; justify-content:center; border: 1px solid #334155; font-size:12px;'>%3</div>"
+        "<div>"
+        "<div style='color: #f1f5f9; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;'>%1</div>"
+        "<div style='color: #94a3b8; font-size: 11px; margin-top: 2px;'>%2</div>"
         "</div>"
-        "<div style='color: #94a3b8; font-size: 11px; margin-top: 4px;'>%2</div>"
+        "</div>"
         "</div>"
     ).arg(title, details, iconHtml);
 }
@@ -420,12 +428,6 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
         connect(clearMemoryAct, &QAction::triggered, this, [this]() {
             if (!m_isWorking) askPrompt("clear memory", false);
         });
-        QAction* thinkingAct = menu.addAction("Toggle Thinking Tray");
-        thinkingAct->setCheckable(true);
-        thinkingAct->setChecked(m_statusButton->isChecked());
-        connect(thinkingAct, &QAction::triggered, this, [this](bool checked) {
-            m_statusButton->setChecked(checked);
-        });
         menu.addSeparator();
         QAction* instructionsAct = menu.addAction(QIcon(":/icons/tool_pen.svg"), "Custom Instructions...");
         connect(instructionsAct, &QAction::triggered, this, &GeminiPanel::onCustomInstructionsClicked);
@@ -459,17 +461,6 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     headerLayout->addWidget(closeButton);
     headerLayout->addStretch(1);
     
-    m_statusButton = new QPushButton("IDLE", this);
-    m_statusButton->setCheckable(true);
-    m_statusButton->setFixedHeight(28);
-    m_statusButton->setMaximumWidth(0);
-    m_statusButton->setMinimumWidth(0);
-    if (theme) {
-        m_statusButton->setStyleSheet(QString("QPushButton { color: %1; font-weight: bold; font-size: 10px; border: 1px solid %2; border-radius: 6px; padding: 0 12px; background: %3; } QPushButton:checked { background: %1; color: %3; }")
-            .arg(theme->accentColor().name(), border, bg_main));
-    }
-    connect(m_statusButton, &QPushButton::toggled, this, [this](bool checked){ m_thinkingDisplay->setVisible(checked); });
-    m_statusButton->hide();
     mainLayout->addWidget(header);
 
     m_errorBanner = new QWidget(this);
@@ -535,36 +526,30 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_chatScroll->setWidget(m_chatContainer);
     mainLayout->addWidget(m_chatScroll, 1);
 
-    // Thinking Tray
-    m_thinkingDisplay = new QTextEdit(this);
-    m_thinkingDisplay->setReadOnly(true);
-    m_thinkingDisplay->setFixedHeight(160);
-    m_thinkingDisplay->setStyleSheet(QString("QTextEdit { background-color: %1; color: %2; border-top: 1px solid %3; padding: 12px; font-style: italic; font-size: 12px; line-height: 1.4; }")
-        .arg(headerBg, theme ? theme->textSecondary().name() : "#888", border));
-    m_thinkingDisplay->hide();
-    mainLayout->addWidget(m_thinkingDisplay);
-
     // Footer Input (Floating Composer Style)
     QWidget* footer = new QWidget(this);
     footer->setStyleSheet("background-color: transparent; border: none;");
     footer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     QVBoxLayout* footerLayout = new QVBoxLayout(footer);
-    footerLayout->setContentsMargins(14, 0, 14, 20); // Bottom margin for floating effect
-    footerLayout->setSizeConstraint(QLayout::SetMinimumSize);
+    footerLayout->setContentsMargins(14, 0, 14, 18);
+    footerLayout->setSpacing(0);
 
     QWidget* composer = new QWidget(this);
-    QString compBg = (theme && theme->type() == PCBTheme::Light) ? "#ffffff" : "#161b22";
+    QString compBg = (theme && theme->type() == PCBTheme::Light)
+        ? "rgba(255, 255, 255, 0.98)"
+        : "rgba(22, 27, 34, 0.95)";
+    composer->setObjectName("composerContainer");
     composer->setStyleSheet(QString(
-        "QWidget {"
+        "#composerContainer {"
         " background: %1;"
         " border: 1px solid %2;"
-        " border-radius: 18px;"
+        " border-radius: 20px;"
         "}"
     ).arg(compBg, border));
     composer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     QVBoxLayout* composerLayout = new QVBoxLayout(composer);
-    composerLayout->setContentsMargins(14, 12, 14, 12);
-    composerLayout->setSpacing(6);
+    composerLayout->setContentsMargins(16, 12, 16, 12);
+    composerLayout->setSpacing(8);
 
     m_includeContextCheck = new QCheckBox(this);
     m_includeContextCheck->setChecked(true);
@@ -572,35 +557,44 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_includeScreenshotCheck = new QCheckBox(this);
     m_includeScreenshotCheck->hide();
 
+    // Integrated Status/Thinking Bar
     m_toolCallBanner = new QWidget(this);
     m_toolCallBanner->setStyleSheet(
         "QWidget {"
-        " background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0f223d, stop:1 #1a2f50);"
-        " border: 1px solid #335f93;"
-        " border-radius: 8px;"
+        " background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1e3a8a, stop:1 #1e40af);"
+        " border: 1px solid #3b82f6;"
+        " border-radius: 10px;"
         "}"
     );
-    QVBoxLayout* toolBannerLayout = new QVBoxLayout(m_toolCallBanner);
-    toolBannerLayout->setContentsMargins(10, 8, 10, 8);
-    toolBannerLayout->setSpacing(2);
-    m_toolCallTitle = new QLabel("Running tools...", m_toolCallBanner);
-    m_toolCallTitle->setStyleSheet("color: #dbeafe; font-size: 12px; font-weight: 700; border: none; background: transparent;");
-    m_toolCallSubtitle = new QLabel("Executing assistant tools.", m_toolCallBanner);
-    m_toolCallSubtitle->setWordWrap(true);
+    QHBoxLayout* toolBannerLayout = new QHBoxLayout(m_toolCallBanner);
+    toolBannerLayout->setContentsMargins(12, 6, 12, 6);
+    toolBannerLayout->setSpacing(8);
+    
+    QLabel* toolIcon = new QLabel("⚡", m_toolCallBanner);
+    toolIcon->setStyleSheet("background: transparent; border: none; font-size: 14px;");
+    
+    QVBoxLayout* toolTextLayout = new QVBoxLayout();
+    toolTextLayout->setSpacing(0);
+    m_toolCallTitle = new QLabel("VIORA THINKING", m_toolCallBanner);
+    m_toolCallTitle->setStyleSheet("color: #dbeafe; font-size: 10px; font-weight: 800; border: none; background: transparent; letter-spacing: 0.5px;");
+    m_toolCallSubtitle = new QLabel("Analyzing circuit...", m_toolCallBanner);
     m_toolCallSubtitle->setStyleSheet("color: #93c5fd; font-size: 11px; border: none; background: transparent;");
-    toolBannerLayout->addWidget(m_toolCallTitle);
-    toolBannerLayout->addWidget(m_toolCallSubtitle);
+    toolTextLayout->addWidget(m_toolCallTitle);
+    toolTextLayout->addWidget(m_toolCallSubtitle);
+    
+    toolBannerLayout->addWidget(toolIcon);
+    toolBannerLayout->addLayout(toolTextLayout, 1);
     m_toolCallBanner->hide();
     composerLayout->addWidget(m_toolCallBanner);
 
     m_inputField = new QTextEdit(this);
-    m_inputField->setPlaceholderText("Message Viora AI...  (Enter = send, Shift+Enter = new line)");
-    m_inputField->setFixedHeight(40);
+    m_inputField->setPlaceholderText("Message Viora AI...  (Enter to send)");
+    m_inputField->setFixedHeight(44);
     m_inputField->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_inputField->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_inputField->setAcceptRichText(false);
     m_inputField->setStyleSheet(QString(
-        "QTextEdit { background: transparent; color: %1; border: none; padding: 4px 0; font-size: 13px; selection-background-color: %3; }"
+        "QTextEdit { background: transparent; color: %1; border: none; padding: 4px 0; font-size: 14px; selection-background-color: %3; }"
         "QTextEdit:disabled { color: %2; }")
         .arg(fg, theme ? theme->textSecondary().name() : "#888", theme ? theme->accentColor().name() : "#3b82f6"));
     m_inputField->installEventFilter(this);
@@ -609,22 +603,44 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
 
     QHBoxLayout* toolsRow = new QHBoxLayout();
     toolsRow->setContentsMargins(0, 0, 0, 0);
-    toolsRow->setSpacing(6);
+    toolsRow->setSpacing(8);
     toolsRow->setAlignment(Qt::AlignVCenter);
 
-    QString toolBtnStyle = QString("QPushButton { background: %1; color: %2; border: 1px solid %3; border-radius: 6px; font-size: 10px; font-weight: bold; padding: 0 8px; } QPushButton:hover { background: %4; border-color: %5; }")
-        .arg((theme && theme->type() == PCBTheme::Light) ? "#f8fafc" : "#21262d")
+    QString toolBtnStyle = QString(
+        "QPushButton {"
+        " background: %1;"
+        " color: %2;"
+        " border: 1px solid %3;"
+        " border-radius: 8px;"
+        " font-size: 10px;"
+        " font-weight: 700;"
+        " padding: 4px 10px;"
+        "}"
+        "QPushButton:hover { background: %4; border-color: %5; }")
+        .arg((theme && theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#21262d")
         .arg(fg, border)
-        .arg((theme && theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#30363d")
+        .arg((theme && theme->type() == PCBTheme::Light) ? "#e2e8f0" : "#30363d")
         .arg(theme ? theme->textSecondary().name() : "#888");
 
     m_refreshModelsButton = new QPushButton("REFRESH", this);
-    m_refreshModelsButton->setFixedHeight(24);
+    m_refreshModelsButton->setFixedHeight(26);
+    m_refreshModelsButton->setCursor(Qt::PointingHandCursor);
     m_refreshModelsButton->setStyleSheet(toolBtnStyle);
     connect(m_refreshModelsButton, &QPushButton::clicked, this, &GeminiPanel::onRefreshModelsClicked);
 
-    QString comboStyle = QString("QComboBox { background: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0 16px 0 6px; font-size: 10px; font-weight: bold; } QComboBox::drop-down { border: none; width: 16px; } QComboBox QAbstractItemView { background: %4; color: %2; border: 1px solid %3; selection-background-color: %5; }")
-        .arg((theme && theme->type() == PCBTheme::Light) ? "#f8fafc" : "#21262d")
+    QString comboStyle = QString(
+        "QComboBox {"
+        " background: %1;"
+        " color: %2;"
+        " border: 1px solid %3;"
+        " border-radius: 8px;"
+        " padding: 0 20px 0 10px;"
+        " font-size: 10px;"
+        " font-weight: 700;"
+        "}"
+        "QComboBox::drop-down { border: none; width: 20px; }"
+        "QComboBox QAbstractItemView { background: %4; color: %2; border: 1px solid %3; selection-background-color: %5; }")
+        .arg((theme && theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#21262d")
         .arg(fg, border, bg_main)
         .arg((theme && theme->type() == PCBTheme::Light) ? "#eff6ff" : "#30363d");
 
@@ -634,7 +650,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     speedCombo->addItem("ASK", "ask");
     speedCombo->addItem("CMD", "cmd");
     speedCombo->setCurrentIndex(0);
-    speedCombo->setFixedHeight(24);
+    speedCombo->setFixedHeight(26);
     speedCombo->setStyleSheet(comboStyle);
     
     connect(speedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, speedCombo](int index) {
@@ -643,47 +659,52 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     });
 
     m_modelCombo = new QComboBox(this);
-    m_modelCombo->setMinimumWidth(110);
-    m_modelCombo->setFixedHeight(24);
+    m_modelCombo->setMinimumWidth(130);
+    m_modelCombo->setFixedHeight(26);
     m_modelCombo->setStyleSheet(comboStyle);
-    m_modelCombo->addItem("Gemini 3.1 Flash Lite Preview", "gemini-3.1-flash-lite-preview");
+    m_modelCombo->addItem("Gemini 2.0 Flash", "gemini-2.0-flash");
 
-    m_voiceButton = new QPushButton("VOICE", this);
-    m_voiceButton->setFixedHeight(24);
-    m_voiceButton->setStyleSheet(QString("QPushButton { background: transparent; color: %1; border: none; font-size: 10px; font-weight: bold; padding: 0 4px; } QPushButton:hover { color: %2; }")
-        .arg(theme ? theme->textSecondary().name() : "#888", fg));
+    m_voiceButton = new QPushButton(this);
+    m_voiceButton->setIcon(getThemeIcon(":/icons/tool_pen.svg")); // Using pen for now as voice icon placeholder if missing
+    m_voiceButton->setToolTip("Voice Input");
+    m_voiceButton->setFixedSize(26, 26);
+    m_voiceButton->setStyleSheet(QString("QPushButton { background: transparent; border: none; border-radius: 13px; } QPushButton:hover { background: %1; }")
+        .arg((theme && theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#2a3444"));
     connect(m_voiceButton, &QPushButton::clicked, this, &GeminiPanel::onVoiceClicked);
 
     m_sendButton = new QPushButton("SEND", this);
-    m_sendButton->setFixedHeight(28);
+    m_sendButton->setFixedHeight(32);
     m_sendButton->setCursor(Qt::PointingHandCursor);
     m_sendButton->setStyleSheet(QString(
         "QPushButton {"
-        " background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 %1, stop:1 %2);"
+        " background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2563eb, stop:1 #1d4ed8);"
         " color: white;"
         " border: none;"
-        " border-radius: 8px;"
-        " font-weight: bold;"
-        " font-size: 10px;"
-        " padding: 0 16px;"
+        " border-radius: 10px;"
+        " font-weight: 800;"
+        " font-size: 11px;"
+        " padding: 0 20px;"
         "}"
-        "QPushButton:hover { background: %2; }"
-        "QPushButton:disabled { background: %3; color: #a1a1aa; }")
-        .arg("#2563eb", "#1d4ed8", (theme && theme->type() == PCBTheme::Light) ? "#e2e8f0" : "#27272a"));
+        "QPushButton:hover { background: #1d4ed8; }"
+        "QPushButton:disabled { background: %3; color: #a1a1aa; border: 1px solid %4; }")
+        .arg("#2563eb", "#1d4ed8", 
+             (theme && theme->type() == PCBTheme::Light) ? "#f8fafc" : "#161b22",
+             border));
     connect(m_sendButton, &QPushButton::clicked, this, &GeminiPanel::onSendClicked);
     m_sendButton->setEnabled(false);
 
     m_stopButton = new QPushButton("STOP", this);
-    m_stopButton->setFixedHeight(24);
+    m_stopButton->setFixedHeight(32);
     m_stopButton->hide();
-    m_stopButton->setStyleSheet("QPushButton { background: #ef4444; color: white; border: 1px solid #ef4444; border-radius: 6px; font-weight: bold; font-size: 10px; padding: 0 12px; } QPushButton:hover { background: #dc2626; }");
+    m_stopButton->setCursor(Qt::PointingHandCursor);
+    m_stopButton->setStyleSheet("QPushButton { background: #ef4444; color: white; border-radius: 10px; font-weight: 800; font-size: 11px; padding: 0 20px; } QPushButton:hover { background: #dc2626; }");
     connect(m_stopButton, &QPushButton::clicked, this, &GeminiPanel::onStopClicked);
 
+    toolsRow->addWidget(m_voiceButton);
     toolsRow->addWidget(m_refreshModelsButton);
     toolsRow->addWidget(speedCombo);
     toolsRow->addWidget(m_modelCombo);
     toolsRow->addStretch();
-    toolsRow->addWidget(m_voiceButton);
     toolsRow->addWidget(m_sendButton);
     toolsRow->addWidget(m_stopButton);
     composerLayout->addLayout(toolsRow);
@@ -852,37 +873,34 @@ void GeminiPanel::beginAssistantRunUi() {
     if (m_inputField) m_inputField->setEnabled(false);
     m_responseBuffer.clear();
     m_thinkingBuffer.clear();
-    m_errorBuffer.clear();
-    if (m_thinkingDisplay) m_thinkingDisplay->clear();
-    hideToolCallBanner();
-    hideErrorBanner();
-    if (m_statusButton) {
-        m_statusButton->setText("THINKING");
-        m_statusButton->show();
-    }
+    m_leftover.clear();
+    
+    if (m_toolCallTitle) m_toolCallTitle->setText("VIORA THINKING");
+    if (m_toolCallSubtitle) m_toolCallSubtitle->setText("Analyzing and processing...");
+    if (m_toolCallBanner) m_toolCallBanner->show();
     if (m_thinkingPulseTimer) m_thinkingPulseTimer->start();
+    hideErrorBanner();
 }
 
 void GeminiPanel::finishAssistantRunUi(int exitCode) {
+    m_isWorking = false;
+    if (m_sendButton) m_sendButton->show();
+    if (m_stopButton) m_stopButton->hide();
+    if (m_inputField) {
+        m_inputField->setEnabled(true);
+        m_inputField->setFocus();
+    }
     if (m_thinkingPulseTimer) m_thinkingPulseTimer->stop();
+    if (m_toolCallBanner) m_toolCallBanner->hide();
+    m_pulseStep = 0;
+    updateSendEnabled();
 
     if (!m_errorBuffer.trimmed().isEmpty()) {
         reportError("Viora AI Backend Error", m_errorBuffer, exitCode != 0);
     }
-
     if (exitCode != 0) {
-        appendSystemNote(QString("<div style='color: #f85149; font-weight: bold; margin: 15px 0;'>[ERROR] SIGNAL INTERRUPTED (Exit Code: %1)</div>").arg(exitCode));
-        if (m_statusButton) m_statusButton->setText("ERROR");
-    } else if (m_statusButton) {
-        m_statusButton->hide();
+        appendSystemNote(QString("<div style='color: #ef4444; font-weight: 800; margin: 15px 0; border: 1px solid #ef4444; border-radius: 8px; padding: 10px;'>[ERROR] AI PROCESS INTERRUPTED (Exit Code: %1)</div>").arg(exitCode));
     }
-    hideToolCallBanner();
-
-    m_isWorking = false;
-    if (m_inputField) m_inputField->setEnabled(true);
-    if (m_stopButton) m_stopButton->hide();
-    if (m_sendButton) m_sendButton->show();
-    updateSendEnabled();
 }
 
 void GeminiPanel::onVoiceClicked() {
@@ -920,7 +938,6 @@ void GeminiPanel::handleActionTag(const QString& actionText) {
 
     QGraphicsView* view = m_scene ? m_scene->views().value(0, nullptr) : nullptr;
     
-    if (m_statusButton) m_statusButton->setText(action.toUpper());
     showToolCallBanner(action);
     appendSystemNote(QString("<div style='color: #58a6ff; font-size: 11px; margin: 5px 0;'>[ACTION] <i>%1</i></div>").arg(action.toHtmlEscaped()));
 
@@ -1104,12 +1121,10 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunkText) {
             if (end != -1) {
                 const QString th = text.mid(9, end - 9);
                 m_thinkingBuffer += th;
-                m_thinkingDisplay->append(th);
                 text = text.mid(end + 10);
             } else {
                 const QString p = text.mid(9);
                 m_thinkingBuffer += p;
-                m_thinkingDisplay->insertPlainText(p);
                 m_leftover = text;
                 text.clear();
             }
@@ -1487,9 +1502,8 @@ void GeminiPanel::clearHistory() {
     if (m_errorSummaryView) m_errorSummaryView->clear();
     if (m_errorRawView) m_errorRawView->clear();
     m_thinkingPulseTimer->stop();
-    if (m_statusButton) m_statusButton->hide();
     hideToolCallBanner();
-    if (m_thinkingDisplay) m_thinkingDisplay->clear();
+    m_includeScreenshotCheck->setChecked(false);
     if (m_inputField) m_inputField->setEnabled(true);
     if (m_stopButton) m_stopButton->hide();
     if (m_sendButton) m_sendButton->show();
@@ -1657,22 +1671,22 @@ void GeminiPanel::onProcessFinished(int ec) {
 }
 
 void GeminiPanel::onCopyClicked() { if (!m_lastGeneratedCode.isEmpty()) { QApplication::clipboard()->setText(m_lastGeneratedCode); m_copyButton->setText("COPIED"); QTimer::singleShot(2000, this, [this](){ if (m_copyButton) m_copyButton->setText("COPY CODE"); }); } }
+
 void GeminiPanel::showToolCallBanner(const QString& actionText) {
     if (!m_toolCallBanner || !m_toolCallSubtitle) return;
-    m_toolCallSubtitle->setText(actionToSubtitle(actionText));
+    m_toolCallSubtitle->setText("ACTION: " + actionText.toUpper());
     m_toolCallBanner->show();
 }
 
 void GeminiPanel::hideToolCallBanner() {
-    if (!m_toolCallBanner) return;
-    m_toolCallBanner->hide();
+    if (m_toolCallBanner) m_toolCallBanner->hide();
 }
 
 void GeminiPanel::onStopClicked() {
     if (m_process && m_process->state() != QProcess::NotRunning) {
         m_process->kill();
         appendSystemNote("<div style='color: #f85149; font-weight: bold; margin: 10px 0;'>[SYSTEM] PROCESS TERMINATED</div>");
-        m_statusButton->setText("ABORTED");
+        m_toolCallSubtitle->setText("ABORTED");
         m_thinkingPulseTimer->stop();
     }
     hideToolCallBanner();
@@ -1690,16 +1704,16 @@ void GeminiPanel::onAnchorClicked(const QUrl& url) {
     } else if (link.startsWith("snippet:")) {
         QString json = link.mid(8);
         emit snippetGenerated(json);
-        m_statusButton->setText("PLACING SNIPPET");
-        m_statusButton->show();
-        QTimer::singleShot(2000, m_statusButton, &QPushButton::hide);
+        m_toolCallSubtitle->setText("PLACING SNIPPET");
+        m_toolCallBanner->show();
+        QTimer::singleShot(2000, m_toolCallBanner, &QWidget::hide);
     } else if (link.startsWith("netlist:")) {
         QString base64 = link.mid(8);
         QString netlist = QString::fromUtf8(QByteArray::fromBase64(base64.toUtf8()));
         emit netlistGenerated(netlist);
-        m_statusButton->setText("GENERATING SCHEMATIC");
-        m_statusButton->show();
-        QTimer::singleShot(2000, m_statusButton, &QPushButton::hide);
+        m_toolCallSubtitle->setText("GENERATING SCHEMATIC");
+        m_toolCallBanner->show();
+        QTimer::singleShot(2000, m_toolCallBanner, &QWidget::hide);
     }
 }
 
@@ -1739,14 +1753,18 @@ void GeminiPanel::triggerSuggestionCommand(const QString& command) {
         askPrompt(cmd, m_includeContextCheck ? m_includeContextCheck->isChecked() : true);
     }
 
-    if (m_statusButton) {
-        m_statusButton->setText("EXEC: " + cmd.toUpper());
-        m_statusButton->show();
-        QTimer::singleShot(2000, m_statusButton, &QPushButton::hide);
+    if (m_toolCallBanner) {
+        m_toolCallSubtitle->setText("EXEC: " + cmd.toUpper());
+        m_toolCallBanner->show();
+        QTimer::singleShot(2000, m_toolCallBanner, &QWidget::hide);
     }
 }
 
-void GeminiPanel::updateThinkingPulse() { m_pulseStep = (m_pulseStep + 1) % 4; QString dots = QString(".").repeated(m_pulseStep); QString base = m_statusButton->text().replace(".", ""); m_statusButton->setText(base + dots); }
+void GeminiPanel::updateThinkingPulse() { 
+    m_pulseStep = (m_pulseStep + 1) % 4; 
+    QString dots = QString(".").repeated(m_pulseStep); 
+    if (m_toolCallTitle) m_toolCallTitle->setText("VIORA THINKING" + dots); 
+}
 void GeminiPanel::updateContextCheckbox() { 
     if (m_mode == "ask") m_includeContextCheck->setToolTip("Attach Full Circuit Context for Explanation");
     else m_includeContextCheck->setToolTip("Attach Schematic Context"); 

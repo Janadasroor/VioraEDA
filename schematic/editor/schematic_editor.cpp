@@ -1173,7 +1173,7 @@ void SchematicEditor::onOscilloscopePropertiesRequested(const QUuid& id) {
     }
 }
 
-void SchematicEditor::openOscilloscopeWindow(OscilloscopeItem* item) {
+void SchematicEditor::openOscilloscopeWindow(SchematicItem* item) {
     if (!item) return;
     QUuid id = item->id();
     if (m_oscilloscopeWindows.contains(id)) {
@@ -1189,6 +1189,12 @@ void SchematicEditor::openOscilloscopeWindow(OscilloscopeItem* item) {
     connect(win, &OscilloscopeWindow::configChanged, this, &SchematicEditor::onOscilloscopeConfigChanged);
     connect(win, &OscilloscopeWindow::propertiesRequested, this, &SchematicEditor::onOscilloscopePropertiesRequested);
     
+    // For specific OscilloscopeItem, we can synchronize config if needed
+    if (auto* osc = dynamic_cast<OscilloscopeItem*>(item)) {
+        // Initial config sync
+        // win->setConfig(osc->config()); 
+    }
+
     // Auto-close window if the item is deleted from the schematic
     connect(item, &QObject::destroyed, win, &QWidget::close);
 
