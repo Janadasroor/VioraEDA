@@ -159,12 +159,14 @@ private:
     void createPinTable();
     void updatePinTable();
     void updateSubcktMappingTable();
+    void refreshSubcktMappingStatus();
     QWidget* createSymbolMetadataWidget();
     void openSubcircuitPicker();
     QStringList currentSymbolPinNames() const;
-     void populateLibraryTree();
-      void updateCodePreview();
-      void updatePinPreview(QPointF pos);
+    bool validateCurrentSymbolForSave(QStringList* errors, QStringList* warnings) const;
+      void populateLibraryTree();
+       void updateCodePreview();
+       void updatePinPreview(QPointF pos);
       
     // Scene & Visual Helpers
     QColor themeLineColor() const;
@@ -271,6 +273,7 @@ protected:
     QLineEdit* m_modelPathEdit = nullptr;
     QLineEdit* m_modelNameEdit = nullptr;
     QTableWidget* m_subcktMappingTable = nullptr;
+    QLabel* m_subcktMappingSummaryLabel = nullptr;
     
     // Properties panel
     class QTabWidget* m_propsTabWidget = nullptr;

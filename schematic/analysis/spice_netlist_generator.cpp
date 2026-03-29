@@ -197,6 +197,56 @@ QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warn
     return out;
 }
 
+void appendLtspiceBSourceOptionWarnings(const QString& line, QStringList* warnings) {
+    if (!warnings) return;
+
+    static const QRegularExpression bSourceRe(
+        "^\\s*(B\\S+)\\s+\\S+\\s+\\S+\\s+(?:V|I|R|P)\\s*=.*$",
+        QRegularExpression::CaseInsensitiveOption);
+    if (!bSourceRe.match(line).hasMatch()) return;
+
+    const QString trimmed = line.trimmed();
+    if (trimmed.contains(QRegularExpression("\\bic\\s*=", QRegularExpression::CaseInsensitiveOption))) {
+        warnings->append(QString("LTspice B-source instance option ic= detected and passed through unchanged: %1").arg(trimmed));
+    }
+    if (trimmed.contains(QRegularExpression("\\btripdv\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
+        trimmed.contains(QRegularExpression("\\btripdt\\s*=", QRegularExpression::CaseInsensitiveOption))) {
+        warnings->append(QString("LTspice B-source step-rejection options tripdv=/tripdt= detected and passed through unchanged: %1").arg(trimmed));
+    }
+    if (trimmed.contains(QRegularExpression("\\blaplace\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
+        trimmed.contains(QRegularExpression("\\bwindow\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
+        trimmed.contains(QRegularExpression("\\bnfft\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
+        trimmed.contains(QRegularExpression("\\bmtol\\s*=", QRegularExpression::CaseInsensitiveOption))) {
+        warnings->append(QString("LTspice B-source Laplace options detected and passed through unchanged; ngspice compatibility may differ: %1").arg(trimmed));
+    }
+}
+
+void appendLtspiceSourceOptionWarnings(const QString& line, QStringList* warnings) {
+    if (!warnings) return;
+
+    static const QRegularExpression sourceRe(
+        "^\\s*([VI]\\S*)\\s+\\S+\\s+\\S+\\s+(.+)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = sourceRe.match(line);
+    if (!match.hasMatch()) return;
+
+    const QString ref = match.captured(1).trimmed();
+    const QString rest = match.captured(2).trimmed();
+    if (!(rest.startsWith("PULSE", Qt::CaseInsensitive) || rest.startsWith("PWL", Qt::CaseInsensitive) ||
+          rest.startsWith("SINE", Qt::CaseInsensitive) || rest.startsWith("EXP", Qt::CaseInsensitive) ||
+          rest.startsWith("SFFM", Qt::CaseInsensitive))) {
+        return;
+    }
+
+    if (rest.contains(QRegularExpression("\\bTrigger\\s*=", QRegularExpression::CaseInsensitiveOption))) {
+        warnings->append(QString("LTspice triggered source restart semantics are not yet emulated for %1; Trigger= is passed through unchanged: %2").arg(ref, line.trimmed()));
+    }
+    if (rest.contains(QRegularExpression("\\btripdv\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
+        rest.contains(QRegularExpression("\\btripdt\\s*=", QRegularExpression::CaseInsensitiveOption))) {
+        warnings->append(QString("LTspice source step-rejection options tripdv=/tripdt= detected on %1 and passed through unchanged: %2").arg(ref, line.trimmed()));
+    }
+}
+
 QString rewriteLtspiceStartupSourceLine(const QString& line, QStringList* warnings = nullptr) {
     static const QString startupScaleExpr = "min(1,max(0,time/20u))";
     static const QRegularExpression simpleValueRe(
@@ -255,6 +305,9 @@ QString rewriteLtspiceStartupSourceLine(const QString& line, QStringList* warnin
 
 QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings = nullptr, bool emulateStartup = false) {
     QString out = line;
+
+    appendLtspiceBSourceOptionWarnings(out, warnings);
+    appendLtspiceSourceOptionWarnings(out, warnings);
 
     if (emulateStartup) {
         out = rewriteLtspiceStartupSourceLine(out, warnings);

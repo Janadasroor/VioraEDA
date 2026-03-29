@@ -221,7 +221,7 @@ public:
 #include "../../core/config_manager.h"
 
 namespace {
-QString resolveModelPathForEditor(const QString& rawPath, const QString& source) {
+QString resolveModelPathForEditor(const QString& rawPath, const QString& source, const QString& projectKey = QString()) {
     const QString trimmed = rawPath.trimmed();
     if (trimmed.isEmpty()) return QString();
 
@@ -231,7 +231,9 @@ QString resolveModelPathForEditor(const QString& rawPath, const QString& source)
     }
 
     if (source == "project") {
-        // Symbol editor doesn't know the project directory.
+        if (projectKey.trimmed().isEmpty()) return QString();
+        QString candidate = QDir(projectKey).filePath(trimmed);
+        if (QFileInfo::exists(candidate)) return QFileInfo(candidate).absoluteFilePath();
         return QString();
     }
 
@@ -321,6 +323,24 @@ QPair<QString, QString> classifyModelBindingPath(const QString& absolutePath, co
 
     return {QString("absolute"), cleanPath};
 }
+
+QString normalizePinNameForStatus(QString text) {
+    text = text.trimmed().toLower();
+    text.replace(QRegularExpression("[^a-z0-9]+"), "");
+    if (text == "plus" || text == "noninv" || text == "noninverting" || text == "inp" || text == "inplus") return "inplus";
+    if (text == "minus" || text == "inv" || text == "inverting" || text == "inn" || text == "inminus") return "inminus";
+    if (text == "vdd" || text == "vcc" || text == "vp" || text == "vplus" || text == "supplyplus") return "vplus";
+    if (text == "vss" || text == "vee" || text == "vn" || text == "vminus" || text == "supplyminus") return "vminus";
+    if (text == "gnd" || text == "ground" || text == "vss0") return "gnd";
+    if (text == "out" || text == "output") return "out";
+    return text;
+}
+
+struct MappingStatusInfo {
+    QString label;
+    QString detail;
+    QColor color;
+};
 }
 #include <QTableWidget>
 #include <QListWidget>
@@ -3899,13 +3919,21 @@ void SymbolEditor::onItemErased(QGraphicsItem* item) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void SymbolEditor::onSave() {
-    m_symbol.setName(m_nameEdit->text());
-    m_symbol.setDescription(m_descriptionEdit->text());
-    m_symbol.setCategory(m_categoryCombo->currentText());
-    m_symbol.setReferencePrefix(m_prefixEdit->text());
-    m_symbol.setModelSource(m_modelSourceCombo->currentData().toString());
-    m_symbol.setModelPath(m_modelPathEdit->text());
-    m_symbol.setModelName(m_modelNameEdit->text());
+    QStringList errors;
+    QStringList warnings;
+    if (!validateCurrentSymbolForSave(&errors, &warnings)) {
+        QMessageBox::warning(this, "Save Symbol", errors.join('\n'));
+        return;
+    }
+    if (!warnings.isEmpty()) {
+        const auto choice = QMessageBox::warning(this,
+                                                 "Save Symbol",
+                                                 warnings.join('\n') + "\n\nSave anyway?",
+                                                 QMessageBox::Yes | QMessageBox::No,
+                                                 QMessageBox::No);
+        if (choice != QMessageBox::Yes) return;
+    }
+    m_symbol = symbolDefinition();
     emit symbolSaved(m_symbol);
 }
 
@@ -3922,13 +3950,23 @@ void SymbolEditor::onSaveToLibrary() {
         m_nameEdit->setText(name.trimmed());
     }
 
+    QStringList errors;
+    QStringList warnings;
+    if (!validateCurrentSymbolForSave(&errors, &warnings)) {
+        QMessageBox::warning(this, "Save to Library", errors.join('\n'));
+        return;
+    }
+    if (!warnings.isEmpty()) {
+        const auto choice = QMessageBox::warning(this,
+                                                 "Save to Library",
+                                                 warnings.join('\n') + "\n\nSave anyway?",
+                                                 QMessageBox::Yes | QMessageBox::No,
+                                                 QMessageBox::No);
+        if (choice != QMessageBox::Yes) return;
+    }
+
+    m_symbol = symbolDefinition();
     m_symbol.setName(m_nameEdit->text().trimmed());
-    m_symbol.setDescription(m_descriptionEdit->text());
-    m_symbol.setCategory(m_categoryCombo->currentText());
-    m_symbol.setReferencePrefix(m_prefixEdit->text());
-    m_symbol.setModelSource(m_modelSourceCombo->currentData().toString());
-    m_symbol.setModelPath(m_modelPathEdit->text());
-    m_symbol.setModelName(m_modelNameEdit->text());
 
     const QString symBaseDir = QDir::homePath() + "/ViospiceLib/sym";
     QDir symDir(symBaseDir);
