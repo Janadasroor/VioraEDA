@@ -136,7 +136,7 @@ def _maybe_answer_average_power_direct(prompt, registry):
         )
     return None
 
-def generate(prompt="", context="", mode="schematic", history="", image_base64="", project_path="", retries=3, model=""):
+def generate(prompt="", context="", mode="schematic", history="", instructions="", image_base64="", project_path="", retries=3, model=""):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("Error: GEMINI_API_KEY environment variable not set.", file=sys.stderr)
@@ -159,6 +159,9 @@ Examples:
 To help the user find components on the canvas, use <HIGHLIGHT>Ref1,Ref2</HIGHLIGHT> tag.
 Example: "The feedback resistor <HIGHLIGHT>R5</HIGHLIGHT> sets the gain."
 """
+
+    if instructions:
+        common_instructions = f"USER CUSTOM INSTRUCTIONS:\n{instructions}\n\n" + common_instructions
 
     # Define the System Instruction
     if mode == "symbol":
@@ -329,6 +332,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", default="schematic")
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--model", default="")
+    parser.add_argument("--instructions", help="Custom system instructions", default="")
     parser.add_argument("--list-models", action="store_true")
     args = parser.parse_args()
 
@@ -345,4 +349,4 @@ if __name__ == "__main__":
             print(f"Error fetching models: {e}", file=sys.stderr)
             sys.exit(1)
 
-    generate(args.prompt, args.context, args.mode, args.history, args.image, args.project_path, args.retries, args.model)
+    generate(args.prompt, args.context, args.mode, args.history, args.instructions, args.image, args.project_path, args.retries, args.model)

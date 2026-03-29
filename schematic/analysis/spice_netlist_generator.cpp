@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QCryptographicHash>
 #include <cmath>
+#include <limits>
 #include "../../core/config_manager.h"
 #include "../../simulator/core/sim_value_parser.h"
 #include "../../simulator/mixedmode/NetlistManager.h"
@@ -123,7 +124,8 @@ struct XspicePinAssignment {
     VectorPinInfo vector;
 };
 
-QStringList buildXspiceNodeTokens(const QList<XspicePinAssignment>& assignments) {
+QStringList buildXspiceNodeTokens(const QList<XspicePinAssignment>& assignments,
+                                  bool collapseScalarInputsToVector = false) {
     struct GroupedVector {
         bool isInput = true;
         int firstOrder = 0;
@@ -204,6 +206,13 @@ QStringList buildXspiceNodeTokens(const QList<XspicePinAssignment>& assignments)
         appendScalar(scalars[scalarIndex++]);
     }
 
+    if (collapseScalarInputsToVector && inputs.size() > 1) {
+        QStringList tokens;
+        tokens.append("[" + inputs.join(" ") + "]");
+        tokens.append(outputs);
+        return tokens;
+    }
+
     return inputs + outputs;
 }
 
@@ -281,6 +290,12 @@ QString defaultXspiceModelLine(const QString& ref, const QString& codeModel) {
     return QString(".model %1 %2").arg(modelName, codeModel);
 }
 
+bool xspiceModelUsesCollapsedInputVector(const QString& codeModel) {
+    return codeModel == "d_and" || codeModel == "d_nand" ||
+           codeModel == "d_or" || codeModel == "d_nor" ||
+           codeModel == "d_xor" || codeModel == "d_xnor";
+}
+
 NetlistManager::PinDirection pinDirectionFromMetadata(const SymbolDefinition* sym, const QString& pinName, bool* hasExplicitMetadata = nullptr) {
     if (hasExplicitMetadata) *hasExplicitMetadata = false;
     if (!sym) return NetlistManager::PinDirection::INPUT;
@@ -354,6 +369,11 @@ int findMatchingParen(const QString& text, int openIndex) {
     }
     return -1;
 }
+
+QString inlinePwlFileIfNeeded(const QString& value, const QString& projectDir, QStringList* warnings = nullptr);
+bool rewriteLtspiceCurrentSourceSpecial(const QString& ref, const QString& nplus, const QString& nminus,
+                                        const QString& value, const QString& projectDir,
+                                        QString* replacement, QStringList* warnings = nullptr);
 
 bool convertLtspiceConditionToStepExpr(const QString& condition, QString* stepExpr) {
     if (!stepExpr) return false;
@@ -830,6 +850,28 @@ QString rewriteUnsupportedLtspiceTableFunction(const QString& line, QStringList*
     return out;
 }
 
+QString buildCurrentTableExpr(const QString& xExpr, const QStringList& args, QString* error = nullptr) {
+    if (args.size() < 2 || (args.size() % 2) != 0) {
+        if (error) *error = "Current-source table requires voltage/current pairs.";
+        return QString();
+    }
+
+    QString expr = args.last().trimmed();
+    for (int i = args.size() - 4; i >= 0; i -= 2) {
+        const QString x0 = args.at(i).trimmed();
+        const QString y0 = args.at(i + 1).trimmed();
+        const QString x1 = args.at(i + 2).trimmed();
+        const QString y1 = args.at(i + 3).trimmed();
+        QString segment = y1;
+        if (x0.compare(x1, Qt::CaseInsensitive) != 0) {
+            segment = QString("((%1)+((%2)-(%3))*(((%4)-(%5))/((%6)-(%7))))")
+                          .arg(y0, y1, y0, xExpr, x0, x1, x0);
+        }
+        expr = QString("if((%1)<=(%2),(%3),(%4))").arg(xExpr, x1, segment, expr);
+    }
+    return expr;
+}
+
 QString rewriteUnsupportedLtspiceStochasticFunctions(const QString& line, QStringList* warnings = nullptr) {
     QString out = line;
     struct FuncSpec { QString name; int minArgs; int maxArgs; QString replacement; };
@@ -1125,7 +1167,7 @@ QString rewriteLtspiceStartupSourceLine(const QString& line, QStringList* warnin
     return rewritten;
 }
 
-QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings = nullptr, bool emulateStartup = false) {
+QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings = nullptr, bool emulateStartup = false, const QString& projectDir = QString()) {
     QString out = line;
 
     appendLtspiceBSourceOptionWarnings(out, warnings);
@@ -1141,6 +1183,29 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
     out = rewriteLtspiceTriggeredWaveSource(out, "EXP", warnings);
     out = rewriteLtspiceTriggeredWaveSource(out, "SFFM", warnings);
     out = rewriteLtspiceVoltageSourceExtras(out, warnings);
+
+    {
+        static const QRegularExpression sourceRe(
+            "^\\s*([VI]\\S*)\\s+(\\S+)\\s+(\\S+)\\s+(.+)$",
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch sourceMatch = sourceRe.match(out);
+        if (sourceMatch.hasMatch()) {
+            const QString ref = sourceMatch.captured(1);
+            const QString nplus = sourceMatch.captured(2);
+            const QString nminus = sourceMatch.captured(3);
+            const QString prefix = QString("%1 %2 %3 ").arg(ref, nplus, nminus);
+            const QString rest = sourceMatch.captured(4).trimmed();
+            if (ref.startsWith('I', Qt::CaseInsensitive)) {
+                QString rewritten;
+                if (rewriteLtspiceCurrentSourceSpecial(ref, nplus, nminus, rest, projectDir, &rewritten, warnings)) {
+                    out = rewritten;
+                    return out;
+                }
+            }
+            const QString normalizedRest = inlinePwlFileIfNeeded(rest, projectDir, warnings);
+            out = prefix + normalizedRest;
+        }
+    }
 
     if (emulateStartup) {
         QStringList startupLines;
@@ -1657,60 +1722,489 @@ QString inferPowerVoltage(const QString& netName, const QString& valueText) {
     return "5";
 }
 
-QString inlinePwlFileIfNeeded(const QString& value, const QString& projectDir) {
-    const QString v = value.trimmed();
-    if (!v.contains("PWL", Qt::CaseInsensitive)) return value;
+struct PwlPoint {
+    double time = 0.0;
+    QString timeText;
+    QString value;
+};
 
-    QRegularExpression reFile1("PWL\\s*\\([^\\)]*FILE\\s*=\\s*\\\"([^\\\"]+)\\\"[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption);
-    QRegularExpression reFile2("PWL\\s*\\([^\\)]*FILE\\s*=\\s*([^\\)\\s]+)[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption);
-    QRegularExpression reFile3("PWL\\s+FILE\\s+\\\"([^\\\"]+)\\\"", QRegularExpression::CaseInsensitiveOption);
+QString formatPwlNumber(double value);
 
-    QString path;
-    auto m1 = reFile1.match(v);
-    if (m1.hasMatch()) path = m1.captured(1);
-    else {
-        auto m2 = reFile2.match(v);
-        if (m2.hasMatch()) path = m2.captured(1);
-        else {
-            auto m3 = reFile3.match(v);
-            if (m3.hasMatch()) path = m3.captured(1);
+QString stripOuterBraces(const QString& text) {
+    const QString trimmed = text.trimmed();
+    if (trimmed.size() >= 2 && trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        return trimmed.mid(1, trimmed.size() - 2).trimmed();
+    }
+    return trimmed;
+}
+
+QString scaledPwlExpr(const QString& expr, double scale) {
+    if (qFuzzyCompare(scale, 1.0)) return QString("(%1)").arg(expr);
+    return QString("((%1)*%2)").arg(expr, formatPwlNumber(scale));
+}
+
+QString formatPwlTimeText(const PwlPoint& point) {
+    return point.timeText.isEmpty() ? formatPwlNumber(point.time) : point.timeText;
+}
+
+bool pwlValuesEquivalent(const QString& lhs, const QString& rhs) {
+    double lhsNum = 0.0;
+    double rhsNum = 0.0;
+    if (SimValueParser::parseSpiceNumber(lhs, lhsNum) && SimValueParser::parseSpiceNumber(rhs, rhsNum)) {
+        return qFuzzyCompare(1.0 + lhsNum, 1.0 + rhsNum);
+    }
+    return lhs.trimmed().compare(rhs.trimmed(), Qt::CaseInsensitive) == 0;
+}
+
+QString stripOuterQuotes(const QString& text) {
+    if (text.size() >= 2 && ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('\'') && text.endsWith('\'')))) {
+        return text.mid(1, text.size() - 2);
+    }
+    return text;
+}
+
+QString formatPwlNumber(double value) {
+    return QString::number(value, 'g', 12);
+}
+
+QStringList tokenizePwlBody(const QString& text) {
+    QStringList tokens;
+    QString current;
+    int parenDepth = 0;
+    int braceDepth = 0;
+    bool inQuotes = false;
+    QChar quoteChar;
+
+    for (int i = 0; i < text.size(); ++i) {
+        const QChar ch = text.at(i);
+        if (inQuotes) {
+            current += ch;
+            if (ch == quoteChar) inQuotes = false;
+            continue;
         }
-    }
+        if (ch == '\'' || ch == '"') {
+            inQuotes = true;
+            quoteChar = ch;
+            current += ch;
+            continue;
+        }
+        if (ch == '(') ++parenDepth;
+        else if (ch == ')' && parenDepth > 0) --parenDepth;
+        else if (ch == '{') ++braceDepth;
+        else if (ch == '}' && braceDepth > 0) --braceDepth;
 
-    if (path.isEmpty()) return value;
-    QFileInfo fi(path);
-    if (fi.isRelative() && !projectDir.isEmpty()) {
-        path = QDir(projectDir).filePath(path);
+        if ((ch.isSpace() || ch == ',') && parenDepth == 0 && braceDepth == 0) {
+            if (!current.trimmed().isEmpty()) tokens.append(current.trimmed());
+            current.clear();
+            continue;
+        }
+        current += ch;
     }
+    if (!current.trimmed().isEmpty()) tokens.append(current.trimmed());
+    return tokens;
+}
+
+bool loadPwlPointsFromFile(const QString& fileToken, const QString& projectDir, bool scopeData,
+                           QList<PwlPoint>* points, QString* error) {
+    if (!points) return false;
+    QString path = stripOuterQuotes(fileToken.trimmed());
+    QFileInfo fi(path);
+    if (fi.isRelative() && !projectDir.isEmpty()) path = QDir(projectDir).filePath(path);
 
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return value;
+        if (error) *error = QString("Could not open LTspice PWL file '%1'.").arg(fileToken);
+        return false;
     }
 
-    QStringList tokens;
+    QString allText;
     QTextStream in(&file);
     while (!in.atEnd()) {
-        QString line = in.readLine().trimmed();
-        if (line.isEmpty()) continue;
-        if (line.startsWith("*") || line.startsWith("#") || line.startsWith(";")) continue;
-        QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        if (parts.size() >= 2) {
-            tokens << parts[0] << parts[1];
+        QString line = in.readLine();
+        if (!scopeData) {
+            const int semicolon = line.indexOf(';');
+            const int hash = line.indexOf('#');
+            const int star = line.trimmed().startsWith('*') ? 0 : -1;
+            int commentPos = -1;
+            if (semicolon >= 0) commentPos = semicolon;
+            if (hash >= 0 && (commentPos < 0 || hash < commentPos)) commentPos = hash;
+            if (star == 0) commentPos = 0;
+            if (commentPos == 0) continue;
+            if (commentPos > 0) line = line.left(commentPos);
+        }
+        allText += line;
+        allText += ' ';
+    }
+
+    const QStringList tokens = tokenizePwlBody(allText);
+    if (tokens.size() < 2 || (tokens.size() % 2) != 0) {
+        if (error) *error = QString("LTspice PWL file '%1' does not contain time/value pairs.").arg(fileToken);
+        return false;
+    }
+
+    QMap<double, QList<double>> scopedBuckets;
+    for (int i = 0; i < tokens.size(); i += 2) {
+        double timeValue = 0.0;
+        double yValue = 0.0;
+        if (!SimValueParser::parseSpiceNumber(tokens.at(i), timeValue) || !SimValueParser::parseSpiceNumber(tokens.at(i + 1), yValue)) {
+            if (error) *error = QString("LTspice PWL file '%1' contains non-numeric data unsupported by VioSpice.").arg(fileToken);
+            return false;
+        }
+        if (scopeData) {
+            if (timeValue < 0.0) continue;
+            scopedBuckets[timeValue].append(yValue);
+        } else {
+            points->append({timeValue, formatPwlNumber(timeValue), tokens.at(i + 1)});
         }
     }
-    file.close();
 
-    if (tokens.isEmpty()) return value;
-
-    QString inlined = QString("PWL(%1)").arg(tokens.join(' '));
-
-    QRegularExpression reRepeat("\\bR\\s*=\\s*[-+]?\\d*\\.?\\d+|\\bREPEAT\\b", QRegularExpression::CaseInsensitiveOption);
-    if (reRepeat.match(v).hasMatch()) {
-        inlined += " r=0";
+    if (scopeData) {
+        for (auto it = scopedBuckets.cbegin(); it != scopedBuckets.cend(); ++it) {
+            double avg = 0.0;
+            for (double v : it.value()) avg += v;
+            avg /= static_cast<double>(it.value().size());
+            points->append({it.key(), formatPwlNumber(it.key()), formatPwlNumber(avg)});
+        }
     }
 
-    return inlined;
+    return !points->isEmpty();
+}
+
+bool loadCurrentTablePairsFromFile(const QString& fileToken, const QString& projectDir, QStringList* pairs, QString* error) {
+    if (!pairs) return false;
+    QString path = stripOuterQuotes(fileToken.trimmed());
+    QFileInfo fi(path);
+    if (fi.isRelative() && !projectDir.isEmpty()) path = QDir(projectDir).filePath(path);
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error) *error = QString("Could not open LTspice current-source table file '%1'.").arg(fileToken);
+        return false;
+    }
+
+    QString allText;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        const int semicolon = line.indexOf(';');
+        const int hash = line.indexOf('#');
+        const int star = line.trimmed().startsWith('*') ? 0 : -1;
+        int commentPos = -1;
+        if (semicolon >= 0) commentPos = semicolon;
+        if (hash >= 0 && (commentPos < 0 || hash < commentPos)) commentPos = hash;
+        if (star == 0) commentPos = 0;
+        if (commentPos == 0) continue;
+        if (commentPos > 0) line = line.left(commentPos);
+        allText += line;
+        allText += ' ';
+    }
+
+    *pairs = tokenizePwlBody(allText);
+    if (pairs->size() < 2 || (pairs->size() % 2) != 0) {
+        if (error) *error = QString("LTspice current-source table file '%1' does not contain voltage/current pairs.").arg(fileToken);
+        return false;
+    }
+    return true;
+}
+
+QString buildStepApproxPwl(const QString& initialValue, const QStringList& stepValues) {
+    QStringList tokens;
+    const QString settleTime = "1m";
+    const QString rampTime = "10u";
+
+    QString currentTime = "0";
+    QString activeValue = initialValue.trimmed();
+    tokens << currentTime << activeValue;
+    for (const QString& nextValue : stepValues) {
+        tokens << QString("{%1}").arg(currentTime.isEmpty() ? settleTime : currentTime + "+" + settleTime) << activeValue;
+        currentTime = QString("{%1+%2+%3}").arg(currentTime, settleTime, rampTime);
+        activeValue = nextValue.trimmed();
+        tokens << currentTime << activeValue;
+    }
+    return QString("PWL(%1)").arg(tokens.join(' '));
+}
+
+bool rewriteLtspiceCurrentSourceSpecial(const QString& ref, const QString& nplus, const QString& nminus,
+                                        const QString& value, const QString& projectDir,
+                                        QString* replacement, QStringList* warnings) {
+    if (!replacement) return false;
+    const QString trimmed = value.trimmed();
+
+    {
+        static const QRegularExpression resistiveRe(R"(^R\s*=\s*(.+)$)", QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = resistiveRe.match(trimmed);
+        if (m.hasMatch()) {
+            const QString rval = m.captured(1).trimmed();
+            *replacement = QString("R__ILOAD_%1 %2 %3 %4").arg(ref, nplus, nminus, rval);
+            if (warnings) warnings->append(QString("Rewrote LTspice current-source R= load on %1 into an equivalent resistor for ngspice.").arg(ref));
+            return true;
+        }
+    }
+
+    {
+        static const QRegularExpression tableRe(R"(^(?:tbl|table)\s*=\s*(.+)$)", QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = tableRe.match(trimmed);
+        if (m.hasMatch()) {
+            QString spec = m.captured(1).trimmed();
+            QStringList args;
+            if (spec.startsWith('(') && spec.endsWith(')')) {
+                args = splitTopLevelSpiceArgs(spec.mid(1, spec.size() - 2));
+            } else if ((spec.startsWith('"') && spec.endsWith('"')) || (!spec.contains(',') && !spec.contains('(') && !spec.contains('{'))) {
+                QString error;
+                if (!loadCurrentTablePairsFromFile(spec, projectDir, &args, &error)) {
+                    if (warnings && !error.isEmpty()) warnings->append(error);
+                    return false;
+                }
+            } else if (spec.startsWith('{') && spec.endsWith('}')) {
+                if (warnings) warnings->append(QString("LTspice current-source table filename parameter on %1 is not yet supported by VioSpice.").arg(ref));
+                return false;
+            }
+
+            QString error;
+            const QString expr = buildCurrentTableExpr(QString("V(%1,%2)").arg(nplus, nminus), args, &error);
+            if (expr.isEmpty()) {
+                if (warnings && !error.isEmpty()) warnings->append(error);
+                return false;
+            }
+            QString bref = ref;
+            if (!bref.startsWith('B', Qt::CaseInsensitive)) bref = "B__ITBL_" + ref;
+            *replacement = QString("%1 %2 %3 I={%4}").arg(bref, nplus, nminus, expr);
+            if (warnings) warnings->append(QString("Rewrote LTspice current-source tbl/table on %1 into a behavioral current source for ngspice.").arg(ref));
+            return true;
+        }
+    }
+
+    {
+        static const QRegularExpression stepRe(R"(^(.+?)\s+step\s*\((.*)\)\s*(load)?\s*$)", QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = stepRe.match(trimmed);
+        if (m.hasMatch()) {
+            const QString baseValue = m.captured(1).trimmed();
+            const QStringList stepValues = splitTopLevelSpiceArgs(m.captured(2));
+            if (!stepValues.isEmpty()) {
+                *replacement = QString("%1 %2 %3 %4").arg(ref, nplus, nminus, buildStepApproxPwl(baseValue, stepValues));
+                if (warnings) warnings->append(QString("Approximated LTspice current-source step(...) on %1 with a heuristic PWL load sequence; LTspice steady-state step timing is not fully reproduced.").arg(ref));
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool appendPwlPointList(const QString& listText, double timeScale, double valueScale, double baseTime, QList<PwlPoint>* points,
+                        QString* error) {
+    if (!points) return false;
+    const QStringList items = splitTopLevelSpiceArgs(listText);
+    if (items.size() < 2 || (items.size() % 2) != 0) {
+        if (error) *error = "LTspice PWL point list must contain time/value pairs.";
+        return false;
+    }
+
+    double previousTime = points->isEmpty() ? baseTime : points->last().time;
+    QString previousTimeText = points->isEmpty() ? formatPwlNumber(baseTime) : formatPwlTimeText(points->last());
+    for (int i = 0; i < items.size(); i += 2) {
+        const QString timeToken = items.at(i).trimmed();
+        const QString valueToken = items.at(i + 1).trimmed();
+        double parsedTime = 0.0;
+        double parsedValue = 0.0;
+        const QString normalizedTime = timeToken.startsWith('+') ? timeToken.mid(1).trimmed() : timeToken;
+        const bool timeIsNumeric = SimValueParser::parseSpiceNumber(normalizedTime, parsedTime);
+        if (!SimValueParser::parseSpiceNumber(valueToken, parsedValue)) {
+            if (error) *error = QString("Unsupported LTspice PWL expression '%1, %2'; VioSpice currently requires numeric values.").arg(timeToken, valueToken);
+            return false;
+        }
+
+        if (timeIsNumeric) {
+            double finalTime = timeToken.startsWith('+') ? previousTime + (parsedTime * timeScale) : baseTime + (parsedTime * timeScale);
+            previousTime = finalTime;
+            previousTimeText = formatPwlNumber(finalTime);
+            points->append({finalTime, previousTimeText, formatPwlNumber(parsedValue * valueScale)});
+            continue;
+        }
+
+        if (!(normalizedTime.startsWith('{') && normalizedTime.endsWith('}'))) {
+            if (error) *error = QString("Unsupported LTspice PWL time expression '%1'; VioSpice currently supports numeric times or brace expressions.").arg(timeToken);
+            return false;
+        }
+
+        const QString expr = stripOuterBraces(normalizedTime);
+        QString finalTimeText;
+        if (timeToken.startsWith('+')) {
+            finalTimeText = QString("{%1+%2}").arg(previousTimeText, scaledPwlExpr(expr, timeScale));
+        } else {
+            const QString scaledExpr = scaledPwlExpr(expr, timeScale);
+            finalTimeText = qFuzzyIsNull(baseTime) ? QString("{%1}").arg(scaledExpr)
+                                                  : QString("{%1+%2}").arg(formatPwlNumber(baseTime), scaledExpr);
+        }
+        previousTime = std::numeric_limits<double>::quiet_NaN();
+        previousTimeText = finalTimeText;
+        points->append({previousTime, finalTimeText, formatPwlNumber(parsedValue * valueScale)});
+    }
+    return true;
+}
+
+bool appendExpandedPwlSpecs(const QStringList& tokens, int* index, double timeScale, double valueScale, double baseTime,
+                            QList<PwlPoint>* points, QStringList* warnings, const QString& projectDir, QString* error) {
+    if (!index || !points) return false;
+
+    auto isPwlKeyword = [](const QString& text) {
+        return text.compare("ENDREPEAT", Qt::CaseInsensitive) == 0 ||
+               text.compare("REPEAT", Qt::CaseInsensitive) == 0 ||
+               text.compare("FOR", Qt::CaseInsensitive) == 0 ||
+               text.compare("FOREVER", Qt::CaseInsensitive) == 0 ||
+               text.startsWith("FILE=", Qt::CaseInsensitive) ||
+               text.startsWith("SCOPEDATA=", Qt::CaseInsensitive);
+    };
+
+    while (*index < tokens.size()) {
+        const QString token = tokens.at(*index);
+        if (token.compare("ENDREPEAT", Qt::CaseInsensitive) == 0) {
+            ++(*index);
+            return true;
+        }
+        if (token.startsWith("(") && token.endsWith(")")) {
+            if (!appendPwlPointList(token.mid(1, token.size() - 2), timeScale, valueScale, baseTime, points, error)) return false;
+            ++(*index);
+            continue;
+        }
+        if (token.startsWith("FILE=", Qt::CaseInsensitive) || token.startsWith("SCOPEDATA=", Qt::CaseInsensitive)) {
+            QList<PwlPoint> filePoints;
+            const bool scopeData = token.startsWith("SCOPEDATA=", Qt::CaseInsensitive);
+            const QString fileToken = token.mid(scopeData ? 10 : 5);
+            if (!loadPwlPointsFromFile(fileToken, projectDir, scopeData, &filePoints, error)) return false;
+            if (filePoints.isEmpty()) {
+                if (error) *error = QString("LTspice PWL %1 file '%2' contained no usable points.").arg(scopeData ? "SCOPEDATA" : "FILE", fileToken);
+                return false;
+            }
+            const double origin = points->isEmpty() ? baseTime : points->last().time;
+            for (const PwlPoint& point : filePoints) {
+                double scaledValue = 0.0;
+                if (!SimValueParser::parseSpiceNumber(point.value, scaledValue)) {
+                    if (error) *error = QString("LTspice PWL file '%1' contains unsupported non-numeric values.").arg(fileToken);
+                    return false;
+                }
+                const double finalTime = origin + (point.time * timeScale);
+                points->append({finalTime, formatPwlNumber(finalTime), formatPwlNumber(scaledValue * valueScale)});
+            }
+            ++(*index);
+            continue;
+        }
+        if (token.compare("REPEAT", Qt::CaseInsensitive) == 0) {
+            ++(*index);
+            if (*index >= tokens.size()) {
+                if (error) *error = "Incomplete LTspice PWL REPEAT block.";
+                return false;
+            }
+            bool repeatForever = false;
+            int repeatCount = 0;
+            if (tokens.at(*index).compare("FOREVER", Qt::CaseInsensitive) == 0) {
+                repeatForever = true;
+                ++(*index);
+            } else {
+                if (tokens.at(*index).compare("FOR", Qt::CaseInsensitive) == 0) ++(*index);
+                if (*index >= tokens.size()) {
+                    if (error) *error = "Incomplete LTspice PWL REPEAT FOR count.";
+                    return false;
+                }
+                double parsedCount = 0.0;
+                if (!SimValueParser::parseSpiceNumber(tokens.at(*index), parsedCount) || parsedCount < 0.0) {
+                    if (error) *error = QString("Unsupported LTspice PWL repeat count '%1'.").arg(tokens.at(*index));
+                    return false;
+                }
+                repeatCount = static_cast<int>(std::llround(parsedCount));
+                ++(*index);
+            }
+
+            QList<PwlPoint> repeatedBody;
+            int nestedIndex = *index;
+            if (!appendExpandedPwlSpecs(tokens, &nestedIndex, timeScale, valueScale, 0.0, &repeatedBody, warnings, projectDir, error)) return false;
+            *index = nestedIndex;
+            if (repeatedBody.isEmpty()) continue;
+
+            if (repeatForever) {
+                if (warnings) warnings->append("LTspice PWL REPEAT FOREVER is not fully supported by VioSpice; keeping a single waveform period.");
+                repeatCount = 1;
+            }
+            if (repeatCount > 1 && !repeatedBody.isEmpty() && qFuzzyIsNull(repeatedBody.first().time) &&
+                !pwlValuesEquivalent(repeatedBody.first().value, repeatedBody.last().value)) {
+                if (error) *error = "Ill-formed LTspice PWL REPEAT block: first repeated time is zero but first and last values differ.";
+                return false;
+            }
+            const double span = repeatedBody.last().time;
+            for (int rep = 0; rep < repeatCount; ++rep) {
+                const double origin = points->isEmpty() ? baseTime : points->last().time;
+                for (const PwlPoint& point : repeatedBody) {
+                    points->append({origin + point.time, formatPwlNumber(origin + point.time), point.value});
+                }
+                if ((!std::isfinite(span) || span <= 0.0) && rep + 1 < repeatCount) {
+                    if (error) *error = "Ill-formed LTspice PWL REPEAT block with zero span.";
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        if (!isPwlKeyword(token)) {
+            QStringList pointTokens;
+            int pointIndex = *index;
+            while (pointIndex < tokens.size() && !isPwlKeyword(tokens.at(pointIndex))) {
+                pointTokens.append(tokens.at(pointIndex));
+                ++pointIndex;
+            }
+            if (!appendPwlPointList(pointTokens.join(','), timeScale, valueScale, baseTime, points, error)) return false;
+            *index = pointIndex;
+            continue;
+        }
+
+        if (error) *error = QString("Unsupported LTspice PWL token '%1'.").arg(token);
+        return false;
+    }
+    return true;
+}
+
+QString inlinePwlFileIfNeeded(const QString& value, const QString& projectDir, QStringList* warnings) {
+    const QString v = value.trimmed();
+    if (!v.contains("PWL", Qt::CaseInsensitive)) return value;
+
+    QRegularExpression re(R"(^PWL\s*(?:\((.*)\)|(.*))$)", QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = re.match(v);
+    if (!match.hasMatch()) return value;
+
+    const QString body = !match.captured(1).isNull() && !match.captured(1).isEmpty() ? match.captured(1).trimmed() : match.captured(2).trimmed();
+    QStringList tokens = tokenizePwlBody(body);
+    if (tokens.isEmpty()) return value;
+
+    double timeScale = 1.0;
+    double valueScale = 1.0;
+    while (!tokens.isEmpty()) {
+        const QString token = tokens.first();
+        if (token.startsWith("TIME_SCALE_FACTOR=", Qt::CaseInsensitive)) {
+            if (!SimValueParser::parseSpiceNumber(token.mid(18), timeScale)) return value;
+            tokens.removeFirst();
+            continue;
+        }
+        if (token.startsWith("VALUE_SCALE_FACTOR=", Qt::CaseInsensitive)) {
+            if (!SimValueParser::parseSpiceNumber(token.mid(19), valueScale)) return value;
+            tokens.removeFirst();
+            continue;
+        }
+        break;
+    }
+
+    QList<PwlPoint> points;
+    int index = 0;
+    QString error;
+    if (!appendExpandedPwlSpecs(tokens, &index, timeScale, valueScale, 0.0, &points, warnings, projectDir, &error) || index != tokens.size()) {
+        if (warnings && !error.isEmpty()) warnings->append(QString("Could not fully translate LTspice PWL syntax '%1': %2").arg(v, error));
+        return value;
+    }
+    if (points.isEmpty()) return value;
+
+    QStringList flatTokens;
+    for (const PwlPoint& point : points) {
+        flatTokens << formatPwlTimeText(point) << point.value;
+    }
+    return QString("PWL(%1)").arg(flatTokens.join(' '));
 }
 
 QString formatPwlValueForNetlist(const QString& value, int maxLen = 140) {
@@ -2055,7 +2549,7 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
 
         summary.hasElementCards = true;
         const bool emulateStartupOnLine = summary.hasLtspiceStartup && subcktStack.isEmpty();
-        const QString rewrittenLine = rewriteLtspiceDirectiveLine(line, &summary.warnings, emulateStartupOnLine);
+        const QString rewrittenLine = rewriteLtspiceDirectiveLine(line, &summary.warnings, emulateStartupOnLine, projectDir);
         if (rewrittenLine.contains("if(", Qt::CaseInsensitive)) {
             summary.warnings.append(QString("LTspice-style if(...) expression remains in line %1 and may fail in ngspice.").arg(lineNo));
         }
@@ -2147,7 +2641,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                             }
 
                             const bool emulateStartupOnLine = summary.hasLtspiceStartup && subcktDepth == 0;
-                            QString lineToWrite = rewriteLtspiceDirectiveLine(trimmedCmdLine, &directiveWarnings, emulateStartupOnLine);
+                            QString lineToWrite = rewriteLtspiceDirectiveLine(trimmedCmdLine, &directiveWarnings, emulateStartupOnLine, projectDir);
         if (trimmedCmdLine.startsWith(".mean", Qt::CaseInsensitive)) {
             const QString converted = normalizeMeanDirective(trimmedCmdLine);
             if (converted != trimmedCmdLine) {
@@ -2671,7 +3165,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         // --- SPICE Mapper Logic ---
         value = comp.value;
         if (!comp.spiceModel.isEmpty()) value = comp.spiceModel;
-        value = inlinePwlFileIfNeeded(value, projectDir);
+        value = inlinePwlFileIfNeeded(value, projectDir, nullptr);
         value = formatPwlValueForNetlist(value);
         QStringList nodes;
         const SimSubcircuit* activeSub = nullptr;
@@ -2910,7 +3404,8 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                     assignments.last().isInput = false;
                 }
 
-                nodes = buildXspiceNodeTokens(assignments);
+                const QString pendingCodeModel = normalizeXspiceModelAlias(value, comp.typeName);
+                nodes = buildXspiceNodeTokens(assignments, xspiceModelUsesCollapsedInputVector(pendingCodeModel));
             } else {
                 for (const QString& pk : sortedKeys) {
                     QString net = pins[pk];
@@ -2950,6 +3445,12 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         if (isCurrentSource) {
             VoltageParasitics paras = stripVoltageParasitics(value);
             value = paras.value;
+            QString rewrittenCurrentSource;
+            if (rewriteLtspiceCurrentSourceSpecial(ref, nodes.value(0, "0"), nodes.value(1, "0"), value, projectDir,
+                                                   &rewrittenCurrentSource, &directiveWarnings)) {
+                netlist += rewrittenCurrentSource + "\n";
+                continue;
+            }
         }
 
         const bool isBehavioralCurrentSource = (comp.typeName.compare("Current_Source_Behavioral", Qt::CaseInsensitive) == 0) ||
@@ -3702,7 +4203,8 @@ QString SpiceNetlistGenerator::normalizeXspiceGateModelAlias(const QString& rawT
 }
 
 QStringList SpiceNetlistGenerator::buildXspiceNodeTokensForPins(const QMap<QString, QString>& pins,
-                                                                const Flux::Model::SymbolDefinition* symbol) {
+                                                                const Flux::Model::SymbolDefinition* symbol,
+                                                                bool collapseScalarInputsToVector) {
     QStringList sortedKeys = pins.keys();
     std::sort(sortedKeys.begin(), sortedKeys.end(), naturalPinLessThan);
 
@@ -3729,7 +4231,7 @@ QStringList SpiceNetlistGenerator::buildXspiceNodeTokensForPins(const QMap<QStri
         assignments.append(assignment);
     }
 
-    return buildXspiceNodeTokens(assignments);
+    return buildXspiceNodeTokens(assignments, collapseScalarInputsToVector);
 }
 
 QString SpiceNetlistGenerator::formatValue(double value) {

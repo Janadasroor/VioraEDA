@@ -50,9 +50,13 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
                             typeName.compare("pmos", Qt::CaseInsensitive) == 0 ||
                             typeName.compare("pmos4", Qt::CaseInsensitive) == 0;
     const bool isMesfet = typeName.compare("mesfet", Qt::CaseInsensitive) == 0;
+    const bool isSpecializedItem = (typeName == "Tuning Slider" || 
+                                    typeName == "Oscilloscope Instrument" ||
+                                    typeName == "Logic Analyzer" ||
+                                    typeName == "Signal Generator");
 
-    // Prefer external symbols if they exist (override built-ins), except for power, source and explicit JFET types.
-    if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet && !isBjtAlias && !isMosAlias && !isMesfet) {
+    // Prefer external symbols if they exist (override built-ins), except for power, source, instruments and explicit JFET types.
+    if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet && !isBjtAlias && !isMosAlias && !isMesfet && !isSpecializedItem) {
         if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(typeName)) {
             item = new GenericComponentItem(*def, parent);
             item->setPos(pos);

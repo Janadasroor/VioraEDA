@@ -6,6 +6,8 @@
 #include "gemini_bridge.h"
 #include "../schematic/analysis/net_manager.h"
 
+#include <QDebug>
+
 #include <QtQuickWidgets/QQuickWidget>
 #include <QtQml/QQmlContext>
 #include <QtQml/QQmlEngine>
@@ -114,6 +116,7 @@ void GeminiPanel::setUndoStack(QUndoStack* stack) {
 }
 
 void GeminiPanel::onBridgeSendMessage(const QString& text) {
+    qDebug() << "[GeminiPanel] onBridgeSendMessage:" << text;
     // Update title if this is likely the start of a conversation
     if (m_bridge && m_bridge->conversationTitle() == "VIORA AI") {
         QString title = text;
@@ -124,6 +127,7 @@ void GeminiPanel::onBridgeSendMessage(const QString& text) {
 }
 
 void GeminiPanel::onBridgeStopRequest() {
+    qDebug() << "[GeminiPanel] onBridgeStopRequest";
     if (m_process && m_process->state() != QProcess::NotRunning) {
         m_process->kill();
     }
@@ -132,10 +136,12 @@ void GeminiPanel::onBridgeStopRequest() {
 }
 
 void GeminiPanel::onBridgeRefreshModelsRequest() {
+    qDebug() << "[GeminiPanel] onBridgeRefreshModelsRequest";
     refreshModelList();
 }
 
 void GeminiPanel::onBridgeCloseRequest() {
+    qDebug() << "[GeminiPanel] onBridgeCloseRequest";
     // Try to find the parent dock widget to hide
     QWidget* p = parentWidget();
     while (p) {
@@ -149,11 +155,11 @@ void GeminiPanel::onBridgeCloseRequest() {
 }
 
 void GeminiPanel::clearHistory() {
+    qDebug() << "[GeminiPanel] clearHistory";
     if (m_process && m_process->state() != QProcess::NotRunning) {
         m_process->kill();
     }
     m_history.clear();
-    if (m_bridge) m_bridge->clearHistory();
     m_isWorking = false;
     if (m_bridge) m_bridge->setWorking(false);
     
@@ -161,7 +167,11 @@ void GeminiPanel::clearHistory() {
 }
 
 void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
-    if (m_isWorking) return;
+    qDebug() << "[GeminiPanel] askPrompt:" << text;
+    if (m_isWorking) {
+        qDebug() << "[GeminiPanel] askPrompt: Busy (m_isWorking is true)";
+        return;
+    }
     
     QString key = ConfigManager::instance().geminiApiKey().trimmed();
     if (key.isEmpty()) {
@@ -189,6 +199,17 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     QString instructions = gatherInstructions();
     if (!instructions.isEmpty()) args << "--instructions" << instructions;
 
+    if (!m_history.isEmpty()) {
+        QJsonArray histArray;
+        for (const auto& m : m_history) {
+            QJsonObject obj;
+            obj["role"] = m["role"].toString();
+            obj["text"] = m["content"].toString(); // gemini_query expects 'text'
+            histArray.append(obj);
+        }
+        args << "--history" << QJsonDocument(histArray).toJson(QJsonDocument::Compact);
+    }
+
     if (m_process) {
         m_process->deleteLater();
     }
@@ -198,6 +219,14 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     m_process->setProcessEnvironment(env);
 
     connect(m_process, &QProcess::readyReadStandardOutput, this, &GeminiPanel::onProcessReadyRead);
+    connect(m_process, &QProcess::readyReadStandardError, this, [this]() {
+        if (m_process) {
+            QByteArray err = m_process->readAllStandardError();
+            if (!err.isEmpty()) {
+                qDebug() << "[GeminiPanel] stderr:" << err.trimmed();
+            }
+        }
+    });
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &GeminiPanel::onProcessFinished);
 
     QString sDir = QCoreApplication::applicationDirPath() + "/../python/scripts";
@@ -208,6 +237,7 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     m_responseBuffer.clear();
     m_leftover.clear();
     
+    qDebug() << "[GeminiPanel] Executing:" << py << sPath << args.join(" ");
     m_process->start(py, QStringList() << sPath << args);
 }
 
@@ -254,7 +284,10 @@ void GeminiPanel::onProcessFinished(int exitCode) {
     }
     
     if (exitCode != 0) {
+        qDebug() << "[GeminiPanel] Process failed with exit code" << exitCode;
         reportError("Process Error", "AI process terminated unexpectedly.", false);
+    } else {
+        qDebug() << "[GeminiPanel] Process finished successfully.";
     }
     
     saveHistory();

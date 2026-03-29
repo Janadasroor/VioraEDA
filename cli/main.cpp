@@ -62,6 +62,7 @@
 #endif
 #include "flux/core/flux_python.h"
 #include "schematic/analysis/spice_netlist_generator.h"
+#include "simulator/bridge/sim_schematic_bridge.h"
 #include "core/simulation_manager.h"
 #include "simulator/bridge/sim_manager.h"
 #include "simulator/core/sim_value_parser.h"

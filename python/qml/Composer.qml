@@ -11,7 +11,7 @@ Rectangle {
     anchors.bottomMargin: 20
     
     radius: 16
-    color: geminiBridge.glassBackground
+    color: geminiBridge ? geminiBridge.glassBackground : "transparent"
     border.color: "#334155"
     border.width: 1
 
@@ -27,7 +27,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             height: 24
-            visible: geminiBridge.isWorking
+            visible: geminiBridge ? geminiBridge.isWorking : false
             color: "transparent"
 
             RowLayout {
@@ -41,7 +41,7 @@ Rectangle {
                 }
 
                 Text {
-                    text: geminiBridge.thinkingText || "VIORA THINKING..."
+                    text: geminiBridge ? (geminiBridge.thinkingText || "VIORA THINKING...") : ""
                     color: "#3b82f6"
                     font.pixelSize: 11
                     font.bold: true
@@ -99,7 +99,7 @@ Rectangle {
                     text: "↻"
                     ToolTip.visible: hovered
                     ToolTip.text: "Refresh Models"
-                    onClicked: geminiBridge.refreshModels()
+                    onClicked: if (geminiBridge) geminiBridge.refreshModels()
                     font.pixelSize: 14
                     font.bold: true
                     
@@ -123,9 +123,9 @@ Rectangle {
                 // Model Selector
                 ComboBox {
                     id: modelSelector
-                    model: geminiBridge.availableModels
-                    currentIndex: model.indexOf(geminiBridge.currentModel)
-                    onActivated: (index) => geminiBridge.currentModel = model[index]
+                    model: geminiBridge ? geminiBridge.availableModels : []
+                    currentIndex: geminiBridge ? model.indexOf(geminiBridge.currentModel) : -1
+                    onActivated: (index) => { if (geminiBridge) geminiBridge.currentModel = model[index] }
                     Layout.preferredWidth: 100
                     
                     contentItem: Text {
@@ -189,7 +189,7 @@ Rectangle {
                 Button {
                     id: auditBtn
                     text: "AUDIT"
-                    visible: !geminiBridge.isWorking
+                    visible: geminiBridge ? !geminiBridge.isWorking : false
                     onClicked: composerRoot.sendMessage("Please provide a comprehensive design audit of this circuit, focusing on component selection, power dissipation, and potential reliability issues.")
                     font.pixelSize: 9
                     font.bold: true
@@ -225,7 +225,7 @@ Rectangle {
                 Button {
                     id: stopBtn
                     text: "STOP"
-                    visible: geminiBridge.isWorking
+                    visible: geminiBridge ? geminiBridge.isWorking : false
                     onClicked: composerRoot.stopRun()
                     font.pixelSize: 10
                     font.bold: true
@@ -249,7 +249,7 @@ Rectangle {
                 Button {
                     id: sendBtn
                     text: "SEND"
-                    visible: !geminiBridge.isWorking
+                    visible: geminiBridge ? !geminiBridge.isWorking : true
                     enabled: inputField.text.trim() !== ""
                     onClicked: {
                         if (inputField.text.trim() !== "") {

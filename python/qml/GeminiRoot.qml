@@ -49,25 +49,26 @@ Rectangle {
     // Floating Composer (as designed in Composer.qml)
     Composer {
         id: composer
-        onSendMessage: (text) => geminiBridge.sendMessage(text)
+        onSendMessage: (msg) => geminiBridge.sendMessage(msg)
         onStopRun: geminiBridge.stopRun()
+    }
+
+    function updateMessages() {
+        chatModel.clear();
+        let msgs = geminiBridge.messages;
+        for (let i = 0; i < msgs.length; ++i) {
+            chatModel.append(msgs[i]);
+        }
     }
 
     // Connect bridge signals to update our local model
     Connections {
         target: geminiBridge
-        
-        function onMessagesChanged() {
-            chatModel.clear();
-            let msgs = geminiBridge.messages;
-            for (let i = 0; i < msgs.length; ++i) {
-                chatModel.append(msgs[i]);
-            }
-        }
+        onMessagesChanged: updateMessages()
     }
 
     // Initial load
     Component.onCompleted: {
-        onMessagesChanged();
+        updateMessages();
     }
 }
