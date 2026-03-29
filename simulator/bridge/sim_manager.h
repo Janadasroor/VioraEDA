@@ -78,6 +78,7 @@ private:
     QList<PendingStepRun> m_pendingStepRuns;
     SimResults m_stepSweepResults;
     QString m_activeStepLabel;
+    QString m_activeNetlistText;
     int m_completedStepRuns = 0;
 
     QGraphicsScene* m_rtScene = nullptr;

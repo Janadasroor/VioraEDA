@@ -18,43 +18,69 @@ TuningSliderSymbolItem::~TuningSliderSymbolItem() {
 }
 
 QRectF TuningSliderSymbolItem::boundingRect() const {
-    return QRectF(-5, -15, m_width + 10, m_height + 25);
+    return QRectF(-5, -5, m_width + 10, m_height + 10);
 }
 
 void TuningSliderSymbolItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget*) {
     painter->setRenderHint(QPainter::Antialiasing);
 
-    // Glassy Background
-    QLinearGradient grad(0, 0, 0, m_height);
-    grad.setColorAt(0, QColor(45, 45, 55, 220));
-    grad.setColorAt(1, QColor(30, 30, 40, 240));
+    QRectF rect(0, 0, m_width, m_height);
     
-    painter->setBrush(grad);
-    painter->setPen(QPen(isSelected() ? QColor(59, 130, 246) : QColor(255, 255, 255, 60), 1.5));
-    painter->drawRoundedRect(0, 0, m_width, m_height, 6, 6);
+    // Instrument Body (Professional Slate Gray)
+    painter->setBrush(QColor(45, 45, 55));
+    painter->setPen(QPen(isSelected() ? QColor(59, 130, 246) : Qt::white, 2));
+    painter->drawRoundedRect(rect.adjusted(1, 1, -1, -1), 5, 5);
 
-    // Title / Reference
-    painter->setPen(Qt::white);
+    // Top Header Accent
+    painter->setBrush(QColor(60, 60, 70));
+    painter->setPen(Qt::NoPen);
+    painter->drawRoundedRect(QRectF(1, 1, m_width - 2, 16), 4, 4);
+    painter->drawRect(QRectF(1, 10, m_width - 2, 7)); // Flatten bottom of curve
+
+    // Title / Parameter Name (Glowing Green)
+    painter->setPen(QColor(0, 255, 100));
     QFont f = painter->font(); f.setPointSize(8); f.setBold(true);
     painter->setFont(f);
-    painter->drawText(QRectF(5, 2, m_width - 10, 15), Qt::AlignLeft, reference());
+    painter->drawText(QRectF(8, 2, m_width - 16, 15), Qt::AlignLeft | Qt::AlignVCenter, reference());
 
-    // Track
-    painter->setPen(QPen(QColor(255, 255, 255, 40), 2, Qt::SolidLine, Qt::RoundCap));
-    painter->drawLine(15, 22, m_width - 15, 22);
+    // Digital Readout Box
+    painter->setBrush(QColor(10, 20, 10)); // Dark screen color
+    painter->setPen(QPen(QColor(100, 100, 110), 1));
+    QRectF readout(m_width - 45, 3, 40, 12);
+    painter->drawRoundedRect(readout, 2, 2);
 
-    // Handle
-    double handleX = valueToPos(m_current);
-    painter->setBrush(QColor(59, 130, 246));
-    painter->setPen(Qt::NoPen);
-    painter->drawEllipse(QPointF(handleX, 22), 6, 6);
-
-    // Value text
+    // Value text in Readout
     painter->setPen(QColor(0, 255, 100));
     f.setPointSize(7); f.setBold(false);
     painter->setFont(f);
     QString valStr = QString::number(m_current, 'g', 4);
-    painter->drawText(QRectF(0, 2, m_width - 5, 15), Qt::AlignRight, valStr);
+    painter->drawText(readout.adjusted(0, 0, -3, 0), Qt::AlignRight | Qt::AlignVCenter, valStr);
+
+    // Slider Track Area
+    painter->setBrush(QColor(25, 25, 30));
+    painter->setPen(QPen(QColor(80, 80, 90), 1));
+    painter->drawRoundedRect(QRectF(10, 20, m_width - 20, 10), 3, 3);
+
+    // Track Line
+    painter->setPen(QPen(QColor(255, 255, 255, 30), 1));
+    painter->drawLine(15, 25, m_width - 15, 25);
+
+    // Handle (Metallic Blue Knob)
+    double handleX = valueToPos(m_current);
+    QRectF handleRect(handleX - 4, 18, 8, 14);
+    
+    QLinearGradient knobGrad(handleRect.topLeft(), handleRect.bottomRight());
+    knobGrad.setColorAt(0, QColor(100, 180, 255));
+    knobGrad.setColorAt(0.5, QColor(59, 130, 246));
+    knobGrad.setColorAt(1, QColor(30, 80, 200));
+    
+    painter->setBrush(knobGrad);
+    painter->setPen(QPen(Qt::white, 1));
+    painter->drawRoundedRect(handleRect, 2, 2);
+    
+    // Handle Center Line
+    painter->setPen(QPen(Qt::white, 1));
+    painter->drawLine(handleX, 20, handleX, 30);
 }
 
 void TuningSliderSymbolItem::setCurrentValue(double v) {
@@ -65,7 +91,7 @@ void TuningSliderSymbolItem::setCurrentValue(double v) {
 }
 
 void TuningSliderSymbolItem::mousePressEvent(QGraphicsSceneMouseEvent* event) {
-    if (QRectF(0, 15, m_width, 20).contains(event->pos())) {
+    if (QRectF(0, 16, m_width, 19).contains(event->pos())) {
         m_dragging = true;
         setCurrentValue(posToValue(event->pos().x()));
         event->accept();

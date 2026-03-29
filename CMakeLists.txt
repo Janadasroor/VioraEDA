@@ -71,6 +71,7 @@ if(BUILD_TESTING)
         FluxSymbols
         FluxSimulator
         FluxCore
+        FluxUI
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Widgets

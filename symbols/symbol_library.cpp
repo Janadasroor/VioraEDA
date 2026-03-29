@@ -1732,6 +1732,28 @@ void SymbolLibraryManager::createDefaultBuiltInLibrary() {
     addControlledSource("F", "F", "F");
     addControlledSource("H", "H", "H");
     
+    // === Tuning Slider ===
+    SymbolDefinition slider("Tuning Slider");
+    slider.setCategory("Simulation");
+    slider.setReferencePrefix("A");
+    slider.setDescription("Real-time parameter tuning control");
+    
+    // Chassis
+    slider.addPrimitive(SymbolPrimitive::createRect(QRectF(0, 0, 120, 35), false));
+    // Header line
+    slider.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 16), QPointF(120, 16)));
+    // Readout box
+    slider.addPrimitive(SymbolPrimitive::createRect(QRectF(75, 3, 40, 12), false));
+    // Track
+    slider.addPrimitive(SymbolPrimitive::createLine(QPointF(15, 25), QPointF(105, 25)));
+    // Knob (as a small rect)
+    SymbolPrimitive knob = SymbolPrimitive::createRect(QRectF(56, 18, 8, 14), true);
+    slider.addPrimitive(knob);
+
+    SymbolPrimitive sliderText = SymbolPrimitive::createText("Tuning", QPointF(8, 12), 8, QColor(Qt::black));
+    slider.addPrimitive(sliderText);
+    addSym(slider);
+    
     // === Voltage Regulator ===
 
     QString baseDir = QDir::homePath() + "/ViospiceLib/sym";

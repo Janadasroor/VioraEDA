@@ -71,7 +71,8 @@ public:
     static QString buildCommand(const SimulationParams& params);
     static QString normalizeXspiceGateModelAlias(const QString& rawToken, const QString& typeName = QString());
     static QStringList buildXspiceNodeTokensForPins(const QMap<QString, QString>& pins,
-                                                    const Flux::Model::SymbolDefinition* symbol = nullptr);
+                                                    const Flux::Model::SymbolDefinition* symbol = nullptr,
+                                                    bool collapseScalarInputsToVector = false);
 
 private:
     static QString formatComponent(const class SchematicComponentItem* item, const QMap<QString, QString>& netMap);

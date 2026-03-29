@@ -1,18 +1,141 @@
 #include "sim_meas_evaluator.h"
 #include "sim_value_parser.h"
+#include "sim_expression.h"
 
 #include <algorithm>
 #include <cmath>
 #include <sstream>
 #include <cctype>
 #include <limits>
+#include <map>
 
 namespace {
 
 QString qFromStd(const std::string& s) { return QString::fromStdString(s); }
 
+std::string lowerCopy(const std::string& s) {
+    std::string r = s;
+    std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return r;
+}
+
 bool parseSpiceNum(const std::string& s, double& out) {
     return SimValueParser::parseSpiceNumber(qFromStd(s), out);
+}
+
+std::vector<std::string> tokenizeMeas(const std::string& line) {
+    std::vector<std::string> tokens;
+    std::string current;
+    int parenDepth = 0;
+    int braceDepth = 0;
+    for (char c : line) {
+        if (std::isspace(static_cast<unsigned char>(c)) && parenDepth == 0 && braceDepth == 0) {
+            if (!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
+            }
+            continue;
+        }
+        if (c == '(') ++parenDepth;
+        else if (c == ')' && parenDepth > 0) --parenDepth;
+        else if (c == '{') ++braceDepth;
+        else if (c == '}' && braceDepth > 0) --braceDepth;
+        current.push_back(c);
+    }
+    if (!current.empty()) tokens.push_back(current);
+    return tokens;
+}
+
+bool splitCondition(const std::string& text, std::string& lhs, std::string& rhs) {
+    int parenDepth = 0;
+    int braceDepth = 0;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == '(') ++parenDepth;
+        else if (c == ')' && parenDepth > 0) --parenDepth;
+        else if (c == '{') ++braceDepth;
+        else if (c == '}' && braceDepth > 0) --braceDepth;
+        else if (c == '=' && parenDepth == 0 && braceDepth == 0) {
+            lhs = text.substr(0, i);
+            rhs = text.substr(i + 1);
+            return true;
+        }
+    }
+    return false;
+}
+
+const std::vector<double>* commonXAxis(const SimResults& results) {
+    for (const auto& w : results.waveforms) {
+        if (!w.xData.empty()) return &w.xData;
+    }
+    return nullptr;
+}
+
+const SimWaveform* lookupWaveform(const SimResults& results, const std::string& signal) {
+    if (signal.empty() || results.waveforms.empty()) return nullptr;
+    const std::string sl = lowerCopy(signal);
+    for (const auto& w : results.waveforms) {
+        const std::string wn = w.name;
+        if (wn == signal || lowerCopy(wn) == sl) return &w;
+        if (wn.length() > 2 && wn[0] == 'V' && wn[1] == '(' && wn.back() == ')') {
+            const std::string bare = wn.substr(2, wn.length() - 3);
+            if (lowerCopy(bare) == sl || bare == signal) return &w;
+        }
+        const std::string wrapped = "V(" + signal + ")";
+        if (lowerCopy(wn) == lowerCopy(wrapped)) return &w;
+    }
+    return nullptr;
+}
+
+double interpolateWaveformValue(const SimWaveform& w, double x) {
+    const size_t n = std::min(w.xData.size(), w.yData.size());
+    if (n == 0) return 0.0;
+    if (n == 1 || x <= w.xData.front()) return w.yData.front();
+    if (x >= w.xData[n - 1]) return w.yData[n - 1];
+    auto it = std::lower_bound(w.xData.begin(), w.xData.begin() + static_cast<long>(n), x);
+    size_t idx = static_cast<size_t>(std::distance(w.xData.begin(), it));
+    if (idx == 0) return w.yData.front();
+    if (idx >= n) return w.yData[n - 1];
+    const double x0 = w.xData[idx - 1], x1 = w.xData[idx];
+    const double y0 = w.yData[idx - 1], y1 = w.yData[idx];
+    if (std::abs(x1 - x0) < 1e-30) return y0;
+    const double frac = (x - x0) / (x1 - x0);
+    return y0 + frac * (y1 - y0);
+}
+
+bool evaluateExpression(
+    const SimResults& results,
+    const std::string& expr,
+    double x,
+    bool useInterpolation,
+    size_t sampleIndex,
+    const std::map<std::string, double>& priorMeasurements,
+    double& out
+) {
+    Sim::Expression parsed(expr);
+    if (!parsed.isValid()) return false;
+    std::map<std::string, double> vars = priorMeasurements;
+    vars["time"] = x;
+    for (const auto& var : parsed.getVariables()) {
+        if (vars.count(var)) continue;
+        const SimWaveform* w = lookupWaveform(results, var);
+        if (!w) {
+            vars[var] = 0.0;
+            continue;
+        }
+        if (useInterpolation) {
+            vars[var] = interpolateWaveformValue(*w, x);
+        } else {
+            const size_t n = std::min(w->xData.size(), w->yData.size());
+            vars[var] = (sampleIndex < n) ? w->yData[sampleIndex] : (n ? w->yData.back() : 0.0);
+        }
+    }
+    std::vector<double> values;
+    for (const auto& var : parsed.getVariables()) values.push_back(vars.count(var) ? vars.at(var) : 0.0);
+    out = parsed.evaluate(values.data(), static_cast<int>(values.size()));
+    return true;
 }
 
 // Find the crossing index in a waveform where signal crosses 'value'
@@ -64,6 +187,9 @@ std::string SimMeasEvaluator::toLower(const std::string& s) {
 
 MeasFunction SimMeasEvaluator::parseFunction(const std::string& token) {
     std::string t = toLower(token);
+    if (t == "find") return MeasFunction::FIND;
+    if (t == "deriv") return MeasFunction::DERIV;
+    if (t == "param") return MeasFunction::PARAM;
     if (t == "max") return MeasFunction::MAX;
     if (t == "min") return MeasFunction::MIN;
     if (t == "pp" || t == "peak-to-peak" || t == "peak_to_peak") return MeasFunction::PP;
@@ -117,20 +243,28 @@ bool SimMeasEvaluator::parseTrigger(
     // Parse optional RISE/FALL, TD=, CROSS=
     while (pos < tokens.size()) {
         tok = toLower(tokens[pos]);
-        if (tok == "rise" || tok == "rise=1" || tok == "rise=2" || tok == "rise=3") {
+        if (tok == "rise" || tok.rfind("rise=", 0) == 0) {
             trig.rising = true;
             trig.useRiseFall = true;
             if (tok.find('=') != std::string::npos) {
-                int idx = std::stoi(tok.substr(tok.find('=') + 1));
-                if (idx > 0) trig.index = idx;
+                const std::string rhs = tok.substr(tok.find('=') + 1);
+                if (toLower(rhs) == "last") trig.useLast = true;
+                else {
+                    int idx = std::stoi(rhs);
+                    if (idx > 0) trig.index = idx;
+                }
             }
             pos++;
-        } else if (tok == "fall" || tok == "fall=1" || tok == "fall=2" || tok == "fall=3") {
+        } else if (tok == "fall" || tok.rfind("fall=", 0) == 0) {
             trig.rising = false;
             trig.useRiseFall = true;
             if (tok.find('=') != std::string::npos) {
-                int idx = std::stoi(tok.substr(tok.find('=') + 1));
-                if (idx > 0) trig.index = idx;
+                const std::string rhs = tok.substr(tok.find('=') + 1);
+                if (toLower(rhs) == "last") trig.useLast = true;
+                else {
+                    int idx = std::stoi(rhs);
+                    if (idx > 0) trig.index = idx;
+                }
             }
             pos++;
         } else if (tok.substr(0, 3) == "td=") {
@@ -143,12 +277,17 @@ bool SimMeasEvaluator::parseTrigger(
                 pos++;
             }
         } else if (tok.substr(0, 6) == "cross=") {
-            parseSpiceNum(tok.substr(6), trig.cross);
+            const std::string rhs = tok.substr(6);
+            if (toLower(rhs) == "last") trig.useLast = true;
+            else parseSpiceNum(rhs, trig.cross);
+            trig.useCross = true;
             pos++;
         } else if (tok == "cross") {
             pos++;
             if (pos < tokens.size()) {
-                parseSpiceNum(tokens[pos], trig.cross);
+                if (toLower(tokens[pos]) == "last") trig.useLast = true;
+                else parseSpiceNum(tokens[pos], trig.cross);
+                trig.useCross = true;
                 pos++;
             }
         } else {
@@ -165,11 +304,7 @@ bool SimMeasEvaluator::parse(
     const std::string& sourceName,
     MeasStatement& out
 ) {
-    // Tokenize
-    std::istringstream iss(line);
-    std::vector<std::string> tokens;
-    std::string tok;
-    while (iss >> tok) tokens.push_back(tok);
+    std::vector<std::string> tokens = tokenizeMeas(line);
 
     if (tokens.size() < 4) return false;
 
@@ -198,7 +333,7 @@ bool SimMeasEvaluator::parse(
     // Function or TRIG keyword
     std::string funcTok = toLower(tokens[pos]);
 
-    if (funcTok == "trig" || funcTok == "when") {
+    if (funcTok == "trig") {
         // Conditional measurement: .meas <type> <name> TRIG <signal> VAL=<v> RISE=<n> TARG <signal> VAL=<v> RISE=<n>
         out.hasTrigTarg = true;
         out.function = MeasFunction::TRIG_TARG;
@@ -206,7 +341,8 @@ bool SimMeasEvaluator::parse(
 
         // Parse TRIG signal
         if (pos >= tokens.size()) return false;
-        out.trig.signal = tokens[pos]; // e.g. "V(in)"
+        out.trig.signal = tokens[pos];
+        out.trig.lhsExpr = tokens[pos];
         pos++;
 
         // Parse TRIG conditions (VAL=, RISE=, etc.)
@@ -229,6 +365,7 @@ bool SimMeasEvaluator::parse(
         // Parse TARG signal
         if (pos >= tokens.size()) return false;
         out.targ.signal = tokens[pos];
+        out.targ.lhsExpr = tokens[pos];
         pos++;
 
         // Parse TARG conditions
@@ -241,15 +378,92 @@ bool SimMeasEvaluator::parse(
 
     // Direct function form: .meas <type> <name> <func> <signal>
     MeasFunction func = parseFunction(funcTok);
+    if (func == MeasFunction::Unknown && funcTok == "when") {
+        func = MeasFunction::FIND;
+        out.hasWhen = true;
+        out.expr.clear();
+    }
     if (func == MeasFunction::Unknown) return false;
     out.function = func;
     pos++;
 
-    if (pos >= tokens.size()) return false;
+    if (func == MeasFunction::PARAM) {
+        std::ostringstream joined;
+        while (pos < tokens.size()) {
+            if (joined.tellp() > 0) joined << ' ';
+            joined << tokens[pos++];
+        }
+        out.expr = joined.str();
+        return !out.expr.empty();
+    }
 
-    // Signal expression (may contain parentheses like V(out) or I(V1))
-    out.signal = tokens[pos];
-    pos++;
+    if (func == MeasFunction::FIND || func == MeasFunction::DERIV) {
+        if (!out.hasWhen) {
+            if (pos >= tokens.size()) return false;
+            out.expr = tokens[pos++];
+        } else {
+            if (pos >= tokens.size()) return false;
+            std::string lhs, rhs;
+            if (!splitCondition(tokens[pos], lhs, rhs)) return false;
+            out.when.lhsExpr = lhs;
+            out.when.rhsExpr = rhs;
+            pos++;
+            parseTrigger(tokens, pos, out.when);
+        }
+        out.signal = out.expr;
+    } else {
+        if (pos >= tokens.size()) return false;
+        out.signal = tokens[pos];
+        out.expr = out.signal;
+        pos++;
+    }
+
+    while (pos < tokens.size()) {
+        const std::string t = toLower(tokens[pos]);
+        if (t.rfind("at=", 0) == 0) {
+            out.hasAt = parseSpiceNum(tokens[pos].substr(3), out.at);
+            pos++;
+            continue;
+        }
+        if (t == "at") {
+            pos++;
+            if (pos < tokens.size()) out.hasAt = parseSpiceNum(tokens[pos++], out.at);
+            continue;
+        }
+        if (t == "when") {
+            out.hasWhen = true;
+            pos++;
+            if (pos >= tokens.size()) return false;
+            std::string lhs, rhs;
+            if (!splitCondition(tokens[pos], lhs, rhs)) return false;
+            out.when.lhsExpr = lhs;
+            out.when.rhsExpr = rhs;
+            pos++;
+            parseTrigger(tokens, pos, out.when);
+            continue;
+        }
+        if (t == "trig") {
+            out.hasTrigTarg = true;
+            pos++;
+            if (pos >= tokens.size()) return false;
+            out.trig.signal = tokens[pos];
+            out.trig.lhsExpr = tokens[pos];
+            pos++;
+            parseTrigger(tokens, pos, out.trig);
+            continue;
+        }
+        if (t == "targ") {
+            out.hasTrigTarg = true;
+            pos++;
+            if (pos >= tokens.size()) return false;
+            out.targ.signal = tokens[pos];
+            out.targ.lhsExpr = tokens[pos];
+            pos++;
+            parseTrigger(tokens, pos, out.targ);
+            continue;
+        }
+        break;
+    }
 
     // Optional range window: FROM=<x> TO=<x> (or FROM <x> TO <x>)
     while (pos < tokens.size()) {
@@ -405,21 +619,73 @@ bool SimMeasEvaluator::findCrossingTime(
 
     bool rising = trigger.rising;
     int count = 0;
-    int targetIdx = trigger.useRiseFall ? trigger.index : 1;
+    int targetIdx = trigger.useCross && trigger.cross > 0.0 ? static_cast<int>(trigger.cross)
+                    : (trigger.useRiseFall ? trigger.index : 1);
     int searchFrom = startIdx;
+    std::vector<double> crossings;
 
     while (searchFrom < static_cast<int>(w.yData.size())) {
         int idx = findCrossingIdx(w.yData, w.xData, trigger.value, searchFrom, rising);
-        if (idx < 0) return false;
+        if (idx < 0) break;
+        const double t = interpolateX(w.xData, w.yData, idx, trigger.value);
+        crossings.push_back(t);
         count++;
-        if (count >= targetIdx) {
-            outTime = interpolateX(w.xData, w.yData, idx, trigger.value);
-            return true;
-        }
         searchFrom = idx + 1;
     }
+    if (crossings.empty()) return false;
+    if (trigger.useLast) {
+        outTime = crossings.back();
+        return true;
+    }
+    if (targetIdx <= 0 || targetIdx > static_cast<int>(crossings.size())) return false;
+    outTime = crossings[static_cast<size_t>(targetIdx - 1)];
+    return true;
+}
 
-    return false;
+bool SimMeasEvaluator::findConditionCrossingTime(
+    const SimResults& results,
+    const MeasTrigger& trigger,
+    const std::map<std::string, double>& priorMeasurements,
+    double& outTime
+) {
+    const std::vector<double>* xAxis = commonXAxis(results);
+    if (!xAxis || xAxis->size() < 2) return false;
+
+    std::vector<double> diff;
+    diff.reserve(xAxis->size());
+    for (size_t i = 0; i < xAxis->size(); ++i) {
+        double lhs = 0.0, rhs = 0.0;
+        if (!evaluateExpression(results, trigger.lhsExpr, (*xAxis)[i], false, i, priorMeasurements, lhs)) return false;
+        if (!evaluateExpression(results, trigger.rhsExpr, (*xAxis)[i], false, i, priorMeasurements, rhs)) return false;
+        diff.push_back(lhs - rhs);
+    }
+
+    std::vector<double> crossings;
+    for (size_t i = 1; i < diff.size(); ++i) {
+        if ((*xAxis)[i] < trigger.td) continue;
+        const double prev = diff[i - 1];
+        const double curr = diff[i];
+        bool hit = false;
+        if (trigger.useRiseFall) {
+            hit = trigger.rising ? (prev < 0.0 && curr >= 0.0) : (prev > 0.0 && curr <= 0.0);
+        } else {
+            hit = (prev <= 0.0 && curr >= 0.0) || (prev >= 0.0 && curr <= 0.0);
+        }
+        if (!hit) continue;
+        crossings.push_back(interpolateX(*xAxis, diff, static_cast<int>(i), 0.0));
+    }
+
+    if (crossings.empty()) return false;
+    if (trigger.useLast) {
+        outTime = crossings.back();
+        return true;
+    }
+    int index = 1;
+    if (trigger.useCross && trigger.cross > 0.0) index = static_cast<int>(trigger.cross);
+    else if (trigger.useRiseFall && trigger.index > 0) index = trigger.index;
+    if (index <= 0 || index > static_cast<int>(crossings.size())) return false;
+    outTime = crossings[static_cast<size_t>(index - 1)];
+    return true;
 }
 
 std::vector<MeasResult> SimMeasEvaluator::evaluate(
@@ -429,12 +695,76 @@ std::vector<MeasResult> SimMeasEvaluator::evaluate(
 ) {
     std::vector<MeasResult> results_out;
     std::string atype = toLower(analysisType);
+    std::map<std::string, double> priorMeasurements;
 
     for (const auto& stmt : statements) {
         if (toLower(stmt.analysisType) != atype) continue;
 
         MeasResult mr;
         mr.name = stmt.name;
+
+        if (stmt.function == MeasFunction::PARAM) {
+            double value = 0.0;
+            double x = 0.0;
+            const auto* axis = commonXAxis(results);
+            if (axis && !axis->empty()) x = axis->back();
+            if (!evaluateExpression(results, stmt.expr, x, true, axis ? axis->size() - 1 : 0, priorMeasurements, value)) {
+                mr.error = "Could not evaluate PARAM expression";
+            } else {
+                mr.value = value;
+                mr.valid = true;
+                priorMeasurements[mr.name] = mr.value;
+            }
+            results_out.push_back(mr);
+            continue;
+        }
+
+        if (stmt.function == MeasFunction::FIND || stmt.function == MeasFunction::DERIV) {
+            double sampleTime = 0.0;
+            if (stmt.hasAt) sampleTime = stmt.at;
+            else if (stmt.hasWhen) {
+                if (!findConditionCrossingTime(results, stmt.when, priorMeasurements, sampleTime)) {
+                    mr.error = "WHEN crossing not found";
+                    results_out.push_back(mr);
+                    continue;
+                }
+            } else {
+                const auto* axis = commonXAxis(results);
+                sampleTime = (axis && !axis->empty()) ? axis->back() : 0.0;
+            }
+
+            if (stmt.function == MeasFunction::FIND && stmt.expr.empty()) {
+                mr.value = sampleTime;
+                mr.valid = true;
+                priorMeasurements[mr.name] = mr.value;
+                results_out.push_back(mr);
+                continue;
+            }
+
+            if (stmt.function == MeasFunction::FIND) {
+                double value = 0.0;
+                if (!evaluateExpression(results, stmt.expr, sampleTime, true, 0, priorMeasurements, value)) {
+                    mr.error = "Could not evaluate FIND expression";
+                } else {
+                    mr.value = value;
+                    mr.valid = true;
+                    priorMeasurements[mr.name] = mr.value;
+                }
+            } else {
+                const double delta = 1e-9;
+                double left = 0.0, right = 0.0;
+                if (!evaluateExpression(results, stmt.expr, sampleTime - delta, true, 0, priorMeasurements, left) ||
+                    !evaluateExpression(results, stmt.expr, sampleTime + delta, true, 0, priorMeasurements, right)) {
+                    mr.error = "Could not evaluate DERIV expression";
+                } else {
+                    mr.value = (right - left) / (2.0 * delta);
+                    mr.valid = true;
+                    priorMeasurements[mr.name] = mr.value;
+                }
+            }
+            results_out.push_back(mr);
+            continue;
+        }
 
         if (stmt.function == MeasFunction::TRIG_TARG) {
             // Conditional measurement: find TARG time minus TRIG time
@@ -466,6 +796,7 @@ std::vector<MeasResult> SimMeasEvaluator::evaluate(
 
             mr.value = targTime - trigTime;
             mr.valid = true;
+            priorMeasurements[mr.name] = mr.value;
             results_out.push_back(mr);
             continue;
         }
@@ -479,9 +810,37 @@ std::vector<MeasResult> SimMeasEvaluator::evaluate(
         }
 
         SimWaveform view = *w;
-        if (stmt.hasFrom || stmt.hasTo) {
-            const double lo = stmt.hasFrom ? stmt.from : -std::numeric_limits<double>::infinity();
-            const double hi = stmt.hasTo ? stmt.to : std::numeric_limits<double>::infinity();
+        bool hasFrom = stmt.hasFrom;
+        bool hasTo = stmt.hasTo;
+        double from = stmt.from;
+        double to = stmt.to;
+        if (stmt.hasTrigTarg) {
+            double fromX = view.xData.empty() ? 0.0 : view.xData.front();
+            double toX = view.xData.empty() ? 0.0 : view.xData.back();
+            if (!stmt.trig.signal.empty()) {
+                const SimWaveform* trigW = findWaveform(results, stmt.trig.signal);
+                if (!trigW || !findCrossingTime(*trigW, stmt.trig, fromX)) {
+                    mr.error = "TRIG crossing not found";
+                    results_out.push_back(mr);
+                    continue;
+                }
+            }
+            if (!stmt.targ.signal.empty()) {
+                const SimWaveform* targW = findWaveform(results, stmt.targ.signal);
+                if (!targW || !findCrossingTime(*targW, stmt.targ, toX)) {
+                    mr.error = "TARG crossing not found";
+                    results_out.push_back(mr);
+                    continue;
+                }
+            }
+            hasFrom = true;
+            from = fromX;
+            hasTo = true;
+            to = toX;
+        }
+        if (hasFrom || hasTo) {
+            const double lo = hasFrom ? from : -std::numeric_limits<double>::infinity();
+            const double hi = hasTo ? to : std::numeric_limits<double>::infinity();
             std::vector<double> xWin;
             std::vector<double> yWin;
             const size_t n = std::min(view.xData.size(), view.yData.size());
@@ -656,6 +1015,7 @@ std::vector<MeasResult> SimMeasEvaluator::evaluate(
         }
 
         results_out.push_back(mr);
+        if (mr.valid) priorMeasurements[mr.name] = mr.value;
     }
 
     return results_out;

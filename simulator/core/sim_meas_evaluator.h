@@ -7,6 +7,7 @@
 #include <map>
 
 enum class MeasFunction {
+    FIND, DERIV, PARAM,
     // Direct (single-signal) functions
     MAX, MIN, PP, AVG, RMS, N, INTEG,
     MIN_AT, MAX_AT,
@@ -23,10 +24,14 @@ enum class MeasFunction {
 
 struct MeasTrigger {
     std::string signal;
+    std::string lhsExpr;
+    std::string rhsExpr;
     double value = 0.0;
     int index = 1;       // Which crossing (1=first, 2=second, etc.)
     bool rising = true;  // RISE=true, FALL=false
     bool useRiseFall = false; // Was RISE/FALL specified?
+    bool useCross = false;
+    bool useLast = false;
     double td = 0.0;     // Delay before searching
     double cross = 0.0;  // Cross number (alternative to index)
 };
@@ -36,6 +41,11 @@ struct MeasStatement {
     std::string name;         // Measurement name
     MeasFunction function = MeasFunction::Unknown;
     std::string signal;       // Signal expression e.g. "V(out)"
+    std::string expr;         // General expression for FIND/DERIV/PARAM
+    bool hasAt = false;
+    double at = 0.0;
+    bool hasWhen = false;
+    MeasTrigger when;
 
     // For conditional measurements (TRIG/TARG form)
     MeasTrigger trig;
@@ -107,6 +117,13 @@ private:
     static bool findCrossingTime(
         const SimWaveform& w,
         const MeasTrigger& trigger,
+        double& outTime
+    );
+
+    static bool findConditionCrossingTime(
+        const SimResults& results,
+        const MeasTrigger& trigger,
+        const std::map<std::string, double>& priorMeasurements,
         double& outTime
     );
 };

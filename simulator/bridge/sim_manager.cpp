@@ -263,6 +263,36 @@ QList<StepSpec> parseStepSpecsFromNetlist(const QString& netlistContent) {
     return specs;
 }
 
+void sortFirstStepDimensionValues(QList<StepSpec>* specs) {
+    if (!specs || specs->isEmpty()) return;
+
+    QStringList& values = (*specs)[0].values;
+    if (values.size() < 2) return;
+
+    struct ParsedValue {
+        QString text;
+        double numeric = 0.0;
+    };
+
+    QList<ParsedValue> parsed;
+    parsed.reserve(values.size());
+    for (const QString& value : values) {
+        ParsedValue item;
+        item.text = value;
+        if (!SimValueParser::parseSpiceNumber(value, item.numeric)) {
+            return;
+        }
+        parsed.append(item);
+    }
+
+    std::stable_sort(parsed.begin(), parsed.end(), [](const ParsedValue& a, const ParsedValue& b) {
+        return a.numeric < b.numeric;
+    });
+
+    values.clear();
+    for (const ParsedValue& item : parsed) values.append(item.text);
+}
+
 bool replaceOrInjectParam(QString* netlist, const QString& name, const QString& value) {
     if (!netlist) return false;
     QStringList lines = netlist->split('\n');
@@ -421,7 +451,7 @@ void buildStepRunCartesian(const QList<StepSpec>& specs, int index, QString curr
 
 QList<SimManager::PendingStepRun> buildStepRuns(const QString& netlistContent, QString* error) {
     QList<SimManager::PendingStepRun> runs;
-    const QList<StepSpec> specs = parseStepSpecsFromNetlist(netlistContent);
+    QList<StepSpec> specs = parseStepSpecsFromNetlist(netlistContent);
     if (specs.isEmpty()) return runs;
     for (const StepSpec& spec : specs) {
         if (!spec.error.isEmpty()) {
@@ -429,11 +459,101 @@ QList<SimManager::PendingStepRun> buildStepRuns(const QString& netlistContent, Q
             return {};
         }
     }
+    sortFirstStepDimensionValues(&specs);
     QString stepStripped = netlistContent;
     stepStripped.replace(QRegularExpression("^\\s*\\*?\\s*\\.step.*$", QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption),
                          "* LTspice .step sweep handled by VioSpice sweep runner");
     buildStepRunCartesian(specs, 0, stepStripped, {}, &runs, error);
     return runs;
+}
+
+std::vector<MeasStatement> parseMeasStatementsFromNetlist(const QString& netlistContent) {
+    std::vector<MeasStatement> statements;
+    QStringList logicalLines;
+    for (const QString& rawLine : netlistContent.split('\n')) {
+        const QString trimmed = rawLine.trimmed();
+        if (!logicalLines.isEmpty() && trimmed.startsWith('+')) {
+            logicalLines.last() += " " + trimmed.mid(1).trimmed();
+        } else {
+            logicalLines.append(rawLine);
+        }
+    }
+
+    int lineNo = 0;
+    for (const QString& rawLine : logicalLines) {
+        ++lineNo;
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty() || line.startsWith('*') || line.startsWith(';') || line.startsWith('#')) continue;
+
+        std::string parseLine;
+        if (line.startsWith(".mean", Qt::CaseInsensitive)) {
+            static const QRegularExpression re(
+                "^\\s*\\.mean\\s+(?:(avg|max|min|rms)\\s+)?([^\\s]+)(?:\\s+from\\s*=\\s*([^\\s]+))?(?:\\s+to\\s*=\\s*([^\\s]+))?\\s*$",
+                QRegularExpression::CaseInsensitiveOption);
+            const auto m = re.match(line);
+            if (!m.hasMatch()) continue;
+            const QString mode = m.captured(1).isEmpty() ? QString("avg") : m.captured(1).toLower();
+            const QString signal = m.captured(2).trimmed();
+            const QString from = m.captured(3).trimmed();
+            const QString to = m.captured(4).trimmed();
+            parseLine = QString(".meas tran mean_l%1 %2 %3%4%5")
+                            .arg(lineNo)
+                            .arg(mode, signal)
+                            .arg(from.isEmpty() ? QString() : QString(" from=%1").arg(from))
+                            .arg(to.isEmpty() ? QString() : QString(" to=%1").arg(to))
+                            .toStdString();
+        } else if (line.startsWith(".meas", Qt::CaseInsensitive)) {
+            parseLine = line.toStdString();
+        } else {
+            continue;
+        }
+
+        MeasStatement stmt;
+        if (SimMeasEvaluator::parse(parseLine, lineNo, "netlist", stmt)) statements.push_back(stmt);
+    }
+    return statements;
+}
+
+QString stripMeasStatementsFromNetlist(const QString& netlistContent) {
+    QStringList outLines;
+    bool previousWasMeas = false;
+    for (const QString& rawLine : netlistContent.split('\n')) {
+        const QString trimmed = rawLine.trimmed();
+        const bool isMeas = trimmed.startsWith(".meas", Qt::CaseInsensitive) || trimmed.startsWith(".measure", Qt::CaseInsensitive)
+                            || trimmed.startsWith(".measur", Qt::CaseInsensitive) || trimmed.startsWith(".mean", Qt::CaseInsensitive);
+        const bool isCont = trimmed.startsWith('+');
+        if (isMeas || (previousWasMeas && isCont)) {
+            outLines.append(QString("* VioSpice evaluates this measurement post-simulation: %1").arg(rawLine));
+            previousWasMeas = true;
+            continue;
+        }
+        previousWasMeas = false;
+        outLines.append(rawLine);
+    }
+    return outLines.join('\n');
+}
+
+std::string measAnalysisToken(SimAnalysisType type) {
+    switch (type) {
+    case SimAnalysisType::OP: return "op";
+    case SimAnalysisType::Transient: return "tran";
+    case SimAnalysisType::AC: return "ac";
+    case SimAnalysisType::DC: return "dc";
+    case SimAnalysisType::Noise: return "noise";
+    default: return std::string();
+    }
+}
+
+void evaluateMeasStatementsIntoResults(const QString& netlistContent, SimAnalysisType analysisType, SimResults* results) {
+    if (!results) return;
+    const std::vector<MeasStatement> statements = parseMeasStatementsFromNetlist(netlistContent);
+    if (statements.empty()) return;
+    const std::string atype = measAnalysisToken(analysisType);
+    if (atype.empty()) return;
+    for (const auto& mr : SimMeasEvaluator::evaluate(statements, *results, atype)) {
+        if (mr.valid) results->measurements[mr.name] = mr.value;
+        else results->diagnostics.push_back(".meas " + mr.name + " failed: " + mr.error);
+    }
 }
 
 QString withStepSuffix(const QString& name, const QString& stepLabel) {
@@ -660,9 +780,10 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
     // We'll manage it via a member or just use a transient one and pass path.
     auto* tempFile = new QTemporaryFile(this);
     tempFile->setAutoRemove(false);
+    const QString activeNetlist = stripMeasStatementsFromNetlist(netlistContent);
     if (tempFile->open()) {
         QTextStream out(tempFile);
-        out << netlistContent;
+        out << activeNetlist;
         tempFile->close();
     } else {
         emit errorOccurred("Failed to create temporary netlist file.");
@@ -672,6 +793,7 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
 
     m_control = new SimControl();
     m_paused = false;
+    m_activeNetlistText = netlistContent;
 
     auto& sm = SimulationManager::instance();
     
@@ -727,11 +849,15 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
             }
         });
 
-        watcher->setFuture(QtConcurrent::run([path]() {
+        const QString netlistText = m_activeNetlistText;
+        const SimAnalysisType analysisType = m_lastConfig.type;
+        watcher->setFuture(QtConcurrent::run([path, netlistText, analysisType]() {
             RawData rd;
             QString err;
             if (RawDataParser::loadRawAscii(path, &rd, &err)) {
-                return std::make_pair(true, rd.toSimResults());
+                SimResults simResults = rd.toSimResults();
+                evaluateMeasStatementsIntoResults(netlistText, analysisType, &simResults);
+                return std::make_pair(true, simResults);
             }
             qDebug() << "RawDataParser error:" << err;
             return std::make_pair(false, SimResults());

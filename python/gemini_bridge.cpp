@@ -2,6 +2,7 @@
 #include "../core/theme_manager.h"
 #include <QColor>
 #include <QPalette>
+#include <QDebug>
 
 GeminiBridge::GeminiBridge(QObject* parent) : QObject(parent) {
 }
@@ -52,6 +53,7 @@ void GeminiBridge::setCurrentMode(const QString& mode) {
 }
 
 void GeminiBridge::sendMessage(const QString& text) {
+    qDebug() << "[GeminiBridge] sendMessage:" << text;
     emit sendMessageRequested(text);
 }
 

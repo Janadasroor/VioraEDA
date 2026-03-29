@@ -57,7 +57,7 @@ Rectangle {
             HeaderButton {
                 text: "✕"
                 toolTip: "Close Panel"
-                color: hovered ? "#ef4444" : "#94a3b8"
+                fontColor: hovered ? "#ef4444" : "#94a3b8"
                 onClicked: geminiBridge.closePanel()
             }
         }

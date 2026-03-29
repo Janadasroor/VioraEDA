@@ -1,6 +1,7 @@
 #ifndef TUNING_SLIDER_SYMBOL_ITEM_H
 #define TUNING_SLIDER_SYMBOL_ITEM_H
 
+#include <QObject>
 #include "schematic_item.h"
 
 /**
