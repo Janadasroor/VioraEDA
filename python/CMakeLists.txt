@@ -8,6 +8,8 @@ add_library(FluxPython STATIC
     gemini_dialog.h
     gemini_panel.cpp
     gemini_panel.h
+    gemini_instructions_dialog.cpp
+    gemini_instructions_dialog.h
 )
 
 target_link_libraries(FluxPython PRIVATE 

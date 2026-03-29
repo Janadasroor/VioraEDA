@@ -1,4 +1,5 @@
 #include "gemini_panel.h"
+#include "gemini_instructions_dialog.h"
 #include "python_manager.h"
 #include "config_manager.h"
 #include "schematic_file_io.h"
@@ -403,6 +404,9 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
         connect(thinkingAct, &QAction::triggered, this, [this](bool checked) {
             m_statusButton->setChecked(checked);
         });
+        menu.addSeparator();
+        QAction* instructionsAct = menu.addAction(QIcon(":/icons/tool_pen.svg"), "Custom Instructions...");
+        connect(instructionsAct, &QAction::triggered, this, &GeminiPanel::onCustomInstructionsClicked);
         menu.exec(moreButton->mapToGlobal(QPoint(0, moreButton->height())));
     });
 
@@ -1489,6 +1493,11 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     const QString selectedModel = m_modelCombo ? m_modelCombo->currentData().toString() : QString();
     if (!selectedModel.isEmpty()) args << "--model" << selectedModel;
 
+    QString customInstructions = gatherInstructions();
+    if (!customInstructions.isEmpty()) {
+        args << "--instructions" << customInstructions;
+    }
+
     beginAssistantRunUi();
 
     if (m_process) {
@@ -1961,4 +1970,30 @@ void GeminiPanel::onDismissErrorClicked() {
 void GeminiPanel::onViewErrorDetailsClicked() {
     if (m_lastErrorDetails.trimmed().isEmpty() && m_errorHistory.isEmpty()) return;
     showErrorDialog(QString(), QString());
+}
+void GeminiPanel::onCustomInstructionsClicked() {
+    GeminiInstructionsDialog dlg(m_projectFilePath, this);
+    dlg.exec();
+}
+
+QString GeminiPanel::gatherInstructions() const {
+    QString combined;
+    QString global = ConfigManager::instance().geminiGlobalInstructions().trimmed();
+    if (!global.isEmpty()) {
+        combined = "GLOBAL INSTRUCTIONS:\n" + global;
+    }
+
+    if (!m_projectFilePath.isEmpty()) {
+        QFileInfo info(m_projectFilePath);
+        QString pFile = info.absolutePath() + "/.gemini/custom_instructions.txt";
+        QFile file(pFile);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString project = QString::fromUtf8(file.readAll()).trimmed();
+            if (!project.isEmpty()) {
+                if (!combined.isEmpty()) combined += "\n\n";
+                combined += "PROJECT INSTRUCTIONS:\n" + project;
+            }
+        }
+    }
+    return combined;
 }

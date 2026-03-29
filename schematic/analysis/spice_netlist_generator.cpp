@@ -489,6 +489,40 @@ QString rewriteLtspiceBSourceLaplaceOptions(const QString& line, QStringList* wa
     return out;
 }
 
+QString rewriteLtspiceBehavioralSourceRpar(const QString& line, QStringList* warnings = nullptr) {
+    static const QRegularExpression bSourceRe(
+        "^\\s*(B\\S+)\\s+(\\S+)\\s+(\\S+)\\s+([IR])\\s*=\\s*(.+)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = bSourceRe.match(line);
+    if (!match.hasMatch()) return line;
+
+    QString out = line;
+    const QString ref = match.captured(1).trimmed();
+    const QString nplus = match.captured(2).trimmed();
+    const QString nminus = match.captured(3).trimmed();
+    const QString mode = match.captured(4).trimmed().toUpper();
+    QString exprAndTail = match.captured(5).trimmed();
+
+    static const QRegularExpression rparRe("\\bRpar\\s*=\\s*([^\\s]+)", QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch rparMatch = rparRe.match(exprAndTail);
+    if (!rparMatch.hasMatch()) return line;
+
+    const QString rparValue = rparMatch.captured(1).trimmed();
+    exprAndTail.remove(rparRe);
+    exprAndTail = exprAndTail.simplified();
+
+    const QString shuntRef = QString("R__RPAR_%1").arg(ref);
+    QStringList rewrittenLines;
+    rewrittenLines << QString("%1 %2 %3 %4=%5").arg(ref, nplus, nminus, mode, exprAndTail);
+    rewrittenLines << QString("%1 %2 %3 %4").arg(shuntRef, nplus, nminus, rparValue);
+    out = rewrittenLines.join("\n");
+
+    if (warnings) {
+        warnings->append(QString("Expanded LTspice behavioral source Rpar= on %1 into explicit shunt resistor for ngspice.").arg(ref));
+    }
+    return out;
+}
+
 void appendLtspiceBSourceOptionWarnings(const QString& line, QStringList* warnings) {
     if (!warnings) return;
 
@@ -612,6 +646,7 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
     appendLtspiceSourceOptionWarnings(out, warnings);
 
     out = rewriteLtspiceBSourceLaplaceOptions(out, warnings);
+    out = rewriteLtspiceBehavioralSourceRpar(out, warnings);
     out = rewriteLtspiceTriggeredPulseSource(out, warnings);
     out = rewriteLtspiceTriggeredPwlSource(out, warnings);
     out = rewriteLtspiceTriggeredWaveSource(out, "SINE", warnings);

@@ -225,6 +225,8 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOpt
 
     auto* directive = new SchematicSpiceDirectiveItem(
         "BOPT out 0 V={V(a)} ic=1 tripdv=0.1 tripdt=1n laplace={1/(s+1)} window=1m nfft=1024 mtol=1e-3\n"
+        "BIPAR out7 0 I=V(a) Rpar=1k\n"
+        "BRPAR out8 0 R=V(b)+1 Rpar=2k\n"
         "VTRIG out2 0 PULSE(0 1 0 1n 1n 5u 10u) Trigger=V(clk)>0.5 tripdv=0.2 tripdt=1n\n"
         "VPWL out3 0 PWL(0 0 1u 1 2u 0) Trigger=V(en)>0.5 tripdv=0.3 tripdt=2n\n"
         "VSIN out4 0 SINE(0 1 1k 0 0 0) Trigger=V(sen)>0.5 tripdv=0.4 tripdt=3n\n"
@@ -247,6 +249,12 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOpt
     QVERIFY2(netlist.contains("Dropped LTspice B-source laplace= transform from BOPT out 0 V={V(a)} ic=1 tripdv=0.1 tripdt=1n laplace={1/(s+1)} window=1m nfft=1024 mtol=1e-3 because this ngspice configuration does not accept LTspice-style Laplace options on B-sources."), qPrintable(netlist));
     QVERIFY2(netlist.contains("Preserved the underlying behavioral source but removed laplace/window/nfft/mtol options; resulting behavior may differ from LTspice. Dropped Laplace expression: {1/(s+1)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BOPT out 0 V={{V(a)} ic=1 tripdv=0.1 tripdt=1n}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Expanded LTspice behavioral source Rpar= on BIPAR into explicit shunt resistor for ngspice."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("BIPAR out7 0 I=V(a)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RPAR_BIPAR out7 0 1k"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Expanded LTspice behavioral source Rpar= on BRPAR into explicit shunt resistor for ngspice."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("BRPAR out8 0 R=V(b)+1"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RPAR_BRPAR out8 0 2k"), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice PULSE Trigger= detected on VTRIG; VioSpice will approximate it by gating a hidden pulse source."), qPrintable(netlist));
     QVERIFY2(netlist.contains("Approximated LTspice PULSE Trigger= behavior on VTRIG by gating a hidden pulse source with the trigger expression."), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice triggered source restart semantics are only partially emulated for VTRIG; the pulse is gated by the trigger but not restarted on each trigger event."), qPrintable(netlist));

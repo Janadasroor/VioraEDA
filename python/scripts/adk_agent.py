@@ -103,7 +103,7 @@ def _handle_memory_command(prompt_text, project_path):
 
     return None
 
-async def run_agent(prompt_text, project_path, context="", mode="schematic", model_name="gemini-2.5-flash-lite", history_json="", output_stream=sys.stdout):
+async def run_agent(prompt_text, project_path, context="", mode="schematic", model_name="gemini-2.5-flash-lite", history_json="", instructions="", output_stream=sys.stdout):
     memory_command_response = _handle_memory_command(prompt_text, project_path)
     if memory_command_response is not None:
         output_stream.write(memory_command_response)
@@ -142,6 +142,9 @@ MEMORY POLICY:
         system_instructions += "\nMode: ASK. Focus on explaining and analyzing the circuit topology."
     else:
         system_instructions += "\nMode: SCHEMATIC. Focus on design, repair, and simulation."
+
+    if instructions:
+        system_instructions += f"\n\nCUSTOM USER INSTRUCTIONS:\n{instructions}"
 
     full_context = context
     if memory_context:
@@ -265,5 +268,6 @@ if __name__ == "__main__":
     m_mode = get_arg("--mode") or "schematic"
     m_model = get_arg("--model") or "gemini-2.5-flash-lite"
     m_history = get_arg("--history") or ""
+    m_instructions = get_arg("--instructions") or ""
 
-    asyncio.run(run_agent(m_prompt, m_project_path, m_context, m_mode, m_model, m_history))
+    asyncio.run(run_agent(m_prompt, m_project_path, m_context, m_mode, m_model, m_history, m_instructions))
