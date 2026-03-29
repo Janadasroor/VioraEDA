@@ -74,6 +74,7 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 
 #include "../../core/sync_manager.h"
 #include "schematic_item.h"
+#include "schematic/dialogs/oscilloscope_properties_dialog.h"
 #include "schematic_menu_registry.h"
 
 SchematicEditor::SchematicEditor(QWidget *parent)
@@ -1133,10 +1134,65 @@ void SchematicEditor::onSimulationResultsReady(const SimResults& results) {
         win->updateData(results);
     }
 
+    for (auto* win : m_oscilloscopeWindows) {
+        win->updateResults(results, m_netManager);
+    }
+
     if (m_view) {
         const bool showByDock = (m_oscilloscopeDock && m_oscilloscopeDock->isVisible());
         m_view->setProbingEnabled(showByDock);
     }
+}
+
+void SchematicEditor::onOscilloscopeWindowClosing(const QUuid& id) {
+    m_oscilloscopeWindows.remove(id);
+}
+
+void SchematicEditor::onOscilloscopeConfigChanged(const QUuid& id, const OscilloscopeItem::Config& cfg) {
+    if (!m_scene) return;
+    for (auto* item : m_scene->items()) {
+        if (auto* osc = dynamic_cast<OscilloscopeItem*>(item)) {
+            if (osc->id() == id) {
+                osc->setConfig(cfg);
+                break;
+            }
+        }
+    }
+}
+
+void SchematicEditor::onOscilloscopePropertiesRequested(const QUuid& id) {
+    if (!m_scene) return;
+    for (auto* it : m_scene->items()) {
+        if (auto* osc = dynamic_cast<OscilloscopeItem*>(it)) {
+            if (osc->id() == id) {
+                OscilloscopePropertiesDialog dlg(osc, m_undoStack, m_scene, this);
+                dlg.exec();
+                break;
+            }
+        }
+    }
+}
+
+void SchematicEditor::openOscilloscopeWindow(OscilloscopeItem* item) {
+    if (!item) return;
+    QUuid id = item->id();
+    if (m_oscilloscopeWindows.contains(id)) {
+        m_oscilloscopeWindows[id]->show();
+        m_oscilloscopeWindows[id]->raise();
+        return;
+    }
+
+    auto* win = new OscilloscopeWindow(id, item->reference(), this);
+    m_oscilloscopeWindows[id] = win;
+    
+    connect(win, &OscilloscopeWindow::windowClosing, this, &SchematicEditor::onOscilloscopeWindowClosing);
+    connect(win, &OscilloscopeWindow::configChanged, this, &SchematicEditor::onOscilloscopeConfigChanged);
+    connect(win, &OscilloscopeWindow::propertiesRequested, this, &SchematicEditor::onOscilloscopePropertiesRequested);
+    
+    // Auto-close window if the item is deleted from the schematic
+    connect(item, &QObject::destroyed, win, &QWidget::close);
+
+    win->show();
 }
 
 void SchematicEditor::onTimeTravelSnapshot(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& currents) {

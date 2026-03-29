@@ -71,6 +71,49 @@ int findMatchingParen(const QString& text, int openIndex) {
     return -1;
 }
 
+bool convertLtspiceConditionToStepExpr(const QString& condition, QString* stepExpr) {
+    if (!stepExpr) return false;
+
+    int parenDepth = 0;
+    int braceDepth = 0;
+    int opPos = -1;
+    QString op;
+    for (int i = 0; i < condition.size(); ++i) {
+        const QChar ch = condition.at(i);
+        if (ch == '(') ++parenDepth;
+        else if (ch == ')' && parenDepth > 0) --parenDepth;
+        else if (ch == '{') ++braceDepth;
+        else if (ch == '}' && braceDepth > 0) --braceDepth;
+        if (parenDepth != 0 || braceDepth != 0) continue;
+        if (i + 1 < condition.size()) {
+            const QString two = condition.mid(i, 2);
+            if (two == ">=" || two == "<=") {
+                opPos = i;
+                op = two;
+                break;
+            }
+        }
+        if (ch == '>' || ch == '<') {
+            opPos = i;
+            op = ch;
+            break;
+        }
+    }
+
+    if (opPos >= 0) {
+        const QString lhs = condition.left(opPos).trimmed();
+        const QString rhs = condition.mid(opPos + op.size()).trimmed();
+        if (lhs.isEmpty() || rhs.isEmpty()) return false;
+        if (op == ">" || op == ">=") *stepExpr = QString("u((%1)-(%2))").arg(lhs, rhs);
+        else if (op == "<" || op == "<=") *stepExpr = QString("u((%1)-(%2))").arg(rhs, lhs);
+        else return false;
+        return true;
+    }
+
+    *stepExpr = QString("u((%1)-(0.5))").arg(condition.trimmed());
+    return !condition.trimmed().isEmpty();
+}
+
 void updateSubcktDepthForLine(const QString& line, int& subcktDepth) {
     const QString trimmed = line.trimmed();
     if (!trimmed.startsWith('.')) return;
@@ -85,46 +128,187 @@ void updateSubcktDepthForLine(const QString& line, int& subcktDepth) {
 QString rewriteLtspiceBehavioralIf(const QString& line, QStringList* warnings = nullptr) {
     QString out = line;
 
-    static const QRegularExpression ifRe(
-        "\\bif\\s*\\(\\s*([^,]+?)\\s*([<>]=?)\\s*([^,]+?)\\s*,\\s*([^,]+?)\\s*,\\s*(0|0\\.0*)\\s*\\)",
-        QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression ifElseRe(
-        "\\bif\\s*\\(\\s*([^,]+?)\\s*([<>]=?)\\s*([^,]+?)\\s*,\\s*([^,]+?)\\s*,\\s*([^,]+?)\\s*\\)",
-        QRegularExpression::CaseInsensitiveOption);
+    auto findTopLevelComparison = [](const QString& text, int* opPos, QString* op) {
+        int parenDepth = 0;
+        int braceDepth = 0;
+        for (int i = 0; i < text.size(); ++i) {
+            const QChar ch = text.at(i);
+            if (ch == '(') ++parenDepth;
+            else if (ch == ')' && parenDepth > 0) --parenDepth;
+            else if (ch == '{') ++braceDepth;
+            else if (ch == '}' && braceDepth > 0) --braceDepth;
+            if (parenDepth != 0 || braceDepth != 0) continue;
+            if (i + 1 < text.size()) {
+                const QString two = text.mid(i, 2);
+                if (two == ">=" || two == "<=") {
+                    *opPos = i;
+                    *op = two;
+                    return true;
+                }
+            }
+            if (ch == '>' || ch == '<') {
+                *opPos = i;
+                *op = ch;
+                return true;
+            }
+        }
+        return false;
+    };
 
-    QRegularExpressionMatch match = ifRe.match(out);
-    if (!match.hasMatch()) {
-        match = ifElseRe.match(out);
-        if (!match.hasMatch()) return out;
+    bool changed = false;
+    bool rewroteNonZeroFalseBranch = false;
+    while (true) {
+        const int ifPos = out.indexOf(QRegularExpression("\\bif\\s*\\(", QRegularExpression::CaseInsensitiveOption));
+        if (ifPos < 0) break;
+        const int openPos = out.indexOf('(', ifPos);
+        const int closePos = findMatchingParen(out, openPos);
+        if (openPos < 0 || closePos < 0) break;
+
+        const QString inside = out.mid(openPos + 1, closePos - openPos - 1);
+        const QStringList args = splitTopLevelSpiceArgs(inside);
+        if (args.size() != 3) break;
+
+        const QString condExpr = args.at(0).trimmed();
+        const QString trueExpr = args.at(1).trimmed();
+        const QString falseExpr = args.at(2).trimmed();
+
+        int opPos = -1;
+        QString op;
+        if (!findTopLevelComparison(condExpr, &opPos, &op)) break;
+
+        const QString lhs = condExpr.left(opPos).trimmed();
+        const QString rhs = condExpr.mid(opPos + op.size()).trimmed();
+        if (lhs.isEmpty() || rhs.isEmpty()) break;
+
+        QString stepExpr;
+        if (op == ">" || op == ">=") stepExpr = QString("u((%1)-(%2))").arg(lhs, rhs);
+        else if (op == "<" || op == "<=") stepExpr = QString("u((%1)-(%2))").arg(rhs, lhs);
+        else break;
+
+        const bool falseIsZero = falseExpr == "0" || falseExpr == "0.0";
+        QString replacement;
+        if (falseIsZero) {
+            replacement = QString("((%1)*(%2))").arg(trueExpr, stepExpr);
+        } else {
+            replacement = QString("((%1)*(%2) + (%3)*(1-(%2)))").arg(trueExpr, stepExpr, falseExpr);
+            rewroteNonZeroFalseBranch = true;
+        }
+
+        out.replace(ifPos, closePos - ifPos + 1, replacement);
+        changed = true;
     }
 
-    const QString lhs = match.captured(1).trimmed();
-    const QString op = match.captured(2).trimmed();
-    const QString rhs = match.captured(3).trimmed();
-    const QString trueExpr = match.captured(4).trimmed();
-    const QString falseExpr = match.captured(5).trimmed();
-
-    QString stepExpr;
-    if (op == ">" || op == ">=") stepExpr = QString("u((%1)-(%2))").arg(lhs, rhs);
-    else if (op == "<" || op == "<=") stepExpr = QString("u((%1)-(%2))").arg(rhs, lhs);
-    else return out;
-
-    const bool falseIsZero = falseExpr == "0" || falseExpr == "0.0";
-    QString replacement;
-    if (falseIsZero) {
-        replacement = QString("((%1)*(%2))").arg(trueExpr, stepExpr);
-    } else {
-        replacement = QString("((%1)*(%2) + (%3)*(1-(%2)))").arg(trueExpr, stepExpr, falseExpr);
-    }
-
-    out.replace(match.capturedStart(0), match.capturedLength(0), replacement);
-    if (warnings) {
+    if (changed && warnings) {
         warnings->append(QString("Rewrote LTspice-style if(...) to ngspice-safe expression in: %1").arg(line.trimmed()));
-        if (!falseIsZero) {
+        if (rewroteNonZeroFalseBranch) {
             warnings->append(QString("Rewrote LTspice-style if(..., true, false) into weighted u(...) form in: %1").arg(line.trimmed()));
         }
     }
     return out;
+}
+
+QString rewriteLtspiceVoltageSourceExtras(const QString& line, QStringList* warnings = nullptr) {
+    QString out = line;
+
+    static const QRegularExpression voltageSourceExtrasRe(
+        "^\\s*(V[^\\s]*)\\s+(\\S+)\\s+(\\S+)\\s+(.+?)\\s+(.*)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch sourceMatch = voltageSourceExtrasRe.match(out);
+    if (!sourceMatch.hasMatch()) return out;
+
+    const QString ref = sourceMatch.captured(1).trimmed();
+    const QString nodePlus = sourceMatch.captured(2).trimmed();
+    const QString nodeMinus = sourceMatch.captured(3).trimmed();
+    const QString value = sourceMatch.captured(4).trimmed();
+    QString extras = sourceMatch.captured(5).trimmed();
+
+    static const QRegularExpression rserRe("\\bRser\\s*=\\s*([^\\s]+)", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression cparRe("\\bCpar\\s*=\\s*([^\\s]+)", QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch rserMatch = rserRe.match(extras);
+    const QRegularExpressionMatch cparMatch = cparRe.match(extras);
+
+    if (!rserMatch.hasMatch() && !cparMatch.hasMatch()) return out;
+
+    const QString rser = rserMatch.hasMatch() ? rserMatch.captured(1).trimmed() : QString();
+    const QString cpar = cparMatch.hasMatch() ? cparMatch.captured(1).trimmed() : QString();
+
+    extras.remove(rserRe);
+    extras.remove(cparRe);
+    extras = extras.simplified();
+
+    const QString sourcePlusNode = rser.isEmpty() ? nodePlus : QString("%1__rser").arg(ref);
+    QStringList rewrittenLines;
+
+    QString sourceLine = QString("%1 %2 %3 %4").arg(ref, sourcePlusNode, nodeMinus, value);
+    if (!extras.isEmpty()) sourceLine += " " + extras;
+    rewrittenLines << sourceLine;
+
+    if (!rser.isEmpty()) {
+        rewrittenLines << QString("R__RSER_%1 %2 %3 %4").arg(ref, nodePlus, sourcePlusNode, rser);
+    }
+    if (!cpar.isEmpty()) {
+        rewrittenLines << QString("C__CPAR_%1 %2 %3 %4").arg(ref, nodePlus, nodeMinus, cpar);
+    }
+
+    out = rewrittenLines.join("\n");
+    if (warnings) {
+        if (!rser.isEmpty() && !cpar.isEmpty()) {
+            warnings->append(QString("Expanded LTspice voltage source Rser=/Cpar= on %1 into explicit series resistor and shunt capacitor for ngspice.").arg(ref));
+        } else if (!rser.isEmpty()) {
+            warnings->append(QString("Expanded LTspice voltage source Rser= on %1 into explicit series resistor for ngspice.").arg(ref));
+        } else {
+            warnings->append(QString("Expanded LTspice voltage source Cpar= on %1 into explicit shunt capacitor for ngspice.").arg(ref));
+        }
+    }
+    return out;
+}
+
+QString rewriteLtspiceTriggeredPulseSource(const QString& line, QStringList* warnings = nullptr) {
+    static const QRegularExpression sourceRe(
+        "^\\s*(V\\S*)\\s+(\\S+)\\s+(\\S+)\\s+(.+)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = sourceRe.match(line);
+    if (!match.hasMatch()) return line;
+
+    const QString ref = match.captured(1).trimmed();
+    const QString nplus = match.captured(2).trimmed();
+    const QString nminus = match.captured(3).trimmed();
+    const QString rest = match.captured(4).trimmed();
+    const int pulsePos = rest.indexOf(QRegularExpression("^PULSE\\s*\\(", QRegularExpression::CaseInsensitiveOption));
+    if (pulsePos != 0) return line;
+    const int openPos = rest.indexOf('(');
+    const int closePos = findMatchingParen(rest, openPos);
+    if (openPos < 0 || closePos < 0) return line;
+
+    const QString pulseExpr = rest.left(closePos + 1).trimmed();
+    QString tail = rest.mid(closePos + 1).trimmed();
+
+    static const QRegularExpression triggerRe("\\bTrigger\\s*=\\s*(.+?)(?=\\s+tripd[vt]\\s*=|$)", QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch triggerMatch = triggerRe.match(tail);
+    if (!triggerMatch.hasMatch()) return line;
+
+    const QString triggerExpr = triggerMatch.captured(1).trimmed();
+    QString stepExpr;
+    if (!convertLtspiceConditionToStepExpr(triggerExpr, &stepExpr)) return line;
+
+    tail.remove(triggerRe);
+    tail = tail.simplified();
+
+    const QString hiddenNode = QString("%1__trigger_src").arg(ref);
+    const QString hiddenRef = QString("V__TRIGSRC_%1").arg(ref);
+    const QString bufferRef = QString("B__TRIGBUF_%1").arg(ref);
+
+    QStringList rewrittenLines;
+    QString hiddenLine = QString("%1 %2 %3 %4").arg(hiddenRef, hiddenNode, nminus, pulseExpr);
+    if (!tail.isEmpty()) hiddenLine += " " + tail;
+    rewrittenLines << hiddenLine;
+    rewrittenLines << QString("%1 %2 %3 V={(%4)*V(%5,%6)}").arg(bufferRef, nplus, nminus, stepExpr, hiddenNode, nminus);
+
+    if (warnings) {
+        warnings->append(QString("Approximated LTspice PULSE Trigger= behavior on %1 by gating a hidden pulse source with the trigger expression.").arg(ref));
+        warnings->append(QString("LTspice triggered source restart semantics are only partially emulated for %1; the pulse is gated by the trigger but not restarted on each trigger event.").arg(ref));
+    }
+    return rewrittenLines.join("\n");
 }
 
 QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warnings = nullptr) {
@@ -190,10 +374,6 @@ QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warn
         warnings->append(QString("Rewrote LTspice behavioral helper functions for ngspice compatibility in: %1").arg(line.trimmed()));
     }
 
-    if (out.contains("idtmod(", Qt::CaseInsensitive) && warnings) {
-        warnings->append(QString("LTspice idtmod(...) detected and passed through unchanged; ngspice compatibility is not implemented yet: %1").arg(line.trimmed()));
-    }
-
     return out;
 }
 
@@ -239,7 +419,11 @@ void appendLtspiceSourceOptionWarnings(const QString& line, QStringList* warning
     }
 
     if (rest.contains(QRegularExpression("\\bTrigger\\s*=", QRegularExpression::CaseInsensitiveOption))) {
-        warnings->append(QString("LTspice triggered source restart semantics are not yet emulated for %1; Trigger= is passed through unchanged: %2").arg(ref, line.trimmed()));
+        if (rest.startsWith("PULSE", Qt::CaseInsensitive)) {
+            warnings->append(QString("LTspice PULSE Trigger= detected on %1; VioSpice will approximate it by gating a hidden pulse source.").arg(ref));
+        } else {
+            warnings->append(QString("LTspice triggered source restart semantics are not yet emulated for %1; Trigger= is passed through unchanged: %2").arg(ref, line.trimmed()));
+        }
     }
     if (rest.contains(QRegularExpression("\\btripdv\\s*=", QRegularExpression::CaseInsensitiveOption)) ||
         rest.contains(QRegularExpression("\\btripdt\\s*=", QRegularExpression::CaseInsensitiveOption))) {
@@ -309,8 +493,15 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
     appendLtspiceBSourceOptionWarnings(out, warnings);
     appendLtspiceSourceOptionWarnings(out, warnings);
 
+    out = rewriteLtspiceTriggeredPulseSource(out, warnings);
+    out = rewriteLtspiceVoltageSourceExtras(out, warnings);
+
     if (emulateStartup) {
-        out = rewriteLtspiceStartupSourceLine(out, warnings);
+        QStringList startupLines;
+        for (const QString& part : out.split('\n')) {
+            startupLines << rewriteLtspiceStartupSourceLine(part, warnings);
+        }
+        out = startupLines.join("\n");
     }
 
     if (out.trimmed().compare(".end", Qt::CaseInsensitive) == 0) {
@@ -325,7 +516,7 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
             "^\\s*(B\\S+)\\s+(\\S+)\\s+(\\S+)\\s+V\\s*=\\s*(.+)$",
             QRegularExpression::CaseInsensitiveOption);
         const QRegularExpressionMatch bMatch = bSourceRe.match(out);
-        if (bMatch.hasMatch() && (out.contains("idt(", Qt::CaseInsensitive) || out.contains("sdt(", Qt::CaseInsensitive))) {
+        if (bMatch.hasMatch() && (out.contains("idt(", Qt::CaseInsensitive) || out.contains("sdt(", Qt::CaseInsensitive) || out.contains("idtmod(", Qt::CaseInsensitive))) {
             const QString ref = bMatch.captured(1).trimmed();
             const QString nplus = bMatch.captured(2).trimmed();
             const QString nminus = bMatch.captured(3).trimmed();
@@ -339,7 +530,7 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
             }
 
             static const QRegularExpression idtTailRe(
-                "^(.*?)(?:([+\\-])\\s*)?([^\\s+\\-]+)?\\s*\\*?\\s*(idt|sdt)\\s*\\((.*)\\)\\s*$",
+                "^(.*?)(?:([+\\-])\\s*)?([^\\s+\\-]+)?\\s*\\*?\\s*(idt|sdt|idtmod)\\s*\\((.*)\\)\\s*$",
                 QRegularExpression::CaseInsensitiveOption);
             const QRegularExpressionMatch idtMatch = idtTailRe.match(expr);
             if (idtMatch.hasMatch()) {
@@ -350,7 +541,10 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
                 const QStringList idtArgs = splitTopLevelSpiceArgs(idtMatch.captured(5).trimmed());
                 const QString innerExpr = idtArgs.value(0).trimmed();
                 const QString icExpr = idtArgs.value(1).trimmed().isEmpty() ? "0" : idtArgs.value(1).trimmed();
-                const QString assertExpr = idtArgs.value(2).trimmed();
+                const bool isIdtMod = funcName.compare("idtmod", Qt::CaseInsensitive) == 0;
+                const QString assertExpr = isIdtMod ? QString() : idtArgs.value(2).trimmed();
+                const QString modulusExpr = isIdtMod ? (idtArgs.value(2).trimmed().isEmpty() ? "1" : idtArgs.value(2).trimmed()) : QString();
+                const QString offsetExpr = isIdtMod ? (idtArgs.value(3).trimmed().isEmpty() ? "0" : idtArgs.value(3).trimmed()) : QString();
                 if (innerExpr.isEmpty()) return out;
                 coeff.remove(QRegularExpression("\\*+$"));
                 if (coeff.isEmpty()) coeff = "1";
@@ -369,12 +563,22 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
 
                 QString rewrittenExpr = prefix;
                 if (rewrittenExpr.isEmpty()) {
-                    rewrittenExpr = QString("V(%1)").arg(intNode);
+                    if (isIdtMod) {
+                        rewrittenExpr = QString("((%1)+((V(%2)-(%1))-(%3)*floor(((V(%2)-(%1))/(%3)))))")
+                                            .arg(offsetExpr, intNode, modulusExpr);
+                    } else {
+                        rewrittenExpr = QString("V(%1)").arg(intNode);
+                    }
                 } else {
                     // Ensure prefix doesn't have unbalanced braces after split
                     if (prefix.count('{') > prefix.count('}')) prefix += "}";
                     if (prefix.count('}') > prefix.count('{')) prefix.prepend("{");
-                    rewrittenExpr = prefix + QString(" + V(%1)").arg(intNode);
+                    if (isIdtMod) {
+                        rewrittenExpr = prefix + QString(" + ((%1)+((V(%2)-(%1))-(%3)*floor(((V(%2)-(%1))/(%3)))))")
+                                                   .arg(offsetExpr, intNode, modulusExpr);
+                    } else {
+                        rewrittenExpr = prefix + QString(" + V(%1)").arg(intNode);
+                    }
                 }
 
                 // If the original had braces, ensure the new one does too (handled by the bExprRe block usually, 
@@ -401,6 +605,9 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
                     }
                     if (!assertExpr.isEmpty()) {
                         warnings->append(QString("Approximated LTspice %1 reset/assert argument for %2 using a behavioral reset clamp.").arg(funcName.toLower(), ref));
+                    }
+                    if (isIdtMod) {
+                        warnings->append(QString("Approximated LTspice idtmod(...) for %1 by wrapping the explicit integrator output with modulus %2 and offset %3.").arg(ref, modulusExpr, offsetExpr));
                     }
                 }
             }
@@ -520,9 +727,20 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
         if (tranMatch.hasMatch()) {
             const QString tstep = tranMatch.captured(1).trimmed();
             const QString tstop = tranMatch.captured(2).trimmed();
-            const QString tstart = tranMatch.captured(3).trimmed();
-            const QString tmax = tranMatch.captured(4).trimmed();
+            QString tstart = tranMatch.captured(3).trimmed();
+            QString tmax = tranMatch.captured(4).trimmed();
             QString tail = tranMatch.captured(5).simplified();
+
+            auto promoteModifierToken = [&tail](QString& token) {
+                if (token.compare("startup", Qt::CaseInsensitive) == 0 ||
+                    token.compare("uic", Qt::CaseInsensitive) == 0) {
+                    if (!tail.isEmpty()) tail.prepend(token + " ");
+                    else tail = token;
+                    token.clear();
+                }
+            };
+            promoteModifierToken(tstart);
+            promoteModifierToken(tmax);
 
             // Strip LTspice-only 'startup'; source ramping is handled separately.
             bool changed = false;
@@ -984,22 +1202,49 @@ QString sanitizeDirectiveName(const QString& raw) {
 QString normalizeLtspiceMeasDirective(const QString& cmd, QStringList* warnings = nullptr) {
     QString out = cmd;
 
-    if (out.startsWith(".meas", Qt::CaseInsensitive) && out.contains("I(", Qt::CaseInsensitive)) {
+    if (!out.startsWith(".meas", Qt::CaseInsensitive)) return out;
+
+    if (out.contains("I(", Qt::CaseInsensitive)) {
         if (warnings) {
             warnings->append(QString("LTspice-style .meas current reference detected: %1").arg(cmd.trimmed()));
             warnings->append(QString("Consider measuring source current via I(Vsense) or converting resistor current measurements manually for ngspice."));
         }
     }
 
-    if (out.startsWith(".meas", Qt::CaseInsensitive) && out.contains(" PARAM ", Qt::CaseInsensitive)) {
+    if (out.contains(" PARAM ", Qt::CaseInsensitive)) {
         if (warnings) {
             warnings->append(QString(".meas PARAM detected and passed through unchanged: %1").arg(cmd.trimmed()));
         }
     }
 
-    if (out.startsWith(".meas", Qt::CaseInsensitive) && out.contains(" FIND ", Qt::CaseInsensitive) && out.contains(" AT=", Qt::CaseInsensitive)) {
+    if (out.contains(" FIND ", Qt::CaseInsensitive) && out.contains(" AT=", Qt::CaseInsensitive)) {
         if (warnings) {
             warnings->append(QString(".meas FIND ... AT= detected; verify LTspice/ngspice syntax compatibility: %1").arg(cmd.trimmed()));
+        }
+    }
+
+    if (out.contains(QRegularExpression("\\bDERIV\\b", QRegularExpression::CaseInsensitiveOption))) {
+        if (warnings) {
+            warnings->append(QString(".meas DERIV detected; verify LTspice/ngspice derivative measurement syntax compatibility: %1").arg(cmd.trimmed()));
+        }
+    }
+
+    if (out.contains(QRegularExpression("\\bTRIG\\b", QRegularExpression::CaseInsensitiveOption)) ||
+        out.contains(QRegularExpression("\\bTARG\\b", QRegularExpression::CaseInsensitiveOption))) {
+        if (warnings) {
+            warnings->append(QString(".meas TRIG/TARG interval form detected; verify LTspice/ngspice compatibility: %1").arg(cmd.trimmed()));
+        }
+    }
+
+    if (out.contains(QRegularExpression("\\b(RISE|FALL|CROSS)\\s*=\\s*(LAST|\\d+)", QRegularExpression::CaseInsensitiveOption))) {
+        if (warnings) {
+            warnings->append(QString(".meas RISE/FALL/CROSS qualifier detected; verify LTspice/ngspice event counting compatibility: %1").arg(cmd.trimmed()));
+        }
+    }
+
+    if (out.contains(QRegularExpression("\\b(AVG|MAX|MIN|PP|RMS|INTEG)\\b", QRegularExpression::CaseInsensitiveOption))) {
+        if (warnings) {
+            warnings->append(QString(".meas interval reduction keyword detected and passed through unchanged: %1").arg(cmd.trimmed()));
         }
     }
 

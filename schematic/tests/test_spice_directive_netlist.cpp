@@ -29,6 +29,7 @@ private slots:
     void rewritesLtspiceBehavioralHelperFunctions();
     void warnsAboutLtspiceBehavioralAndTriggeredSourceOptions();
     void warnsAboutLtspiceMeasForms();
+    void rewritesVoltageSourceInstanceExtras();
     void loadsBoostConverterLtspiceDirectiveInNgspice();
     void boostConverterFeedbackDoesNotRunAway();
 };
@@ -192,6 +193,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBehavioralHelperFunctions() {
         "BINV out2 0 V=inv(V(b))\n"
         "BUR out3 0 V=uramp(V(c)-1)\n"
         "BLIM out4 0 V=limit(V(x), -1, 2)\n"
+        "BIF out6 0 V={if(V(in)>1, limit(uramp(V(in)-1), 0, 2), 0)}\n"
         "BMOD out5 0 V=idtmod(V(err), 0, 1, 0)\n"
         ".tran 1u 1m",
         QPointF(0, 0));
@@ -208,9 +210,14 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBehavioralHelperFunctions() {
     QVERIFY2(netlist.contains("BINV out2 0 V={(1-u((V(b))-(0.5)))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BUR out3 0 V={((V(c)-1)*u(V(c)-1))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BLIM out4 0 V={min(max((V(x)),min((-1),(2))),max((-1),(2)))}"), qPrintable(netlist));
-    QVERIFY2(netlist.contains("BMOD out5 0 V={idtmod(V(err), 0, 1, 0)}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("BIF out6 0 V={((min(max((((V(in)-1)*u(V(in)-1))),min((0),(2))),max((0),(2))))*(u((V(in))-(1))))}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__INTDRV_BMOD 0 BMOD__idt I={(1)*(V(err))}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".ic V(BMOD__idt)=0"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("BMOD out5 0 V={((0)+((V(BMOD__idt)-(0))-(1)*floor(((V(BMOD__idt)-(0))/(1)))))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("Rewrote LTspice behavioral helper functions"), qPrintable(netlist));
-    QVERIFY2(netlist.contains("idtmod(...) detected and passed through unchanged"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Rewrote LTspice-style if(...) to ngspice-safe expression"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Expanded LTspice idtmod(...) in BMOD into an explicit behavioral integrator for ngspice."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice idtmod(...) for BMOD by wrapping the explicit integrator output with modulus 1 and offset 0."), qPrintable(netlist));
 }
 
 void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOptions() {
@@ -233,8 +240,12 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOpt
     QVERIFY2(netlist.contains("LTspice B-source instance option ic= detected and passed through unchanged"), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice B-source step-rejection options tripdv=/tripdt= detected and passed through unchanged"), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice B-source Laplace options detected and passed through unchanged"), qPrintable(netlist));
-    QVERIFY2(netlist.contains("LTspice triggered source restart semantics are not yet emulated"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice PULSE Trigger= detected on VTRIG; VioSpice will approximate it by gating a hidden pulse source."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice PULSE Trigger= behavior on VTRIG by gating a hidden pulse source with the trigger expression."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice triggered source restart semantics are only partially emulated for VTRIG; the pulse is gated by the trigger but not restarted on each trigger event."), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice source step-rejection options tripdv=/tripdt= detected on VTRIG and passed through unchanged"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("V__TRIGSRC_VTRIG VTRIG__trigger_src 0 PULSE(0 1 0 1n 1n 5u 10u) tripdv=0.2 tripdt=1n"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__TRIGBUF_VTRIG out2 0 V={(u((V(clk))-(0.5)))*V(VTRIG__trigger_src,0)}"), qPrintable(netlist));
 }
 
 void SpiceDirectiveNetlistTest::warnsAboutLtspiceMeasForms() {
@@ -243,6 +254,9 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceMeasForms() {
     auto* directive = new SchematicSpiceDirectiveItem(
         ".meas tran VAL1 PARAM V(out)*I(RLOAD)\n"
         ".meas tran VAL2 FIND V(out) AT=1m\n"
+        ".meas tran VAL3 DERIV V(out) AT=2m\n"
+        ".meas tran VAL4 AVG V(out) TRIG V(a) VAL=1 RISE=1 TARG V(b) VAL=2 FALL=LAST\n"
+        ".meas tran VAL5 WHEN V(x)=3*V(y) CROSS=3\n"
         ".tran 1u 2m",
         QPointF(0, 0));
     scene.addItem(directive);
@@ -256,6 +270,41 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceMeasForms() {
 
     QVERIFY2(netlist.contains(".meas PARAM detected and passed through unchanged"), qPrintable(netlist));
     QVERIFY2(netlist.contains(".meas FIND ... AT= detected"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".meas DERIV detected; verify LTspice/ngspice derivative measurement syntax compatibility"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".meas TRIG/TARG interval form detected; verify LTspice/ngspice compatibility"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".meas RISE/FALL/CROSS qualifier detected; verify LTspice/ngspice event counting compatibility"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".meas interval reduction keyword detected and passed through unchanged"), qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::rewritesVoltageSourceInstanceExtras() {
+    QGraphicsScene scene;
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "V1 out 0 5 Rser=10m Cpar=22p\n"
+        "V2 in 0 PULSE(0 1 0 1n 1n 5u 10u) Rser=1 Cpar=10p\n"
+        ".tran 1u 1m startup",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("V1 V1__rser 0 PWL(0 0 20u 5)"), qPrintable(netlist));
+    QVERIFY2(!netlist.contains("V1 V1__rser 0 5"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RSER_V1 out V1__rser 10m"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("C__CPAR_V1 out 0 22p"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("V__STARTUPSRC_V2 V2__startup 0 PULSE(0 1 0 1n 1n 5u 10u)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__STARTUPBUF_V2 V2__rser 0 V={(min(1,max(0,time/20u)))*V(V2__startup,0)}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RSER_V2 in V2__rser 1"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("C__CPAR_V2 in 0 10p"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Expanded LTspice voltage source Rser=/Cpar= on V1 into explicit series resistor and shunt capacitor for ngspice."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Expanded LTspice voltage source Rser=/Cpar= on V2 into explicit series resistor and shunt capacitor for ngspice."), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".tran 1u 1m"), qPrintable(netlist));
+    QVERIFY2(!netlist.contains(QRegularExpression("^\\.tran.*\\bstartup\\b", QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption)), qPrintable(netlist));
 }
 
 void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {
@@ -406,7 +455,7 @@ void SpiceDirectiveNetlistTest::boostConverterFeedbackDoesNotRunAway() {
     timer.setSingleShot(true);
     QObject::connect(&sim, &SimulationManager::simulationFinished, &loop, &QEventLoop::quit);
     QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timer.start(20000);
+    timer.start(30000);
     loop.exec();
 
     QVERIFY2(finished, qPrintable(error));

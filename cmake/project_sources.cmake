@@ -401,6 +401,8 @@ set(SCHEMATIC_SOURCES
     schematic/ui/virtual_instruments.cpp
     schematic/ui/logic_analyzer_window.cpp
     schematic/ui/logic_analyzer_window.h
+    schematic/ui/oscilloscope_window.cpp
+    schematic/ui/oscilloscope_window.h
     schematic/ui/virtual_instruments.cpp
     schematic/ui/virtual_instruments.h
     schematic/analysis/schematic_annotator.cpp

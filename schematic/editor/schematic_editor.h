@@ -26,6 +26,8 @@
 #include "schematic_layout_optimizer.h"
 #include "../analysis/schematic_erc_rules.h"
 #include "../items/schematic_page_item.h"
+#include "../ui/oscilloscope_window.h"
+#include "../items/oscilloscope_item.h"
 class SchematicView;
 class SchematicPageItem;
 class SchematicSpiceDirectiveItem;
@@ -57,6 +59,7 @@ public:
     void addSimulationTab(const QString& name = "Simulation Results");
     void addModelArchitectTab();
     void addImageTab(const QString& filePath);
+    void openOscilloscopeWindow(class OscilloscopeItem* item);
     void closeTab(int index);
     
     void onClearSimulationOverlays();
@@ -143,6 +146,9 @@ private slots:
     void refreshHierarchyPanel();
     void onEditTitleBlock();
     void onSimulationResultsReady(const class SimResults& results);
+    void onOscilloscopeWindowClosing(const QUuid& id);
+    void onOscilloscopeConfigChanged(const QUuid& id, const OscilloscopeItem::Config& cfg);
+    void onOscilloscopePropertiesRequested(const QUuid& id);
     void onSimulationPaused(bool paused);
     void onTimeTravelSnapshot(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& currents);
     void onOverlayVisibilityChanged(bool showVoltage, bool showCurrent);
@@ -255,6 +261,7 @@ private:
     QAction *m_toggleHeatmapAction = nullptr;
     QString m_mouseFollowActionLabel;
     QMap<QString, class LogicAnalyzerWindow*> m_laWindows;
+    QMap<QUuid, class OscilloscopeWindow*> m_oscilloscopeWindows;
 
     QDockWidget *m_geminiDock;
     class GeminiPanel* m_geminiPanel = nullptr;

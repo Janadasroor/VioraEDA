@@ -89,6 +89,9 @@ private slots:
     void onAddPrimitiveExact();
     void onSnapToGrid();
     void onPinTable();
+    void onApplySmartSubcktMapping();
+    void onApplyOrderedSubcktMapping();
+    void onClearSubcktMapping();
     void onZoomIn();
     void onZoomOut();
     void onZoomFit();
@@ -160,6 +163,11 @@ private:
     void updatePinTable();
     void updateSubcktMappingTable();
     void refreshSubcktMappingStatus();
+    QString currentSymbolPinSignature() const;
+    void markSubcktMappingSynchronized();
+    QStringList currentSubcktPinNames() const;
+    QStringList buildSmartSubcktMapping(const QStringList& subcktPins) const;
+    void applySubcktMappingList(const QStringList& mappedPins);
     QWidget* createSymbolMetadataWidget();
     void openSubcircuitPicker();
     QStringList currentSymbolPinNames() const;
@@ -274,6 +282,8 @@ protected:
     QLineEdit* m_modelNameEdit = nullptr;
     QTableWidget* m_subcktMappingTable = nullptr;
     QLabel* m_subcktMappingSummaryLabel = nullptr;
+    QLabel* m_subcktSyncLabel = nullptr;
+    QString m_subcktMappingPinSignature;
     
     // Properties panel
     class QTabWidget* m_propsTabWidget = nullptr;
