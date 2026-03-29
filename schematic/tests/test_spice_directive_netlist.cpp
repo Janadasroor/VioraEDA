@@ -226,6 +226,10 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOpt
     auto* directive = new SchematicSpiceDirectiveItem(
         "BOPT out 0 V={V(a)} ic=1 tripdv=0.1 tripdt=1n laplace={1/(s+1)} window=1m nfft=1024 mtol=1e-3\n"
         "VTRIG out2 0 PULSE(0 1 0 1n 1n 5u 10u) Trigger=V(clk)>0.5 tripdv=0.2 tripdt=1n\n"
+        "VPWL out3 0 PWL(0 0 1u 1 2u 0) Trigger=V(en)>0.5 tripdv=0.3 tripdt=2n\n"
+        "VSIN out4 0 SINE(0 1 1k 0 0 0) Trigger=V(sen)>0.5 tripdv=0.4 tripdt=3n\n"
+        "VEXP out5 0 EXP(0 5 1u 100n 2u 200n) Trigger=V(go)>0.5 tripdv=0.5 tripdt=4n\n"
+        "VSFFM out6 0 SFFM(0 1 10k 0.5 1k) Trigger=V(mod)>0.5 tripdv=0.6 tripdt=5n\n"
         ".tran 1u 1m",
         QPointF(0, 0));
     scene.addItem(directive);
@@ -239,13 +243,37 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOpt
 
     QVERIFY2(netlist.contains("LTspice B-source instance option ic= detected and passed through unchanged"), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice B-source step-rejection options tripdv=/tripdt= detected and passed through unchanged"), qPrintable(netlist));
-    QVERIFY2(netlist.contains("LTspice B-source Laplace options detected and passed through unchanged"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice B-source Laplace options detected; VioSpice will drop them if needed to keep ngspice loadable"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Dropped LTspice B-source laplace= transform from BOPT out 0 V={V(a)} ic=1 tripdv=0.1 tripdt=1n laplace={1/(s+1)} window=1m nfft=1024 mtol=1e-3 because this ngspice configuration does not accept LTspice-style Laplace options on B-sources."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Preserved the underlying behavioral source but removed laplace/window/nfft/mtol options; resulting behavior may differ from LTspice. Dropped Laplace expression: {1/(s+1)}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("BOPT out 0 V={{V(a)} ic=1 tripdv=0.1 tripdt=1n}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice PULSE Trigger= detected on VTRIG; VioSpice will approximate it by gating a hidden pulse source."), qPrintable(netlist));
     QVERIFY2(netlist.contains("Approximated LTspice PULSE Trigger= behavior on VTRIG by gating a hidden pulse source with the trigger expression."), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice triggered source restart semantics are only partially emulated for VTRIG; the pulse is gated by the trigger but not restarted on each trigger event."), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice source step-rejection options tripdv=/tripdt= detected on VTRIG and passed through unchanged"), qPrintable(netlist));
     QVERIFY2(netlist.contains("V__TRIGSRC_VTRIG VTRIG__trigger_src 0 PULSE(0 1 0 1n 1n 5u 10u) tripdv=0.2 tripdt=1n"), qPrintable(netlist));
     QVERIFY2(netlist.contains("B__TRIGBUF_VTRIG out2 0 V={(u((V(clk))-(0.5)))*V(VTRIG__trigger_src,0)}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice PWL Trigger= detected on VPWL; VioSpice will approximate it by gating a hidden PWL source."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice PWL Trigger= behavior on VPWL by gating a hidden PWL source with the trigger expression."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice triggered PWL restart semantics are only partially emulated for VPWL; the waveform is gated by the trigger but not restarted on each trigger event."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice source step-rejection options tripdv=/tripdt= detected on VPWL and passed through unchanged"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("V__TRIGSRC_VPWL VPWL__trigger_src 0 PWL(0 0 1u 1 2u 0) tripdv=0.3 tripdt=2n"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__TRIGBUF_VPWL out3 0 V={(u((V(en))-(0.5)))*V(VPWL__trigger_src,0)}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice SINE Trigger= detected on VSIN; VioSpice will approximate it by gating a hidden SINE source."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice SINE Trigger= behavior on VSIN by gating a hidden SINE source with the trigger expression."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice triggered SINE restart semantics are only partially emulated for VSIN; the waveform is gated by the trigger but not restarted on each trigger event."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("V__TRIGSRC_VSIN VSIN__trigger_src 0 SINE(0 1 1k 0 0 0) tripdv=0.4 tripdt=3n"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__TRIGBUF_VSIN out4 0 V={(u((V(sen))-(0.5)))*V(VSIN__trigger_src,0)}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice EXP Trigger= detected on VEXP; VioSpice will approximate it by gating a hidden EXP source."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice EXP Trigger= behavior on VEXP by gating a hidden EXP source with the trigger expression."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice triggered EXP restart semantics are only partially emulated for VEXP; the waveform is gated by the trigger but not restarted on each trigger event."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("V__TRIGSRC_VEXP VEXP__trigger_src 0 EXP(0 5 1u 100n 2u 200n) tripdv=0.5 tripdt=4n"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__TRIGBUF_VEXP out5 0 V={(u((V(go))-(0.5)))*V(VEXP__trigger_src,0)}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice SFFM Trigger= detected on VSFFM; VioSpice will approximate it by gating a hidden SFFM source."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Approximated LTspice SFFM Trigger= behavior on VSFFM by gating a hidden SFFM source with the trigger expression."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("LTspice triggered SFFM restart semantics are only partially emulated for VSFFM; the waveform is gated by the trigger but not restarted on each trigger event."), qPrintable(netlist));
+    QVERIFY2(netlist.contains("V__TRIGSRC_VSFFM VSFFM__trigger_src 0 SFFM(0 1 10k 0.5 1k) tripdv=0.6 tripdt=5n"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B__TRIGBUF_VSFFM out6 0 V={(u((V(mod))-(0.5)))*V(VSFFM__trigger_src,0)}"), qPrintable(netlist));
 }
 
 void SpiceDirectiveNetlistTest::warnsAboutLtspiceMeasForms() {
