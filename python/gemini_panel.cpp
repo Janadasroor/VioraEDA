@@ -622,6 +622,10 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
         .arg(theme ? theme->textSecondary().name() : "#888", fg));
     connect(m_voiceButton, &QPushButton::clicked, this, &GeminiPanel::onVoiceClicked);
 
+    m_commandModeCheck = new QCheckBox("CMD", this);
+    m_commandModeCheck->setToolTip("Command Mode: Parse tool tags and local commands manually (Offline Tool Calling)");
+    m_commandModeCheck->setStyleSheet(QString("QCheckBox { color: %1; font-size: 10px; font-weight: bold; margin-left: 4px; }").arg(fg));
+
     m_sendButton = new QPushButton("SEND", this);
     m_sendButton->setFixedHeight(24);
     m_sendButton->setStyleSheet(QString("QPushButton { background: %1; color: white; border: 1px solid %2; border-radius: 6px; font-weight: bold; font-size: 10px; padding: 0 12px; } QPushButton:hover { background: %3; }")
@@ -639,6 +643,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     toolsRow->addWidget(speedCombo);
     toolsRow->addWidget(m_modelCombo);
     toolsRow->addStretch();
+    toolsRow->addWidget(m_commandModeCheck);
     toolsRow->addWidget(m_voiceButton);
     toolsRow->addWidget(m_sendButton);
     toolsRow->addWidget(m_stopButton);
@@ -968,6 +973,15 @@ void GeminiPanel::handleActionTag(const QString& actionText) {
         if (view) {
             QMetaObject::invokeMethod(view, "clearHints", Qt::DirectConnection);
         }
+    } else if (action == "run_simulation()" || action == "run_simulation") {
+        emit runSimulationRequested();
+    } else if (action == "run_erc()" || action == "run_erc" || action == "erc") {
+        emit runERCRequested();
+    } else if (action.startsWith("toggle_panel(")) {
+        QString params = action.mid(13);
+        if (params.endsWith(")")) params.chop(1);
+        params = params.remove('\"').remove('\'').trimmed();
+        emit togglePanelRequested(params);
     }
 }
 
@@ -1399,7 +1413,13 @@ void GeminiPanel::onSendClicked() {
         m_lastSubmittedPrompt = t;
         m_lastSubmitEpochMs = nowMs;
         m_inputField->clear();
-        askPrompt(t, m_includeContextCheck->isChecked());
+
+        if (m_commandModeCheck && m_commandModeCheck->isChecked()) {
+            appendUserMessageCard(t);
+            parseAndExecuteCommandModeInput(t);
+        } else {
+            askPrompt(t, m_includeContextCheck->isChecked());
+        }
     }
     updateSendEnabled();
 }
@@ -1996,4 +2016,59 @@ QString GeminiPanel::gatherInstructions() const {
         }
     }
     return combined;
+}
+
+void GeminiPanel::parseAndExecuteCommandModeInput(const QString& input) {
+    QString text = input.trimmed();
+    if (text.isEmpty()) return;
+
+    appendSystemNote("<div style='color: #8b949e; font-size: 10px; margin: 4px 0;'>[CMD_MODE] Processing local input...</div>");
+
+    bool foundAnyTag = false;
+    // Look for <ACTION> tags
+    QRegularExpression actionRegex("<ACTION>(.*?)</ACTION>", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatchIterator it = actionRegex.globalMatch(text);
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        handleActionTag(match.captured(1));
+        foundAnyTag = true;
+    }
+
+    // Look for <SUGGESTION> tags
+    QRegularExpression sugRegex("<SUGGESTION>(.*?)</SUGGESTION>", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    it = sugRegex.globalMatch(text);
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        handleSuggestionTag(match.captured(1));
+        foundAnyTag = true;
+    }
+
+    // Look for <SNIPPET> tags
+    QRegularExpression snipRegex("<SNIPPET>(.*?)</SNIPPET>", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    it = snipRegex.globalMatch(text);
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        appendSnippetActionButton(match.captured(1));
+        foundAnyTag = true;
+    }
+
+    // Plain text command aliases (only if no tags were found, to avoid double execution if user types "run simulation <ACTION>run_simulation()</ACTION>")
+    if (!foundAnyTag) {
+        QString lower = text.toLower();
+        if (lower == "run simulation" || lower == "simulate" || lower == "start simulation") {
+            handleActionTag("run_simulation()");
+        } else if (lower == "run erc" || lower == "erc" || lower == "check rules") {
+            handleActionTag("run_erc()");
+        } else if (lower == "toggle left panel") {
+            handleActionTag("toggle_panel(side=\"left\")");
+        } else if (lower == "toggle right panel" || lower == "toggle ai panel") {
+            handleActionTag("toggle_panel(side=\"right\")");
+        } else if (lower == "toggle bottom panel" || lower == "toggle results") {
+            handleActionTag("toggle_panel(side=\"bottom\")");
+        } else if (lower == "clear chat") {
+            clearHistory();
+        } else {
+             appendSystemNote("<div style='color: #6e7681; font-size: 11px; margin: 5px 0;'>No valid tags or known commands found in Offline Mode. Use &lt;ACTION&gt;tags&lt;/ACTION&gt;.</div>");
+        }
+    }
 }

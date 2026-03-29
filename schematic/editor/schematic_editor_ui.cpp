@@ -1173,6 +1173,14 @@ void SchematicEditor::createDockWidgets() {
     m_geminiPanel = new GeminiPanel(m_scene, this);
     m_geminiPanel->setNetManager(m_netManager);
     m_geminiPanel->setUndoStack(m_undoStack);
+    connect(m_geminiPanel, &GeminiPanel::runSimulationRequested, this, &SchematicEditor::onRunSimulation);
+    connect(m_geminiPanel, &GeminiPanel::runERCRequested, this, &SchematicEditor::onRunERC);
+    connect(m_geminiPanel, &GeminiPanel::togglePanelRequested, this, [this](const QString& pName) {
+        QString n = pName.toLower();
+        if (n.contains("left")) onToggleLeftSidebar();
+        else if (n.contains("right") || n.contains("ai")) onToggleRightSidebar();
+        else if (n.contains("bottom") || n.contains("result") || n.contains("sim")) onToggleBottomPanel();
+    });
     connect(m_geminiPanel, &GeminiPanel::itemsHighlighted, this, &SchematicEditor::onItemsHighlighted);
     connect(m_geminiPanel, &GeminiPanel::snippetGenerated, this, [this](const QString& jsonSnippet) {
         QPointF pos;

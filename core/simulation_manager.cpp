@@ -67,6 +67,8 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     m_currentNetlist = netlist;
     m_streamingControl = control;
     m_vectorMap.clear();
+    m_lastLoadFailed = false;
+    m_bgRunIssued = false;
 
     {
         std::lock_guard<std::mutex> lock(m_bufferMutex);
@@ -78,19 +80,28 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     }
     m_streamingCounter = 0;
     m_skipFactor = 1;
-    m_bufferTimer->start();
-
-    emit simulationStarted();
 
     QString error;
     const bool loaded = loadNetlistInternal(netlist, true, &error);
     if (!loaded) {
+        m_bufferTimer->stop();
         if (!error.isEmpty()) emit errorOccurred(error);
         return;
     }
+
+    m_bufferTimer->start();
+    emit simulationStarted();
     qDebug() << "SimulationManager: Setting ascii mode for real-time streaming and starting bg_run";
     ngSpice_Command(const_cast<char*>("set filetype=ascii"));
-    ngSpice_Command((char*)"bg_run");
+    const int rc = ngSpice_Command((char*)"bg_run");
+    if (rc != 0 || m_lastLoadFailed) {
+        m_bufferTimer->stop();
+        m_bgRunIssued = false;
+        emit errorOccurred("Ngspice failed to start simulation.");
+        emit simulationFinished();
+        return;
+    }
+    m_bgRunIssued = true;
 #endif
 }
 
@@ -300,7 +311,14 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
         else if (msg.startsWith("stdout ")) msg.remove(0, 7);
 
         const QString lower = msg.toLower();
-        if (lower.contains("no circuit loaded") || lower.contains("there is no circuit")) {
+        if (lower.contains("no circuit loaded") ||
+            lower.contains("there is no circuit") ||
+            lower.contains("error on line") ||
+            lower.contains("unknown model type") ||
+            lower.contains("unable to find definition of model") ||
+            lower.contains("mif-error") ||
+            lower.contains("circuit not parsed") ||
+            lower.contains("ngspice.dll cannot recover")) {
             self->m_lastLoadFailed = true;
         }
         
@@ -457,7 +475,7 @@ int SimulationManager::cbSendInitData(void* initData, int id, void* userData) {
 
 int SimulationManager::cbBGThreadRunning(bool finished, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
-    if (self && finished) {
+    if (self && finished && self->m_bgRunIssued) {
         QFileInfo info(self->m_currentNetlist);
         const QString rawPath = info.absolutePath() + "/" + info.completeBaseName() + ".raw";
         QMetaObject::invokeMethod(self, "handleSimulationFinished", Qt::QueuedConnection, Q_ARG(QString, rawPath));
@@ -469,7 +487,7 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
     m_bufferTimer->stop();
     processBufferedData(); // Flush remaining
 #ifdef HAVE_NGSPICE
-    if (!rawPath.isEmpty()) {
+    if (m_bgRunIssued && !m_lastLoadFailed && !rawPath.isEmpty()) {
         ngSpice_Command((char*)"set filetype=binary");
         const QString writeCmd = "write " + rawPath;
         ngSpice_Command(writeCmd.toLatin1().data());
@@ -477,5 +495,6 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
         emit rawResultsReady(rawPath);
     }
 #endif
+    m_bgRunIssued = false;
     emit simulationFinished();
 }

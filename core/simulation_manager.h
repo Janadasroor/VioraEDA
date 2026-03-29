@@ -51,6 +51,7 @@ private:
 
     bool m_isInitialized;
     bool m_lastLoadFailed = false;
+    bool m_bgRunIssued = false;
     QString m_currentNetlist;
     SimControl* m_streamingControl = nullptr;
     
