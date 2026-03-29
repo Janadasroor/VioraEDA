@@ -111,7 +111,6 @@ private:
     QWidget* m_chatContainer = nullptr;
     QVBoxLayout* m_chatLayout = nullptr;
     QList<QWidget*> m_chatMessageWidgets;
-    QTextEdit* m_thinkingDisplay;
     QTextEdit* m_inputField;
     QPushButton* m_sendButton;
     QPushButton* m_clearButton;
@@ -119,7 +118,6 @@ private:
     QPushButton* m_copyButton;
     QPushButton* m_historyMenuButton = nullptr;
     QPushButton* m_stopButton;
-    QPushButton* m_thinkingToggleButton;
     QPushButton* m_voiceButton = nullptr;
     QWidget* m_toolCallBanner = nullptr;
     QLabel* m_toolCallTitle = nullptr;
@@ -165,8 +163,6 @@ private:
     QString m_currentChatTitle;
     QString m_lastSubmittedPrompt;
     qint64 m_lastSubmitEpochMs = 0;
-    
-    QPushButton* m_statusButton;
     
     QList<QVariantMap> m_history;
     QList<ChatMessage> m_chatMessages;

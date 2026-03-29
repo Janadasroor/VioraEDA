@@ -59,7 +59,7 @@ public:
     void addSimulationTab(const QString& name = "Simulation Results");
     void addModelArchitectTab();
     void addImageTab(const QString& filePath);
-    void openOscilloscopeWindow(class OscilloscopeItem* item);
+    void openOscilloscopeWindow(class SchematicItem* item);
     void closeTab(int index);
     
     void onClearSimulationOverlays();
