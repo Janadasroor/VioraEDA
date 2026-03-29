@@ -664,13 +664,6 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_modelCombo->setStyleSheet(comboStyle);
     m_modelCombo->addItem("Gemini 2.0 Flash", "gemini-2.0-flash");
 
-    m_voiceButton = new QPushButton(this);
-    m_voiceButton->setIcon(getThemeIcon(":/icons/tool_pen.svg")); // Using pen for now as voice icon placeholder if missing
-    m_voiceButton->setToolTip("Voice Input");
-    m_voiceButton->setFixedSize(26, 26);
-    m_voiceButton->setStyleSheet(QString("QPushButton { background: transparent; border: none; border-radius: 13px; } QPushButton:hover { background: %1; }")
-        .arg((theme && theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#2a3444"));
-    connect(m_voiceButton, &QPushButton::clicked, this, &GeminiPanel::onVoiceClicked);
 
     m_sendButton = new QPushButton("SEND", this);
     m_sendButton->setFixedHeight(32);
@@ -700,7 +693,6 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_stopButton->setStyleSheet("QPushButton { background: #ef4444; color: white; border-radius: 10px; font-weight: 800; font-size: 11px; padding: 0 20px; } QPushButton:hover { background: #dc2626; }");
     connect(m_stopButton, &QPushButton::clicked, this, &GeminiPanel::onStopClicked);
 
-    toolsRow->addWidget(m_voiceButton);
     toolsRow->addWidget(m_refreshModelsButton);
     toolsRow->addWidget(speedCombo);
     toolsRow->addWidget(m_modelCombo);
@@ -903,33 +895,6 @@ void GeminiPanel::finishAssistantRunUi(int exitCode) {
     }
 }
 
-void GeminiPanel::onVoiceClicked() {
-    if (m_isWorking) return;
-
-    static bool isRecording = false;
-    if (!isRecording) {
-        isRecording = true;
-        m_voiceButton->setText("● REC");
-        m_voiceButton->setStyleSheet("QPushButton { background: #ef4444; color: white; border-radius: 6px; font-weight: bold; font-size: 10px; padding: 0 8px; }");
-        
-        // In a real implementation, we would start QAudioInput here.
-        // For the foundation, we'll simulate a 2-second capture.
-        QTimer::singleShot(2000, this, [this]() {
-            onVoiceClicked(); // Toggle off
-        });
-        
-    } else {
-        isRecording = false;
-        m_voiceButton->setText("VOICE");
-        PCBTheme* theme = ThemeManager::theme();
-        QString fg = theme ? theme->textColor().name() : "#000000";
-        m_voiceButton->setStyleSheet(QString("QPushButton { background: transparent; color: %1; border: none; font-size: 10px; font-weight: bold; padding: 0 4px; } QPushButton:hover { color: %2; }")
-            .arg(theme ? theme->textSecondary().name() : "#888", fg));
-        
-        // Simulate sending the captured "audio" (as text for now)
-        m_inputField->setPlainText("Zoom to R1 and highlight the feedback net.");
-        onSendClicked();
-    }
 }
 
 void GeminiPanel::handleActionTag(const QString& actionText) {
@@ -939,7 +904,7 @@ void GeminiPanel::handleActionTag(const QString& actionText) {
     QGraphicsView* view = m_scene ? m_scene->views().value(0, nullptr) : nullptr;
     
     showToolCallBanner(action);
-    appendSystemNote(QString("<div style='color: #58a6ff; font-size: 11px; margin: 5px 0;'>[ACTION] <i>%1</i></div>").arg(action.toHtmlEscaped()));
+    appendSystemAction(action.toUpper(), "Viora AI is executing a system tool.", "⚡");
 
     // Implementation of specific actions
     if (action.startsWith("add_hint(")) {

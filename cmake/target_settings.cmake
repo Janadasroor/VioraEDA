@@ -30,6 +30,10 @@ set(VIORAEDA_QT_LINK_LIBS
     Qt${QT_VERSION_MAJOR}::Qml
 )
 
+if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
+    list(APPEND VIORAEDA_QT_LINK_LIBS Qt${QT_VERSION_MAJOR}::WebSockets)
+endif()
+
 set(VIORAEDA_APP_LINK_LIBS
     FluxCore
     FluxSymbols

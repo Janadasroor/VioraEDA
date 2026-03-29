@@ -4,6 +4,7 @@
 #include "../items/power_item.h"
 #include "../items/schematic_spice_directive_item.h"
 #include "../../core/simulation_manager.h"
+#include "../../simulator/bridge/sim_manager.h"
 #include "../../simulator/core/raw_data_parser.h"
 #include "../../simulator/mixedmode/LogicComponent.h"
 #include "../../simulator/mixedmode/NetlistManager.h"
@@ -40,6 +41,7 @@ private slots:
     void warnsAboutLtspiceMeasForms();
     void rewritesVoltageSourceInstanceExtras();
     void loadsBoostConverterLtspiceDirectiveInNgspice();
+    void emulatesLtspiceStepParamList();
     void boostConverterFeedbackDoesNotRunAway();
     void mixedModeManagerInsertsAdcAndDacBridges();
     void logicComponentGeneratesVectorizedSubcircuit();
@@ -587,6 +589,57 @@ void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {
 
     QString error;
     QVERIFY2(SimulationManager::instance().validateNetlist(temp.fileName(), &error), qPrintable(error));
+}
+
+void SpiceDirectiveNetlistTest::emulatesLtspiceStepParamList() {
+    if (!SimulationManager::instance().isAvailable()) {
+        QSKIP("Ngspice is not available in this build.");
+    }
+
+    const QString netlist =
+        "* stepped transient\n"
+        ".param RLOAD=1k\n"
+        "V1 in 0 PULSE(0 1 0 1u 1u 1m 2m)\n"
+        "R1 in out 1k\n"
+        "RLOAD out 0 {RLOAD}\n"
+        "C1 out 0 1u\n"
+        ".tran 100u 4m\n"
+        "* .step param RLOAD LIST 1k 2k\n"
+        "* LTspice .step omitted: this ngspice configuration reports .step as unimplemented\n"
+        ".end\n";
+
+    SimResults results;
+    QString error;
+    bool finished = false;
+    auto& sim = SimManager::instance();
+    QObject::connect(&sim, &SimManager::simulationFinished, &sim, [&](const SimResults& r) {
+        results = r;
+        finished = true;
+    });
+    QObject::connect(&sim, &SimManager::errorOccurred, &sim, [&](const QString& msg) { error = msg; });
+
+    sim.runNetlistText(netlist);
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(&sim, &SimManager::simulationFinished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(30000);
+    loop.exec();
+
+    QVERIFY2(finished, qPrintable(error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    bool saw1k = false;
+    bool saw2k = false;
+    for (const auto& wave : results.waveforms) {
+        const QString name = QString::fromStdString(wave.name);
+        if (name.contains("RLOAD=1k")) saw1k = true;
+        if (name.contains("RLOAD=2k")) saw2k = true;
+    }
+    QVERIFY2(saw1k, "Missing waveform set for RLOAD=1k sweep case.");
+    QVERIFY2(saw2k, "Missing waveform set for RLOAD=2k sweep case.");
+    QVERIFY2(!results.diagnostics.empty(), "Expected step sweep diagnostics.");
 }
 
 void SpiceDirectiveNetlistTest::boostConverterFeedbackDoesNotRunAway() {

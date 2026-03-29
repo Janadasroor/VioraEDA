@@ -1,15 +1,310 @@
 #include "sim_manager.h"
+#include "sim_schematic_bridge.h"
 #include "../core/raw_data_parser.h"
 #include "../../schematic/items/schematic_item.h"
 #include "../../schematic/items/smart_signal_item.h"
 #include "../../core/simulation_manager.h"
 #include "../../schematic/analysis/spice_netlist_generator.h"
+#include "../core/sim_value_parser.h"
 #include <QDebug>
 #include <QTimer>
 #include <QtConcurrent>
 #include <QFutureWatcher>
 #include <QTemporaryFile>
 #include <QDir>
+#include <QRegularExpression>
+
+namespace {
+
+struct StepSpec {
+    enum class Kind {
+        Param,
+        Temp,
+        Source,
+        Unsupported
+    };
+
+    Kind kind = Kind::Unsupported;
+    QString target;
+    QString rawLine;
+    QStringList values;
+    QString error;
+};
+
+QStringList tokenizePreservingQuotes(const QString& text) {
+    QStringList tokens;
+    QString current;
+    bool inQuotes = false;
+    for (QChar ch : text) {
+        if (ch == '"') {
+            inQuotes = !inQuotes;
+            current += ch;
+            continue;
+        }
+        if (ch.isSpace() && !inQuotes) {
+            if (!current.isEmpty()) {
+                tokens << current;
+                current.clear();
+            }
+            continue;
+        }
+        current += ch;
+    }
+    if (!current.isEmpty()) tokens << current;
+    return tokens;
+}
+
+QString stripCommentPrefix(const QString& line) {
+    QString trimmed = line.trimmed();
+    if (trimmed.startsWith('*')) {
+        trimmed.remove(0, 1);
+        trimmed = trimmed.trimmed();
+    }
+    return trimmed;
+}
+
+bool buildLinearRange(const QString& startText, const QString& stopText, const QString& stepText, QStringList* values, QString* error) {
+    double start = 0.0, stop = 0.0, step = 0.0;
+    if (!SimValueParser::parseSpiceNumber(startText, start) || !SimValueParser::parseSpiceNumber(stopText, stop) ||
+        !SimValueParser::parseSpiceNumber(stepText, step) || step == 0.0) {
+        if (error) *error = QString("Unable to parse linear .step range: %1 %2 %3").arg(startText, stopText, stepText);
+        return false;
+    }
+    const double direction = (stop >= start) ? 1.0 : -1.0;
+    if ((direction > 0.0 && step < 0.0) || (direction < 0.0 && step > 0.0)) step = -step;
+    const double eps = std::abs(step) * 1e-9 + 1e-18;
+    for (double v = start; (direction > 0.0) ? (v <= stop + eps) : (v >= stop - eps); v += step) {
+        values->append(QString::number(v, 'g', 12));
+        if (values->size() > 512) {
+            if (error) *error = "Refusing to expand .step with more than 512 points.";
+            return false;
+        }
+    }
+    return !values->isEmpty();
+}
+
+bool buildLogRange(const QString& mode, const QString& startText, const QString& stopText, const QString& countText, QStringList* values, QString* error) {
+    double start = 0.0, stop = 0.0, count = 0.0;
+    if (!SimValueParser::parseSpiceNumber(startText, start) || !SimValueParser::parseSpiceNumber(stopText, stop) ||
+        !SimValueParser::parseSpiceNumber(countText, count) || count <= 0.0 || start <= 0.0 || stop <= 0.0) {
+        if (error) *error = QString("Unable to parse logarithmic .step range: %1 %2 %3").arg(startText, stopText, countText);
+        return false;
+    }
+    const double ratioBase = mode.compare("oct", Qt::CaseInsensitive) == 0 ? 2.0 : 10.0;
+    const double pointsPer = count;
+    const double factor = std::pow(ratioBase, 1.0 / pointsPer);
+    if (factor <= 1.0) {
+        if (error) *error = "Invalid .step logarithmic increment.";
+        return false;
+    }
+    for (double v = start; v <= stop * (1.0 + 1e-12); v *= factor) {
+        values->append(QString::number(v, 'g', 12));
+        if (values->size() > 512) {
+            if (error) *error = "Refusing to expand .step with more than 512 points.";
+            return false;
+        }
+    }
+    return !values->isEmpty();
+}
+
+StepSpec parseStepLine(const QString& rawLine) {
+    StepSpec spec;
+    spec.rawLine = rawLine.trimmed();
+    const QString stepLine = stripCommentPrefix(rawLine);
+    if (!stepLine.startsWith(".step", Qt::CaseInsensitive)) {
+        spec.error = "Not a .step line.";
+        return spec;
+    }
+
+    QStringList tokens = tokenizePreservingQuotes(stepLine);
+    if (tokens.size() < 3) {
+        spec.error = "Incomplete .step syntax.";
+        return spec;
+    }
+
+    int idx = 1;
+    QString mode = "lin";
+    const QString maybeMode = tokens.value(idx).toLower();
+    if (maybeMode == "lin" || maybeMode == "dec" || maybeMode == "oct") {
+        mode = maybeMode;
+        ++idx;
+    }
+    if (idx >= tokens.size()) {
+        spec.error = "Missing .step target.";
+        return spec;
+    }
+
+    if (tokens.value(idx).compare("param", Qt::CaseInsensitive) == 0) {
+        spec.kind = StepSpec::Kind::Param;
+        ++idx;
+        spec.target = tokens.value(idx++);
+    } else {
+        spec.target = tokens.value(idx++);
+        if (spec.target.compare("temp", Qt::CaseInsensitive) == 0) spec.kind = StepSpec::Kind::Temp;
+        else if (QRegularExpression("^[VI]\\S*$", QRegularExpression::CaseInsensitiveOption).match(spec.target).hasMatch()) spec.kind = StepSpec::Kind::Source;
+        else spec.kind = StepSpec::Kind::Unsupported;
+    }
+
+    if (spec.kind == StepSpec::Kind::Unsupported) {
+        spec.error = QString("Unsupported .step target '%1'.").arg(spec.target);
+        return spec;
+    }
+    if (idx >= tokens.size()) {
+        spec.error = "Missing .step range or list.";
+        return spec;
+    }
+
+    const QString next = tokens.value(idx);
+    if (next.compare("list", Qt::CaseInsensitive) == 0) {
+        spec.values = tokens.mid(idx + 1);
+        if (spec.values.isEmpty()) spec.error = "Empty .step list.";
+        return spec;
+    }
+    if (next.startsWith("file=", Qt::CaseInsensitive)) {
+        spec.error = "LTspice .step file= form is not supported by the VioSpice sweep runner yet.";
+        return spec;
+    }
+    if (tokens.size() < idx + 3) {
+        spec.error = "Incomplete .step range syntax.";
+        return spec;
+    }
+
+    QString error;
+    bool ok = false;
+    if (mode == "lin") ok = buildLinearRange(tokens.value(idx), tokens.value(idx + 1), tokens.value(idx + 2), &spec.values, &error);
+    else ok = buildLogRange(mode, tokens.value(idx), tokens.value(idx + 1), tokens.value(idx + 2), &spec.values, &error);
+    if (!ok) spec.error = error;
+    return spec;
+}
+
+QList<StepSpec> parseStepSpecsFromNetlist(const QString& netlistContent) {
+    QList<StepSpec> specs;
+    const QStringList lines = netlistContent.split('\n');
+    for (const QString& line : lines) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith(".step", Qt::CaseInsensitive) || trimmed.startsWith("* .step", Qt::CaseInsensitive)) {
+            specs.append(parseStepLine(trimmed));
+        }
+    }
+    return specs;
+}
+
+bool replaceOrInjectParam(QString* netlist, const QString& name, const QString& value) {
+    if (!netlist) return false;
+    QStringList lines = netlist->split('\n');
+    const QRegularExpression assignRe(QString("\\b%1\\s*=\\s*([^\\s]+)").arg(QRegularExpression::escape(name)), QRegularExpression::CaseInsensitiveOption);
+    bool replaced = false;
+    for (QString& line : lines) {
+        if (!line.trimmed().startsWith(".param", Qt::CaseInsensitive)) continue;
+        if (line.contains(assignRe)) {
+            line.replace(assignRe, QString("%1=%2").arg(name, value));
+            replaced = true;
+        }
+    }
+    if (!replaced) {
+        int insertAt = 0;
+        if (!lines.isEmpty()) insertAt = 1;
+        lines.insert(insertAt, QString(".param %1=%2").arg(name, value));
+    }
+    *netlist = lines.join('\n');
+    return true;
+}
+
+bool replaceOrInjectTemp(QString* netlist, const QString& value) {
+    if (!netlist) return false;
+    QStringList lines = netlist->split('\n');
+    bool replaced = false;
+    for (QString& line : lines) {
+        if (line.trimmed().startsWith(".temp", Qt::CaseInsensitive)) {
+            line = QString(".temp %1").arg(value);
+            replaced = true;
+        }
+    }
+    if (!replaced) lines.insert(1, QString(".temp %1").arg(value));
+    *netlist = lines.join('\n');
+    return true;
+}
+
+bool replaceSimpleSourceValue(QString* netlist, const QString& ref, const QString& value) {
+    if (!netlist) return false;
+    QStringList lines = netlist->split('\n');
+    const QRegularExpression sourceRe(QString("^\\s*(%1)\\s+(\\S+)\\s+(\\S+)\\s+(?:DC\\s+)?(\\{[^}]+\\}|[-+]?\\d+(?:\\.\\d*)?(?:[eE][-+]?\\d+)?[A-Za-z]*)\\s*$")
+                                          .arg(QRegularExpression::escape(ref)),
+                                      QRegularExpression::CaseInsensitiveOption);
+    for (QString& line : lines) {
+        const QRegularExpressionMatch m = sourceRe.match(line);
+        if (!m.hasMatch()) continue;
+        line = QString("%1 %2 %3 %4").arg(m.captured(1), m.captured(2), m.captured(3), value);
+        *netlist = lines.join('\n');
+        return true;
+    }
+    return false;
+}
+
+bool applyStepValue(QString* netlist, const StepSpec& spec, const QString& value, QString* error) {
+    switch (spec.kind) {
+    case StepSpec::Kind::Param:
+        return replaceOrInjectParam(netlist, spec.target, value);
+    case StepSpec::Kind::Temp:
+        return replaceOrInjectTemp(netlist, value);
+    case StepSpec::Kind::Source:
+        if (replaceSimpleSourceValue(netlist, spec.target, value)) return true;
+        if (error) *error = QString("Only simple independent source stepping is currently supported for %1.").arg(spec.target);
+        return false;
+    default:
+        if (error) *error = spec.error;
+        return false;
+    }
+}
+
+void buildStepRunCartesian(const QList<StepSpec>& specs, int index, QString currentNetlist, QStringList currentLabels,
+                           QList<SimManager::PendingStepRun>* runs, QString* error) {
+    if (!runs) return;
+    if (index >= specs.size()) {
+        runs->append({currentNetlist, currentLabels.join(", ")});
+        return;
+    }
+    const StepSpec& spec = specs.at(index);
+    for (const QString& value : spec.values) {
+        QString runNetlist = currentNetlist;
+        QString applyError;
+        if (!applyStepValue(&runNetlist, spec, value, &applyError)) {
+            if (error) *error = applyError;
+            return;
+        }
+        QStringList labels = currentLabels;
+        labels << QString("%1=%2").arg(spec.target, value);
+        if (runs->size() > 512) {
+            if (error) *error = "Refusing to build more than 512 sweep runs.";
+            return;
+        }
+        buildStepRunCartesian(specs, index + 1, runNetlist, labels, runs, error);
+        if (error && !error->isEmpty()) return;
+    }
+}
+
+QList<SimManager::PendingStepRun> buildStepRuns(const QString& netlistContent, QString* error) {
+    QList<SimManager::PendingStepRun> runs;
+    const QList<StepSpec> specs = parseStepSpecsFromNetlist(netlistContent);
+    if (specs.isEmpty()) return runs;
+    for (const StepSpec& spec : specs) {
+        if (!spec.error.isEmpty()) {
+            if (error) *error = spec.error;
+            return {};
+        }
+    }
+    QString stepStripped = netlistContent;
+    stepStripped.replace(QRegularExpression("^\\s*\\*?\\s*\\.step.*$", QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption),
+                         "* LTspice .step sweep handled by VioSpice sweep runner");
+    buildStepRunCartesian(specs, 0, stepStripped, {}, &runs, error);
+    return runs;
+}
+
+QString withStepSuffix(const QString& name, const QString& stepLabel) {
+    return stepLabel.trimmed().isEmpty() ? name : QString("%1 [%2]").arg(name, stepLabel);
+}
+
+} // namespace
 
 SimManager& SimManager::instance() {
     static SimManager inst;
@@ -137,7 +432,69 @@ void SimManager::runNgspiceSimulation(const QString& netlist, const SimAnalysisC
     }
 
     emit logMessage(QString("Starting ngspice simulation (Analysis: %1)...").arg(static_cast<int>(config.type)));
+
+    QString stepError;
+    m_pendingStepRuns = buildStepRuns(netlist, &stepError);
+    m_stepSweepResults = SimResults();
+    m_activeStepLabel.clear();
+    m_completedStepRuns = 0;
+    if (!stepError.isEmpty()) {
+        emit logMessage(QString("LTspice .step emulation error: %1").arg(stepError));
+        emit errorOccurred(stepError);
+        emit simulationFinished(SimResults());
+        return;
+    }
+    if (!m_pendingStepRuns.isEmpty()) {
+        emit logMessage(QString("Running LTspice .step sweep emulation with %1 run(s).").arg(m_pendingStepRuns.size()));
+        startNextStepSweepRun();
+        return;
+    }
+
     startNgspiceWithNetlist(netlist);
+}
+
+void SimManager::startNextStepSweepRun() {
+    if (m_pendingStepRuns.isEmpty()) {
+        SimResults finalResults = m_stepSweepResults;
+        m_stepSweepResults = SimResults();
+        m_activeStepLabel.clear();
+        m_completedStepRuns = 0;
+        emit simulationFinished(finalResults);
+        return;
+    }
+
+    const PendingStepRun run = m_pendingStepRuns.takeFirst();
+    m_activeStepLabel = run.label;
+    emit logMessage(QString("Running .step case %1").arg(run.label));
+    startNgspiceWithNetlist(run.netlist);
+}
+
+void SimManager::mergeStepSweepResults(const SimResults& runResults, const QString& stepLabel, int runIndex) {
+    if (!m_stepSweepResults.isSchemaCompatible()) {
+        m_stepSweepResults = SimResults();
+    }
+    if (m_stepSweepResults.waveforms.empty() && m_stepSweepResults.nodeVoltages.empty() && m_stepSweepResults.branchCurrents.empty() && m_stepSweepResults.measurements.empty()) {
+        m_stepSweepResults.analysisType = runResults.analysisType;
+        m_stepSweepResults.xAxisName = runResults.xAxisName;
+        m_stepSweepResults.yAxisName = runResults.yAxisName;
+    }
+
+    for (const auto& wave : runResults.waveforms) {
+        SimWaveform labeled = wave;
+        labeled.name = withStepSuffix(QString::fromStdString(wave.name), stepLabel).toStdString();
+        m_stepSweepResults.waveforms.push_back(std::move(labeled));
+    }
+    for (const auto& [name, val] : runResults.nodeVoltages) {
+        m_stepSweepResults.nodeVoltages[withStepSuffix(QString::fromStdString(name), stepLabel).toStdString()] = val;
+    }
+    for (const auto& [name, val] : runResults.branchCurrents) {
+        m_stepSweepResults.branchCurrents[withStepSuffix(QString::fromStdString(name), stepLabel).toStdString()] = val;
+    }
+    for (const auto& [name, val] : runResults.measurements) {
+        m_stepSweepResults.measurements[withStepSuffix(QString::fromStdString(name), stepLabel).toStdString()] = val;
+    }
+    m_stepSweepResults.diagnostics.push_back(QString("Step run %1: %2").arg(runIndex).arg(stepLabel).toStdString());
+    m_completedStepRuns = runIndex;
 }
 
 void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
@@ -192,7 +549,11 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
             
             m_resultsPending = false;
             if (result.first) {
-                emit simulationFinished(result.second);
+                if (!m_activeStepLabel.isEmpty() || !m_pendingStepRuns.isEmpty()) {
+                    mergeStepSweepResults(result.second, m_activeStepLabel, m_completedStepRuns + 1);
+                } else {
+                    emit simulationFinished(result.second);
+                }
             } else {
                 const QString err = "Ngspice: Data parse error or empty results.";
                 emit logMessage(err);
@@ -203,6 +564,9 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
             
             if (safeTempFile) safeTempFile->deleteLater();
             cleanupSimulation();
+            if (result.first && (!m_activeStepLabel.isEmpty() || !m_pendingStepRuns.isEmpty())) {
+                QTimer::singleShot(0, this, &SimManager::startNextStepSweepRun);
+            }
         });
 
         watcher->setFuture(QtConcurrent::run([path]() {
@@ -223,7 +587,9 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
         QTimer::singleShot(2000, this, [this, safeTempFile]() {
             if (m_control && !m_resultsPending) {
                 emit logMessage("Ngspice finished without RAW results; closing simulation run.");
-                emit simulationFinished(SimResults());
+                if (m_pendingStepRuns.isEmpty() && m_activeStepLabel.isEmpty()) {
+                    emit simulationFinished(SimResults());
+                }
                 if (safeTempFile) safeTempFile->deleteLater();
                 cleanupSimulation();
             } else if (m_control && m_resultsPending) {
@@ -244,6 +610,9 @@ void SimManager::cleanupSimulation() {
         QTimer::singleShot(100, [ctrl]() {
             if (ctrl) delete ctrl;
         });
+    }
+    if (m_pendingStepRuns.isEmpty()) {
+        m_activeStepLabel.clear();
     }
 }
 

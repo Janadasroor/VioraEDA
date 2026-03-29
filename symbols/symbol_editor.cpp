@@ -2923,21 +2923,21 @@ void SymbolEditor::createMenuBar() {
     // --- File Menu ---
     QMenu* fileMenu = mb->addMenu("&File");
     fileMenu->addAction(getThemeIcon(":/icons/toolbar_new.png"), "&New Symbol", this, &SymbolEditor::onNewSymbol, QKeySequence::New);
-    fileMenu->addAction(getThemeIcon(":/icons/check.svg"), "&Save to Library", this, &SymbolEditor::onSaveToLibrary, QKeySequence::Save);
+    fileMenu->addAction(getThemeIcon(":/icons/check.svg"), "&Save to Library", QKeySequence::Save, this, &SymbolEditor::onSaveToLibrary);
     fileMenu->addAction(getThemeIcon(":/icons/toolbar_file.png"), "Save As...", this, &SymbolEditor::onExportVioSym);
     fileMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Save as Wizard Template...", this, &SymbolEditor::onWizardSaveTemplate);
-    fileMenu->addAction(getThemeIcon(":/icons/toolbar_refresh.png"), "Refresh Libraries", this, &SymbolEditor::onRefreshLibraries, QKeySequence::Refresh);
+    fileMenu->addAction(getThemeIcon(":/icons/toolbar_refresh.png"), "Refresh Libraries", QKeySequence::Refresh, this, &SymbolEditor::onRefreshLibraries);
     fileMenu->addSeparator();
     fileMenu->addAction(getThemeIcon(":/icons/schematic_editor.png"), "&Place in Schematic", this, &SymbolEditor::onPlaceInSchematic);
     fileMenu->addSeparator();
-    fileMenu->addAction("Close", this, &QWidget::close, QKeySequence::Close);
+    fileMenu->addAction("Close", QKeySequence::Close, this, &QWidget::close);
 
     // --- Edit Menu ---
     QMenu* editMenu = mb->addMenu("&Edit");
     editMenu->addAction(m_undoStack->createUndoAction(this, "&Undo"));
     editMenu->addAction(m_undoStack->createRedoAction(this, "&Redo"));
     editMenu->addSeparator();
-    editMenu->addAction(getThemeIcon(":/icons/tool_delete.svg"), "&Delete", this, &SymbolEditor::onDelete, QKeySequence::Delete);
+    editMenu->addAction(getThemeIcon(":/icons/tool_delete.svg"), "&Delete", QKeySequence::Delete, this, &SymbolEditor::onDelete);
     editMenu->addAction("Select &All", this, [this](){ 
         for (auto* it : m_scene->items()) it->setSelected(true); 
     }, QKeySequence::SelectAll);
@@ -3000,8 +3000,8 @@ void SymbolEditor::createMenuBar() {
             pin->raise();
         }
     });
-    viewMenu->addAction("Zoom Fit", this, &SymbolEditor::onZoomFit, QKeySequence("F"));
-    viewMenu->addAction("Zoom Selection", this, &SymbolEditor::onZoomSelection, QKeySequence("Ctrl+0"));
+    viewMenu->addAction("Zoom Fit", QKeySequence("F"), this, &SymbolEditor::onZoomFit);
+    viewMenu->addAction("Zoom Selection", QKeySequence("Ctrl+0"), this, &SymbolEditor::onZoomSelection);
     QAction* snapCursorCrosshairAct = viewMenu->addAction("Snap Cursor Crosshair");
     snapCursorCrosshairAct->setCheckable(true);
     snapCursorCrosshairAct->setChecked(false);
