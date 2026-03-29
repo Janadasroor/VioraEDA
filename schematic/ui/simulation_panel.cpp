@@ -853,7 +853,7 @@ void SimulationPanel::removeTabState(QGraphicsScene* scene) {
 }
 
 void SimulationPanel::updateSchematicDirective() {
-    if (!m_scene) return;
+    if (!m_scene || m_buildInProgress) return;
 
     SpiceNetlistGenerator::SimulationParams cmdParams;
     const int idx = m_analysisType ? m_analysisType->currentIndex() : 0;
@@ -861,8 +861,13 @@ void SimulationPanel::updateSchematicDirective() {
     if (idx == 0) {
         cmdParams.type = SpiceNetlistGenerator::Transient;
         cmdParams.start = "0";
-        cmdParams.stop = QString::number(parseValue(m_param2 ? m_param2->text() : QString(), 10e-3));
-        cmdParams.step = QString::number(parseValue(m_param1 ? m_param1->text() : QString(), 1e-6));
+        // Use raw text to preserve suffixes like 'u', 'm' etc.
+        cmdParams.stop = m_param2 ? m_param2->text().trimmed() : "10m";
+        cmdParams.step = m_param1 ? m_param1->text().trimmed() : "1u";
+        
+        // Fallbacks if empty
+        if (cmdParams.stop.isEmpty()) cmdParams.stop = "10m";
+        if (cmdParams.step.isEmpty()) cmdParams.step = "1u";
     } else if (idx == 1) {
         cmdParams.type = SpiceNetlistGenerator::OP;
     } else if (idx == 2) {
@@ -1911,16 +1916,20 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
     
     m_analysisType->setCurrentIndex(idx);
     
-    if (idx == 0) {
-        m_param1->setText(QString::number(cfg.step, 'g', 10));
-        m_param2->setText(QString::number(cfg.stop, 'g', 10));
-    } else if (idx == 2) {
-        const double fStart = (cfg.fStart > 0.0) ? cfg.fStart : 10.0;
-        const double fStop = (cfg.fStop > 0.0) ? cfg.fStop : 1e6;
-        const int pts = (cfg.pts > 0) ? cfg.pts : 10;
-        m_param1->setText(QString::number(fStart, 'g', 12));
-        m_param2->setText(QString::number(fStop, 'g', 12));
-        m_param3->setText(QString::number(pts));
+    // Only set raw numeric fields if we don't have a command text to parse from.
+    // This avoids losing precision/suffixes during the switch.
+    if (cfg.commandText.isEmpty()) {
+        if (idx == 0) {
+            if (cfg.step > 0) m_param1->setText(QString::number(cfg.step, 'g', 10));
+            if (cfg.stop > 0) m_param2->setText(QString::number(cfg.stop, 'g', 10));
+        } else if (idx == 2) {
+            const double fStart = (cfg.fStart > 0.0) ? cfg.fStart : 10.0;
+            const double fStop = (cfg.fStop > 0.0) ? cfg.fStop : 1e6;
+            const int pts = (cfg.pts > 0) ? cfg.pts : 10;
+            m_param1->setText(QString::number(fStart, 'g', 12));
+            m_param2->setText(QString::number(fStop, 'g', 12));
+            m_param3->setText(QString::number(pts));
+        }
     }
 
     if (!cfg.commandText.isEmpty()) {
