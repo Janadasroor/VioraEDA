@@ -79,6 +79,7 @@ private slots:
     void onDismissErrorClicked();
     void onViewErrorDetailsClicked();
     void onVoiceClicked();
+    void onCustomInstructionsClicked();
 
 private:
     struct ErrorRecord {
@@ -201,6 +202,7 @@ private:
 
     QSet<QString> m_suggestionKeys;
     QPoint m_dragStartPosition;
+    QString gatherInstructions() const;
     QString m_pressedAnchor;
 };
 
