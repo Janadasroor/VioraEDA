@@ -1,18 +1,28 @@
 #include "spice_step_dialog.h"
 
+#include "../../core/theme_manager.h"
 #include "../../simulator/core/sim_value_parser.h"
+#include "../items/current_source_item.h"
+#include "../items/transistor_item.h"
+#include "../items/voltage_controlled_switch_item.h"
+#include "../items/voltage_source_item.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QFile>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGraphicsScene>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QTextStream>
 #include <QVBoxLayout>
+
+#include <cmath>
 
 namespace {
 
@@ -20,13 +30,170 @@ bool parseStepValue(const QLineEdit* edit, double& outValue) {
     return edit && SimValueParser::parseSpiceNumber(edit->text().trimmed(), outValue);
 }
 
+QStringList tokenizeStepDialogLine(const QString& text) {
+    QString normalized = text;
+    normalized.replace(',', ' ');
+    return normalized.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
 }
 
-SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
-    : QDialog(parent)
+bool estimateLinearCount(const QStringList& tokens, int idx, int& outCount) {
+    double start = 0.0, stop = 0.0, step = 0.0;
+    if (tokens.size() < idx + 3) return false;
+    if (!SimValueParser::parseSpiceNumber(tokens[idx], start) || !SimValueParser::parseSpiceNumber(tokens[idx + 1], stop) ||
+        !SimValueParser::parseSpiceNumber(tokens[idx + 2], step) || step == 0.0) {
+        return false;
+    }
+    const double direction = (stop >= start) ? 1.0 : -1.0;
+    if ((direction > 0.0 && step < 0.0) || (direction < 0.0 && step > 0.0)) step = -step;
+    const double eps = std::abs(step) * 1e-9 + 1e-18;
+    int count = 0;
+    for (double v = start; (direction > 0.0) ? (v <= stop + eps) : (v >= stop - eps); v += step) {
+        ++count;
+        if (count > 1000000) return false;
+    }
+    outCount = count;
+    return count > 0;
+}
+
+bool estimateLogCount(const QString& mode, const QStringList& tokens, int idx, int& outCount) {
+    double start = 0.0, stop = 0.0, points = 0.0;
+    if (tokens.size() < idx + 3) return false;
+    if (!SimValueParser::parseSpiceNumber(tokens[idx], start) || !SimValueParser::parseSpiceNumber(tokens[idx + 1], stop) ||
+        !SimValueParser::parseSpiceNumber(tokens[idx + 2], points) || points <= 0.0 || start <= 0.0 || stop <= 0.0) {
+        return false;
+    }
+    const double ratioBase = mode.compare("oct", Qt::CaseInsensitive) == 0 ? 2.0 : 10.0;
+    const double factor = std::pow(ratioBase, 1.0 / points);
+    if (factor <= 1.0) return false;
+    int count = 0;
+    for (double v = start; v <= stop * (1.0 + 1e-12); v *= factor) {
+        ++count;
+        if (count > 1000000) return false;
+    }
+    outCount = count;
+    return count > 0;
+}
+
+bool estimateStepLineCount(const QString& line, int& outCount) {
+    const QString trimmed = line.trimmed();
+    if (trimmed.startsWith(".temp", Qt::CaseInsensitive)) {
+        const QStringList tokens = tokenizeStepDialogLine(trimmed);
+        outCount = qMax(0, tokens.size() - 1);
+        return outCount > 0;
+    }
+    if (!trimmed.startsWith(".step", Qt::CaseInsensitive)) return false;
+    const QStringList tokens = tokenizeStepDialogLine(trimmed);
+    if (tokens.size() < 3) return false;
+    int idx = 1;
+    QString mode = "lin";
+    const QString maybeMode = tokens.value(idx).toLower();
+    if (maybeMode == "lin" || maybeMode == "dec" || maybeMode == "oct") {
+        mode = maybeMode;
+        ++idx;
+    }
+    if (idx >= tokens.size()) return false;
+    if (tokens.value(idx).compare("param", Qt::CaseInsensitive) == 0) idx += 2;
+    else if (tokens.value(idx).compare("temp", Qt::CaseInsensitive) == 0) idx += 1;
+    else if (idx + 1 < tokens.size() && tokens.value(idx + 1).contains('(') && tokens.value(idx + 1).contains(')')) idx += 2;
+    else idx += 1;
+    if (idx >= tokens.size()) return false;
+
+    if (tokens.value(idx).compare("list", Qt::CaseInsensitive) == 0) {
+        outCount = qMax(0, tokens.size() - idx - 1);
+        return outCount > 0;
+    }
+    if (tokens.value(idx).startsWith("file=", Qt::CaseInsensitive)) {
+        QString fileToken = tokens.value(idx).mid(5).trimmed();
+        if (fileToken.isEmpty()) return false;
+        QFile file(fileToken.startsWith('"') && fileToken.endsWith('"') ? fileToken.mid(1, fileToken.size() - 2) : fileToken);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+        int count = 0;
+        QTextStream stream(&file);
+        while (!stream.atEnd()) {
+            QString fileLine = stream.readLine().trimmed();
+            if (fileLine.isEmpty() || fileLine.startsWith('*') || fileLine.startsWith(';') || fileLine.startsWith('#')) continue;
+            const int semicolon = fileLine.indexOf(';');
+            if (semicolon >= 0) fileLine = fileLine.left(semicolon).trimmed();
+            if (fileLine.isEmpty()) continue;
+            count += fileLine.split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts).size();
+        }
+        outCount = count;
+        return count > 0;
+    }
+    if (mode == "lin") return estimateLinearCount(tokens, idx, outCount);
+    return estimateLogCount(mode, tokens, idx, outCount);
+}
+
+QString effectiveReference(const SchematicItem* item) {
+    if (!item) return QString();
+    const QString ref = item->reference().trimmed();
+    if (!ref.isEmpty()) return ref;
+    return item->name().trimmed();
+}
+
+QStringList gatherSourceCandidates(QGraphicsScene* scene) {
+    QStringList values;
+    if (!scene) return values;
+    for (QGraphicsItem* rawItem : scene->items()) {
+        if (auto* voltage = dynamic_cast<VoltageSourceItem*>(rawItem)) {
+            const QString ref = effectiveReference(voltage);
+            if (!ref.isEmpty()) values << ref;
+        } else if (auto* current = dynamic_cast<CurrentSourceItem*>(rawItem)) {
+            const QString ref = effectiveReference(current);
+            if (!ref.isEmpty()) values << ref;
+        }
+    }
+    values.removeDuplicates();
+    std::sort(values.begin(), values.end(), [](const QString& a, const QString& b) { return a.toLower() < b.toLower(); });
+    return values;
+}
+
+QString transistorTypeName(TransistorItem::TransistorType type) {
+    switch (type) {
+    case TransistorItem::NPN: return "NPN";
+    case TransistorItem::PNP: return "PNP";
+    case TransistorItem::NMOS: return "NMOS";
+    case TransistorItem::PMOS: return "PMOS";
+    }
+    return QString();
+}
+
+void gatherModelCandidates(QGraphicsScene* scene, QStringList& typeNames, QStringList& modelNames) {
+    if (!scene) return;
+    for (QGraphicsItem* rawItem : scene->items()) {
+        if (auto* transistor = dynamic_cast<TransistorItem*>(rawItem)) {
+            const QString type = transistorTypeName(transistor->transistorType());
+            const QString model = transistor->value().trimmed();
+            if (!type.isEmpty()) typeNames << type;
+            if (!model.isEmpty()) modelNames << model;
+        } else if (auto* sw = dynamic_cast<VoltageControlledSwitchItem*>(rawItem)) {
+            typeNames << "SW";
+            const QString model = sw->modelName().trimmed();
+            if (!model.isEmpty()) modelNames << model;
+        }
+    }
+    typeNames.removeDuplicates();
+    modelNames.removeDuplicates();
+    std::sort(typeNames.begin(), typeNames.end(), [](const QString& a, const QString& b) { return a.toLower() < b.toLower(); });
+    std::sort(modelNames.begin(), modelNames.end(), [](const QString& a, const QString& b) { return a.toLower() < b.toLower(); });
+}
+
+}
+
+SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QGraphicsScene* scene, QWidget* parent)
+    : QDialog(parent), m_scene(scene)
 {
     setWindowTitle("Step Sweep Builder");
     setMinimumWidth(540);
+    const auto* theme = ThemeManager::theme();
+    const QString panelBg = theme ? theme->panelBackground().name() : QString("#1f2937");
+    const QString windowBg = theme ? theme->windowBackground().name() : QString("#111827");
+    const QString border = theme ? theme->panelBorder().name() : QString("#374151");
+    const QString textSecondary = theme ? theme->textSecondary().name() : QString("#94a3b8");
+    const QString accent = theme ? theme->accentColor().name() : QString("#2563eb");
+    if (ThemeManager::theme()) {
+        setStyleSheet(ThemeManager::theme()->widgetStylesheet());
+    }
 
     auto* mainLayout = new QVBoxLayout(this);
 
@@ -35,11 +202,13 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
         "Use this for parameter, temperature, source, or model stepping.",
         this);
     hero->setWordWrap(true);
-    hero->setStyleSheet("color: #d1d5db; background: #111827; border: 1px solid #374151; padding: 10px; border-radius: 6px;");
+    hero->setStyleSheet(QString("color: %1; background: %2; border: 1px solid %3; padding: 10px; border-radius: 6px;")
+        .arg(theme ? theme->textColor().name() : QString("#d1d5db"), windowBg, border));
     mainLayout->addWidget(hero);
 
     auto* presetFrame = new QFrame(this);
-    presetFrame->setStyleSheet("QFrame { background: #111827; border: 1px solid #334155; border-radius: 6px; }");
+    presetFrame->setStyleSheet(QString("QFrame { background: %1; border: 1px solid %2; border-radius: 6px; }")
+        .arg(windowBg, border));
     auto* presetLayout = new QHBoxLayout(presetFrame);
     presetLayout->setContentsMargins(10, 8, 10, 8);
     presetLayout->setSpacing(6);
@@ -51,8 +220,9 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     };
     for (const auto& preset : presets) {
         auto* button = new QPushButton(preset.first, presetFrame);
-        button->setStyleSheet("QPushButton { background: #1d4ed8; color: white; padding: 4px 10px; border-radius: 4px; }"
-                              "QPushButton:hover { background: #2563eb; }");
+        button->setStyleSheet(QString("QPushButton { background: %1; color: white; padding: 4px 10px; border-radius: 4px; border: 1px solid %2; }"
+                                      "QPushButton:hover { background: %2; }")
+                              .arg(accent, accent));
         connect(button, &QPushButton::clicked, this, [this, preset]() { applyPreset(preset.second); });
         presetLayout->addWidget(button);
     }
@@ -72,6 +242,10 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     m_targetKindCombo->addItems({"Parameter", "Temperature", "Independent Source", "Model Parameter"});
     form->addRow("Sweep Target:", m_targetKindCombo);
 
+    m_tempSyntaxCombo = new QComboBox(this);
+    m_tempSyntaxCombo->addItems({".step temp", ".temp alias"});
+    form->addRow("Temp Syntax:", m_tempSyntaxCombo);
+
     m_targetStack = new QStackedWidget(this);
 
     auto* paramPage = new QWidget(this);
@@ -86,22 +260,32 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     auto* tempLayout = new QHBoxLayout(tempPage);
     tempLayout->setContentsMargins(0, 0, 0, 0);
     auto* tempInfo = new QLabel("Temperature sweeps target LTspice 'temp'.", tempPage);
-    tempInfo->setStyleSheet("color: #94a3b8;");
+    tempInfo->setStyleSheet(QString("color: %1;").arg(textSecondary));
     tempLayout->addWidget(tempInfo);
     m_targetStack->addWidget(tempPage);
 
     auto* sourcePage = new QWidget(this);
     auto* sourceLayout = new QHBoxLayout(sourcePage);
     sourceLayout->setContentsMargins(0, 0, 0, 0);
-    m_sourceNameEdit = new QLineEdit(sourcePage);
+    m_sourceNameEdit = new QComboBox(sourcePage);
+    m_sourceNameEdit->setEditable(true);
+    m_sourceNameEdit->setInsertPolicy(QComboBox::NoInsert);
     m_sourceNameEdit->setPlaceholderText("V1 or I1");
+    m_sourceNameEdit->addItems(gatherSourceCandidates(m_scene));
     sourceLayout->addWidget(m_sourceNameEdit);
     m_targetStack->addWidget(sourcePage);
 
     auto* modelPage = new QWidget(this);
     auto* modelLayout = new QGridLayout(modelPage);
-    m_modelTypeEdit = new QLineEdit(modelPage);
-    m_modelNameEdit = new QLineEdit(modelPage);
+    QStringList modelTypeNames = {"NPN", "PNP", "NMOS", "PMOS", "SW"};
+    QStringList modelNames;
+    gatherModelCandidates(m_scene, modelTypeNames, modelNames);
+    m_modelTypeEdit = new QComboBox(modelPage);
+    m_modelTypeEdit->setEditable(true);
+    m_modelTypeEdit->addItems(modelTypeNames);
+    m_modelNameEdit = new QComboBox(modelPage);
+    m_modelNameEdit->setEditable(true);
+    m_modelNameEdit->addItems(modelNames);
     m_modelParamEdit = new QLineEdit(modelPage);
     m_modelTypeEdit->setPlaceholderText("NPN");
     m_modelNameEdit->setPlaceholderText("2N2222");
@@ -189,10 +373,16 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     fileRow->addWidget(m_filePathEdit, 1);
     fileRow->addWidget(browseButton);
     fileForm->addLayout(fileRow);
+    m_filePreviewLabel = new QLabel(filePage);
+    m_filePreviewLabel->setWordWrap(true);
+    m_filePreviewLabel->setStyleSheet("color: #94a3b8; font-size: 11px;");
+    m_filePreviewLabel->setText("Preview: pick a values file to parse whitespace/comma separated entries.");
+    fileForm->addWidget(m_filePreviewLabel);
     m_modeStack->addWidget(filePage);
 
     auto* modeFrame = new QFrame(this);
-    modeFrame->setStyleSheet("QFrame { background: #0f172a; border: 1px solid #334155; border-radius: 6px; }");
+    modeFrame->setStyleSheet(QString("QFrame { background: %1; border: 1px solid %2; border-radius: 6px; }")
+        .arg(panelBg, border));
     auto* modeFrameLayout = new QVBoxLayout(modeFrame);
     modeFrameLayout->addWidget(m_modeStack);
     mainLayout->addWidget(modeFrame);
@@ -204,18 +394,23 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
         this);
     help->setWordWrap(true);
     help->setTextFormat(Qt::RichText);
-    help->setStyleSheet("color: #94a3b8;");
+    help->setStyleSheet(QString("color: %1;").arg(textSecondary));
     mainLayout->addWidget(help);
 
     mainLayout->addWidget(new QLabel("Directive Preview:", this));
     m_commandEdit = new QLineEdit(this);
-    m_commandEdit->setStyleSheet("color: #3b82f6; font-family: 'Courier New'; font-weight: bold;");
+    m_commandEdit->setStyleSheet(QString("color: %1; font-family: 'Courier New'; font-weight: bold;").arg(accent));
     mainLayout->addWidget(m_commandEdit);
 
     m_validationLabel = new QLabel(this);
     m_validationLabel->setWordWrap(true);
-    m_validationLabel->setStyleSheet("color: #f59e0b; font-size: 11px;");
+    m_validationLabel->setStyleSheet("font-size: 11px;");
     mainLayout->addWidget(m_validationLabel);
+
+    m_runEstimateLabel = new QLabel(this);
+    m_runEstimateLabel->setWordWrap(true);
+    m_runEstimateLabel->setStyleSheet(QString("color: %1; font-size: 11px;").arg(textSecondary));
+    mainLayout->addWidget(m_runEstimateLabel);
 
     m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     mainLayout->addWidget(m_buttonBox);
@@ -227,14 +422,18 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     connect(m_dimensionCountCombo, &QComboBox::currentTextChanged, this, &SpiceStepDialog::onDimensionCountChanged);
     connect(m_editLevelCombo, &QComboBox::currentTextChanged, this, &SpiceStepDialog::onEditingLevelChanged);
     connect(m_targetKindCombo, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updateUiState);
+    connect(m_tempSyntaxCombo, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updateUiState);
     connect(m_sweepModeCombo, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updateUiState);
     connect(browseButton, &QPushButton::clicked, this, &SpiceStepDialog::browseStepFile);
-    for (QLineEdit* edit : {m_paramNameEdit, m_sourceNameEdit, m_modelTypeEdit, m_modelNameEdit, m_modelParamEdit,
+    for (QLineEdit* edit : {m_paramNameEdit, m_modelParamEdit,
                             m_linearStartEdit, m_linearStopEdit, m_linearStepEdit,
                             m_listValuesEdit, m_logPointsEdit, m_logStartEdit, m_logStopEdit,
                             m_octPointsEdit, m_octStartEdit, m_octStopEdit, m_filePathEdit}) {
         connect(edit, &QLineEdit::textChanged, this, &SpiceStepDialog::updatePreview);
     }
+    connect(m_sourceNameEdit, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updatePreview);
+    connect(m_modelTypeEdit, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updatePreview);
+    connect(m_modelNameEdit, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updatePreview);
     connect(m_commandEdit, &QLineEdit::editingFinished, this, &SpiceStepDialog::applyCommandText);
 
     m_levelCommands = QStringList({QString(), QString(), QString()});
@@ -283,11 +482,11 @@ QString SpiceStepDialog::targetPrefix() const {
     case TargetKind::Temperature:
         return "temp";
     case TargetKind::Source:
-        return m_sourceNameEdit ? m_sourceNameEdit->text().trimmed() : QString();
+        return m_sourceNameEdit ? m_sourceNameEdit->currentText().trimmed() : QString();
     case TargetKind::ModelParameter:
         return QString("%1 %2(%3)")
-            .arg(m_modelTypeEdit ? m_modelTypeEdit->text().trimmed() : QString(),
-                 m_modelNameEdit ? m_modelNameEdit->text().trimmed() : QString(),
+            .arg(m_modelTypeEdit ? m_modelTypeEdit->currentText().trimmed() : QString(),
+                 m_modelNameEdit ? m_modelNameEdit->currentText().trimmed() : QString(),
                  m_modelParamEdit ? m_modelParamEdit->text().trimmed() : QString()).trimmed();
     case TargetKind::Parameter:
     default:
@@ -364,14 +563,88 @@ QString SpiceStepDialog::validationMessage() const {
         break;
     case SweepMode::File:
         if (m_filePathEdit->text().trimmed().isEmpty()) return "File sweeps need a values file path.";
+        {
+            QString error;
+            const QStringList values = parseFileSweepValues(&error);
+            if (!error.isEmpty()) return error;
+            if (values.isEmpty()) return "File sweeps need at least one valid numeric value.";
+        }
         break;
     }
     return QString();
 }
 
+QStringList SpiceStepDialog::parseFileSweepValues(QString* errorMessage) const {
+    if (errorMessage) errorMessage->clear();
+    const QString path = m_filePathEdit ? m_filePathEdit->text().trimmed() : QString();
+    if (path.isEmpty()) return {};
+
+    QFile file(path);
+    if (!file.exists()) {
+        if (errorMessage) *errorMessage = "Sweep values file does not exist.";
+        return {};
+    }
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (errorMessage) *errorMessage = "Unable to open sweep values file.";
+        return {};
+    }
+
+    QString content = QTextStream(&file).readAll();
+    QStringList values;
+    const QStringList lines = content.split('\n');
+    for (QString line : lines) {
+        const int commentPos = line.indexOf(';');
+        if (commentPos >= 0) line = line.left(commentPos);
+        line = line.trimmed();
+        if (line.startsWith('*')) continue;
+        if (line.isEmpty()) continue;
+        const QStringList tokens = line.split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
+        for (const QString& token : tokens) {
+            double parsed = 0.0;
+            if (!SimValueParser::parseSpiceNumber(token, parsed)) {
+                if (errorMessage) *errorMessage = QString("Invalid file sweep value '%1'.").arg(token);
+                return {};
+            }
+            values << token;
+        }
+    }
+    return values;
+}
+
+void SpiceStepDialog::updateFilePreview() {
+    if (!m_filePreviewLabel) return;
+    QString error;
+    const QStringList values = parseFileSweepValues(&error);
+    if (!error.isEmpty()) {
+        m_filePreviewLabel->setStyleSheet("color: #f59e0b; font-size: 11px;");
+        m_filePreviewLabel->setText(error);
+        return;
+    }
+    if (values.isEmpty()) {
+        m_filePreviewLabel->setStyleSheet("color: #94a3b8; font-size: 11px;");
+        m_filePreviewLabel->setText("Preview: no values parsed yet.");
+        return;
+    }
+
+    const QString preview = values.mid(0, 8).join(", ");
+    const QString suffix = values.size() > 8 ? QString(", ...") : QString();
+    m_filePreviewLabel->setStyleSheet("color: #10b981; font-size: 11px;");
+    m_filePreviewLabel->setText(QString("Parsed %1 value(s): %2%3")
+        .arg(values.size())
+        .arg(preview)
+        .arg(suffix));
+}
+
 QString SpiceStepDialog::buildSingleLevelCommand() const {
     const QString prefix = targetPrefix().trimmed();
     if (prefix.isEmpty()) return QString();
+
+    const bool useTempAlias = currentTargetKind() == TargetKind::Temperature &&
+                              currentSweepMode() == SweepMode::List &&
+                              m_tempSyntaxCombo && m_tempSyntaxCombo->currentIndex() == 1;
+    if (useTempAlias) {
+        return QString(".temp %1").arg(m_listValuesEdit->text().trimmed()).trimmed();
+    }
 
     switch (currentSweepMode()) {
     case SweepMode::List:
@@ -398,9 +671,19 @@ void SpiceStepDialog::syncCurrentLevelFromUi() {
 }
 
 bool SpiceStepDialog::parseSingleLevelCommand(const QString& text) {
-    if (!text.startsWith(".step", Qt::CaseInsensitive)) return false;
+    const QString trimmed = text.trimmed();
+    if (trimmed.startsWith(".temp", Qt::CaseInsensitive)) {
+        const QStringList tokens = trimmed.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        if (tokens.size() < 2) return false;
+        m_targetKindCombo->setCurrentIndex(1);
+        if (m_tempSyntaxCombo) m_tempSyntaxCombo->setCurrentIndex(1);
+        m_sweepModeCombo->setCurrentIndex(1);
+        m_listValuesEdit->setText(tokens.mid(1).join(' '));
+        return true;
+    }
+    if (!trimmed.startsWith(".step", Qt::CaseInsensitive)) return false;
 
-    const QStringList tokens = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    const QStringList tokens = trimmed.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
     if (tokens.size() < 3) return false;
 
     int pos = 1;
@@ -424,20 +707,21 @@ bool SpiceStepDialog::parseSingleLevelCommand(const QString& text) {
         pos++;
     } else if (maybeParam == "temp") {
         m_targetKindCombo->setCurrentIndex(1);
+        if (m_tempSyntaxCombo) m_tempSyntaxCombo->setCurrentIndex(0);
         pos++;
         if (m_paramNameEdit) m_paramNameEdit->clear();
     } else if (pos + 1 < tokens.size() && tokens.value(pos + 1).contains('(') && tokens.value(pos + 1).contains(')')) {
         m_targetKindCombo->setCurrentIndex(3);
-        if (m_modelTypeEdit) m_modelTypeEdit->setText(tokens.value(pos));
+        if (m_modelTypeEdit) m_modelTypeEdit->setCurrentText(tokens.value(pos));
         const QString modelToken = tokens.value(pos + 1);
         const int open = modelToken.indexOf('(');
         const int close = modelToken.lastIndexOf(')');
-        if (m_modelNameEdit) m_modelNameEdit->setText(modelToken.left(open));
+        if (m_modelNameEdit) m_modelNameEdit->setCurrentText(modelToken.left(open));
         if (m_modelParamEdit && open > 0 && close > open) m_modelParamEdit->setText(modelToken.mid(open + 1, close - open - 1));
         pos += 2;
     } else {
         m_targetKindCombo->setCurrentIndex(2);
-        if (m_sourceNameEdit) m_sourceNameEdit->setText(tokens.value(pos));
+        if (m_sourceNameEdit) m_sourceNameEdit->setCurrentText(tokens.value(pos));
         pos++;
     }
 
@@ -501,7 +785,13 @@ void SpiceStepDialog::onEditingLevelChanged() {
 
 void SpiceStepDialog::updateUiState() {
     if (m_targetStack) m_targetStack->setCurrentIndex(m_targetKindCombo->currentIndex());
+    if (m_tempSyntaxCombo) {
+        const bool enableTempAlias = currentTargetKind() == TargetKind::Temperature && currentSweepMode() == SweepMode::List;
+        m_tempSyntaxCombo->setEnabled(enableTempAlias);
+        if (!enableTempAlias) m_tempSyntaxCombo->setCurrentIndex(0);
+    }
     m_modeStack->setCurrentIndex(m_sweepModeCombo->currentIndex());
+    updateFilePreview();
     updatePreview();
 }
 
@@ -519,6 +809,39 @@ void SpiceStepDialog::updatePreview() {
 
     const QString cmd = commands.join("\n");
     m_commandEdit->setText(cmd);
+
+    if (m_runEstimateLabel) {
+        int totalRuns = 1;
+        QStringList factors;
+        bool ok = !commands.isEmpty();
+        for (const QString& line : commands) {
+            int count = 0;
+            if (!estimateStepLineCount(line, count) || count <= 0) {
+                ok = false;
+                break;
+            }
+            factors << QString::number(count);
+            totalRuns *= count;
+        }
+
+        if (!ok) {
+            m_runEstimateLabel->setStyleSheet("color: #94a3b8; font-size: 11px;");
+            m_runEstimateLabel->setText("Estimated runs: unavailable until all active sweep levels are valid.");
+        } else {
+            const QString factorText = factors.join(" x ");
+            const QString warning = totalRuns > 512
+                ? " Large sweep: execution and plotting may take noticeably longer."
+                : QString();
+            m_runEstimateLabel->setStyleSheet(totalRuns > 512
+                ? "color: #f59e0b; font-size: 11px;"
+                : "color: #94a3b8; font-size: 11px;");
+            m_runEstimateLabel->setText(QString("Estimated runs: %1 (%2).%3")
+                .arg(totalRuns)
+                .arg(factorText)
+                .arg(warning));
+        }
+    }
+
     const QString validation = validationMessage();
     if (m_validationLabel) {
         m_validationLabel->setText(validation.isEmpty()
@@ -543,7 +866,7 @@ void SpiceStepDialog::applyCommandText() {
     QStringList stepLines;
     for (const QString& raw : lines) {
         const QString line = raw.trimmed();
-        if (line.startsWith(".step", Qt::CaseInsensitive)) stepLines << line;
+        if (line.startsWith(".step", Qt::CaseInsensitive) || line.startsWith(".temp", Qt::CaseInsensitive)) stepLines << line;
     }
     if (stepLines.isEmpty()) return;
 
@@ -563,6 +886,7 @@ void SpiceStepDialog::browseStepFile() {
     const QString path = QFileDialog::getOpenFileName(this, "Select .step Values File", QString(), "Text Files (*.txt *.lst *.csv);;All Files (*)");
     if (path.isEmpty()) return;
     m_filePathEdit->setText(path);
+    updateFilePreview();
 }
 
 void SpiceStepDialog::applyPreset(const QString& presetId) {
