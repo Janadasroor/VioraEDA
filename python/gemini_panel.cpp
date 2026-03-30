@@ -69,11 +69,17 @@ QString nowTimeChip() {
 }
 
 QString sanitizeAgentTextChunk(QString text) {
-    // Remove tags but also the internal content of THOUGHT and USAGE as they are metadata
-    // Using (</TAG>|$) allows us to strip thoughts as they stream, even if the closing tag is missing.
-    text.remove(QRegularExpression(R"(<THOUGHT>.*?(</THOUGHT>|$))", QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption));
-    text.remove(QRegularExpression(R"(<USAGE>.*?(</USAGE>|$))", QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption));
-    text.remove(QRegularExpression(R"(<(/?ACTION|/?SUGGESTION|/?HIGHLIGHT)>)", QRegularExpression::CaseInsensitiveOption));
+    // Hide content of all metadata tags during streaming so they don't leak into the chat bubble
+    // Using (</TAG>|$) allows the parser to aggressively strip streaming tags that aren't yet closed.
+    static const QStringList metadataTags = {"THOUGHT", "USAGE", "SNIPPET", "SUGGESTION", "ACTION"};
+    for (const auto& tag : metadataTags) {
+        text.remove(QRegularExpression(QString("<%1>.*?(</%1>|$)").arg(tag), 
+            QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption));
+    }
+    
+    // For HIGHLIGHT (component markers), keep the content but strip the structural tags
+    text.remove(QRegularExpression(R"(</?HIGHLIGHT>)", QRegularExpression::CaseInsensitiveOption));
+    
     return text.trimmed();
 }
 
@@ -413,11 +419,6 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
         m_history.append(entry);
     }
 
-    // Update main text content (sanitized)
-    QString cleanBuffer = sanitizeAgentTextChunk(m_responseBuffer);
-    m_history.last()["content"] = cleanBuffer;
-    m_history.last()["parts"] = parseMessageParts(cleanBuffer);
-    
     // Extract and update thought process if present
     static QRegularExpression thoughtRe("<THOUGHT>(.*?)(</THOUGHT>|$)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
     auto thoughtMatch = thoughtRe.match(m_responseBuffer);
@@ -435,10 +436,9 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
             if (m_bridge) m_bridge->updateStatus("Executing: " + match.captured(1));
         }
     }
-    // Check for structured tool data (Dashboard)
     if (chunk.contains("<TOOL_CALL>")) {
-        QRegularExpression re("<TOOL_CALL>(.*?)</TOOL_CALL>");
-        auto match = re.match(chunk);
+        static QRegularExpression tcallRe("<TOOL_CALL>(.*?)</TOOL_CALL>", QRegularExpression::DotMatchesEverythingOption);
+        auto match = tcallRe.match(m_responseBuffer); // Check full buffer for multi-chunk tags
         if (match.hasMatch()) {
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
             if (doc.isObject()) {
@@ -449,13 +449,16 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                 call["status"] = "running";
                 call["timestamp"] = QDateTime::currentDateTime().toString("HH:mm:ss");
                 if (m_bridge) m_bridge->addToolCall(call);
+                
+                // Remove the tag from buffer so we don't parse it again
+                m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
             }
         }
     }
 
     if (chunk.contains("<TOOL_RESULT>")) {
-        QRegularExpression re("<TOOL_RESULT>(.*?)</TOOL_RESULT>");
-        auto match = re.match(chunk);
+        static QRegularExpression tresRe("<TOOL_RESULT>(.*?)</TOOL_RESULT>", QRegularExpression::DotMatchesEverythingOption);
+        auto match = tresRe.match(m_responseBuffer);
         if (match.hasMatch()) {
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
             if (doc.isObject()) {
@@ -464,6 +467,8 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                 QVariantMap result;
                 result["result"] = obj["result"].toVariant();
                 if (m_bridge) m_bridge->updateToolResult(name, result);
+                
+                m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
             }
         }
     }
@@ -483,6 +488,68 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
             }
         }
     }
+
+    // Handle SNIPPET tags (Command execution)
+    static QRegularExpression snippetRe("<SNIPPET>(.*?)</SNIPPET>", QRegularExpression::DotMatchesEverythingOption);
+    auto snippetMatch = snippetRe.match(m_responseBuffer);
+    if (snippetMatch.hasMatch()) {
+        QString snippetContent = snippetMatch.captured(1).trimmed();
+        QJsonDocument doc = QJsonDocument::fromJson(snippetContent.toUtf8());
+        if (doc.isObject()) {
+            QJsonObject obj = doc.object();
+            if (obj.contains("commands") && obj["commands"].isArray()) {
+                QJsonArray cmds = obj["commands"].toArray();
+                for (const auto& cmdVal : cmds) {
+                    parseAndExecuteCommandModeInput(cmdVal.toString());
+                }
+            }
+        }
+        // Remove from buffer after processing
+        m_responseBuffer.remove(snippetMatch.capturedStart(0), snippetMatch.capturedLength(0));
+    }
+
+    // Handle SUGGESTION tags (Buttons)
+    if (chunk.contains("<SUGGESTION>")) {
+        static QRegularExpression sugRe("<SUGGESTION>(.*?)</SUGGESTION>");
+        auto match = sugRe.match(m_responseBuffer);
+        if (match.hasMatch()) {
+            QString content = match.captured(1);
+            QStringList parts = content.split('|');
+            if (parts.size() >= 1) {
+                QVariantMap suggestion;
+                suggestion["label"] = parts[0];
+                suggestion["command"] = (parts.size() > 1) ? parts[1] : parts[0];
+                
+                QVariantList currentSuggestions = m_history.last()["suggestions"].toList();
+                currentSuggestions.append(suggestion);
+                m_history.last()["suggestions"] = currentSuggestions;
+            }
+            // Remove from buffer to prevent leakage into main text
+            m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
+        }
+    }
+
+    // Fallback for raw command JSON (if AI forgets tags)
+    if (chunk.contains("\"commands\":") && !m_responseBuffer.contains("<SNIPPET>")) {
+        static QRegularExpression rawCmdRe(R"(\{\s*"commands"\s*:\s*\[.*?\]\s*\})", QRegularExpression::DotMatchesEverythingOption);
+        auto match = rawCmdRe.match(m_responseBuffer);
+        if (match.hasMatch()) {
+            QJsonDocument doc = QJsonDocument::fromJson(match.captured(0).toUtf8());
+            if (doc.isObject()) {
+                QJsonArray cmds = doc.object()["commands"].toArray();
+                for (const auto& cmdVal : cmds) {
+                    parseAndExecuteCommandModeInput(cmdVal.toString());
+                }
+            }
+            m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
+        }
+    }
+
+    // Final Update: Main text content (sanitized)
+    // We do this AFTER processing and possibly removing closed tags from the buffer.
+    QString cleanBuffer = sanitizeAgentTextChunk(m_responseBuffer);
+    m_history.last()["content"] = cleanBuffer;
+    m_history.last()["parts"] = parseMessageParts(cleanBuffer);
 
     // Synchronize to the bridge UI (Throttled for high-performance streaming)
     if (m_syncTimer && !m_syncTimer->isActive()) {
@@ -839,6 +906,19 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
     } else if (cmd == "run simulation" || cmd == "run sim") {
         appendSystemAction("Simulation", "Initializing SPICE simulation...", "⚡");
         emit runSimulationRequested();
+    } else if (cmd.startsWith("plot ")) {
+        QString target = in.mid(5).trimmed(); // Use original horizontal case 'in' for case-sensitive nodes
+        // Strip prefixes if present
+        if (target.toLower().startsWith("node:")) target = target.mid(5);
+        else if (target.toLower().startsWith("signal:")) target = target.mid(7);
+        
+        appendSystemAction("Oscilloscope", "Plotting signal: " + target, "📈");
+        // We emit a signal to the main window/schematic editor to open the oscilloscope
+        // In this architecture, we assume the SchematicEditor is listening for plot requests
+        emit plotSignalRequested(target);
+        
+        // Also ensure simulation data is fresh if needed
+        emit runSimulationRequested(); 
     } else {
         appendSystemNote("<b>Unknown Command:</b> \"" + in + "\".<br/>Type <b>help</b> for a list of available system commands.");
     }

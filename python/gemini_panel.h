@@ -52,6 +52,7 @@ signals:
     void netlistGenerated(const QString& netlistText);
     void runSimulationRequested();
     void runERCRequested();
+    void plotSignalRequested(const QString& signalName);
     void togglePanelRequested(const QString& panelName);
 
 private slots:
