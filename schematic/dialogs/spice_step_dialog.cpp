@@ -2,11 +2,13 @@
 
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
@@ -102,9 +104,13 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     auto* filePage = new QWidget(this);
     auto* fileForm = new QVBoxLayout(filePage);
     fileForm->addWidget(new QLabel("Path to a file containing one sweep value per line:", filePage));
+    auto* fileRow = new QHBoxLayout();
     m_filePathEdit = new QLineEdit(filePage);
     m_filePathEdit->setPlaceholderText("sweeps/rload_values.txt");
-    fileForm->addWidget(m_filePathEdit);
+    auto* browseButton = new QPushButton("Browse...", filePage);
+    fileRow->addWidget(m_filePathEdit, 1);
+    fileRow->addWidget(browseButton);
+    fileForm->addLayout(fileRow);
     m_modeStack->addWidget(filePage);
 
     auto* modeFrame = new QFrame(this);
@@ -128,15 +134,21 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     m_commandEdit->setStyleSheet("color: #3b82f6; font-family: 'Courier New'; font-weight: bold;");
     mainLayout->addWidget(m_commandEdit);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    mainLayout->addWidget(buttons);
+    m_validationLabel = new QLabel(this);
+    m_validationLabel->setWordWrap(true);
+    m_validationLabel->setStyleSheet("color: #f59e0b; font-size: 11px;");
+    mainLayout->addWidget(m_validationLabel);
 
-    connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
-        if (!m_commandEdit->text().trimmed().isEmpty()) accept();
+    m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    mainLayout->addWidget(m_buttonBox);
+
+    connect(m_buttonBox, &QDialogButtonBox::accepted, this, [this]() {
+        if (validationMessage().isEmpty() && !m_commandEdit->text().trimmed().isEmpty()) accept();
     });
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_targetKindCombo, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updateUiState);
     connect(m_sweepModeCombo, &QComboBox::currentTextChanged, this, &SpiceStepDialog::updateUiState);
+    connect(browseButton, &QPushButton::clicked, this, &SpiceStepDialog::browseStepFile);
     for (QLineEdit* edit : {m_targetEdit, m_linearStartEdit, m_linearStopEdit, m_linearStepEdit,
                             m_listValuesEdit, m_logPointsEdit, m_logStartEdit, m_logStopEdit,
                             m_octPointsEdit, m_octStartEdit, m_octStopEdit, m_filePathEdit}) {
@@ -191,6 +203,39 @@ QString SpiceStepDialog::targetPrefix() const {
     }
 }
 
+QString SpiceStepDialog::validationMessage() const {
+    const QString prefix = targetPrefix().trimmed();
+    if (prefix.isEmpty()) return "Sweep target is required.";
+
+    switch (currentSweepMode()) {
+    case SweepMode::LinearRange:
+        if (m_linearStartEdit->text().trimmed().isEmpty() || m_linearStopEdit->text().trimmed().isEmpty() ||
+            m_linearStepEdit->text().trimmed().isEmpty()) {
+            return "Linear sweeps need start, stop, and increment values.";
+        }
+        break;
+    case SweepMode::List:
+        if (m_listValuesEdit->text().trimmed().isEmpty()) return "Value list sweeps need at least one value.";
+        break;
+    case SweepMode::Decade:
+        if (m_logPointsEdit->text().trimmed().isEmpty() || m_logStartEdit->text().trimmed().isEmpty() ||
+            m_logStopEdit->text().trimmed().isEmpty()) {
+            return "Decade sweeps need points, start, and stop values.";
+        }
+        break;
+    case SweepMode::Octave:
+        if (m_octPointsEdit->text().trimmed().isEmpty() || m_octStartEdit->text().trimmed().isEmpty() ||
+            m_octStopEdit->text().trimmed().isEmpty()) {
+            return "Octave sweeps need points, start, and stop values.";
+        }
+        break;
+    case SweepMode::File:
+        if (m_filePathEdit->text().trimmed().isEmpty()) return "File sweeps need a values file path.";
+        break;
+    }
+    return QString();
+}
+
 void SpiceStepDialog::updateUiState() {
     const bool needsTarget = currentTargetKind() != TargetKind::Temperature;
     m_targetLabel->setText(currentTargetKind() == TargetKind::Custom ? "Target:" : "Name:");
@@ -229,6 +274,18 @@ void SpiceStepDialog::updatePreview() {
     }
 
     m_commandEdit->setText(cmd.trimmed());
+    const QString validation = validationMessage();
+    if (m_validationLabel) {
+        m_validationLabel->setText(validation.isEmpty()
+            ? QString("Supported by VioSpice LTspice emulation. The generated directive is ready to use.")
+            : validation);
+        m_validationLabel->setStyleSheet(validation.isEmpty()
+            ? "color: #10b981; font-size: 11px;"
+            : "color: #f59e0b; font-size: 11px;");
+    }
+    if (m_buttonBox && m_buttonBox->button(QDialogButtonBox::Ok)) {
+        m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(validation.isEmpty() && !cmd.trimmed().isEmpty());
+    }
     m_syncingCommand = false;
 }
 
@@ -305,4 +362,10 @@ void SpiceStepDialog::applyCommandText() {
     m_syncingCommand = false;
     updateUiState();
     updatePreview();
+}
+
+void SpiceStepDialog::browseStepFile() {
+    const QString path = QFileDialog::getOpenFileName(this, "Select .step Values File", QString(), "Text Files (*.txt *.lst *.csv);;All Files (*)");
+    if (path.isEmpty()) return;
+    m_filePathEdit->setText(path);
 }

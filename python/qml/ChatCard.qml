@@ -16,6 +16,7 @@ Item {
     readonly property string messageTimestamp: (modelData && modelData.timestamp) ? modelData.timestamp : ""
 
     property bool thoughtExpanded: false
+    signal showDashboardRequested()
     
     onMessageThoughtChanged: {
         if (messageThought !== "" && !thoughtExpanded) {
@@ -26,7 +27,7 @@ Item {
     Rectangle {
         id: cardContainer
         width: Math.min(parent.width * 0.9, 600)
-        height: contentColumn.height + 32
+        height: contentColumn.implicitHeight + (isUser ? 20 : 32)
         anchors.horizontalCenter: isUser ? undefined : parent.horizontalCenter
         anchors.right: isUser ? parent.right : undefined
         anchors.rightMargin: isUser ? 10 : 0
@@ -41,9 +42,11 @@ Item {
 
         ColumnLayout {
             id: contentColumn
-            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-            anchors.margins: 16
-            spacing: 12
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: isUser ? 10 : 16
+            spacing: isUser ? 8 : 12
 
             RowLayout {
                 id: headerRow
@@ -58,14 +61,16 @@ Item {
                         anchors.centerIn: parent
                         text: isUser ? "U" : "V"
                         color: "white"
-                        font.bold: true; font.pixelSize: 10
+                        font.bold: true
+                        font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                     }
                 }
                 
                 Text {
                     text: isUser ? "You" : "Viora AI"
                     color: "white"
-                    font.bold: true; font.pixelSize: 13
+                    font.bold: true
+                    font.pixelSize: 13 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                 }
                 
                 Item { Layout.fillWidth: true }
@@ -73,7 +78,7 @@ Item {
                 Text {
                     text: (typeof timestamp !== "undefined") ? timestamp : ""
                     color: Qt.rgba(255,255,255,0.4)
-                    font.pixelSize: 10
+                    font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                 }
             }
 
@@ -90,7 +95,8 @@ Item {
                     Text {
                         text: thoughtExpanded ? "▼ THOUGHTS" : "▶ THOUGHTS"
                         color: "#60a5fa"
-                        font.pixelSize: 10; font.bold: true
+                        font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
+                        font.bold: true
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
@@ -105,7 +111,8 @@ Item {
                     visible: thoughtExpanded
                     text: messageThought
                     color: "#94a3b8"
-                    font.pixelSize: 12; font.italic: true
+                    font.pixelSize: 12 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
+                    font.italic: true
                     wrapMode: Text.Wrap
                 }
             }
@@ -129,10 +136,21 @@ Item {
                 Text {
                     visible: messageParts.length === 0
                     Layout.fillWidth: true
-                    text: messageContent
                     color: "white"
-                    font.pixelSize: 14
+                    font.pixelSize: 14 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                     wrapMode: Text.Wrap
+                }
+
+                // Action Detail Link
+                Button {
+                    visible: isAction && typeof geminiBridge !== "undefined" && geminiBridge.toolCalls.length > 0
+                    text: "🔍 View Technical Audit"
+                    flat: true
+                    onClicked: root.showDashboardRequested()
+                    contentItem: Text {
+                        text: parent.text; color: "#60a5fa"; font.pixelSize: 11; font.underline: parent.hovered
+                    }
+                    background: Rectangle { color: "transparent" }
                 }
             }
         }
@@ -146,7 +164,7 @@ Item {
             text: (part && part.content) ? part.content : ""
             color: isUser ? "white" : "#e2e8f0"
             font.family: "Inter, Segoe UI, sans-serif"
-            font.pixelSize: 14
+            font.pixelSize: 14 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
             wrapMode: Text.Wrap
             textFormat: Text.RichText
         }
@@ -172,11 +190,22 @@ Item {
                     Layout.fillWidth: true; height: 32; color: "#1e293b"; radius: 8
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 8
-                        Text { text: part.language.toUpperCase(); color: "#94a3b8"; font.pixelSize: 10; font.bold: true; font.family: "JetBrains Mono" }
+                        Text {
+                            text: part.language.toUpperCase()
+                            color: "#94a3b8"
+                            font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
+                            font.bold: true
+                            font.family: "JetBrains Mono"
+                        }
                         Item { Layout.fillWidth: true }
                         Button {
                             flat: true; padding: 4
-                            contentItem: Text { text: "Copy"; color: hovered ? "white" : "#64748b"; font.pixelSize: 10; font.bold: true }
+                            contentItem: Text {
+                                text: "Copy"
+                                color: hovered ? "white" : "#64748b"
+                                font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
+                                font.bold: true
+                            }
                             onClicked: if (typeof geminiBridge !== "undefined") geminiBridge.copyToClipboard(part.content)
                         }
                     }
@@ -188,7 +217,9 @@ Item {
                     clip: true
                     Text {
                         id: codeText; text: part.content; color: "#f8fafc"
-                        font.family: "JetBrains Mono, Monospace"; font.pixelSize: 13; wrapMode: Text.NoWrap
+                        font.family: "JetBrains Mono, Monospace"
+                        font.pixelSize: 13 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
+                        wrapMode: Text.NoWrap
                     }
                 }
             }

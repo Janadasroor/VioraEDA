@@ -59,7 +59,7 @@ Rectangle {
                 id: toolName
                 text: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.currentTool : "ViorAI"
                 color: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.accentColor : "#3b82f6"
-                font.pixelSize: 10
+                font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                 font.bold: true
                 Layout.alignment: Qt.AlignVCenter
             }
@@ -74,7 +74,7 @@ Rectangle {
                 id: actionSubtext
                 text: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.currentAction : ""
                 color: "#94a3b8"
-                font.pixelSize: 10
+                font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                 font.italic: true
                 elide: Text.ElideRight
                 Layout.fillWidth: true
@@ -93,7 +93,7 @@ Rectangle {
                 placeholderText: "Message Viora AI..."
                 placeholderTextColor: "#4b5563"
                 color: "white"
-                font.pixelSize: 14
+                font.pixelSize: 14 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                 wrapMode: TextArea.Wrap
                 background: null
                 
@@ -278,7 +278,7 @@ Rectangle {
                 Text {
                     text: (typeof modelData === "object") ? modelData.name : modelData
                     color: highlighted || hovered ? "white" : "#e2e8f0"
-                    font.pixelSize: 12
+                    font.pixelSize: 12 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                     font.bold: true
                 }
                 Text {

@@ -13,6 +13,7 @@ Rectangle {
         id: header
         anchors.top: parent.top
         z: 10
+        onShowDashboardRequested: dashboard.visible = !dashboard.visible
     }
 
     // Main Chat History
@@ -30,6 +31,7 @@ Rectangle {
         
         delegate: ChatCard {
             width: chatListView.width
+            onShowDashboardRequested: dashboard.visible = true
         }
         
         // Auto-scroll to bottom on new items
@@ -43,6 +45,18 @@ Rectangle {
             policy: ScrollBar.AsNeeded
             active: true
         }
+
+        // Global Zoom (Ctrl + Wheel)
+        WheelHandler {
+            acceptedModifiers: Qt.ControlModifier
+            onWheel: (event) => {
+                if (event.angleDelta.y > 0) {
+                    if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.zoomIn()
+                } else {
+                    if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.zoomOut()
+                }
+            }
+        }
     }
 
     // Floating Composer (as designed in Composer.qml)
@@ -50,6 +64,15 @@ Rectangle {
         id: composer
         onSendMessage: (msg) => geminiBridge.sendMessage(msg)
         onStopRun: geminiBridge.stopRun()
+    }
+
+    // Tool Activity Dashboard (Overlay)
+    ToolDashboard {
+        id: dashboard
+        z: 20
+        anchors.fill: parent
+        anchors.margins: 20
+        visible: false
     }
 
     // Initial load

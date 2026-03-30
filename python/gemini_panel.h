@@ -68,6 +68,7 @@ private slots:
     void onBridgeRefreshModelsRequest();
     void onBridgeCloseRequest();
     void onBridgeShowHistoryRequest();
+    void onExportRequested();
 
 private:
     QGraphicsScene* m_scene;

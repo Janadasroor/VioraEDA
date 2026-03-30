@@ -9,6 +9,7 @@ Rectangle {
     color: "transparent"
 
     property string title: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.conversationTitle) ? geminiBridge.conversationTitle : "VIORA AI"
+    signal showDashboardRequested()
 
     RowLayout {
         anchors.fill: parent
@@ -90,15 +91,23 @@ Rectangle {
                 }
             }
 
-            // More (...)
             HeaderButton {
                 id: moreBtn
                 text: "•••"
                 toolTip: "More Options"
                 onClicked: moreMenu.open()
+            }
+
+            // Activity Dashboard (📊)
+            HeaderButton {
+                text: "📊"
+                toolTip: "Tool Activity Audit"
+                onClicked: headerRoot.showDashboardRequested()
+                visible: typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.toolCalls.length > 0
+            }
                 
-                Menu {
-                    id: moreMenu
+            Menu {
+                id: moreMenu
                     y: moreBtn.height + 5
                     x: -120 // Offset to the left to avoid edge
                     width: 160
@@ -111,7 +120,11 @@ Rectangle {
 
                     MenuItem {
                         text: "Custom Instructions"
-                        onTriggered: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.showInstructions()
+                        onTriggered: {
+                            if (typeof geminiBridge !== "undefined" && geminiBridge && typeof geminiBridge.showInstructions === "function") {
+                                geminiBridge.showInstructions()
+                            }
+                        }
                         
                         contentItem: Text {
                             text: parent.text
@@ -127,8 +140,51 @@ Rectangle {
                             radius: 4
                         }
                     }
+
+                    Rectangle {
+                        width: parent.width - 20
+                        height: 1
+                        color: "#ffffff"
+                        opacity: 0.1
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+
+                    MenuItem {
+                        text: "Zoom In"
+                        onTriggered: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.zoomIn()
+                        contentItem: Text {
+                            text: parent.text; font.pixelSize: 13; color: parent.highlighted ? "white" : "#e2e8f0"; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter; leftPadding: 10
+                        }
+                        background: Rectangle { color: parent.highlighted ? "#3b82f6" : "transparent"; radius: 4 }
+                    }
+
+                    MenuItem {
+                        text: "Zoom Out"
+                        onTriggered: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.zoomOut()
+                        contentItem: Text {
+                            text: parent.text; font.pixelSize: 13; color: parent.highlighted ? "white" : "#e2e8f0"; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter; leftPadding: 10
+                        }
+                        background: Rectangle { color: parent.highlighted ? "#3b82f6" : "transparent"; radius: 4 }
+                    }
+
+                    MenuItem {
+                        text: "Reset Zoom"
+                        onTriggered: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.resetZoom()
+                        contentItem: Text {
+                            text: parent.text; font.pixelSize: 13; color: parent.highlighted ? "white" : "#e2e8f0"; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter; leftPadding: 10
+                        }
+                        background: Rectangle { color: parent.highlighted ? "#3b82f6" : "transparent"; radius: 4 }
+                    }
+
+                    MenuItem {
+                        text: "Export Chat (.md)"
+                        onTriggered: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.exportChat()
+                        contentItem: Text {
+                            text: parent.text; font.pixelSize: 13; color: parent.highlighted ? "white" : "#e2e8f0"; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter; leftPadding: 10
+                        }
+                        background: Rectangle { color: parent.highlighted ? "#3b82f6" : "transparent"; radius: 4 }
+                    }
                 }
-            }
 
             // Close (X)
             HeaderButton {

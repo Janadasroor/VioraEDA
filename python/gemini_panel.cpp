@@ -36,6 +36,8 @@
 #include <QFileInfo>
 #include <QMenu>
 #include <QAction>
+#include <QFileDialog>
+#include <QTextStream>
 
 namespace {
 QString compactErrorSummary(const QString& raw, int maxLen = 180) {
@@ -43,7 +45,7 @@ QString compactErrorSummary(const QString& raw, int maxLen = 180) {
     if (text.contains("RESOURCE_EXHAUSTED", Qt::CaseInsensitive) || text.contains("429", Qt::CaseInsensitive)) {
         return "GEMINI QUOTA EXCEEDED: You have exceeded your free tier rate limit. Please wait about 30 seconds and try again.";
     }
-    if (text.contains("UNAVAILABLE", Qt::CaseInsensitive) || text.contains("503", Qt::CaseInsensitive)) {
+    if (text.contains("UNAVAILABLE", Qt::CaseInsensitive) || text.contains("503") || text.contains("high demand", Qt::CaseInsensitive)) {
         return "GEMINI UNAVAILABLE: The model is currently experiencing high demand. Please try again in a few seconds.";
     }
     if (text.contains("SAFETY", Qt::CaseInsensitive)) {
@@ -167,6 +169,7 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     connect(m_bridge, &GeminiBridge::showHistoryRequested, this, &GeminiPanel::onBridgeShowHistoryRequest);
     connect(m_bridge, &GeminiBridge::startNewChatRequested, this, &GeminiPanel::clearHistory);
     connect(m_bridge, &GeminiBridge::showInstructionsRequested, this, &GeminiPanel::onCustomInstructionsClicked);
+    connect(m_bridge, &GeminiBridge::exportRequested, this, &GeminiPanel::onExportRequested);
 
     m_bridge->updateTitle("VIORA AI");
 
@@ -248,6 +251,54 @@ void GeminiPanel::onBridgeCloseRequest() {
     hide();
 }
 
+void GeminiPanel::onExportRequested() {
+    QString defaultName = m_bridge->conversationTitle().trimmed();
+    if (defaultName.isEmpty() || defaultName == "VIORA AI") defaultName = "Conversation";
+    defaultName.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString fileName = QFileDialog::getSaveFileName(this, tr("Export Chat"), 
+                                                    QDir::homePath() + "/" + defaultName + ".md",
+                                                    tr("Markdown Files (*.md)"));
+    if (fileName.isEmpty()) return;
+
+    QString md;
+    md += QString("# Chat: %1\n").arg(m_bridge->conversationTitle());
+    md += QString("*Exported on: %1*\n\n").arg(QDateTime::currentDateTime().toString());
+    md += "---\n\n";
+
+    for (const auto& entry : m_history) {
+        QString role = entry.value("role").toString();
+        QString content = entry.value("content").toString().trimmed();
+        QString thought = entry.value("thought").toString().trimmed();
+        QString timestamp = entry.value("timestamp").toString();
+
+        if (role == "user") {
+            md += QString("### You (%1)\n\n").arg(timestamp);
+            md += content + "\n\n";
+        } else if (role == "model") {
+            md += QString("### Viora AI (%1)\n\n").arg(timestamp);
+            if (!thought.isEmpty()) {
+                md += "> **Thinking**:\n> " + thought.replace("\n", "\n> ") + "\n\n";
+            }
+            md += content + "\n\n";
+        } else if (role == "action") {
+             md += QString("*Action: %1*\n\n").arg(content);
+        }
+        
+        md += "---\n\n";
+    }
+
+    QFile file(fileName);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&file);
+        out << md;
+        file.close();
+        appendSystemNote("Chat exported successfully to **" + QFileInfo(fileName).fileName() + "**");
+    } else {
+        reportError("Export Failed", "Could not open file for writing: " + file.errorString(), true);
+    }
+}
+
 void GeminiPanel::clearHistory() {
     qDebug() << "[GeminiPanel] clearHistory";
     if (m_process && m_process->state() != QProcess::NotRunning) {
@@ -255,7 +306,10 @@ void GeminiPanel::clearHistory() {
     }
     m_history.clear();
     m_isWorking = false;
-    if (m_bridge) m_bridge->setWorking(false);
+    if (m_bridge) {
+        m_bridge->setWorking(false);
+        m_bridge->clearToolCalls();
+    }
     
     appendSystemNote("[SYSTEM] New conversation started.");
 }
@@ -381,16 +435,48 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
             if (m_bridge) m_bridge->updateStatus("Executing: " + match.captured(1));
         }
     }
+    // Check for structured tool data (Dashboard)
+    if (chunk.contains("<TOOL_CALL>")) {
+        QRegularExpression re("<TOOL_CALL>(.*?)</TOOL_CALL>");
+        auto match = re.match(chunk);
+        if (match.hasMatch()) {
+            QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
+            if (doc.isObject()) {
+                QJsonObject obj = doc.object();
+                QVariantMap call;
+                call["name"] = obj["name"].toString();
+                call["args"] = obj["args"].toVariant();
+                call["status"] = "running";
+                call["timestamp"] = QDateTime::currentDateTime().toString("HH:mm:ss");
+                if (m_bridge) m_bridge->addToolCall(call);
+            }
+        }
+    }
+
+    if (chunk.contains("<TOOL_RESULT>")) {
+        QRegularExpression re("<TOOL_RESULT>(.*?)</TOOL_RESULT>");
+        auto match = re.match(chunk);
+        if (match.hasMatch()) {
+            QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
+            if (doc.isObject()) {
+                QJsonObject obj = doc.object();
+                QString name = obj["name"].toString();
+                QVariantMap result;
+                result["result"] = obj["result"].toVariant();
+                if (m_bridge) m_bridge->updateToolResult(name, result);
+            }
+        }
+    }
+
     if (chunk.contains("<USAGE>")) {
         QRegularExpression re("<USAGE>(.*?)</USAGE>");
-        auto match = re.match(m_responseBuffer);
+        auto match = re.match(chunk); // Use chunk if usage is per-turn
         if (match.hasMatch()) {
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
             if (doc.isObject()) {
                 int total = doc.object()["total_tokens"].toInt();
                 if (m_bridge) {
                     m_bridge->setTokenCount(total);
-                    // Standard context window for Gemini 1.5 Flash is 1M
                     double pct = (double)total / 1000000.0;
                     m_bridge->setUsagePercentage(pct);
                 }
@@ -423,7 +509,7 @@ void GeminiPanel::onProcessFinished(int exitCode) {
             title = "Quota Exceeded";
             detail = "Gemini free tier limit reached. Please wait 1 minute and try again.";
             handled = true;
-        } else if (m_errorBuffer.contains("503") || m_errorBuffer.contains("UNAVAILABLE", Qt::CaseInsensitive)) {
+        } else if (m_errorBuffer.contains("503") || m_errorBuffer.contains("UNAVAILABLE", Qt::CaseInsensitive) || m_errorBuffer.contains("high demand", Qt::CaseInsensitive)) {
             title = "Model Busy";
             detail = "Gemini is currently experiencing high demand. Please wait a few seconds and try again.";
             handled = true;
