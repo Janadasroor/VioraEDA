@@ -24,6 +24,7 @@ class GeminiPanel : public QWidget {
     Q_OBJECT
 public:
     explicit GeminiPanel(QGraphicsScene* scene = nullptr, QWidget* parent = nullptr);
+    virtual ~GeminiPanel();
 
     void setScene(QGraphicsScene* scene) { m_scene = scene; }
     void setNetManager(class NetManager* netManager) { m_netManager = netManager; }
@@ -79,6 +80,7 @@ private:
 
     // Internal Logic Timers
     QTimer* m_thinkingPulseTimer = nullptr;
+    QTimer* m_syncTimer = nullptr;
     int m_pulseStep = 0;
 
     // Backend Process Mangement
@@ -93,6 +95,7 @@ private:
     QString m_lastErrorTitle;
     QString m_lastErrorDetails;
     bool m_isWorking = false;
+    bool m_isDestroying = false;
     QString m_mode = "schematic";
     QString m_projectFilePath;
     QString m_currentChatTitle;
@@ -136,6 +139,7 @@ private:
     void hideErrorBanner();
 
     QString gatherInstructions() const;
+    QString gatherSchematicContext() const;
 };
 
 #endif // GEMINI_PANEL_H

@@ -551,7 +551,10 @@ void evaluateMeasStatementsIntoResults(const QString& netlistContent, SimAnalysi
     const std::string atype = measAnalysisToken(analysisType);
     if (atype.empty()) return;
     for (const auto& mr : SimMeasEvaluator::evaluate(statements, *results, atype)) {
-        if (mr.valid) results->measurements[mr.name] = mr.value;
+        if (mr.valid) {
+            results->measurements[mr.name] = mr.value;
+            results->measurementMetadata[mr.name] = {mr.quantityLabel, mr.displayUnit};
+        }
         else results->diagnostics.push_back(".meas " + mr.name + " failed: " + mr.error);
     }
 }
@@ -768,7 +771,12 @@ void SimManager::mergeStepSweepResults(const SimResults& runResults, const QStri
         m_stepSweepResults.branchCurrents[withStepSuffix(QString::fromStdString(name), stepLabel).toStdString()] = val;
     }
     for (const auto& [name, val] : runResults.measurements) {
-        m_stepSweepResults.measurements[withStepSuffix(QString::fromStdString(name), stepLabel).toStdString()] = val;
+        const std::string suffixed = withStepSuffix(QString::fromStdString(name), stepLabel).toStdString();
+        m_stepSweepResults.measurements[suffixed] = val;
+        const auto metaIt = runResults.measurementMetadata.find(name);
+        if (metaIt != runResults.measurementMetadata.end()) {
+            m_stepSweepResults.measurementMetadata[suffixed] = metaIt->second;
+        }
     }
     m_stepSweepResults.diagnostics.push_back(QString("Step run %1: %2").arg(runIndex).arg(stepLabel).toStdString());
     m_completedStepRuns = runIndex;

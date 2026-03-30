@@ -4,276 +4,339 @@ import QtQuick.Layouts
 
 Rectangle {
     id: composerRoot
-    width: parent.width - 40
-    height: Math.max(80, inputRow.implicitHeight + 40)
-    anchors.horizontalCenter: parent.horizontalCenter
-    anchors.bottom: parent.bottom
+    width: parent ? parent.width - 40 : 400
+    height: Math.max(100, inputColumn.implicitHeight + 40)
+    anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
+    anchors.bottom: parent ? parent.bottom : undefined
     anchors.bottomMargin: 20
     
     radius: 16
-    color: geminiBridge ? geminiBridge.glassBackground : "transparent"
-    border.color: "#334155"
+    color: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.glassBackground) ? geminiBridge.glassBackground : "rgba(15, 23, 42, 0.95)"
+    border.color: {
+        if (typeof geminiBridge === "undefined" || !geminiBridge) return "#334155";
+        var m = geminiBridge.currentMode;
+        if (m === "Planning") return "#10b981"; // Green
+        if (m === "Cmd") return "#f59e0b";      // Yellow
+        return "#334155";                      // Normal
+    }
     border.width: 1
 
     signal sendMessage(string text)
     signal stopRun()
 
     ColumnLayout {
+        id: inputColumn
         anchors.fill: parent
-        anchors.margins: 12
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.topMargin: 12
+        anchors.bottomMargin: 12
         spacing: 8
 
-        // Status Banner (integrated)
-        Rectangle {
+        // Tool Action Bar
+        RowLayout {
+            id: toolActionBar
             Layout.fillWidth: true
-            height: 24
-            visible: geminiBridge ? geminiBridge.isWorking : false
-            color: "transparent"
+            Layout.preferredHeight: 20
+            spacing: 8
+            visible: (typeof geminiBridge !== "undefined") && geminiBridge && geminiBridge.isWorking
+            opacity: visible ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 250 } }
 
-            RowLayout {
-                anchors.centerIn: parent
-                spacing: 8
-
+            // Pulsing dot
+            Rectangle {
+                width: 6; height: 6; radius: 3
+                color: "#10b981"
+                Layout.alignment: Qt.AlignVCenter
                 SequentialAnimation on opacity {
                     loops: Animation.Infinite
-                    PropertyAnimation { from: 0.4; to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
-                    PropertyAnimation { from: 1.0; to: 0.4; duration: 800; easing.type: Easing.InOutQuad }
+                    NumberAnimation { from: 1; to: 0.3; duration: 800; easing.type: Easing.InOutQuad }
+                    NumberAnimation { from: 0.3; to: 1; duration: 800; easing.type: Easing.InOutQuad }
                 }
+            }
 
-                Text {
-                    text: geminiBridge ? (geminiBridge.thinkingText || "VIORA THINKING...") : ""
-                    color: "#3b82f6"
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 1
-                }
+            Text {
+                id: toolName
+                text: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.currentTool : "ViorAI"
+                color: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.accentColor : "#3b82f6"
+                font.pixelSize: 10
+                font.bold: true
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Rectangle {
+                width: 1; height: 10
+                color: Qt.rgba(1, 1, 1, 0.15)
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Text {
+                id: actionSubtext
+                text: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.currentAction : ""
+                color: "#94a3b8"
+                font.pixelSize: 10
+                font.italic: true
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
             }
         }
 
-        RowLayout {
-            id: inputRow
+        // Input Area
+        ScrollView {
             Layout.fillWidth: true
-            spacing: 12
+            Layout.maximumHeight: 200
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.maximumHeight: 150
-                ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-                TextArea {
-                    id: inputField
-                    placeholderText: "Message Viora AI... (Enter to send)"
-                    placeholderTextColor: "#4b5563"
-                    color: "white"
-                    font.pixelSize: 14
-                    wrapMode: TextArea.Wrap
-                    background: null
-                    
-                    Keys.onPressed: (event) => {
-                        if (event.key === Qt.Key_Return && !(event.modifiers & Qt.ControlModifier)) {
-                            if (text.trim() !== "") {
-                                composerRoot.sendMessage(text.trim())
-                                text = ""
-                            }
-                            event.accepted = true
+            TextArea {
+                id: inputField
+                placeholderText: "Message Viora AI..."
+                placeholderTextColor: "#4b5563"
+                color: "white"
+                font.pixelSize: 14
+                wrapMode: TextArea.Wrap
+                background: null
+                
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Return && !(event.modifiers & Qt.ControlModifier)) {
+                        if (text.trim() !== "") {
+                            composerRoot.sendMessage(text.trim())
+                            text = ""
                         }
+                        event.accepted = true
                     }
                 }
             }
         }
 
+        // Action Bar (Redesigned)
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 32
-            spacing: 8
+            spacing: 16
 
-            // Left side controls: Utility Buttons
-            Row {
-                id: utilityRow
-                spacing: 8
+            // Left: Utility and Selectors
+            RowLayout {
+                spacing: 12
                 Layout.alignment: Qt.AlignVCenter
 
-                // Refresh Button
-                Button {
-                    id: refreshBtn
-                    text: "↻"
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Refresh Models"
-                    onClicked: if (geminiBridge) geminiBridge.refreshModels()
-                    font.pixelSize: 14
-                    font.bold: true
-                    
-                    background: Rectangle {
-                        implicitWidth: 28
-                        implicitHeight: 24
-                        color: parent.hovered ? "#1affffff" : "transparent"
-                        radius: 6
-                        border.color: parent.hovered ? "#475569" : "transparent"
+                IconButton {
+                    text: "+"
+                    ToolTip.text: "New Chat"
+                    onClicked: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.startNewChat()
+                }
+
+                // Mode Selector (with Descriptions)
+                MinimalSelector {
+                    id: modeSelector
+                    model: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.availableModes : []
+                    currentIndex: {
+                        if (!geminiBridge || !model) return 0;
+                        for (var i = 0; i < model.length; i++) {
+                            if (model[i].name === geminiBridge.currentMode) return i;
+                        }
+                        return 0;
                     }
+                    onActivated: (index) => { if (geminiBridge) geminiBridge.currentMode = model[index].name }
                     
-                    contentItem: Text {
-                        text: parent.text
-                        color: parent.hovered ? "white" : "#94a3b8"
-                        font: parent.font
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
+                    textRole: "name"
+                    popupWidth: 280
+                    showDescriptions: true
+                    headerTitle: "Conversation mode"
                 }
 
                 // Model Selector
-                ComboBox {
+                MinimalSelector {
                     id: modelSelector
-                    model: geminiBridge ? geminiBridge.availableModels : []
-                    currentIndex: geminiBridge ? model.indexOf(geminiBridge.currentModel) : -1
+                    model: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.availableModels) ? geminiBridge.availableModels : ["Gemini 2.0 Flash"]
+                    currentIndex: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.availableModels) ? model.indexOf(geminiBridge.currentModel) : 0
                     onActivated: (index) => { if (geminiBridge) geminiBridge.currentModel = model[index] }
-                    Layout.preferredWidth: 140
-                    
-                    contentItem: Text {
-                        leftPadding: 6
-                        rightPadding: 18
-                        text: modelSelector.currentText || "Select Model..."
-                        font.pixelSize: 10
-                        font.bold: true
-                        color: "#e2e8f0"
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                    }
-                    
-                    background: Rectangle {
-                        implicitWidth: 140
-                        implicitHeight: 24
-                        color: "#801e293b" // 50% alpha dark
-                        border.color: modelSelector.hovered ? "#475569" : "#334155"
-                        border.width: 1
-                        radius: 6
-                    }
-
-                    delegate: ItemDelegate {
-                        width: modelSelector.width
-                        padding: 8
-                        contentItem: Text {
-                            text: modelData
-                            color: hovered ? "white" : "#94a3b8"
-                            font.pixelSize: 10
-                            font.bold: true
-                            elide: Text.ElideRight
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        background: Rectangle {
-                            color: highlighted ? "#2563eb" : (hovered ? "#1e293b" : "transparent")
-                        }
-                    }
-
-                    popup: Popup {
-                        y: -height - 4
-                        width: modelSelector.width
-                        implicitHeight: contentItem.implicitHeight
-                        padding: 1
-                        
-                        contentItem: ListView {
-                            clip: true
-                            implicitHeight: contentHeight
-                            model: modelSelector.popup.visible ? modelSelector.delegateModel : null
-                            ScrollIndicator.vertical: ScrollIndicator { }
-                        }
-                        
-                        background: Rectangle {
-                            color: "#1e293b"
-                            border.color: "#334155"
-                            radius: 8
-                        }
-                    }
-                }
-
-                // Design Audit Button
-                Button {
-                    id: auditBtn
-                    text: "AUDIT"
-                    visible: geminiBridge ? !geminiBridge.isWorking : false
-                    onClicked: composerRoot.sendMessage("Please provide a comprehensive design audit of this circuit, focusing on component selection, power dissipation, and potential reliability issues.")
-                    font.pixelSize: 9
-                    font.bold: true
-                    
-                    background: Rectangle {
-                        implicitWidth: 50
-                        implicitHeight: 24
-                        color: parent.hovered ? "#263b82f6" : "transparent"
-                        radius: 6
-                        border.color: "#3b82f6"
-                        border.width: 1
-                    }
-                    
-                    contentItem: Text {
-                        text: parent.text
-                        color: "#3b82f6"
-                        font: parent.font
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
                 }
             }
 
             Item { Layout.fillWidth: true }
 
-            // Right side: Action Buttons
-            Row {
-                id: actionRow
-                spacing: 6
+            // Right: Secondary Actions and Primary Round Button
+            RowLayout {
+                spacing: 12
                 Layout.alignment: Qt.AlignVCenter
 
-                // Stop Button
-                Button {
-                    id: stopBtn
-                    text: "STOP"
-                    visible: geminiBridge ? geminiBridge.isWorking : false
-                    onClicked: composerRoot.stopRun()
-                    font.pixelSize: 10
-                    font.bold: true
-                    
-                    background: Rectangle {
-                        implicitWidth: 54
-                        implicitHeight: 28
-                        radius: 8
-                        color: parent.hovered ? "#ef4444" : "#dc2626"
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        color: "white"
-                        font: parent.font
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
+                IconButton {
+                    text: "🎤"
+                    font.pixelSize: 14
+                    ToolTip.text: "Voice Input (Placeholder)"
                 }
 
-                // Send Button
+                // Primary Action Button (Circular)
                 Button {
-                    id: sendBtn
-                    text: "SEND"
-                    visible: geminiBridge ? !geminiBridge.isWorking : true
-                    enabled: inputField.text.trim() !== ""
+                    id: mainActionBtn
+                    property bool isWorking: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.isWorking : false
+                    
+                    Layout.preferredWidth: 32
+                    Layout.preferredHeight: 32
+                    
                     onClicked: {
-                        if (inputField.text.trim() !== "") {
+                        if (isWorking) {
+                            composerRoot.stopRun()
+                        } else if (inputField.text.trim() !== "") {
                             composerRoot.sendMessage(inputField.text.trim())
                             inputField.text = ""
                         }
                     }
-                    font.pixelSize: 10
-                    font.bold: true
-                    
+
                     background: Rectangle {
-                        implicitWidth: 54
-                        implicitHeight: 28
-                        radius: 8
-                        color: parent.enabled ? (parent.hovered ? "#3b82f6" : "#2563eb") : "#1e293b"
+                        radius: 16
+                        color: mainActionBtn.isWorking ? "#ef4444" : (mainActionBtn.enabled ? "#2563eb" : "#1e293b")
+                        
+                        // Icon Content
+                        Text {
+                            anchors.centerIn: parent
+                            text: mainActionBtn.isWorking ? "■" : "→"
+                            color: "white"
+                            font.pixelSize: mainActionBtn.isWorking ? 10 : 16
+                            font.bold: true
+                        }
                     }
-                    contentItem: Text {
-                        text: parent.text
-                        color: parent.enabled ? "white" : "#475569"
-                        font: parent.font
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
+                    
+                    enabled: isWorking || inputField.text.trim() !== ""
                 }
+            }
+        }
+    }
+
+    // --- Sub-Components ---
+
+    // Minimal IconButton
+    component IconButton : Button {
+        id: iconBtn
+        flat: true
+        font.pixelSize: 18
+        
+        background: Rectangle {
+            implicitWidth: 28
+            implicitHeight: 28
+            color: iconBtn.hovered ? "rgba(255, 255, 255, 0.08)" : "transparent"
+            radius: 6
+        }
+        
+        contentItem: Text {
+            text: iconBtn.text
+            color: iconBtn.hovered ? "white" : "#94a3b8"
+            font: iconBtn.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+
+        ToolTip.visible: hovered
+        ToolTip.delay: 500
+    }
+
+    // Minimal minimalist dropdown selector
+    component MinimalSelector : ComboBox {
+        id: cb
+        
+        property int popupWidth: 200
+        property bool showDescriptions: false
+        property string headerTitle: ""
+
+        background: Item { 
+            implicitWidth: contentLayout.implicitWidth + 8
+            implicitHeight: 28
+        }
+        
+        contentItem: RowLayout {
+            id: contentLayout
+            spacing: 4
+            
+            Text {
+                text: "^" 
+                color: "#94a3b8"
+                font.pixelSize: 10
+                font.bold: true
+                rotation: cb.popup.visible ? 0 : 180 // Toggle orientation
+                Layout.alignment: Qt.AlignVCenter
+            }
+            
+            Text {
+                text: cb.currentText
+                color: cb.hovered ? "white" : "#94a3b8"
+                font.pixelSize: 11
+                font.bold: true
+                elide: Text.ElideRight
+                Layout.alignment: Qt.AlignVCenter
+                Layout.maximumWidth: 120
+            }
+        }
+
+        delegate: ItemDelegate {
+            id: delegateRoot
+            width: cb.popupWidth
+            padding: 12
+            
+            contentItem: Column {
+                spacing: 4
+                Text {
+                    text: (typeof modelData === "object") ? modelData.name : modelData
+                    color: highlighted || hovered ? "white" : "#e2e8f0"
+                    font.pixelSize: 12
+                    font.bold: true
+                }
+                Text {
+                    visible: cb.showDescriptions && (typeof modelData === "object") && modelData.desc
+                    text: (typeof modelData === "object") ? modelData.desc : ""
+                    color: "#94a3b8"
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                    width: parent.width
+                }
+            }
+            background: Rectangle {
+                color: highlighted ? "rgba(37, 99, 235, 0.15)" : (hovered ? "rgba(255, 255, 255, 0.05)" : "transparent")
+                border.color: highlighted ? "#2563eb" : "transparent"
+                border.width: 1
+                radius: 8
+            }
+        }
+
+        popup: Popup {
+            y: -height - 8
+            width: cb.popupWidth
+            implicitHeight: contentColumn.implicitHeight + (cb.headerTitle !== "" ? 40 : 0)
+            padding: 8
+            
+            contentItem: Column {
+                id: contentColumn
+                spacing: 8
+                
+                Text {
+                    visible: cb.headerTitle !== ""
+                    text: cb.headerTitle
+                    color: "#64748b"
+                    font.pixelSize: 11
+                    font.bold: true
+                    padding: 4
+                }
+                
+                ListView {
+                    id: listView
+                    clip: true
+                    implicitHeight: contentHeight
+                    width: parent.width
+                    model: cb.popup.visible ? cb.delegateModel : null
+                    ScrollIndicator.vertical: ScrollIndicator { }
+                }
+            }
+            
+            background: Rectangle {
+                color: "#1e293b"
+                border.color: "#334155"
+                radius: 12
+                
+                // Subtle shadow
+                layer.enabled: true
+                layer.effect: ShaderEffect { } 
+                // Using layer for standard shadows is complex without generic libs, 
+                // so I'll just use a slightly darker border.
             }
         }
     }

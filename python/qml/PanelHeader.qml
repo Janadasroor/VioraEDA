@@ -4,11 +4,11 @@ import QtQuick.Layouts
 
 Rectangle {
     id: headerRoot
-    width: parent.width
+    width: parent ? parent.width : 400
     height: 48
     color: "transparent"
 
-    property string title: geminiBridge.conversationTitle || "VIORA AI"
+    property string title: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.conversationTitle) ? geminiBridge.conversationTitle : "VIORA AI"
 
     RowLayout {
         anchors.fill: parent
@@ -27,6 +27,46 @@ Rectangle {
             verticalAlignment: Text.AlignVCenter
         }
 
+        // Usage Stats
+        Row {
+            spacing: 8
+            Layout.alignment: Qt.AlignVCenter
+            visible: typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.tokenCount > 0
+
+            // Custom Usage Icon
+            Item {
+                width: 14; height: 14
+                Rectangle {
+                    width: 12; height: 12
+                    radius: 6
+                    color: "transparent"
+                    border.color: "#3b82f6"
+                    border.width: 1.5
+                    anchors.centerIn: parent
+                    Rectangle {
+                        width: 4; height: 4; radius: 2
+                        color: "#3b82f6"; anchors.centerIn: parent
+                    }
+                }
+            }
+
+            Text {
+                text: (typeof geminiBridge !== "undefined" && geminiBridge) ? geminiBridge.tokenCount.toLocaleString(Qt.locale(), "f", 0) : "0"
+                color: "#94a3b8"
+                font.pixelSize: 12
+                font.family: "JetBrains Mono" // Premium look
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            Text {
+                text: (typeof geminiBridge !== "undefined" && geminiBridge) ? Math.round(geminiBridge.usagePercentage * 100) + "%" : "0%"
+                color: "#64748b" // Dimmed
+                font.pixelSize: 12
+                font.family: "JetBrains Mono"
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
         // Action Icons
         Row {
             spacing: 4
@@ -36,21 +76,58 @@ Rectangle {
             HeaderButton {
                 text: "+"
                 toolTip: "New Conversation"
-                onClicked: geminiBridge.clearHistory()
+                onClicked: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.clearHistory()
             }
 
             // History (Clock-ish)
             HeaderButton {
                 text: "🕒"
                 toolTip: "History"
-                onClicked: geminiBridge.showHistory()
+                onClicked: {
+                    if (typeof geminiBridge !== "undefined" && geminiBridge && typeof geminiBridge.showHistory === "function") {
+                        geminiBridge.showHistory()
+                    }
+                }
             }
 
             // More (...)
             HeaderButton {
+                id: moreBtn
                 text: "•••"
-                toolTip: "More"
-                // Placeholder action
+                toolTip: "More Options"
+                onClicked: moreMenu.open()
+                
+                Menu {
+                    id: moreMenu
+                    y: moreBtn.height + 5
+                    x: -120 // Offset to the left to avoid edge
+                    width: 160
+
+                    background: Rectangle {
+                        color: "#1e293b" // Slate 800
+                        border.color: "#334155" // Slate 700
+                        radius: 8
+                    }
+
+                    MenuItem {
+                        text: "Custom Instructions"
+                        onTriggered: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.showInstructions()
+                        
+                        contentItem: Text {
+                            text: parent.text
+                            font.pixelSize: 13
+                            color: parent.highlighted ? "white" : "#e2e8f0"
+                            horizontalAlignment: Text.AlignLeft
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: 10
+                        }
+                        
+                        background: Rectangle {
+                            color: parent.highlighted ? "#3b82f6" : "transparent"
+                            radius: 4
+                        }
+                    }
+                }
             }
 
             // Close (X)
@@ -58,7 +135,7 @@ Rectangle {
                 text: "✕"
                 toolTip: "Close Panel"
                 fontColor: hovered ? "#ef4444" : "#94a3b8"
-                onClicked: geminiBridge.closePanel()
+                onClicked: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.closePanel()
             }
         }
     }

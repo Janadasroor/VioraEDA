@@ -162,6 +162,8 @@ private:
     bool buildDerivedPowerWaveform(const QString& signalName, QVector<double>& time, QVector<double>& values) const;
     QStringList connectedNetsForItem(class SchematicItem* item, bool updateNets = true) const;
     void appendDerivedPowerWaveforms(SimResults& results) const;
+    void refreshSteppedMeasurementControls(const SimResults& results);
+    void rebuildSteppedMeasurementPlot(const SimResults& results);
 
     QGraphicsScene* m_scene = nullptr;
     SchematicEditor* m_editor = nullptr;
@@ -218,6 +220,12 @@ private:
     
     QChartView* m_spectrumView = nullptr;
     QChart* m_spectrumChart = nullptr;
+    QTabWidget* m_viewTabs = nullptr;
+    QWidget* m_spectrumTab = nullptr;
+    QComboBox* m_steppedMeasSeriesCombo = nullptr;
+    QComboBox* m_steppedMeasAxisCombo = nullptr;
+    QString m_selectedSteppedMeasurement;
+    QString m_selectedSteppedAxis;
     
     // Virtual Instruments
     class WaveformViewer* m_waveformViewer = nullptr;

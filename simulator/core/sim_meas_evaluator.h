@@ -67,6 +67,8 @@ struct MeasResult {
     std::string name;
     double value = 0.0;
     bool valid = false;
+    std::string quantityLabel;
+    std::string displayUnit;
     std::string error; // Error message if evaluation failed
 };
 

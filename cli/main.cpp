@@ -3195,6 +3195,15 @@ QJsonObject resultsToJson(const SimResults& results) {
     }
     root["measurements"] = measurements;
 
+    QJsonObject measurementMetadata;
+    for (auto it = results.measurementMetadata.begin(); it != results.measurementMetadata.end(); ++it) {
+        QJsonObject meta;
+        meta["quantityLabel"] = QString::fromStdString(it->second.quantityLabel);
+        meta["displayUnit"] = QString::fromStdString(it->second.displayUnit);
+        measurementMetadata[QString::fromStdString(it->first)] = meta;
+    }
+    root["measurementMetadata"] = measurementMetadata;
+
     QJsonArray diags;
     for (const auto& d : results.diagnostics) diags.append(QString::fromStdString(d));
     root["diagnostics"] = diags;

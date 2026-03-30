@@ -11,9 +11,12 @@ class GeminiBridge : public QObject {
     Q_PROPERTY(QVariantList messages READ messages NOTIFY messagesChanged)
     Q_PROPERTY(QStringList availableModels READ availableModels NOTIFY availableModelsChanged)
     Q_PROPERTY(QString currentModel READ currentModel WRITE setCurrentModel NOTIFY currentModelChanged)
+    Q_PROPERTY(QVariantList availableModes READ availableModes NOTIFY themeChanged)
     Q_PROPERTY(QString currentMode READ currentMode WRITE setCurrentMode NOTIFY currentModeChanged)
     Q_PROPERTY(bool isWorking READ isWorking NOTIFY isWorkingChanged)
     Q_PROPERTY(QString thinkingText READ thinkingText NOTIFY thinkingTextChanged)
+    Q_PROPERTY(QString currentTool READ currentTool NOTIFY currentToolChanged)
+    Q_PROPERTY(QString currentAction READ currentAction NOTIFY currentActionChanged)
     Q_PROPERTY(QString conversationTitle READ conversationTitle NOTIFY conversationTitleChanged)
     
     // Theme properties for QML
@@ -22,6 +25,8 @@ class GeminiBridge : public QObject {
     Q_PROPERTY(QString accentColor READ accentColor NOTIFY themeChanged)
     Q_PROPERTY(QString backgroundColor READ backgroundColor NOTIFY themeChanged)
     Q_PROPERTY(QString glassBackground READ glassBackground NOTIFY themeChanged)
+    Q_PROPERTY(int tokenCount READ tokenCount NOTIFY tokenCountChanged)
+    Q_PROPERTY(double usagePercentage READ usagePercentage NOTIFY usagePercentageChanged)
 
 public:
     explicit GeminiBridge(QObject* parent = nullptr);
@@ -29,9 +34,19 @@ public:
     QVariantList messages() const { return m_messages; }
     QStringList availableModels() const { return m_availableModels; }
     QString currentModel() const { return m_currentModel; }
+    QVariantList availableModes() const { 
+        return {
+            QVariantMap{{"name", "Planning"}, {"desc", "Agent can plan before executing tasks. Use for deep research, complex tasks, or collaborative work"}},
+            QVariantMap{{"name", "Direct"}, {"desc", "Agent will execute tasks directly. Use for simple tasks that can be completed faster"}},
+            QVariantMap{{"name", "Ask"}, {"desc", "General Q&A and explanation of code or concepts"}},
+            QVariantMap{{"name", "Cmd"}, {"desc", "Execute system commands and interact with the workspace directly"}}
+        };
+    }
     QString currentMode() const { return m_currentMode; }
     bool isWorking() const { return m_isWorking; }
     QString thinkingText() const { return m_thinkingText; }
+    QString currentTool() const { return m_currentTool; }
+    QString currentAction() const { return m_currentAction; }
     QString conversationTitle() const { return m_conversationTitle; }
 
     // Theme getters
@@ -41,15 +56,23 @@ public:
     QString backgroundColor() const;
     QString glassBackground() const;
 
+    int tokenCount() const { return m_tokenCount; }
+    double usagePercentage() const { return m_usagePercentage; }
+
     void setCurrentModel(const QString& model);
     void setCurrentMode(const QString& mode);
+    void setTokenCount(int count);
+    void setUsagePercentage(double percentage);
 
+    Q_INVOKABLE void copyToClipboard(const QString& text);
     Q_INVOKABLE void sendMessage(const QString& text);
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void stopRun();
     Q_INVOKABLE void refreshModels();
     Q_INVOKABLE void closePanel();
     Q_INVOKABLE void showHistory();
+    Q_INVOKABLE void startNewChat();
+    Q_INVOKABLE void showInstructions();
 
 signals:
     void messagesChanged();
@@ -58,7 +81,11 @@ signals:
     void currentModeChanged();
     void isWorkingChanged();
     void thinkingTextChanged();
+    void currentToolChanged();
+    void currentActionChanged();
     void conversationTitleChanged();
+    void tokenCountChanged();
+    void usagePercentageChanged();
     void themeChanged();
     
     // Internal signals to trigger logic in GeminiPanel
@@ -68,6 +95,8 @@ signals:
     void clearHistoryRequested();
     void closeRequested();
     void showHistoryRequested();
+    void startNewChatRequested();
+    void showInstructionsRequested();
 
 public slots:
     void updateMessages(const QVariantList& msgs);
@@ -84,7 +113,11 @@ private:
     QString m_currentMode = "ask";
     bool m_isWorking = false;
     QString m_thinkingText;
+    QString m_currentTool = "ViorAI";
+    QString m_currentAction = "Thinking...";
     QString m_conversationTitle = "VIORA AI";
+    int m_tokenCount = 0;
+    double m_usagePercentage = 0.0;
 };
 
 #endif // GEMINI_BRIDGE_H
