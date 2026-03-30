@@ -1956,7 +1956,7 @@ bool SchematicEditor::editDirectiveWithMeanDialog(const QString& currentCommand,
 
 bool SchematicEditor::editDirectiveWithStepDialog(const QString& currentCommand, SchematicSpiceDirectiveItem* directiveItem) {
     QPointer<SchematicSpiceDirectiveItem> safeDirective(directiveItem);
-    SpiceStepDialog dlg(currentCommand, this);
+    SpiceStepDialog dlg(currentCommand, m_scene, this);
     if (dlg.exec() != QDialog::Accepted) {
         return true;
     }

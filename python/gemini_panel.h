@@ -53,6 +53,7 @@ signals:
     void runSimulationRequested();
     void runERCRequested();
     void plotSignalRequested(const QString& signalName);
+    void zoomFitRequested();
     void togglePanelRequested(const QString& panelName);
 
 private slots:

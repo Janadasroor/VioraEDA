@@ -2119,7 +2119,7 @@ void SimulationPanel::onOpenStepBuilder() {
         currentStep = m_commandLine->text().trimmed();
     }
 
-    SpiceStepDialog dlg(currentStep, this);
+    SpiceStepDialog dlg(currentStep, m_scene, this);
     if (dlg.exec() != QDialog::Accepted) return;
 
     const QString stepCommand = dlg.commandText();

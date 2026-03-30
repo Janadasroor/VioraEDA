@@ -8,17 +8,17 @@
 
 class QComboBox;
 class QDialogButtonBox;
-class QLineEdit;
 class QLabel;
 class QStackedWidget;
 class QWidget;
-class QComboBox;
+class QGraphicsScene;
+class QLineEdit;
 
 class SpiceStepDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit SpiceStepDialog(const QString& initialCommand, QWidget* parent = nullptr);
+    explicit SpiceStepDialog(const QString& initialCommand, QGraphicsScene* scene = nullptr, QWidget* parent = nullptr);
 
     QString commandText() const;
 
@@ -58,15 +58,18 @@ private:
     void loadLevelIntoUi(int levelIndex);
     void syncCurrentLevelFromUi();
     int currentLevelIndex() const;
+    QStringList parseFileSweepValues(QString* errorMessage = nullptr) const;
+    void updateFilePreview();
 
     QComboBox* m_dimensionCountCombo = nullptr;
     QComboBox* m_editLevelCombo = nullptr;
     QComboBox* m_targetKindCombo = nullptr;
+    QComboBox* m_tempSyntaxCombo = nullptr;
     QStackedWidget* m_targetStack = nullptr;
     QLineEdit* m_paramNameEdit = nullptr;
-    QLineEdit* m_sourceNameEdit = nullptr;
-    QLineEdit* m_modelTypeEdit = nullptr;
-    QLineEdit* m_modelNameEdit = nullptr;
+    QComboBox* m_sourceNameEdit = nullptr;
+    QComboBox* m_modelTypeEdit = nullptr;
+    QComboBox* m_modelNameEdit = nullptr;
     QLineEdit* m_modelParamEdit = nullptr;
     QComboBox* m_sweepModeCombo = nullptr;
     QStackedWidget* m_modeStack = nullptr;
@@ -86,11 +89,14 @@ private:
     QLineEdit* m_octStopEdit = nullptr;
 
     QLineEdit* m_filePathEdit = nullptr;
+    QLabel* m_filePreviewLabel = nullptr;
 
     QLineEdit* m_commandEdit = nullptr;
     QLabel* m_validationLabel = nullptr;
+    QLabel* m_runEstimateLabel = nullptr;
     QDialogButtonBox* m_buttonBox = nullptr;
     QStringList m_levelCommands;
+    QGraphicsScene* m_scene = nullptr;
     bool m_syncingCommand = false;
 };
 
