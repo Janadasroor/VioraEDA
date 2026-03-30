@@ -337,9 +337,21 @@ GUIDELINES:
             contents.append(chunk.candidates[0].content)
             tool_results_parts = []
             for call in tool_calls:
-                print(f"<ACTION>Running tool: {call.name}...</ACTION>", end="", flush=True)
+                # Output structured data for the UI dashboard
+                print(f"<TOOL_CALL>{json.dumps({'name': call.name, 'args': call.args})}</TOOL_CALL>", end="", flush=True)
+                
                 func = getattr(registry, call.name, None) if registry else None
                 result = func(**call.args) if func else {"error": "Tool not available"}
+                
+                # Output structured result
+                # Note: We might want to truncate extremely large results (like base64 plots) for the dashboard itself
+                dashboard_result = result
+                if isinstance(result, dict) and "plot_png_base64" in result:
+                    dashboard_result = result.copy()
+                    dashboard_result["plot_png_base64"] = "[IMAGE DATA]"
+                
+                print(f"<TOOL_RESULT>{json.dumps({'name': call.name, 'result': dashboard_result})}</TOOL_RESULT>", end="", flush=True)
+                
                 tool_results_parts.append(types.Part.from_function_response(name=call.name, response=result))
             
             contents.append(types.Content(role="user", parts=tool_results_parts))

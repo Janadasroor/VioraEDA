@@ -27,6 +27,8 @@ class GeminiBridge : public QObject {
     Q_PROPERTY(QString glassBackground READ glassBackground NOTIFY themeChanged)
     Q_PROPERTY(int tokenCount READ tokenCount NOTIFY tokenCountChanged)
     Q_PROPERTY(double usagePercentage READ usagePercentage NOTIFY usagePercentageChanged)
+    Q_PROPERTY(double zoomFactor READ zoomFactor WRITE setZoomFactor NOTIFY zoomFactorChanged)
+    Q_PROPERTY(QVariantList toolCalls READ toolCalls NOTIFY toolCallsChanged)
 
 public:
     explicit GeminiBridge(QObject* parent = nullptr);
@@ -58,11 +60,14 @@ public:
 
     int tokenCount() const { return m_tokenCount; }
     double usagePercentage() const { return m_usagePercentage; }
+    double zoomFactor() const { return m_zoomFactor; }
+    QVariantList toolCalls() const { return m_toolCalls; }
 
     void setCurrentModel(const QString& model);
     void setCurrentMode(const QString& mode);
     void setTokenCount(int count);
     void setUsagePercentage(double percentage);
+    void setZoomFactor(double zoom);
 
     Q_INVOKABLE void copyToClipboard(const QString& text);
     Q_INVOKABLE void sendMessage(const QString& text);
@@ -73,6 +78,11 @@ public:
     Q_INVOKABLE void showHistory();
     Q_INVOKABLE void startNewChat();
     Q_INVOKABLE void showInstructions();
+    Q_INVOKABLE void zoomIn();
+    Q_INVOKABLE void zoomOut();
+    Q_INVOKABLE void resetZoom();
+    Q_INVOKABLE void exportChat();
+    Q_INVOKABLE void clearToolCalls();
 
 signals:
     void messagesChanged();
@@ -87,6 +97,8 @@ signals:
     void tokenCountChanged();
     void usagePercentageChanged();
     void themeChanged();
+    void zoomFactorChanged();
+    void toolCallsChanged();
     
     // Internal signals to trigger logic in GeminiPanel
     void sendMessageRequested(const QString& text);
@@ -97,6 +109,7 @@ signals:
     void showHistoryRequested();
     void startNewChatRequested();
     void showInstructionsRequested();
+    void exportRequested();
 
 public slots:
     void updateMessages(const QVariantList& msgs);
@@ -104,6 +117,8 @@ public slots:
     void updateStatus(const QString& status);
     void updateAvailableModels(const QStringList& models);
     void updateTitle(const QString& title);
+    void addToolCall(const QVariantMap& call);
+    void updateToolResult(const QString& toolName, const QVariantMap& result);
     void notifyThemeChanged() { emit themeChanged(); }
 
 private:
@@ -118,6 +133,8 @@ private:
     QString m_conversationTitle = "VIORA AI";
     int m_tokenCount = 0;
     double m_usagePercentage = 0.0;
+    double m_zoomFactor = 1.0;
+    QVariantList m_toolCalls;
 };
 
 #endif // GEMINI_BRIDGE_H

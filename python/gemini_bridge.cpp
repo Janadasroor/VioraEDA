@@ -156,3 +156,57 @@ void GeminiBridge::copyToClipboard(const QString& text) {
 void GeminiBridge::showInstructions() {
     emit showInstructionsRequested();
 }
+
+void GeminiBridge::setZoomFactor(double zoom) {
+    // Keep zoom between 0.5 and 3.0
+    double boundedZoom = qBound(0.5, zoom, 3.0);
+    if (m_zoomFactor != boundedZoom) {
+        m_zoomFactor = boundedZoom;
+        emit zoomFactorChanged();
+    }
+}
+
+void GeminiBridge::zoomIn() {
+    setZoomFactor(m_zoomFactor + 0.1);
+}
+
+void GeminiBridge::zoomOut() {
+    setZoomFactor(m_zoomFactor - 0.1);
+}
+
+void GeminiBridge::resetZoom() {
+    setZoomFactor(1.0);
+}
+
+void GeminiBridge::exportChat() {
+    emit exportRequested();
+}
+
+void GeminiBridge::addToolCall(const QVariantMap& call) {
+    m_toolCalls.append(call);
+    emit toolCallsChanged();
+}
+
+void GeminiBridge::updateToolResult(const QString& toolName, const QVariantMap& result) {
+    // Find the LAST tool with this name that is still 'pending' or 'running'
+    for (int i = m_toolCalls.size() - 1; i >= 0; --i) {
+        QVariantMap tool = m_toolCalls[i].toMap();
+        if (tool["name"].toString() == toolName) {
+            // Update the tool entry
+            for (auto it = result.begin(); it != result.end(); ++it) {
+                tool[it.key()] = it.value();
+            }
+            tool["status"] = "success";
+            m_toolCalls[i] = tool;
+            emit toolCallsChanged();
+            return;
+        }
+    }
+}
+
+void GeminiBridge::clearToolCalls() {
+    if (!m_toolCalls.isEmpty()) {
+        m_toolCalls.clear();
+        emit toolCallsChanged();
+    }
+}

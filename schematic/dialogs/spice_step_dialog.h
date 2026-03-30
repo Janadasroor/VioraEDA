@@ -6,6 +6,7 @@
 #include <QString>
 
 class QComboBox;
+class QDialogButtonBox;
 class QLineEdit;
 class QLabel;
 class QStackedWidget;
@@ -22,6 +23,7 @@ private slots:
     void updateUiState();
     void updatePreview();
     void applyCommandText();
+    void browseStepFile();
 
 private:
     enum class TargetKind {
@@ -43,6 +45,7 @@ private:
     QString targetPrefix() const;
     TargetKind currentTargetKind() const;
     SweepMode currentSweepMode() const;
+    QString validationMessage() const;
 
     QComboBox* m_targetKindCombo = nullptr;
     QLabel* m_targetLabel = nullptr;
@@ -67,6 +70,8 @@ private:
     QLineEdit* m_filePathEdit = nullptr;
 
     QLineEdit* m_commandEdit = nullptr;
+    QLabel* m_validationLabel = nullptr;
+    QDialogButtonBox* m_buttonBox = nullptr;
     bool m_syncingCommand = false;
 };
 
