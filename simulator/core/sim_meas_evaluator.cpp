@@ -27,6 +27,61 @@ bool evaluateExpression(
     double& out
 );
 
+std::string axisUnit(const SimResults& results) {
+    if (results.xAxisName == "time_s") return "s";
+    if (results.xAxisName == "frequency_hz") return "Hz";
+    return std::string();
+}
+
+std::string axisQuantityLabel(const SimResults& results) {
+    if (results.xAxisName == "time_s") return "Time";
+    if (results.xAxisName == "frequency_hz") return "Frequency";
+    return "Sweep Value";
+}
+
+std::string inferSignalUnit(const std::string& expr) {
+    std::string lower = expr;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lower.find("db(") != std::string::npos) return "dB";
+    if (lower.find("ph(") != std::string::npos || lower.find("phase(") != std::string::npos) return "deg";
+    if (lower.find("v(") != std::string::npos) return "V";
+    if (lower.find("i(") != std::string::npos) return "A";
+    if (lower.find("p(") != std::string::npos) return "W";
+    return std::string();
+}
+
+void applyMeasurementMetadata(MeasResult& mr, const MeasStatement& stmt, const SimResults& results) {
+    mr.quantityLabel = "Measurement Value";
+    if (stmt.function == MeasFunction::TRIG_TARG ||
+        stmt.function == MeasFunction::MIN_AT ||
+        stmt.function == MeasFunction::MAX_AT ||
+        (stmt.function == MeasFunction::FIND && stmt.expr.empty())) {
+        mr.quantityLabel = axisQuantityLabel(results);
+        mr.displayUnit = axisUnit(results);
+        return;
+    }
+    if (stmt.function == MeasFunction::FREQ) {
+        mr.quantityLabel = "Frequency";
+        mr.displayUnit = "Hz";
+        return;
+    }
+    if (stmt.function == MeasFunction::PERIOD) {
+        mr.quantityLabel = "Period";
+        mr.displayUnit = "s";
+        return;
+    }
+    if (stmt.function == MeasFunction::DUTY) {
+        mr.quantityLabel = "Duty Cycle";
+        return;
+    }
+
+    const std::string expr = !stmt.expr.empty() ? stmt.expr : stmt.signal;
+    mr.displayUnit = inferSignalUnit(expr);
+    if (!mr.displayUnit.empty()) {
+        mr.quantityLabel = "Measured " + mr.displayUnit;
+    }
+}
+
 std::string lowerCopy(const std::string& s) {
     std::string r = s;
     std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
@@ -912,6 +967,7 @@ std::vector<MeasResult> SimMeasEvaluator::evaluate(
 
         MeasResult mr;
         mr.name = stmt.name;
+        applyMeasurementMetadata(mr, stmt, results);
 
         if (stmt.function == MeasFunction::PARAM) {
             double value = 0.0;

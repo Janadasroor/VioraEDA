@@ -150,6 +150,11 @@ struct SimWaveform {
     std::vector<double> yPhase; // Phase (for AC analysis)
 };
 
+struct SimMeasurementMetadata {
+    std::string quantityLabel;
+    std::string displayUnit;
+};
+
 /**
  * @brief Thread-safe control flags for simulation execution.
  */
@@ -173,6 +178,7 @@ public:
     std::map<std::string, double> branchCurrents;
     std::map<std::string, double> sensitivities; // Component Name -> Delta V / Delta P
     std::map<std::string, double> measurements;  // THD, noise-integrated metrics, etc.
+    std::map<std::string, SimMeasurementMetadata> measurementMetadata;
     std::vector<std::string> diagnostics;
     std::vector<std::string> fixSuggestions;
 

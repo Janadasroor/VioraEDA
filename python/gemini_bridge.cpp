@@ -3,6 +3,8 @@
 #include <QColor>
 #include <QPalette>
 #include <QDebug>
+#include <QClipboard>
+#include <QGuiApplication>
 
 GeminiBridge::GeminiBridge(QObject* parent) : QObject(parent) {
     m_availableModels << m_currentModel;
@@ -76,18 +78,32 @@ void GeminiBridge::updateMessages(const QVariantList& msgs) {
 }
 
 void GeminiBridge::setWorking(bool working, const QString& thinking) {
-    if (m_isWorking != working || m_thinkingText != thinking) {
+    if (m_isWorking != working) {
         m_isWorking = working;
-        m_thinkingText = thinking;
         emit isWorkingChanged();
-        emit thinkingTextChanged();
+    }
+    if (!thinking.isEmpty()) {
+        updateStatus(thinking);
     }
 }
 
 void GeminiBridge::updateStatus(const QString& status) {
     if (m_thinkingText != status) {
         m_thinkingText = status;
+        
+        // Parse "Tool: Action" format
+        int colonIdx = status.indexOf(':');
+        if (colonIdx != -1) {
+            m_currentTool = status.left(colonIdx).trimmed();
+            m_currentAction = status.mid(colonIdx + 1).trimmed();
+        } else {
+            m_currentTool = "ViorAI";
+            m_currentAction = status.trimmed();
+        }
+
         emit thinkingTextChanged();
+        emit currentToolChanged();
+        emit currentActionChanged();
     }
 }
 
@@ -111,4 +127,32 @@ void GeminiBridge::closePanel() {
 
 void GeminiBridge::showHistory() {
     emit showHistoryRequested();
+}
+
+void GeminiBridge::startNewChat() {
+    emit startNewChatRequested();
+}
+void GeminiBridge::setTokenCount(int count) {
+    if (m_tokenCount != count) {
+        m_tokenCount = count;
+        emit tokenCountChanged();
+    }
+}
+
+void GeminiBridge::setUsagePercentage(double percentage) {
+    if (m_usagePercentage != percentage) {
+        m_usagePercentage = percentage;
+        emit usagePercentageChanged();
+    }
+}
+
+void GeminiBridge::copyToClipboard(const QString& text) {
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (clipboard) {
+        clipboard->setText(text);
+    }
+}
+
+void GeminiBridge::showInstructions() {
+    emit showInstructionsRequested();
 }

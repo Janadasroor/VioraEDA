@@ -73,6 +73,7 @@ struct SimBuildResult {
 #include <algorithm>
 #include <cmath>
 #include "virtual_instruments.h"
+#include "../../core/si_formatter.h"
 #include "../../simulator/core/sim_math.h"
 #include "../../simulator/core/sim_value_parser.h"
 #include "../../simulator/bridge/sim_schematic_bridge.h"
@@ -161,16 +162,209 @@ std::string measAnalysisToken(SimAnalysisType type) {
     }
 }
 
-QString formatMeasuredNumber(double value) {
+QString inferredMeasurementUnit(const QString& name) {
+    const QString lower = name.trimmed().toLower();
+    if (lower.contains("db")) return "dB";
+    if (lower.contains("freq") || lower == "bw" || lower.endsWith("_bw") || lower.contains("bandwidth")) return "Hz";
+    if (lower.contains("time") || lower.contains("delay") || lower.contains("period") ||
+        lower.contains("rise") || lower.contains("fall") || lower.contains("when") ||
+        lower.contains("cross") || lower.contains("trig") || lower.contains("targ") ||
+        lower.contains("width") || lower.contains("span")) {
+        return "s";
+    }
+    return QString();
+}
+
+struct MeasurementDisplayEntry {
+    QString fullName;
+    QString baseName;
+    QString stepLabel;
+    double value = 0.0;
+};
+
+MeasurementDisplayEntry makeMeasurementDisplayEntry(const std::string& name, double value) {
+    MeasurementDisplayEntry entry;
+    entry.fullName = QString::fromStdString(name);
+    entry.baseName = entry.fullName;
+    entry.value = value;
+
+    const int bracketPos = entry.fullName.lastIndexOf(" [");
+    if (bracketPos > 0 && entry.fullName.endsWith(']')) {
+        entry.baseName = entry.fullName.left(bracketPos).trimmed();
+        entry.stepLabel = entry.fullName.mid(bracketPos + 2, entry.fullName.length() - bracketPos - 3).trimmed();
+    }
+    return entry;
+}
+
+QList<MeasurementDisplayEntry> buildMeasurementDisplayEntries(const std::map<std::string, double>& measurements) {
+    QList<MeasurementDisplayEntry> entries;
+    for (const auto& [name, value] : measurements) entries.append(makeMeasurementDisplayEntry(name, value));
+    return entries;
+}
+
+QMap<QString, QList<MeasurementDisplayEntry>> groupSteppedMeasurementEntries(const std::map<std::string, double>& measurements) {
+    QMap<QString, QList<MeasurementDisplayEntry>> grouped;
+    for (const MeasurementDisplayEntry& entry : buildMeasurementDisplayEntries(measurements)) {
+        if (entry.stepLabel.isEmpty()) continue;
+        grouped[entry.baseName].append(entry);
+    }
+    return grouped;
+}
+
+bool hasPlottableSteppedMeasurements(const std::map<std::string, double>& measurements) {
+    const auto grouped = groupSteppedMeasurementEntries(measurements);
+    for (auto it = grouped.cbegin(); it != grouped.cend(); ++it) {
+        if (it.value().size() >= 2) return true;
+    }
+    return false;
+}
+
+bool parseSweepCoordinate(const QString& stepLabel, double& outX, QString& outAxisLabel) {
+    const QString trimmed = stepLabel.trimmed();
+    if (trimmed.isEmpty()) return false;
+
+    const QStringList parts = trimmed.split(',', Qt::SkipEmptyParts);
+    const QString firstPart = parts.isEmpty() ? trimmed : parts.first().trimmed();
+    const int eqPos = firstPart.indexOf('=');
+    const QString key = (eqPos > 0) ? firstPart.left(eqPos).trimmed() : QString();
+    const QString valueText = (eqPos >= 0) ? firstPart.mid(eqPos + 1).trimmed() : firstPart;
+
+    double parsed = 0.0;
+    if (!SimValueParser::parseSpiceNumber(valueText, parsed)) return false;
+    outX = parsed;
+    outAxisLabel = key.isEmpty() ? QString("Sweep Value") : key;
+    return true;
+}
+
+QList<QPair<QString, double>> parseSweepAssignments(const QString& stepLabel) {
+    QList<QPair<QString, double>> assignments;
+    const QStringList parts = stepLabel.split(',', Qt::SkipEmptyParts);
+    for (const QString& rawPart : parts) {
+        const QString part = rawPart.trimmed();
+        if (part.isEmpty()) continue;
+        const int eqPos = part.indexOf('=');
+        const QString key = (eqPos > 0) ? part.left(eqPos).trimmed() : QString();
+        const QString valueText = (eqPos >= 0) ? part.mid(eqPos + 1).trimmed() : part;
+        double parsed = 0.0;
+        if (!SimValueParser::parseSpiceNumber(valueText, parsed)) continue;
+        assignments.append({key.isEmpty() ? QString("Sweep Value") : key, parsed});
+    }
+    return assignments;
+}
+
+struct SweepAxisSelection {
+    bool valid = false;
+    QString axisLabel = "Sweep Point";
+    QMap<QString, double> valuesByStepLabel;
+};
+
+SweepAxisSelection chooseSweepAxis(const QList<MeasurementDisplayEntry>& entries) {
+    struct CandidateData {
+        QMap<QString, double> valuesByStepLabel;
+        QSet<QString> distinctStepLabels;
+        QSet<QString> distinctValues;
+        bool conflict = false;
+    };
+
+    QMap<QString, CandidateData> candidates;
+    for (const MeasurementDisplayEntry& entry : entries) {
+        if (entry.stepLabel.isEmpty()) continue;
+        for (const auto& assignment : parseSweepAssignments(entry.stepLabel)) {
+            CandidateData& data = candidates[assignment.first];
+            data.distinctStepLabels.insert(entry.stepLabel);
+            data.distinctValues.insert(QString::number(assignment.second, 'g', 12));
+            if (data.valuesByStepLabel.contains(entry.stepLabel) &&
+                !qFuzzyCompare(data.valuesByStepLabel.value(entry.stepLabel) + 1.0, assignment.second + 1.0)) {
+                data.conflict = true;
+            } else {
+                data.valuesByStepLabel[entry.stepLabel] = assignment.second;
+            }
+        }
+    }
+
+    QString bestKey;
+    int bestCoverage = -1;
+    int bestDistinct = -1;
+    for (auto it = candidates.cbegin(); it != candidates.cend(); ++it) {
+        if (it.value().conflict) continue;
+        const int coverage = it.value().distinctStepLabels.size();
+        const int distinct = it.value().distinctValues.size();
+        if (coverage < 2 || distinct < 2) continue;
+        if (coverage > bestCoverage || (coverage == bestCoverage && distinct > bestDistinct)) {
+            bestKey = it.key();
+            bestCoverage = coverage;
+            bestDistinct = distinct;
+        }
+    }
+
+    SweepAxisSelection selection;
+    if (bestKey.isEmpty()) return selection;
+    selection.valid = true;
+    selection.axisLabel = bestKey;
+    selection.valuesByStepLabel = candidates.value(bestKey).valuesByStepLabel;
+    return selection;
+}
+
+QStringList availableSweepAxes(const QList<MeasurementDisplayEntry>& entries) {
+    QStringList axes;
+    for (const MeasurementDisplayEntry& entry : entries) {
+        for (const auto& assignment : parseSweepAssignments(entry.stepLabel)) {
+            if (!axes.contains(assignment.first)) axes.append(assignment.first);
+        }
+    }
+    return axes;
+}
+
+QMap<QString, double> sweepAxisValues(const QList<MeasurementDisplayEntry>& entries, const QString& axisName) {
+    QMap<QString, double> values;
+    for (const MeasurementDisplayEntry& entry : entries) {
+        for (const auto& assignment : parseSweepAssignments(entry.stepLabel)) {
+            if (assignment.first.compare(axisName, Qt::CaseInsensitive) == 0) {
+                values[entry.stepLabel] = assignment.second;
+                break;
+            }
+        }
+    }
+    return values;
+}
+
+QString formatMeasuredNumber(const QString& name, double value) {
+    const QString unit = inferredMeasurementUnit(name);
+    if (!unit.isEmpty()) return SiFormatter::format(value, unit);
     return QString::number(value, 'g', 12);
 }
 
-void appendMeasurementLogBlock(QTextEdit* logOutput, const std::map<std::string, double>& measurements) {
+QString formatMeasuredNumber(const SimResults& results, const QString& fullName, const QString& baseName, double value) {
+    const auto it = results.measurementMetadata.find(fullName.toStdString());
+    if (it != results.measurementMetadata.end() && !it->second.displayUnit.empty()) {
+        return SiFormatter::format(value, QString::fromStdString(it->second.displayUnit));
+    }
+    return formatMeasuredNumber(baseName, value);
+}
+
+QString measurementYAxisTitle(const SimResults& results, const QString& fullName) {
+    const auto it = results.measurementMetadata.find(fullName.toStdString());
+    if (it == results.measurementMetadata.end()) return "Measurement Value";
+    const QString label = QString::fromStdString(it->second.quantityLabel);
+    const QString unit = QString::fromStdString(it->second.displayUnit);
+    if (label.isEmpty() && unit.isEmpty()) return "Measurement Value";
+    if (unit.isEmpty()) return label;
+    if (label.isEmpty()) return QString("Measurement Value (%1)").arg(unit);
+    return QString("%1 (%2)").arg(label, unit);
+}
+
+void appendMeasurementLogBlock(QTextEdit* logOutput, const SimResults& results) {
+    const auto& measurements = results.measurements;
     if (!logOutput || measurements.empty()) return;
     logOutput->append("\n--- Measurements (.meas/.mean) ---");
-    for (const auto& [name, value] : measurements) {
-        logOutput->append(QString("%1 = %2")
-            .arg(QString::fromStdString(name), formatMeasuredNumber(value)));
+    for (const MeasurementDisplayEntry& entry : buildMeasurementDisplayEntries(measurements)) {
+        if (entry.stepLabel.isEmpty()) {
+            logOutput->append(QString("%1 = %2")
+                .arg(entry.baseName, formatMeasuredNumber(results, entry.fullName, entry.baseName, entry.value)));
+        } else {
+            logOutput->append(QString("%1 [%2] = %3")
+                .arg(entry.baseName, entry.stepLabel, formatMeasuredNumber(results, entry.fullName, entry.baseName, entry.value)));
+        }
     }
 }
 }
@@ -1535,7 +1729,7 @@ void SimulationPanel::setupUI() {
     });
 
     m_measurementsTable = new QTableWidget(0, 6);
-    m_measurementsTable->setHorizontalHeaderLabels({"Name", "Primary/Result", "Avg", "RMS", "Freq", "Delta(A-B)"});
+    m_measurementsTable->setHorizontalHeaderLabels({"Name", "Primary/Result", "Avg", "RMS", "Freq/Step", "Delta(A-B)"});
     m_measurementsTable->horizontalHeader()->setStretchLastSection(true);
     m_measurementsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_measurementsTable->verticalHeader()->hide();
@@ -1653,36 +1847,56 @@ void SimulationPanel::setupUI() {
     m_spectrumView->setRenderHint(QPainter::Antialiasing);
     m_spectrumView->setStyleSheet(m_plotView->styleSheet());
 
-    QTabWidget* viewTabs = new QTabWidget();
-    viewTabs->setStyleSheet(QString("QTabWidget::pane { border: 1px solid %1; } QTabBar::tab { background: %2; color: %3; padding: 8px; } QTabBar::tab:selected { background: %4; }")
+    m_spectrumTab = new QWidget();
+    auto* spectrumTabLayout = new QVBoxLayout(m_spectrumTab);
+    spectrumTabLayout->setContentsMargins(0, 0, 0, 0);
+    spectrumTabLayout->setSpacing(6);
+
+    QWidget* steppedControls = new QWidget();
+    auto* steppedControlsLayout = new QHBoxLayout(steppedControls);
+    steppedControlsLayout->setContentsMargins(0, 0, 0, 0);
+    steppedControlsLayout->setSpacing(6);
+    steppedControlsLayout->addWidget(new QLabel("Measurement"));
+    m_steppedMeasSeriesCombo = new QComboBox();
+    m_steppedMeasSeriesCombo->setEnabled(false);
+    steppedControlsLayout->addWidget(m_steppedMeasSeriesCombo, 1);
+    steppedControlsLayout->addWidget(new QLabel("X Axis"));
+    m_steppedMeasAxisCombo = new QComboBox();
+    m_steppedMeasAxisCombo->setEnabled(false);
+    steppedControlsLayout->addWidget(m_steppedMeasAxisCombo, 1);
+    spectrumTabLayout->addWidget(steppedControls);
+    spectrumTabLayout->addWidget(m_spectrumView, 1);
+
+    m_viewTabs = new QTabWidget();
+    m_viewTabs->setStyleSheet(QString("QTabWidget::pane { border: 1px solid %1; } QTabBar::tab { background: %2; color: %3; padding: 8px; } QTabBar::tab:selected { background: %4; }")
                             .arg(borderColor, panelBg, textColor, accent));
     
     m_waveformViewer = new WaveformViewer();
     m_scopeContainer = m_waveformViewer;
     
-    viewTabs->addTab(m_plotView, "Standard Waves");
-    viewTabs->addTab(m_spectrumView, "FFT Spectrum");
+    m_viewTabs->addTab(m_plotView, "Standard Waves");
+    m_viewTabs->addTab(m_spectrumTab, "FFT Spectrum");
     // viewTabs->addTab(m_waveformViewer, "Oscilloscope"); // Handled via bottom dock
     
     m_logicAnalyzer = new LogicAnalyzerWidget();
-    viewTabs->addTab(m_logicAnalyzer, "Logic Analyzer");
+    m_viewTabs->addTab(m_logicAnalyzer, "Logic Analyzer");
 
     m_voltmeter = new VoltmeterWidget();
-    viewTabs->addTab(m_voltmeter, "Voltmeter");
+    m_viewTabs->addTab(m_voltmeter, "Voltmeter");
 
     m_ammeter = new AmmeterWidget();
-    viewTabs->addTab(m_ammeter, "Ammeter");
+    m_viewTabs->addTab(m_ammeter, "Ammeter");
 
     m_wattmeter = new WattmeterWidget();
-    viewTabs->addTab(m_wattmeter, "Wattmeter");
+    m_viewTabs->addTab(m_wattmeter, "Wattmeter");
 
     m_freqCounter = new FrequencyCounterWidget();
-    viewTabs->addTab(m_freqCounter, "Frequency Counter");
+    m_viewTabs->addTab(m_freqCounter, "Frequency Counter");
 
     m_logicProbe = new LogicProbeWidget();
-    viewTabs->addTab(m_logicProbe, "Logic Probe");
+    m_viewTabs->addTab(m_logicProbe, "Logic Probe");
 
-    plotLayout->addWidget(viewTabs);
+    plotLayout->addWidget(m_viewTabs);
 
     mainSplitter->addWidget(plotContainer);
     mainSplitter->setSizes({260, 600});
@@ -1719,6 +1933,17 @@ void SimulationPanel::setupUI() {
                 }
             }
         }
+    });
+    connect(m_steppedMeasSeriesCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
+        m_selectedSteppedMeasurement = text;
+        if (m_hasLastResults) {
+            refreshSteppedMeasurementControls(m_lastResults);
+            rebuildSteppedMeasurementPlot(m_lastResults);
+        }
+    });
+    connect(m_steppedMeasAxisCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
+        m_selectedSteppedAxis = text;
+        if (m_hasLastResults) rebuildSteppedMeasurementPlot(m_lastResults);
     });
 
     onGeneratorTypeChanged(m_generatorType->currentIndex());
@@ -2273,7 +2498,7 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
         appendIssueItem(line);
     }
 
-    appendMeasurementLogBlock(m_logOutput, effectiveResults.measurements);
+    appendMeasurementLogBlock(m_logOutput, effectiveResults);
 
     plotBuiltinResults(effectiveResults);
     evaluateMeasStatements(effectiveResults);
@@ -2305,12 +2530,119 @@ void SimulationPanel::evaluateMeasStatements(const SimResults& results) {
     for (const auto& mr : measResults) {
         const QString name = QString::fromStdString(mr.name);
         if (mr.valid) {
-            m_logOutput->append(QString("%1 = %2").arg(name, formatMeasuredNumber(mr.value)));
+            m_logOutput->append(QString("%1 = %2").arg(name, formatMeasuredNumber(name, mr.value)));
         } else {
             m_logOutput->append(QString("%1 : ERROR (%2)")
                 .arg(name, QString::fromStdString(mr.error)));
         }
     }
+}
+
+void SimulationPanel::refreshSteppedMeasurementControls(const SimResults& results) {
+    if (!m_steppedMeasSeriesCombo || !m_steppedMeasAxisCombo) return;
+
+    const auto grouped = groupSteppedMeasurementEntries(results.measurements);
+    QStringList measurementNames;
+    for (auto it = grouped.cbegin(); it != grouped.cend(); ++it) {
+        if (it.value().size() >= 2) measurementNames.append(it.key());
+    }
+    if (m_viewTabs && m_spectrumTab) {
+        const int spectrumIndex = m_viewTabs->indexOf(m_spectrumTab);
+        if (spectrumIndex >= 0) {
+            m_viewTabs->setTabText(spectrumIndex, measurementNames.isEmpty() ? "FFT Spectrum" : "Stepped Measurements");
+        }
+    }
+
+    m_steppedMeasSeriesCombo->blockSignals(true);
+    m_steppedMeasSeriesCombo->clear();
+    m_steppedMeasSeriesCombo->addItems(measurementNames);
+    m_steppedMeasSeriesCombo->setEnabled(!measurementNames.isEmpty());
+    if (!measurementNames.contains(m_selectedSteppedMeasurement)) {
+        m_selectedSteppedMeasurement = measurementNames.isEmpty() ? QString() : measurementNames.first();
+    }
+    if (!m_selectedSteppedMeasurement.isEmpty()) {
+        m_steppedMeasSeriesCombo->setCurrentText(m_selectedSteppedMeasurement);
+    }
+    m_steppedMeasSeriesCombo->blockSignals(false);
+
+    QStringList axisNames;
+    if (!m_selectedSteppedMeasurement.isEmpty() && grouped.contains(m_selectedSteppedMeasurement)) {
+        axisNames = availableSweepAxes(grouped.value(m_selectedSteppedMeasurement));
+    }
+    if (!axisNames.contains("Sweep Point")) axisNames.prepend("Sweep Point");
+
+    m_steppedMeasAxisCombo->blockSignals(true);
+    m_steppedMeasAxisCombo->clear();
+    m_steppedMeasAxisCombo->addItems(axisNames);
+    m_steppedMeasAxisCombo->setEnabled(axisNames.size() > 1 || (axisNames.size() == 1 && axisNames.first() != "Sweep Point"));
+    if (!axisNames.contains(m_selectedSteppedAxis)) {
+        if (!m_selectedSteppedMeasurement.isEmpty() && grouped.contains(m_selectedSteppedMeasurement)) {
+            const SweepAxisSelection selection = chooseSweepAxis(grouped.value(m_selectedSteppedMeasurement));
+            m_selectedSteppedAxis = selection.valid ? selection.axisLabel : QString("Sweep Point");
+        } else {
+            m_selectedSteppedAxis = "Sweep Point";
+        }
+    }
+    if (!m_selectedSteppedAxis.isEmpty()) {
+        m_steppedMeasAxisCombo->setCurrentText(m_selectedSteppedAxis);
+    }
+    m_steppedMeasAxisCombo->blockSignals(false);
+}
+
+void SimulationPanel::rebuildSteppedMeasurementPlot(const SimResults& results) {
+    if (!m_spectrumChart) return;
+
+    const auto specSeriesList = m_spectrumChart->series();
+    for (auto* series : specSeriesList) {
+        m_spectrumChart->removeSeries(series);
+        series->deleteLater();
+    }
+    const auto specAxesList = m_spectrumChart->axes();
+    for (auto* axis : specAxesList) {
+        m_spectrumChart->removeAxis(axis);
+        axis->deleteLater();
+    }
+
+    const auto grouped = groupSteppedMeasurementEntries(results.measurements);
+    const bool showSteppedMeasurementPlot = !m_selectedSteppedMeasurement.isEmpty() && grouped.contains(m_selectedSteppedMeasurement) && grouped.value(m_selectedSteppedMeasurement).size() >= 2;
+    if (!showSteppedMeasurementPlot) {
+        m_spectrumChart->setTitle("FFT Spectrum Analysis");
+        return;
+    }
+
+    const QList<MeasurementDisplayEntry> entries = grouped.value(m_selectedSteppedMeasurement);
+    m_spectrumChart->setTitle(QString("Stepped .meas Results - %1").arg(m_selectedSteppedMeasurement));
+
+    struct MeasPoint { double x; double y; };
+    QVector<MeasPoint> points;
+    points.reserve(entries.size());
+    const QMap<QString, double> chosenAxisValues = (m_selectedSteppedAxis == "Sweep Point")
+        ? QMap<QString, double>()
+        : sweepAxisValues(entries, m_selectedSteppedAxis);
+    int pointIndex = 1;
+    for (const MeasurementDisplayEntry& entry : entries) {
+        double x = static_cast<double>(pointIndex++);
+        if (chosenAxisValues.contains(entry.stepLabel)) x = chosenAxisValues.value(entry.stepLabel);
+        points.append({x, entry.value});
+    }
+    std::sort(points.begin(), points.end(), [](const MeasPoint& a, const MeasPoint& b) { return a.x < b.x; });
+
+    QLineSeries* series = new QLineSeries();
+    series->setName(m_selectedSteppedMeasurement);
+    series->setPen(QPen(Qt::red, 1.6));
+    series->setPointsVisible(true);
+    for (const MeasPoint& point : points) series->append(point.x, point.y);
+    m_spectrumChart->addSeries(series);
+
+    QValueAxis* axisX = new QValueAxis();
+    axisX->setTitleText(m_selectedSteppedAxis.isEmpty() ? "Sweep Point" : m_selectedSteppedAxis);
+    m_spectrumChart->addAxis(axisX, Qt::AlignBottom);
+    series->attachAxis(axisX);
+
+    QValueAxis* axisY = new QValueAxis();
+    axisY->setTitleText(measurementYAxisTitle(results, entries.first().fullName));
+    m_spectrumChart->addAxis(axisY, Qt::AlignLeft);
+    series->attachAxis(axisY);
 }
 
 void SimulationPanel::updateChartRealTime(const QString& name, double t, double value) {
@@ -2530,6 +2862,8 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     if (m_measurementsTable) m_measurementsTable->setRowCount(0);
 
     if (results.waveforms.empty()) {
+        refreshSteppedMeasurementControls(results);
+        rebuildSteppedMeasurementPlot(results);
         if (!results.sensitivities.empty()) {
             m_logOutput->append("\n--- Sensitivity Analysis ---");
             for (const auto& [name, val] : results.sensitivities) {
@@ -2660,6 +2994,8 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         axisYBase = axisY;
     }
 
+    const bool showSteppedMeasurementPlot = hasPlottableSteppedMeasurements(results.measurements);
+
     const QList<QColor> colors = {Qt::red, Qt::blue, QColor("#00aa00"), Qt::magenta, Qt::darkCyan};
     int colorIdx = 0;
     
@@ -2789,7 +3125,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             avgVal = sum / static_cast<double>(wave.yData.size());
         }
 
-        if (analysisIdx == 0 && wave.yData.size() >= 64) {
+        if (!showSteppedMeasurementPlot && analysisIdx == 0 && wave.yData.size() >= 64) {
             int nfft = 1024;
             std::vector<double> resampled = SimMath::resample(wave.xData, wave.yData, nfft);
             std::vector<std::complex<double>> complexIn(nfft);
@@ -2856,7 +3192,10 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         }
     }
 
-    if (!m_spectrumChart->series().isEmpty()) {
+    refreshSteppedMeasurementControls(results);
+    if (showSteppedMeasurementPlot) {
+        rebuildSteppedMeasurementPlot(results);
+    } else if (!m_spectrumChart->series().isEmpty()) {
         QValueAxis* axisFreq = new QValueAxis();
         axisFreq->setTitleText("Frequency (Hz)");
         m_spectrumChart->addAxis(axisFreq, Qt::AlignBottom);
@@ -2868,6 +3207,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     }
 
     if (m_measurementsTable && !results.measurements.empty()) {
+        const QList<MeasurementDisplayEntry> entries = buildMeasurementDisplayEntries(results.measurements);
         const int separatorRow = m_measurementsTable->rowCount();
         m_measurementsTable->insertRow(separatorRow);
         for (int col = 0; col < m_measurementsTable->columnCount(); ++col) {
@@ -2877,14 +3217,14 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             m_measurementsTable->setItem(separatorRow, col, item);
         }
 
-        for (const auto& [name, value] : results.measurements) {
+        for (const MeasurementDisplayEntry& entry : entries) {
             const int row = m_measurementsTable->rowCount();
             m_measurementsTable->insertRow(row);
-            m_measurementsTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(name)));
-            m_measurementsTable->setItem(row, 1, new QTableWidgetItem(formatMeasuredNumber(value)));
+            m_measurementsTable->setItem(row, 0, new QTableWidgetItem(entry.baseName));
+            m_measurementsTable->setItem(row, 1, new QTableWidgetItem(formatMeasuredNumber(results, entry.fullName, entry.baseName, entry.value)));
             m_measurementsTable->setItem(row, 2, new QTableWidgetItem("-"));
             m_measurementsTable->setItem(row, 3, new QTableWidgetItem("-"));
-            m_measurementsTable->setItem(row, 4, new QTableWidgetItem("-"));
+            m_measurementsTable->setItem(row, 4, new QTableWidgetItem(entry.stepLabel.isEmpty() ? "-" : entry.stepLabel));
             m_measurementsTable->setItem(row, 5, new QTableWidgetItem("-"));
         }
     }
@@ -3082,6 +3422,14 @@ bool SimulationPanel::exportResultsJsonFile(const QString& path) const {
         measurements[QString::fromStdString(name)] = value;
     }
     root["measurements"] = measurements;
+    QJsonObject measurementMetadata;
+    for (const auto& [name, meta] : m_lastResults.measurementMetadata) {
+        QJsonObject item;
+        item["quantityLabel"] = QString::fromStdString(meta.quantityLabel);
+        item["displayUnit"] = QString::fromStdString(meta.displayUnit);
+        measurementMetadata[QString::fromStdString(name)] = item;
+    }
+    root["measurementMetadata"] = measurementMetadata;
     QJsonArray diagnostics;
     for (const auto& diag : m_lastResults.diagnostics) {
         diagnostics.append(QString::fromStdString(diag));
@@ -3098,8 +3446,10 @@ bool SimulationPanel::exportResultsReportFile(const QString& path) const {
     for (const auto& w : m_lastResults.waveforms) out << "- " << QString::fromStdString(w.name) << ": " << w.xData.size() << " points\n";
     if (!m_lastResults.measurements.empty()) {
         out << "\n## Measurements\n\n";
-        for (const auto& [name, value] : m_lastResults.measurements) {
-            out << "- " << QString::fromStdString(name) << ": " << formatMeasuredNumber(value) << "\n";
+        for (const MeasurementDisplayEntry& entry : buildMeasurementDisplayEntries(m_lastResults.measurements)) {
+            out << "- " << entry.baseName;
+            if (!entry.stepLabel.isEmpty()) out << " [" << entry.stepLabel << "]";
+            out << ": " << formatMeasuredNumber(m_lastResults, entry.fullName, entry.baseName, entry.value) << "\n";
         }
     }
     if (!m_lastResults.diagnostics.empty()) {

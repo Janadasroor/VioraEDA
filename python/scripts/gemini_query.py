@@ -280,10 +280,10 @@ GUIDELINES:
         registry = ToolRegistry(project_path)
         tools_config = [types.Tool(function_declarations=get_tools_schema())]
 
-    # Tool calling loop (Manual Mode / Fallback)
+    # Streaming tool calling loop
     for _ in range(5):
         try:
-            response = client.models.generate_content(
+            stream = client.models.generate_content_stream(
                 model=model_name,
                 contents=contents,
                 config=types.GenerateContentConfig(
@@ -292,23 +292,49 @@ GUIDELINES:
                 )
             )
             
-            if response.candidates[0].content.parts:
-                thought = response.candidates[0].content.parts[0].thought if hasattr(response.candidates[0].content.parts[0], 'thought') else None
-                if thought:
-                    print(f"<THOUGHT>{thought}</THOUGHT>", end="", flush=True)
-
-            tool_calls = [p.function_call for p in response.candidates[0].content.parts if p.function_call]
-            
-            if not tool_calls:
-                # Final response
-                for part in response.candidates[0].content.parts:
+            full_response_content = None
+            for chunk in stream:
+                if chunk.candidates[0].content.parts:
+                    part = chunk.candidates[0].content.parts[0]
+                    
+                    # Handle thinking process
+                    if hasattr(part, 'thought') and part.thought:
+                        print(f"<THOUGHT>{part.thought}</THOUGHT>", end="", flush=True)
+                    
+                    # Handle text response
                     if part.text:
                         cleaned = re.sub(r"(?i)(?:^|\s)[\u25c8*•\-]*\s*context attached\b", " ", part.text)
-                        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+                        # We don't want to over-trim during streaming as it might eat spaces between chunks
                         print(cleaned, end="", flush=True)
+                
+                if chunk.candidates[0].finish_reason == 'STOP' or chunk.candidates[0].content.parts:
+                    if not full_response_content:
+                        full_response_content = chunk.candidates[0].content
+                    else:
+                        # Accumulate parts if needed for tool calls (though usually tool calls are in a single chunk)
+                        pass
+
+                # Output usage metadata if available in this chunk
+                if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                    usage = {
+                        "prompt_tokens": getattr(chunk.usage_metadata, 'prompt_token_count', 0),
+                        "candidates_tokens": getattr(chunk.usage_metadata, 'candidates_token_count', 0),
+                        "total_tokens": getattr(chunk.usage_metadata, 'total_token_count', 0)
+                    }
+                    print(f"<USAGE>{json.dumps(usage)}</USAGE>", end="", flush=True)
+
+            # Check for tool calls in the final accumulated response (or last chunk)
+            # For simplicity with the new SDK, we'll assume tool calls arrive and we break the stream.
+            # But generate_content_stream usually sends tool calls as a single chunk.
+            
+            # Since we can't easily "look back" at the full response from the stream without accumulating,
+            # we'll use the last candidate if it has tool calls.
+            tool_calls = [p.function_call for p in chunk.candidates[0].content.parts if p.function_call]
+            
+            if not tool_calls:
                 return
 
-            contents.append(response.candidates[0].content)
+            contents.append(chunk.candidates[0].content)
             tool_results_parts = []
             for call in tool_calls:
                 print(f"<ACTION>Running tool: {call.name}...</ACTION>", end="", flush=True)
@@ -320,7 +346,7 @@ GUIDELINES:
             
         except Exception as e:
             print(f"\nError during generation: {e}", file=sys.stderr)
-            return
+            sys.exit(1)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

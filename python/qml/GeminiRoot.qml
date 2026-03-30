@@ -26,11 +26,10 @@ Rectangle {
         spacing: 15
         clip: true
         
-        model: ListModel { id: chatModel }
+        model: (geminiBridge && geminiBridge.messages) ? geminiBridge.messages : []
         
         delegate: ChatCard {
             width: chatListView.width
-            modelData: chatModel.get(index)
         }
         
         // Auto-scroll to bottom on new items
@@ -51,20 +50,6 @@ Rectangle {
         id: composer
         onSendMessage: (msg) => geminiBridge.sendMessage(msg)
         onStopRun: geminiBridge.stopRun()
-    }
-
-    function updateMessages() {
-        chatModel.clear();
-        let msgs = geminiBridge.messages;
-        for (let i = 0; i < msgs.length; ++i) {
-            chatModel.append(msgs[i]);
-        }
-    }
-
-    // Connect bridge signals to update our local model
-    Connections {
-        target: geminiBridge
-        onMessagesChanged: updateMessages()
     }
 
     // Initial load

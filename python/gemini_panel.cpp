@@ -13,6 +13,7 @@
 #include <QtQml/QQmlEngine>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include "../schematic/analysis/spice_netlist_generator.h"
 #include <QTimer>
 #include <QDateTime>
 #include <QGraphicsView>
@@ -22,6 +23,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QJsonValue>
 #include <QClipboard>
 #include <QApplication>
 #include <QBuffer>
@@ -40,6 +42,9 @@ QString compactErrorSummary(const QString& raw, int maxLen = 180) {
     QString text = raw;
     if (text.contains("RESOURCE_EXHAUSTED", Qt::CaseInsensitive) || text.contains("429", Qt::CaseInsensitive)) {
         return "GEMINI QUOTA EXCEEDED: You have exceeded your free tier rate limit. Please wait about 30 seconds and try again.";
+    }
+    if (text.contains("UNAVAILABLE", Qt::CaseInsensitive) || text.contains("503", Qt::CaseInsensitive)) {
+        return "GEMINI UNAVAILABLE: The model is currently experiencing high demand. Please try again in a few seconds.";
     }
     if (text.contains("SAFETY", Qt::CaseInsensitive)) {
         return "SAFETY FILTER BLOCKED: The model refused to answer because of safety constraints.";
@@ -62,11 +67,76 @@ QString nowTimeChip() {
 }
 
 QString sanitizeAgentTextChunk(QString text) {
-    text.remove(QRegularExpression(R"(</?(THOUGHT|ACTION|SUGGESTION|HIGHLIGHT)>)", QRegularExpression::CaseInsensitiveOption));
-    text.remove(QRegularExpression(R"((^|\s)(THOUGHT|ACTION|SUGGESTION|HIGHLIGHT)>)", QRegularExpression::CaseInsensitiveOption));
-    return text;
+    // Remove tags but also the internal content of THOUGHT and USAGE as they are metadata
+    // Using (</TAG>|$) allows us to strip thoughts as they stream, even if the closing tag is missing.
+    text.remove(QRegularExpression(R"(<THOUGHT>.*?(</THOUGHT>|$))", QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption));
+    text.remove(QRegularExpression(R"(<USAGE>.*?(</USAGE>|$))", QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption));
+    text.remove(QRegularExpression(R"(<(/?ACTION|/?SUGGESTION|/?HIGHLIGHT)>)", QRegularExpression::CaseInsensitiveOption));
+    return text.trimmed();
+}
+
+QVariantList parseMessageParts(const QString& text) {
+    QVariantList parts;
+    const static QRegularExpression codeRe("```(\\w*)\\n?(.*?)(?:\\n?```|$)", QRegularExpression::DotMatchesEverythingOption);
+    
+    int lastPos = 0;
+    auto iter = codeRe.globalMatch(text);
+    while (iter.hasNext()) {
+        auto match = iter.next();
+        
+        // Text part before code
+        QString preText = text.mid(lastPos, match.capturedStart() - lastPos).trimmed();
+        if (!preText.isEmpty()) {
+            QVariantMap part;
+            part["type"] = "text";
+            part["content"] = preText;
+            parts.append(part);
+        }
+        
+        // Code part
+        QVariantMap codePart;
+        codePart["type"] = "code";
+        codePart["language"] = match.captured(1).isEmpty() ? "text" : match.captured(1);
+        codePart["content"] = match.captured(2).trimmed();
+        parts.append(codePart);
+        
+        lastPos = match.capturedEnd();
+    }
+    
+    // Remaining text
+    QString postText = text.mid(lastPos).trimmed();
+    if (!postText.isEmpty() || (parts.isEmpty() && !text.isEmpty())) {
+        QVariantMap part;
+        part["type"] = "text";
+        part["content"] = postText;
+        parts.append(part);
+    }
+    
+    return parts;
 }
 } // namespace
+
+GeminiPanel::~GeminiPanel() {
+    m_isDestroying = true;
+    if (m_process) {
+        m_process->disconnect(this);
+        if (m_process->state() != QProcess::NotRunning) {
+            m_process->terminate();
+            if (!m_process->waitForFinished(500)) {
+                m_process->kill();
+            }
+        }
+    }
+    if (m_modelFetchProcess) {
+        m_modelFetchProcess->disconnect(this);
+        if (m_modelFetchProcess->state() != QProcess::NotRunning) {
+            m_modelFetchProcess->terminate();
+            if (!m_modelFetchProcess->waitForFinished(500)) {
+                m_modelFetchProcess->kill();
+            }
+        }
+    }
+}
 
 GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent) 
     : QWidget(parent), m_scene(scene) 
@@ -95,10 +165,24 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     connect(m_bridge, &GeminiBridge::clearHistoryRequested, this, &GeminiPanel::clearHistory);
     connect(m_bridge, &GeminiBridge::closeRequested, this, &GeminiPanel::onBridgeCloseRequest);
     connect(m_bridge, &GeminiBridge::showHistoryRequested, this, &GeminiPanel::onBridgeShowHistoryRequest);
+    connect(m_bridge, &GeminiBridge::startNewChatRequested, this, &GeminiPanel::clearHistory);
+    connect(m_bridge, &GeminiBridge::showInstructionsRequested, this, &GeminiPanel::onCustomInstructionsClicked);
 
     m_bridge->updateTitle("VIORA AI");
 
     m_thinkingPulseTimer = new QTimer(this);
+    m_thinkingPulseTimer->setInterval(200);
+    connect(m_thinkingPulseTimer, &QTimer::timeout, this, [this]() {
+        if (!m_bridge) return;
+        m_pulseStep = (m_pulseStep + 1) % 4;
+        QString dots = QString(".").repeated(m_pulseStep);
+        m_bridge->updateStatus("Thinking" + dots);
+    });
+
+    m_syncTimer = new QTimer(this);
+    m_syncTimer->setSingleShot(true);
+    m_syncTimer->setInterval(50); // 20 FPS (Smooth typing)
+    connect(m_syncTimer, &QTimer::timeout, this, &GeminiPanel::syncHistoryToBridge);
     
     // Initial data fetch
     refreshModelList();
@@ -120,13 +204,19 @@ void GeminiPanel::setUndoStack(QUndoStack* stack) {
 
 void GeminiPanel::onBridgeSendMessage(const QString& text) {
     qDebug() << "[GeminiPanel] onBridgeSendMessage:" << text;
+    
     // Update title if this is likely the start of a conversation
     if (m_bridge && m_bridge->conversationTitle() == "VIORA AI") {
         QString title = text;
         if (title.length() > 30) title = title.left(27) + "...";
         m_bridge->updateTitle(title.toUpper());
     }
-    askPrompt(text, true);
+
+    if (m_bridge && m_bridge->currentMode().toLower() == "cmd") {
+        parseAndExecuteCommandModeInput(text);
+    } else {
+        askPrompt(text, true);
+    }
 }
 
 void GeminiPanel::onBridgeStopRequest() {
@@ -142,6 +232,7 @@ void GeminiPanel::onBridgeRefreshModelsRequest() {
     qDebug() << "[GeminiPanel] onBridgeRefreshModelsRequest";
     refreshModelList();
 }
+
 
 void GeminiPanel::onBridgeCloseRequest() {
     qDebug() << "[GeminiPanel] onBridgeCloseRequest";
@@ -185,6 +276,7 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     QVariantMap entry;
     entry["role"] = "user";
     entry["content"] = text;
+    entry["parts"] = parseMessageParts(text);
     entry["timestamp"] = nowTimeChip();
     m_history.append(entry);
     syncHistoryToBridge();
@@ -214,34 +306,42 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     }
 
     if (m_process) {
-        m_process->deleteLater();
+        m_process->disconnect(this);
+        if (m_process->state() != QProcess::NotRunning) {
+            m_process->kill();
+            m_process->waitForFinished(500);
+        }
+        delete m_process;
+        m_process = nullptr;
     }
     m_process = new QProcess(this);
     m_process->setProcessEnvironment(PythonManager::getConfiguredEnvironment());
 
+    m_responseBuffer.clear();
+    m_errorBuffer.clear();
+    m_thinkingBuffer.clear();
+    m_leftover.clear();
+
     connect(m_process, &QProcess::readyReadStandardOutput, this, &GeminiPanel::onProcessReadyRead);
     connect(m_process, &QProcess::readyReadStandardError, this, [this]() {
-        if (m_process) {
-            QByteArray err = m_process->readAllStandardError();
-            if (!err.isEmpty()) {
-                qDebug() << "[GeminiPanel] stderr:" << err.trimmed();
-            }
+        if (m_isDestroying || !m_process) return;
+        QByteArray err = m_process->readAllStandardError();
+        if (!err.isEmpty()) {
+            m_errorBuffer += QString::fromUtf8(err);
+            qDebug() << "[GeminiPanel] stderr:" << err.trimmed();
         }
     });
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &GeminiPanel::onProcessFinished);
 
     QString sPath = QDir(PythonManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
     QString py = PythonManager::getPythonExecutable();
-
-    m_responseBuffer.clear();
-    m_leftover.clear();
     
     qDebug() << "[GeminiPanel] Executing:" << py << sPath << args.join(" ");
     m_process->start(py, QStringList() << sPath << args);
 }
 
 void GeminiPanel::onProcessReadyRead() {
-    if (!m_process) return;
+    if (m_isDestroying || !m_process) return;
     QString chunk = m_leftover + QString::fromUtf8(m_process->readAllStandardOutput());
     processAgentStdoutChunk(chunk);
 }
@@ -249,22 +349,30 @@ void GeminiPanel::onProcessReadyRead() {
 void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
     m_responseBuffer += chunk;
     
-    // In a simple implementation, we just update the last model message
+    // Ensure we have a model entry to update
     if (m_history.isEmpty() || m_history.last()["role"].toString() != "model") {
         QVariantMap entry;
         entry["role"] = "model";
-        entry["content"] = sanitizeAgentTextChunk(m_responseBuffer);
+        entry["content"] = "";
+        entry["thought"] = "";
         entry["timestamp"] = nowTimeChip();
         m_history.append(entry);
-    } else {
-        m_history.last()["content"] = sanitizeAgentTextChunk(m_responseBuffer);
     }
-    syncHistoryToBridge();
+
+    // Update main text content (sanitized)
+    QString cleanBuffer = sanitizeAgentTextChunk(m_responseBuffer);
+    m_history.last()["content"] = cleanBuffer;
+    m_history.last()["parts"] = parseMessageParts(cleanBuffer);
     
-    // Check for thinking/action tags in real-time
-    if (chunk.contains("<THOUGHT>")) {
-        if (m_bridge) m_bridge->updateStatus("Thinking...");
+    // Extract and update thought process if present
+    static QRegularExpression thoughtRe("<THOUGHT>(.*?)(</THOUGHT>|$)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    auto thoughtMatch = thoughtRe.match(m_responseBuffer);
+    if (thoughtMatch.hasMatch()) {
+        m_history.last()["thought"] = thoughtMatch.captured(1).trimmed();
+        if (m_bridge) m_bridge->updateStatus("Reasoning...");
     }
+
+    // Check for action tags
     if (chunk.contains("<ACTION>")) {
         // Extract action for UI feedback
         QRegularExpression re("<ACTION>(.*?)</ACTION>");
@@ -273,33 +381,147 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
             if (m_bridge) m_bridge->updateStatus("Executing: " + match.captured(1));
         }
     }
+    if (chunk.contains("<USAGE>")) {
+        QRegularExpression re("<USAGE>(.*?)</USAGE>");
+        auto match = re.match(m_responseBuffer);
+        if (match.hasMatch()) {
+            QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
+            if (doc.isObject()) {
+                int total = doc.object()["total_tokens"].toInt();
+                if (m_bridge) {
+                    m_bridge->setTokenCount(total);
+                    // Standard context window for Gemini 1.5 Flash is 1M
+                    double pct = (double)total / 1000000.0;
+                    m_bridge->setUsagePercentage(pct);
+                }
+            }
+        }
+    }
+
+    // Synchronize to the bridge UI (Throttled for high-performance streaming)
+    if (m_syncTimer && !m_syncTimer->isActive()) {
+        m_syncTimer->start();
+    }
 }
 
 void GeminiPanel::onProcessFinished(int exitCode) {
+    if (m_isDestroying) return;
     m_isWorking = false;
     if (m_bridge) {
         m_bridge->setWorking(false);
         m_bridge->updateStatus("Ready");
     }
     
-    if (exitCode != 0) {
-        qDebug() << "[GeminiPanel] Process failed with exit code" << exitCode;
-        reportError("Process Error", "AI process terminated unexpectedly.", false);
+    if (exitCode != 0 || m_responseBuffer.trimmed().isEmpty()) {
+        qDebug() << "[GeminiPanel] Process issue detected. Exit:" << exitCode << "Err:" << m_errorBuffer;
+        
+        QString title = "AI Error";
+        QString detail = "The AI process encountered an unexpected issue.";
+        bool handled = false;
+
+        if (m_errorBuffer.contains("429") || m_errorBuffer.contains("RESOURCE_EXHAUSTED", Qt::CaseInsensitive)) {
+            title = "Quota Exceeded";
+            detail = "Gemini free tier limit reached. Please wait 1 minute and try again.";
+            handled = true;
+        } else if (m_errorBuffer.contains("503") || m_errorBuffer.contains("UNAVAILABLE", Qt::CaseInsensitive)) {
+            title = "Model Busy";
+            detail = "Gemini is currently experiencing high demand. Please wait a few seconds and try again.";
+            handled = true;
+        } else if (m_errorBuffer.contains("API_KEY_INVALID", Qt::CaseInsensitive) || m_errorBuffer.contains("INVALID_ARGUMENT", Qt::CaseInsensitive)) {
+            title = "API Key Error";
+            detail = "Ensure a valid API key is set in your Viora AI settings.";
+            handled = true;
+        } else if (m_errorBuffer.contains("SAFETY", Qt::CaseInsensitive)) {
+            title = "Response Blocked";
+            detail = "Gemini safety filters prevented a response for this query.";
+            handled = true;
+        } else if (m_errorBuffer.contains("Connection") || m_errorBuffer.contains("host", Qt::CaseInsensitive)) {
+            title = "Network Error";
+            detail = "Could not reach the Gemini service. Check your internet connection.";
+            handled = true;
+        }
+
+        if (handled) {
+            reportError(title, detail, false);
+        } else if (exitCode != 0) {
+            reportError("Process Error", "AI process terminated unexpectedly (code " + QString::number(exitCode) + ").", false);
+        } else {
+            reportError("Empty Response", "The AI returned an empty response. Try rephrasing or switching models.", false);
+        }
     } else {
         qDebug() << "[GeminiPanel] Process finished successfully.";
+        // Final sync and save
+        syncHistoryToBridge();
+        saveHistory();
     }
-    
-    saveHistory();
 }
 
 void GeminiPanel::syncHistoryToBridge() {
-    if (m_bridge) {
+    if (m_bridge && !m_isDestroying) {
         QVariantList qmlHistory;
-        for (const auto& entry : m_history) {
-            qmlHistory.append(entry);
+        for (const QVariantMap& entry : m_history) {
+            QVariantMap msg = entry;
+            QString content = msg.value("content").toString();
+            if (content.isEmpty()) content = msg.value("text").toString();
+            
+            // Carry over thought
+            if (entry.contains("thought")) {
+                msg["thought"] = entry["thought"];
+            }
+
+            if (!msg.contains("parts") || msg["parts"].toList().isEmpty()) {
+                msg["parts"] = parseMessageParts(content);
+            }
+            qmlHistory.append(msg);
         }
         m_bridge->updateMessages(qmlHistory);
     }
+}
+
+void GeminiPanel::saveHistory() {
+    if (m_isDestroying || m_history.isEmpty()) return;
+    static bool isSaving = false;
+    if (isSaving) return;
+    isSaving = true;
+    
+    QString historyDir = QDir::homePath() + "/.viospice/gemini/history";
+    if (!QDir().mkpath(historyDir)) {
+        isSaving = false;
+        return;
+    }
+    
+    QString title = m_bridge ? m_bridge->conversationTitle() : "VIORA AI";
+    if (title == "VIORA AI") title = "Chat_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+    
+    // Sanitize title for filename
+    QString safeTitle = title;
+    safeTitle.replace(QRegularExpression("[^a-zA-Z0-9_]"), "_");
+    QString filePath = historyDir + "/" + safeTitle + ".json";
+    
+    QFile file(filePath);
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonArray arr;
+        for (const auto& m : m_history) {
+            QJsonObject obj;
+            obj["role"] = m["role"].toString();
+            obj["content"] = m["content"].toString();
+            obj["timestamp"] = m["timestamp"].toString();
+            if (m.contains("thought")) {
+                obj["thought"] = m["thought"].toString();
+            }
+            arr.append(obj);
+        }
+        
+        QJsonObject root;
+        root["title"] = title;
+        root["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+        root["messages"] = arr;
+        
+        file.write(QJsonDocument(root).toJson());
+        file.close();
+        qDebug() << "[GeminiPanel] History saved to" << filePath;
+    }
+    isSaving = false;
 }
 
 void GeminiPanel::refreshModelList() {
@@ -363,12 +585,14 @@ void GeminiPanel::reportError(const QString& title, const QString& details, bool
     }
 }
 
+
 void GeminiPanel::appendSystemNote(const QString& text) {
-    QVariantMap entry;
-    entry["role"] = "action";
-    entry["content"] = text;
-    entry["timestamp"] = nowTimeChip();
-    m_history.append(entry);
+    QVariantMap note;
+    note["role"] = "system";
+    note["content"] = text;
+    note["parts"] = parseMessageParts(text);
+    note["timestamp"] = nowTimeChip();
+    m_history.append(note);
     syncHistoryToBridge();
 }
 
@@ -393,47 +617,40 @@ QString GeminiPanel::gatherInstructions() const {
             }
         }
     }
+    QString schematicContext = gatherSchematicContext();
+    if (!schematicContext.isEmpty()) {
+        if (!combined.isEmpty()) combined += "\n\n";
+        combined += schematicContext;
+    }
+
     return combined;
 }
 
-void GeminiPanel::saveHistory() {
-    if (m_history.isEmpty()) return;
+QString GeminiPanel::gatherSchematicContext() const {
+    if (!m_scene || !m_netManager) return QString();
     
-    QString historyDir = QDir::homePath() + "/.viospice/gemini/history";
-    if (!QDir().mkpath(historyDir)) return;
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::OP;
     
-    QString title = m_bridge ? m_bridge->conversationTitle() : "Untitled Chat";
-    if (title == "VIORA AI") title = "Chat_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+    QString projectDir = m_projectFilePath.isEmpty() ? QDir::currentPath() : QFileInfo(m_projectFilePath).absolutePath();
+    QString netlist = SpiceNetlistGenerator::generate(m_scene, projectDir, m_netManager, params);
     
-    // Sanitize title for filename
-    QString safeTitle = title;
-    safeTitle.replace(QRegularExpression("[^a-zA-Z0-9_]"), "_");
-    QString filePath = historyDir + "/" + safeTitle + ".json";
+    if (netlist.trimmed().isEmpty()) return QString();
     
-    QFile file(filePath);
-    if (file.open(QIODevice::WriteOnly)) {
-        QJsonArray arr;
-        for (const auto& m : m_history) {
-            QJsonObject obj;
-            obj["role"] = m["role"].toString();
-            obj["content"] = m["content"].toString();
-            obj["timestamp"] = m["timestamp"].toString();
-            arr.append(obj);
-        }
-        
-        QJsonObject root;
-        root["title"] = title;
-        root["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-        root["messages"] = arr;
-        
-        file.write(QJsonDocument(root).toJson());
-        file.close();
-        qDebug() << "[GeminiPanel] History saved to" << filePath;
-    }
+    QString context = "CURRENT SCHEMATIC CONTEXT (SPICE NETLIST):\n";
+    context += "This is a netlist representation of the user's active schematic tab.\n";
+    context += "Use this to understand what components are present and how they are connected.\n\n";
+    context += netlist;
+    
+    return context;
 }
 
+
 void GeminiPanel::loadHistory() {
-    // We could load the last session here if desired
+    QString historyDir = QDir::homePath() + "/.viospice/gemini/history";
+    if (QDir().mkpath(historyDir)) {
+        qDebug() << "[GeminiPanel] History directory ensured:" << historyDir;
+    }
 }
 
 void GeminiPanel::loadHistoryFromFile(const QString& path) {
@@ -456,6 +673,9 @@ void GeminiPanel::loadHistoryFromFile(const QString& path) {
         entry["role"] = obj["role"].toString();
         entry["content"] = obj["content"].toString();
         entry["timestamp"] = obj["timestamp"].toString();
+        if (obj.contains("thought")) {
+            entry["thought"] = obj["thought"].toString();
+        }
         m_history.append(entry);
     }
     
@@ -464,12 +684,16 @@ void GeminiPanel::loadHistoryFromFile(const QString& path) {
 }
 
 void GeminiPanel::onBridgeShowHistoryRequest() {
+    qDebug() << "[GeminiPanel] onBridgeShowHistoryRequest";
     QString historyDir = QDir::homePath() + "/.viospice/gemini/history";
     QDir dir(historyDir);
-    if (!dir.exists()) return;
     
     QFileInfoList files = dir.entryInfoList(QStringList() << "*.json", QDir::Files, QDir::Time);
-    if (files.isEmpty()) return;
+    if (files.isEmpty()) {
+        qDebug() << "[GeminiPanel] No history files found.";
+        if (m_bridge) m_bridge->updateStatus("No history found yet.");
+        return;
+    }
     
     QMenu menu(this);
     menu.setStyleSheet("QMenu { background-color: #1e293b; color: #e2e8f0; border: 1px solid #334155; padding: 4px; } "
@@ -494,11 +718,45 @@ void GeminiPanel::onBridgeShowHistoryRequest() {
     menu.exec(QCursor::pos());
 }
 void GeminiPanel::onRefreshModelsClicked() { refreshModelList(); }
-void GeminiPanel::onCustomInstructionsClicked() {}
+void GeminiPanel::onCustomInstructionsClicked() {
+    qDebug() << "[GeminiPanel] Opening Custom Instructions Dialog";
+    GeminiInstructionsDialog dialog(this);
+    dialog.exec();
+}
 void GeminiPanel::onCopyPromptClicked() {}
 void GeminiPanel::handleActionTag(const QString& act) { Q_UNUSED(act); }
 void GeminiPanel::handleSuggestionTag(const QString& sug) { Q_UNUSED(sug); }
-void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) { Q_UNUSED(in); }
+void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
+    QString cmd = in.trimmed().toLower();
+    qDebug() << "[GeminiPanel] Running Command Mode:" << cmd;
+
+    if (cmd == "help") {
+        appendSystemNote("<b>Available Commands:</b><br/>"
+                         "- <b>help</b>: Show this message<br/>"
+                         "- <b>list nodes</b>: List all net names in the schematic<br/>"
+                         "- <b>run erc</b>: Run Electrical Rules Check<br/>"
+                         "- <b>run simulation</b>: Start SPICE simulation (F8)");
+    } else if (cmd == "list nodes") {
+        if (!m_netManager) {
+            appendSystemNote("<b>Error:</b> NetManager is not currently linked to the AI panel.");
+            return;
+        }
+        QStringList nets = m_netManager->netNames();
+        if (nets.isEmpty()) {
+            appendSystemNote("<b>Result:</b> Schematic has no named nets yet.");
+        } else {
+            appendSystemNote("<b>Nets Found:</b> " + nets.join(", "));
+        }
+    } else if (cmd == "run erc") {
+        appendSystemAction("ERC", "Running Electrical Rules Check...", "🔍");
+        emit runERCRequested();
+    } else if (cmd == "run simulation" || cmd == "run sim") {
+        appendSystemAction("Simulation", "Initializing SPICE simulation...", "⚡");
+        emit runSimulationRequested();
+    } else {
+        appendSystemNote("<b>Unknown Command:</b> \"" + in + "\".<br/>Type <b>help</b> for a list of available system commands.");
+    }
+}
 
 void GeminiPanel::ensureErrorDialog() {}
 void GeminiPanel::populateErrorDialogHistory() {}
