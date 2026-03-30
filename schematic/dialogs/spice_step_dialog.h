@@ -24,6 +24,7 @@ private slots:
     void updatePreview();
     void applyCommandText();
     void browseStepFile();
+    void applyPreset(const QString& presetId);
 
 private:
     enum class TargetKind {

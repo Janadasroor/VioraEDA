@@ -1,5 +1,7 @@
 #include "spice_step_dialog.h"
 
+#include "../../simulator/core/sim_value_parser.h"
+
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -11,6 +13,14 @@
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QVBoxLayout>
+
+namespace {
+
+bool parseStepValue(const QLineEdit* edit, double& outValue) {
+    return edit && SimValueParser::parseSpiceNumber(edit->text().trimmed(), outValue);
+}
+
+}
 
 SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     : QDialog(parent)
@@ -27,6 +37,27 @@ SpiceStepDialog::SpiceStepDialog(const QString& initialCommand, QWidget* parent)
     hero->setWordWrap(true);
     hero->setStyleSheet("color: #d1d5db; background: #111827; border: 1px solid #374151; padding: 10px; border-radius: 6px;");
     mainLayout->addWidget(hero);
+
+    auto* presetFrame = new QFrame(this);
+    presetFrame->setStyleSheet("QFrame { background: #111827; border: 1px solid #334155; border-radius: 6px; }");
+    auto* presetLayout = new QHBoxLayout(presetFrame);
+    presetLayout->setContentsMargins(10, 8, 10, 8);
+    presetLayout->setSpacing(6);
+    presetLayout->addWidget(new QLabel("Quick Presets:", presetFrame));
+    const QList<QPair<QString, QString>> presets = {
+        {"Resistor Sweep", "resistor"},
+        {"Capacitor Decade", "capacitor"},
+        {"Temperature Range", "temperature"}
+    };
+    for (const auto& preset : presets) {
+        auto* button = new QPushButton(preset.first, presetFrame);
+        button->setStyleSheet("QPushButton { background: #1d4ed8; color: white; padding: 4px 10px; border-radius: 4px; }"
+                              "QPushButton:hover { background: #2563eb; }");
+        connect(button, &QPushButton::clicked, this, [this, preset]() { applyPreset(preset.second); });
+        presetLayout->addWidget(button);
+    }
+    presetLayout->addStretch();
+    mainLayout->addWidget(presetFrame);
 
     auto* form = new QFormLayout();
     m_targetKindCombo = new QComboBox(this);
@@ -213,20 +244,61 @@ QString SpiceStepDialog::validationMessage() const {
             m_linearStepEdit->text().trimmed().isEmpty()) {
             return "Linear sweeps need start, stop, and increment values.";
         }
+        {
+            double start = 0.0, stop = 0.0, step = 0.0;
+            if (!parseStepValue(m_linearStartEdit, start) || !parseStepValue(m_linearStopEdit, stop) ||
+                !parseStepValue(m_linearStepEdit, step)) {
+                return "Linear sweep values must be valid SPICE numbers.";
+            }
+            if (step == 0.0) return "Linear sweep increment cannot be zero.";
+            if ((stop > start && step < 0.0) || (stop < start && step > 0.0)) {
+                return "Linear sweep increment must move from start toward stop.";
+            }
+            if (start == stop) return "Linear sweep start and stop should not be equal.";
+        }
         break;
     case SweepMode::List:
         if (m_listValuesEdit->text().trimmed().isEmpty()) return "Value list sweeps need at least one value.";
+        {
+            const QStringList values = m_listValuesEdit->text().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            for (const QString& value : values) {
+                double parsed = 0.0;
+                if (!SimValueParser::parseSpiceNumber(value, parsed)) {
+                    return QString("List value '%1' is not a valid SPICE number.").arg(value);
+                }
+            }
+        }
         break;
     case SweepMode::Decade:
         if (m_logPointsEdit->text().trimmed().isEmpty() || m_logStartEdit->text().trimmed().isEmpty() ||
             m_logStopEdit->text().trimmed().isEmpty()) {
             return "Decade sweeps need points, start, and stop values.";
         }
+        {
+            double points = 0.0, start = 0.0, stop = 0.0;
+            if (!parseStepValue(m_logPointsEdit, points) || !parseStepValue(m_logStartEdit, start) ||
+                !parseStepValue(m_logStopEdit, stop)) {
+                return "Decade sweep values must be valid SPICE numbers.";
+            }
+            if (points <= 0.0) return "Decade sweep points must be greater than zero.";
+            if (start <= 0.0 || stop <= 0.0) return "Decade sweeps require positive start and stop values.";
+            if (start == stop) return "Decade sweep start and stop should not be equal.";
+        }
         break;
     case SweepMode::Octave:
         if (m_octPointsEdit->text().trimmed().isEmpty() || m_octStartEdit->text().trimmed().isEmpty() ||
             m_octStopEdit->text().trimmed().isEmpty()) {
             return "Octave sweeps need points, start, and stop values.";
+        }
+        {
+            double points = 0.0, start = 0.0, stop = 0.0;
+            if (!parseStepValue(m_octPointsEdit, points) || !parseStepValue(m_octStartEdit, start) ||
+                !parseStepValue(m_octStopEdit, stop)) {
+                return "Octave sweep values must be valid SPICE numbers.";
+            }
+            if (points <= 0.0) return "Octave sweep points must be greater than zero.";
+            if (start <= 0.0 || stop <= 0.0) return "Octave sweeps require positive start and stop values.";
+            if (start == stop) return "Octave sweep start and stop should not be equal.";
         }
         break;
     case SweepMode::File:
@@ -368,4 +440,31 @@ void SpiceStepDialog::browseStepFile() {
     const QString path = QFileDialog::getOpenFileName(this, "Select .step Values File", QString(), "Text Files (*.txt *.lst *.csv);;All Files (*)");
     if (path.isEmpty()) return;
     m_filePathEdit->setText(path);
+}
+
+void SpiceStepDialog::applyPreset(const QString& presetId) {
+    m_syncingCommand = true;
+    if (presetId == "resistor") {
+        m_targetKindCombo->setCurrentIndex(0);
+        m_targetEdit->setText("RLOAD");
+        m_sweepModeCombo->setCurrentIndex(1);
+        m_listValuesEdit->setText("1k 2k 5k 10k");
+    } else if (presetId == "capacitor") {
+        m_targetKindCombo->setCurrentIndex(0);
+        m_targetEdit->setText("CLOAD");
+        m_sweepModeCombo->setCurrentIndex(2);
+        m_logPointsEdit->setText("10");
+        m_logStartEdit->setText("1p");
+        m_logStopEdit->setText("1u");
+    } else if (presetId == "temperature") {
+        m_targetKindCombo->setCurrentIndex(1);
+        m_targetEdit->clear();
+        m_sweepModeCombo->setCurrentIndex(0);
+        m_linearStartEdit->setText("-40");
+        m_linearStopEdit->setText("125");
+        m_linearStepEdit->setText("5");
+    }
+    m_syncingCommand = false;
+    updateUiState();
+    updatePreview();
 }

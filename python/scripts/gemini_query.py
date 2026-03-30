@@ -211,23 +211,19 @@ GUIDELINES:
     You have access to a set of tools to interact with a circuit simulator and research electronic components.
 
     STRATEGY (MANDATORY):
-    1. Discovery: If you are unsure about component names or nodes, ALWAYS call list_nodes() first.
-    2. Direct Action: If the user asks for power/voltage/current, and you know the target name (e.g. V1, R1, Net1), call the tool immediately.
-    3. Visuals: If the user asks to "see", "show", "plot", or "visualize" a signal, ALWAYS use the plot_signal tool.
-    4. Design Repair: If you see 'erc_violations' in the context, or the user asks to fix an error, use execute_commands to propose a fix (e.g. adding a pull-up, grounding a pin, or connecting two nodes).
-    5. Multi-Step Design: If the user asks to "add a circuit", use execute_commands to place all components and connect them properly. Use absolute coordinates if possible, or relative to a known component.
-    6. Research & Sourcing: If the user asks for a part recommendation or technical specs (e.g. 'Find an Op-Amp', 'LM317 pinout'), use the web_search or lookup_component_data tools. 
-    - Propose specific part numbers based on the research.
-    - If you find a matching part for a generic component in the schematic, offer to update it using a <SNIPPET> or execute_commands with the correct value and properties. The user will see an 'APPLY COMPONENT SPECS' button.
-    7. Symbol Library: If you generate a SPICE netlist, you have access to the exact schematic components listed in the `available_symbols` array inside your Context payload. Only use these exact part names in your SPICE netlists or instructions. Do not guess or hallucinate component names like 'S' when 'CSW' is available, for example.
-    8. Professionalism: Be precise and concise. Avoid technical filler like "Context attached".
+    1. ZERO-REPL: NEVER write markdown code blocks like ```python plot_signal(...)``` in your response text. This bypasses the system tools.
+    2. TOOL-FIRST: Use tools for ANY action. Every action you take MUST be a tool call to trigger the Activity Dashboard.
+    3. Audit Transparency: When calling a tool, use <ACTION> tags to explain what you are doing. Every tool call will be logged in the Structured Activity Dashboard.
+    4. Discovery: If you are unsure about component names or nodes, ALWAYS call list_nodes() first.
+    5. Symbol Library: Use exact schematic component names.
+    6. Professionalism: Be precise and concise. Avoid technical filler like "Context attached".
 
     RESPONSE STRUCTURE:
     1) Result (value + unit)
     2) Scope (target + time window analyzed)
     3) Assumptions (e.g. "Used DC Operating Point")
-    4) Command snippets: If you use execute_commands, wrap the resulting JSON in <SNIPPET>{"commands": [...]}</SNIPPET> tags so the user can apply it.
-    5) Suggestions (Optional buttons using <SUGGESTION> tag)
+    4) Command snippets: If you want to trigger interactive plots or workspace actions, wrap the JSON in <SNIPPET>{"commands": ["command_string"]}</SNIPPET> tags.
+    5) Suggestions (MANDATORY follow-up buttons using <SUGGESTION>Label|command</SUGGESTION> tag)
     """
     extra_context = ""
     if project_path and ProjectContextRetriever:
@@ -236,11 +232,33 @@ GUIDELINES:
         if pc:
             extra_context = f"\n\nProject-Wide Multi-Sheet Context (other sheets):\n{pc}"
 
-    full_prompt = prompt
-    if context:
-        full_prompt = f"{system_context}\n\nContext:\n{context}{extra_context}\n\nUser Request: {prompt}"
-    else:
-        full_prompt = f"{system_context}{extra_context}\n\nUser Request: {prompt}"
+    # Final merged system prompt
+    core_system_identity = f"You are FluxAI, an expert Electronic Design Automation (EDA) co-pilot. Mode: {mode.upper()}.\n"
+    
+    context_str = f"\n=== SCHEMATIC CONTEXT (Current Sheet) ===\n{context}\n" if context else ""
+    instructions_str = f"\n=== CUSTOM USER INSTRUCTIONS ===\n{instructions}\n" if instructions else ""
+    extra_context_str = f"\n=== PROJECT-WIDE CONTEXT (Other Sheets) ===\n{extra_context}\n" if extra_context else ""
+    
+    # The absolute master instructions that MUST NOT be ignored
+    master_formatting_directives = """
+=== MASTER FORMATTING DIRECTIVES (STRICT COMPLIANCE REQUIRED) ===
+1. TOOL-CALLING: For ALL technical actions (plotting images, listing nodes, etc), you MUST use the provided tool functions first.
+2. NO-RAW-JSON: NEVER output raw JSON commands or snippets in your response text. 
+3. SNIPPET-TAGS: Wrap any manual Workspace/Simulation commands in <SNIPPET>{"commands": ["cmd1", "cmd2"]}</SNIPPET> tags.
+4. ACTION-TAGS: Use <ACTION>Description</ACTION> before starting a tool call to update the UI status.
+5. SUGGESTIONS: Always provide at least 2 relevant <SUGGESTION>Label|command</SUGGESTION> tags at the very end of your response for common follow-up actions (e.g. "Plot NODE", "Run Sim").
+6. PLOTTING: Use the `plot_signal` tool for static images in the chat. Use <SUGGESTION>Plot NODE|plot signal:NODE</SUGGESTION> or <SNIPPET>{"commands": ["plot signal:NODE"]}</SNIPPET> for opening an interactive oscilloscope window.
+"""
+
+    full_system_prompt = (
+        core_system_identity +
+        common_instructions +
+        system_context +
+        instructions_str +
+        context_str +
+        extra_context_str +
+        master_formatting_directives
+    )
 
     model_name = model or "gemini-2.0-flash-thinking-exp-01-21"
     
@@ -266,7 +284,7 @@ GUIDELINES:
                 contents.append(types.Content(role=role, parts=[types.Part.from_text(text=text)]))
         except: pass
 
-    user_parts = [types.Part.from_text(text=full_prompt)]
+    user_parts = [types.Part.from_text(text=prompt)]
     if image_base64:
         try:
             user_parts.append(types.Part.from_bytes(data=base64.b64decode(image_base64), mime_type="image/png"))
@@ -283,20 +301,25 @@ GUIDELINES:
     # Streaming tool calling loop
     for _ in range(5):
         try:
+            config_params = {
+                "tools": tools_config,
+                "system_instruction": full_system_prompt
+            }
+            # Only certain models support thinking
+            if "thinking" in model_name.lower():
+                config_params["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
+
             stream = client.models.generate_content_stream(
                 model=model_name,
                 contents=contents,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(include_thoughts=True),
-                    tools=tools_config
-                )
+                config=types.GenerateContentConfig(**config_params)
             )
             
             full_response_content = None
             for chunk in stream:
-                if chunk.candidates[0].content.parts:
-                    part = chunk.candidates[0].content.parts[0]
-                    
+                if not chunk.candidates:
+                    continue
+                for part in chunk.candidates[0].content.parts:
                     # Handle thinking process
                     if hasattr(part, 'thought') and part.thought:
                         print(f"<THOUGHT>{part.thought}</THOUGHT>", end="", flush=True)
@@ -304,8 +327,16 @@ GUIDELINES:
                     # Handle text response
                     if part.text:
                         cleaned = re.sub(r"(?i)(?:^|\s)[\u25c8*•\-]*\s*context attached\b", " ", part.text)
-                        # We don't want to over-trim during streaming as it might eat spaces between chunks
                         print(cleaned, end="", flush=True)
+                    
+                    # Handle function calls (tools)
+                    if part.function_call:
+                        # We accumulate function calls for processing after the stream
+                        if not full_response_content:
+                            full_response_content = chunk.candidates[0].content
+                        else:
+                            # Re-construct if multiple parts
+                            pass
                 
                 if chunk.candidates[0].finish_reason == 'STOP' or chunk.candidates[0].content.parts:
                     if not full_response_content:

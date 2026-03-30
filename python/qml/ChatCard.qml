@@ -152,6 +152,54 @@ Item {
                     }
                     background: Rectangle { color: "transparent" }
                 }
+
+                // Interactive Suggestions (Buttons)
+                Flow {
+                    id: suggestionsFlow
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    spacing: 8
+                    visible: !isUser && modelData.suggestions !== undefined && modelData.suggestions.length > 0
+
+                    Repeater {
+                        model: modelData.suggestions || []
+                        delegate: Button {
+                            id: sugBtn
+                            padding: 8
+                            leftPadding: 14; rightPadding: 14
+                            
+                            background: Rectangle {
+                                color: sugBtn.hovered ? "#3b82f6" : "transparent"
+                                border.color: sugBtn.hovered ? "#3b82f6" : "#334155"
+                                border.width: 1
+                                radius: 16
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
+
+                            contentItem: RowLayout {
+                                spacing: 6
+                                Text {
+                                    text: "✧"
+                                    color: sugBtn.hovered ? "white" : "#60a5fa"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+                                Text {
+                                    text: modelData.label
+                                    color: sugBtn.hovered ? "white" : "#e2e8f0"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+                            }
+
+                            onClicked: {
+                                if (typeof geminiBridge !== "undefined") {
+                                    geminiBridge.sendMessage(modelData.command)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -199,10 +247,11 @@ Item {
                         }
                         Item { Layout.fillWidth: true }
                         Button {
+                            id: copyBtn
                             flat: true; padding: 4
                             contentItem: Text {
                                 text: "Copy"
-                                color: hovered ? "white" : "#64748b"
+                                color: copyBtn.hovered ? "white" : "#64748b"
                                 font.pixelSize: 10 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
                                 font.bold: true
                             }
