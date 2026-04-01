@@ -773,13 +773,13 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
                 }
             }
             
-            // Trigger Smart Probe logic
-            m_smartProbeEngine->probe(hoveredNet, m_lastSimResults, context, event->pos() + QPoint(20, 20));
+            // Trigger Smart Probe logic (Follow mouse or handle hide grace period)
+            m_smartProbeEngine->probe(hoveredNet, m_lastSimResults, context, event->pos() + QPoint(26, 20));
         } else {
-            m_smartProbeOverlay->hideOverlay();
+            m_smartProbeEngine->probe("", m_lastSimResults, "", event->pos());
         }
-    } else if (m_smartProbeOverlay) {
-        m_smartProbeOverlay->hideOverlay();
+    } else if (m_smartProbeEngine) {
+        m_smartProbeEngine->probe("", m_lastSimResults, "", event->pos());
     }
 
     // Heatmap / On-Canvas Results Tooltip
