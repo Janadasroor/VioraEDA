@@ -22,6 +22,7 @@
 #include "../dialogs/simulation_debugger_dialog.h"
 #include <QTreeWidget>
 #include <QHeaderView>
+#include <QFileDialog>
 #include "../dialogs/spice_directive_dialog.h"
 #include "../../simulator/bridge/sim_manager.h"
 #include "../tools/schematic_zoom_area_tool.h"
@@ -361,7 +362,21 @@ void SchematicEditor::createToolBar() {
     fileMenu->addAction(createComponentIcon("New"), "New Schematic", QKeySequence::New, this, &SchematicEditor::onNewSchematic);
     fileMenu->addAction(createComponentIcon("Open"), "Open Schematic...", QKeySequence::Open, this, &SchematicEditor::onOpenSchematic);
     fileMenu->addAction(createComponentIcon("Open"), "Import ASC File...", this, &SchematicEditor::onImportAscFile);
-    fileMenu->addAction(createComponentIcon("Open"), "Import SPICE Subcircuit...", this, &SchematicEditor::onImportSpiceSubcircuit);
+    
+    QMenu* importSubcktMenu = fileMenu->addMenu("Import SPICE Subcircuit");
+    importSubcktMenu->addAction(createComponentIcon("Open"), "Import from Text/Paste...", this, &SchematicEditor::onImportSpiceSubcircuit);
+    importSubcktMenu->addAction(createComponentIcon("Open"), "Import from File...", this, [this]() {
+        const QString projectDir = m_projectDir.isEmpty() ? QFileInfo(m_currentFilePath).absolutePath() : m_projectDir;
+        const QString filePath = QFileDialog::getOpenFileName(this, "Import SPICE Subcircuit File",
+            projectDir, "SPICE Files (*.cir *.lib *.sub *.sp);;All Files (*)");
+        if (!filePath.isEmpty()) {
+            onImportSpiceSubcircuitFile(filePath);
+        }
+    });
+    importSubcktMenu->addAction(createComponentIcon("Open"), "Import from Library...", this, [this]() {
+        onImportSpiceSubcircuitFile("");
+    });
+    
     fileMenu->addAction(createComponentIcon("Save"), "Save Schematic", QKeySequence::Save, this, &SchematicEditor::onSaveSchematic);
     fileMenu->addSeparator();
     fileMenu->addAction(createComponentIcon("New Symbol"), "Create New Symbol", this, &SchematicEditor::onOpenSymbolEditor);
@@ -482,7 +497,21 @@ void SchematicEditor::createToolBar() {
     toolsMenu->addAction("Clear ERC Exclusions", this, &SchematicEditor::onClearErcExclusions);
     toolsMenu->addAction("Bus Aliases...", this, &SchematicEditor::onOpenBusAliasesManager);
     toolsMenu->addAction(createComponentIcon("Netlist"), "Netlist Editor", this, &SchematicEditor::onOpenNetlistEditor);
-    toolsMenu->addAction(getThemeIcon(":/icons/tool_spice_directive.svg"), "Import SPICE Subcircuit...", this, &SchematicEditor::onImportSpiceSubcircuit);
+    
+    QMenu* importSubcktToolsMenu = toolsMenu->addMenu(getThemeIcon(":/icons/tool_spice_directive.svg"), "Import SPICE Subcircuit");
+    importSubcktToolsMenu->addAction("Import from Text/Paste...", this, &SchematicEditor::onImportSpiceSubcircuit);
+    importSubcktToolsMenu->addAction("Import from File...", this, [this]() {
+        const QString projectDir = m_projectDir.isEmpty() ? QFileInfo(m_currentFilePath).absolutePath() : m_projectDir;
+        const QString filePath = QFileDialog::getOpenFileName(this, "Import SPICE Subcircuit File",
+            projectDir, "SPICE Files (*.cir *.lib *.sub *.sp);;All Files (*)");
+        if (!filePath.isEmpty()) {
+            onImportSpiceSubcircuitFile(filePath);
+        }
+    });
+    importSubcktToolsMenu->addAction("Import from Library...", this, [this]() {
+        onImportSpiceSubcircuitFile("");
+    });
+    
     toolsMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "SPICE Model Architect", this, &SchematicEditor::onOpenModelArchitect);
     toolsMenu->addSeparator();
     

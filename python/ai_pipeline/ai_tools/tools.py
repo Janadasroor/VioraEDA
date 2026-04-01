@@ -633,3 +633,23 @@ def get_tools_schema():
         },
     ]
 
+
+def get_subagent_tools(intent="GENERAL"):
+    """
+    Filters the global tool schema list based on the subagent's role.
+    This prevents hallucination and keeps subagents focused.
+    """
+    all_tools = get_tools_schema()
+
+    if intent == "SIMULATION":
+        # Simulation subagent only needs discovery, analysis, and plotting tools.
+        allowed = ["list_nodes", "get_signal_data", "compute_average_power", "run_simulation", "plot_signal"]
+    elif intent == "LAYOUT":
+        # Layout subagent only needs schematic/PCB manipulation tools.
+        allowed = ["execute_commands", "execute_pcb_commands", "generate_schematic_from_netlist"]
+    else:
+        # General subagent has access to everything.
+        return all_tools
+
+    return [t for t in all_tools if t["name"] in allowed]
+
