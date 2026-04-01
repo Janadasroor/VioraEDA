@@ -11,8 +11,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
 find_package(Qt${QT_VERSION_MAJOR} QUIET COMPONENTS WebSockets)
 if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
     set(VIOSPICE_HAS_QT_WEBSOCKETS ON)
@@ -45,6 +45,10 @@ if(VIOSPICE_ENABLE_PYTHON)
 endif()
 
 
+
+# --- FluxScript Support ---
+add_subdirectory(../fluxscript fluxscript_build)
+# -----------------------
 
 include(cmake/project_sources.cmake)
 include(cmake/target_settings.cmake)
@@ -81,6 +85,26 @@ if(BUILD_TESTING)
         target_link_libraries(test_spice_directive_netlist PRIVATE FluxPython)
     endif()
     add_test(NAME schematic.spice_directive_netlist COMMAND test_spice_directive_netlist)
+
+    # Design Rule Management System Tests
+    add_executable(test_design_rule
+        tests/test_design_rule.cpp
+        tests/test_design_rule.h
+    )
+    set_target_properties(test_design_rule PROPERTIES AUTOMOC ON)
+    target_link_libraries(test_design_rule PRIVATE
+        FluxCore
+        FluxSymbols
+        FluxSimulator
+        FluxScript
+        FluxScriptUI
+        FluxUI
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME core.design_rule COMMAND test_design_rule)
 endif()
 
 if(BUILD_TESTING AND VIOSPICE_ENABLE_TESTS)
@@ -101,7 +125,14 @@ if(BUILD_VIOSPICE_CLI)
         FluxSymbols
         FluxCore
         FluxSimulator
+        FluxScript
+        FluxScriptUI
+        FluxUI
     )
+
+    if(VIOSPICE_ENABLE_PYTHON)
+        target_link_libraries(vio_cmd PRIVATE FluxPython)
+    endif()
 
     if(VIOSPICE_ENGINE_FOUND)
         target_link_libraries(vio_cmd PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
@@ -126,8 +157,15 @@ if(BUILD_VIOSPICE_APP)
         FluxSchematicCore 
         FluxSymbols 
         FluxSimulator
-        FluxCore 
+        FluxCore
+        FluxUI # Link twice if there are circular dependencies
+        FluxScript
+        FluxScriptUI
     )
+
+    if(VIOSPICE_ENABLE_PYTHON)
+        target_link_libraries(viospice PRIVATE FluxPython)
+    endif()
 
     if(VIOSPICE_ENGINE_FOUND)
         target_link_libraries(viospice PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})

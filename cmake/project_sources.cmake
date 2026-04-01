@@ -42,11 +42,14 @@ set(CORE_SOURCES
     core/ui/selection_filter_widget.h
     core/ui/command_palette.cpp
     core/ui/command_palette.h
+    core/design_rule.cpp
+    core/design_rule.h
+    core/design_rule_engine.cpp
+    core/design_rule_engine.h
 )
 
 if(VIOSPICE_ENABLE_PYTHON)
     list(APPEND CORE_SOURCES
-        core/flux_python.cpp
         core/flux_python.h
     )
 endif()
@@ -144,6 +147,8 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/sheet_properties_dialog.h
     schematic/dialogs/batch_edit_dialog.cpp
     schematic/dialogs/batch_edit_dialog.h
+    schematic/dialogs/design_rule_editor.cpp
+    schematic/dialogs/design_rule_editor.h
     schematic/dialogs/signal_generator_properties_dialog.cpp
     schematic/dialogs/signal_generator_properties_dialog.h
     schematic/dialogs/logic_analyzer_properties_dialog.cpp
@@ -365,6 +370,8 @@ set(SCHEMATIC_SOURCES
     schematic/analysis/schematic_erc.h
     schematic/analysis/schematic_erc_rules.cpp
     schematic/analysis/schematic_erc_rules.h
+    schematic/analysis/schematic_erc_advanced.cpp
+    schematic/analysis/schematic_erc_advanced.h
     schematic/analysis/schematic_layout_optimizer.cpp
     schematic/analysis/schematic_layout_optimizer.h
     schematic/analysis/schematic_connectivity.cpp

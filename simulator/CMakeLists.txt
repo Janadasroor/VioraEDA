@@ -21,6 +21,8 @@ add_library(FluxSimulator STATIC
     core/sim_value_parser.cpp
     core/raw_data_parser.h
     core/raw_data_parser.cpp
+    core/sim_rf_math.h
+    core/sim_rf_math.cpp
     bridge/sim_schematic_bridge.h
     bridge/sim_schematic_bridge.cpp
     bridge/sim_manager.h
@@ -28,13 +30,11 @@ add_library(FluxSimulator STATIC
     bridge/model_library_manager.h
     bridge/model_library_manager.cpp
     bridge/flux_script_marshaller.h
-    bridge/flux_script_marshaller.cpp
 )
 
 if(NOT VIOSPICE_ENABLE_PYTHON)
     set_source_files_properties(
         bridge/flux_script_marshaller.h
-        bridge/flux_script_marshaller.cpp
         PROPERTIES HEADER_FILE_ONLY TRUE
     )
 endif()
@@ -77,4 +77,9 @@ if(BUILD_TESTING)
     target_link_libraries(test_sim_parser_fuzz FluxSimulator Qt6::Core)
     add_test(NAME simulator.parser_fuzz COMMAND test_sim_parser_fuzz)
     set_tests_properties(simulator.parser_fuzz PROPERTIES LABELS "fast;simulator;fuzz")
+
+    add_executable(test_sim_rf_math tests/test_rf_math.cpp)
+    target_link_libraries(test_sim_rf_math FluxSimulator Qt6::Core Qt6::Test)
+    add_test(NAME simulator.rf_math COMMAND test_sim_rf_math)
+    set_tests_properties(simulator.rf_math PROPERTIES LABELS "fast;simulator;rf")
 endif()

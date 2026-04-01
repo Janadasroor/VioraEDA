@@ -103,6 +103,7 @@ private slots:
     void onApplyOrthogonalRouting();
     void onMinimizeCrossings();
     void onSwitchToEngineeringTheme();
+    void onApplyAIStyleTransfer(const QString& stylePreset, const QString& customInstructions = QString());
     void updateCoordinates(QPointF pos);
     void onSelectionChanged();
     void onItemDoubleClicked(SchematicItem* item);
@@ -146,6 +147,7 @@ private slots:
     void onOpenPowerNetsManager();
     void onOpenBusAliasesManager();
     void onOpenERCRulesConfig();
+    void onOpenDesignRuleEditor();
     void onIgnoreSelectedErc();
     void onClearErcExclusions();
     void onLeaveSheet();

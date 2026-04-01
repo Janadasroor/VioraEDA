@@ -283,19 +283,65 @@ SimResults RawData::toSimResults() const {
     SimResults res;
     res.analysisType = analysisType;
     res.xAxisName = varNames.isEmpty() ? "time" : varNames[0].toStdString();
+
+    // Auto-detect S-Parameter analysis from vector names if it was labeled as AC
+    if (res.analysisType == SimAnalysisType::AC) {
+        for (const auto& name : varNames) {
+            QString ln = name.toLower();
+            if (ln == "s11" || ln == "s21" || ln == "s12" || ln == "s22" ||
+                ln == "s_1_1" || ln == "s_2_1" || ln == "s_1_2" || ln == "s_2_2" ||
+                ln.startsWith("s(") || ln.startsWith("s[") || ln.startsWith("s_") ||
+                ln.contains("(1,1)") || ln.contains("(2,1)")) {
+                res.analysisType = SimAnalysisType::SParameter;
+                break;
+            }
+        }
+    }
+    
+    // Debug: print all vector names
+    qDebug() << "[RawDataParser] Analysis type:" << static_cast<int>(res.analysisType) << "Vectors:" << varNames;
     
     if (numPoints <= 0) return res;
 
     std::vector<double> stdX(x.begin(), x.end());
 
+    // Pre-allocate S-parameter results if this is an S-parameter analysis
+    if (res.analysisType == SimAnalysisType::SParameter) {
+        res.sParameterResults.resize(numPoints);
+        for (int p = 0; p < numPoints; ++p) {
+            res.sParameterResults[p].frequency = stdX[p];
+        }
+    }
+
     for (int i = 1; i < varNames.size(); ++i) {
+        const std::string rawName = varNames[i].toStdString();
+        const std::string name = normalizeWaveformName(rawName);
         SimWaveform w;
-        w.name = normalizeWaveformName(varNames[i].toStdString());
+        w.name = name;
         w.xData = stdX;
+        
         if (i - 1 < y.size()) {
             w.yData = std::vector<double>(y[i - 1].begin(), y[i - 1].end());
             if (i - 1 < yPhase.size() && i - 1 < hasPhase.size() && hasPhase[i - 1]) {
-                w.yPhase = std::vector<double>(yPhase[i - 1].begin(), yPhase[i - 1].end());
+                const std::vector<double> phase = std::vector<double>(yPhase[i - 1].begin(), yPhase[i - 1].end());
+                w.yPhase = phase;
+
+                // If S-Parameter analysis, also populate the structured sParameterResults
+                if (analysisType == SimAnalysisType::SParameter) {
+                    auto updateS = [&](std::complex<double> SParameterPoint::*ptr) {
+                        for (int p = 0; p < numPoints; ++p) {
+                            double mag = w.yData[p];
+                            double rad = phase[p] * M_PI / 180.0;
+                            (res.sParameterResults[p].*ptr) = std::polar(mag, rad);
+                        }
+                    };
+
+                    const QString qName = QString::fromStdString(name).toLower();
+                    if (qName == "s11" || qName == "s(1,1)" || qName == "s_1_1") updateS(&SParameterPoint::s11);
+                    else if (qName == "s12" || qName == "s(1,2)" || qName == "s_1_2") updateS(&SParameterPoint::s12);
+                    else if (qName == "s21" || qName == "s(2,1)" || qName == "s_2_1") updateS(&SParameterPoint::s21);
+                    else if (qName == "s22" || qName == "s(2,2)" || qName == "s_2_2") updateS(&SParameterPoint::s22);
+                }
             }
         }
         res.waveforms.push_back(std::move(w));
