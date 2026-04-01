@@ -1,5 +1,6 @@
 #include "gemini_bridge.h"
 #include "../core/theme_manager.h"
+#include "../core/config_manager.h"
 #include <QColor>
 #include <QPalette>
 #include <QDebug>
@@ -7,6 +8,8 @@
 #include <QGuiApplication>
 
 GeminiBridge::GeminiBridge(QObject* parent) : QObject(parent) {
+    m_currentModel = ConfigManager::instance().geminiSelectedModel();
+    m_currentMode = ConfigManager::instance().geminiSelectedMode();
     m_availableModels << m_currentModel;
 }
 
@@ -44,6 +47,7 @@ QString GeminiBridge::glassBackground() const {
 void GeminiBridge::setCurrentModel(const QString& model) {
     if (m_currentModel != model) {
         m_currentModel = model;
+        ConfigManager::instance().setGeminiSelectedModel(m_currentModel);
         emit currentModelChanged();
     }
 }
@@ -51,6 +55,7 @@ void GeminiBridge::setCurrentModel(const QString& model) {
 void GeminiBridge::setCurrentMode(const QString& mode) {
     if (m_currentMode != mode) {
         m_currentMode = mode;
+        ConfigManager::instance().setGeminiSelectedMode(m_currentMode);
         emit currentModeChanged();
     }
 }

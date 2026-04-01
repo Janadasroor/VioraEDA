@@ -55,6 +55,9 @@ signals:
     void plotSignalRequested(const QString& signalName);
     void zoomFitRequested();
     void togglePanelRequested(const QString& panelName);
+    void importSubcircuitRequested(const QString& filePath);
+    void rewindRequested();
+    void checkpointRequested();
 
 private slots:
     void onProcessReadyRead();

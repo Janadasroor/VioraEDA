@@ -31,6 +31,9 @@ private slots:
     void honorsExplicitSaveDirective();
     void rewritesSimpleLtspiceIfExpressions();
     void rewritesIfWithTrueAndFalseBranches();
+    void rewritesNestedLtspiceIfInDirectiveElement();
+    void acceptsLm555BehavioralSubcktDirective();
+    void simulatesLm555BehavioralSubcktDirective();
     void rewritesLtspiceBooleanOperators();
     void rewritesIdtWithInitialConditionAndReset();
     void rewritesLtspiceBehavioralHelperFunctions();
@@ -189,6 +192,175 @@ void SpiceDirectiveNetlistTest::rewritesIfWithTrueAndFalseBranches() {
 
     QVERIFY2(netlist.contains("* LTspice rewrite: BDRV G 0 V={if(V(IN)>0.5, 12, -3)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BDRV G 0 V={((12)*(u((V(IN))-(0.5))) + (-3)*(1-(u((V(IN))-(0.5)))))"), qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::rewritesNestedLtspiceIfInDirectiveElement() {
+    QGraphicsScene scene;
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        ".subckt latch RESET THRES CONT TRIG GND 15 11\n"
+        "G_Latch GND 15 VALUE={IF(V(RESET)<0.5, -1m, IF(V(THRES)>V(CONT), -1m, IF(V(11)>V(TRIG), 1m, 0)))}\n"
+        ".ends latch\n"
+        ".tran 1u 1m",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("* LTspice rewrite: G_Latch GND 15 VALUE={IF(V(RESET)<0.5, -1m, IF(V(THRES)>V(CONT), -1m, IF(V(11)>V(TRIG), 1m, 0)))}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("G_Latch GND 15 VALUE={"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("u((0.5)-(V(RESET)))"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("u((V(THRES))-(V(CONT)))"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("u((V(11))-(V(TRIG)))"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("(-1m)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("(1m)"), qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::acceptsLm555BehavioralSubcktDirective() {
+    QGraphicsScene scene;
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "* LM555 Timer Behavioral Subcircuit for LTspice (Named Pins & Convergence Fixed)\n"
+        "* Based on Texas Instruments LM555 Datasheet\n"
+        "*\n"
+        "* Port Order matches the auto-generated symbol pins\n"
+        ".SUBCKT LM555_TI GND TRIG OUT RESET CONT THRES DISCH VCC\n"
+        "R1 VCC CONT 5k\n"
+        "R2 CONT 11 5k\n"
+        "R3 11 GND 5k\n"
+        "G_Latch GND 15 VALUE={IF(V(RESET)<0.5, -1m, IF(V(THRES)>V(CONT), -1m, IF(V(11)>V(TRIG), 1m, 0)))}\n"
+        "C_State 15 GND 1n\n"
+        "R_State 15 GND 1G\n"
+        ".ic V(15)=0\n"
+        "D_Clamp_High 15 16 D_ideal\n"
+        "V_Clamp 16 GND 1\n"
+        "D_Clamp_Low GND 15 D_ideal\n"
+        ".model D_ideal D(Ron=1 Roff=1G Vfwd=0)\n"
+        "B_Out OUT GND V=IF(V(15)>0.5, V(VCC), 0.1)\n"
+        "B_Disch_Ctrl 17 GND V=IF(V(15)<0.5, 1, 0)\n"
+        "S1 DISCH GND 17 GND Sw_Discharge\n"
+        ".model Sw_Discharge SW(Vt=0.5 Ron=12 Roff=1G)\n"
+        ".ENDS LM555_TI\n"
+        ".tran 1u 1m",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains(".SUBCKT LM555_TI GND TRIG OUT RESET CONT THRES DISCH VCC"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R1 VCC CONT 5k"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("C_State 15 GND 1n"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R_State 15 GND 1G"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".ic V(15)=0"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("D_Clamp_High 15 16 D_ideal"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".model D_ideal D(Ron=1 Roff=1G Vfwd=0)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("S1 DISCH GND 17 GND Sw_Discharge"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".model Sw_Discharge SW(Vt=0.5 Ron=12 Roff=1G)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains(".ENDS LM555_TI"), qPrintable(netlist));
+
+    QVERIFY2(netlist.contains("* LTspice rewrite: G_Latch GND 15 VALUE={IF(V(RESET)<0.5, -1m, IF(V(THRES)>V(CONT), -1m, IF(V(11)>V(TRIG), 1m, 0)))}"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("G_Latch GND 15 VALUE={"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("u((0.5)-(V(RESET)))"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("u((V(THRES))-(V(CONT)))"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("u((V(11))-(V(TRIG)))"), qPrintable(netlist));
+
+    QVERIFY2(netlist.contains("* LTspice rewrite: B_Out OUT GND V=IF(V(15)>0.5, V(VCC), 0.1)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B_Out OUT GND V={"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("* LTspice rewrite: B_Disch_Ctrl 17 GND V=IF(V(15)<0.5, 1, 0)"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("B_Disch_Ctrl 17 GND V={"), qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::simulatesLm555BehavioralSubcktDirective() {
+    if (!SimulationManager::instance().isAvailable()) {
+        QSKIP("Ngspice is not available in this build.");
+    }
+
+    QGraphicsScene scene;
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "* LM555 behavioral smoke test\n"
+        ".SUBCKT LM555_TI GND TRIG OUT RESET CONT THRES DISCH VCC\n"
+        "R1 VCC CONT 5k\n"
+        "R2 CONT 11 5k\n"
+        "R3 11 GND 5k\n"
+        "G_Latch GND 15 VALUE={IF(V(RESET)<0.5, -1m, IF(V(THRES)>V(CONT), -1m, IF(V(11)>V(TRIG), 1m, 0)))}\n"
+        "C_State 15 GND 1n\n"
+        "R_State 15 GND 1G\n"
+        ".ic V(15)=0\n"
+        "D_Clamp_High 15 16 D_ideal\n"
+        "V_Clamp 16 GND 1\n"
+        "D_Clamp_Low GND 15 D_ideal\n"
+        ".model D_ideal D(Ron=1 Roff=1G Vfwd=0)\n"
+        "B_Out OUT GND V=IF(V(15)>0.5, V(VCC), 0.1)\n"
+        "B_Disch_Ctrl 17 GND V=IF(V(15)<0.5, 1, 0)\n"
+        "S1 DISCH GND 17 GND Sw_Discharge\n"
+        ".model Sw_Discharge SW(Vt=0.5 Ron=12 Roff=1G)\n"
+        ".ENDS LM555_TI\n"
+        "VCCSRC vcc 0 5\n"
+        "VRESET reset 0 5\n"
+        "VTRIG trig 0 PULSE(5 0 10u 1n 1n 5u 100u)\n"
+        "VTHRES thres 0 0\n"
+        "CCONT cont 0 10n\n"
+        "RLOAD out 0 1k\n"
+        "RDISCH disch 0 10k\n"
+        "XU1 0 trig out reset cont thres disch vcc LM555_TI",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "200u";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    SimResults results;
+    QString error;
+    bool finished = false;
+    auto& sim = SimManager::instance();
+    QObject guard;
+    QObject::connect(&sim, &SimManager::simulationFinished, &guard, [&](const SimResults& r) {
+        results = r;
+        finished = true;
+    });
+    QObject::connect(&sim, &SimManager::errorOccurred, &guard, [&](const QString& msg) { error = msg; });
+
+    sim.runNetlistText(netlist);
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(&sim, &SimManager::simulationFinished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(30000);
+    loop.exec();
+
+    QVERIFY2(finished, qPrintable(error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY2(!results.waveforms.empty(), "Expected waveform results from LM555 simulation.");
+
+    bool sawOut = false;
+    bool sawDisch = false;
+    for (const auto& wave : results.waveforms) {
+        const QString name = QString::fromStdString(wave.name);
+        if (name.compare("V(OUT)", Qt::CaseInsensitive) == 0 && !wave.yData.empty()) {
+            sawOut = true;
+        }
+        if (name.compare("V(DISCH)", Qt::CaseInsensitive) == 0 && !wave.yData.empty()) {
+            sawDisch = true;
+        }
+    }
+
+    QVERIFY2(sawOut, "Expected output waveform V(OUT) from LM555 simulation.");
+    QVERIFY2(sawDisch, "Expected discharge waveform V(DISCH) from LM555 simulation.");
 }
 
 void SpiceDirectiveNetlistTest::rewritesLtspiceBooleanOperators() {

@@ -40,6 +40,7 @@ public:
                                          QWidget* parent = nullptr);
 
     Result result() const { return m_result; }
+    void setPreloadedNetlist(const QString& netlist);
 
 private slots:
     void onAccepted();

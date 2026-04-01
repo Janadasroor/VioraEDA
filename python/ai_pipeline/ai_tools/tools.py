@@ -107,6 +107,34 @@ class ToolRegistry:
         except Exception as e:
             return {"error": f"Failed to save template: {str(e)}"}
 
+    def synthesize_subcircuit(self, name, description, subcircuit_code):
+        """
+        Synthesizes a SPICE subcircuit from natural language or requirements, saves it as a .sub file 
+        in the project or Viospice library, and returns a command to immediately import it in the UI.
+        """
+        try:
+            target_dir = os.path.join(os.getcwd(), "subcircuits")
+            if not os.path.exists(target_dir):
+                target_dir = os.path.join(os.getcwd(), "ViospiceLib", "sub")
+                if not os.path.exists(target_dir):
+                    os.makedirs(target_dir, exist_ok=True)
+            
+            safe_filename = "".join([c for c in name if c.isalnum() or c in "._-"])
+            if not safe_filename.endswith(".sub"):
+                safe_filename += ".sub"
+                
+            out_path = os.path.join(target_dir, safe_filename)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(subcircuit_code)
+                
+            return {
+                "status": "subcircuit_synthesized",
+                "filename": safe_filename,
+                "instructions": f"Saved subcircuit '{safe_filename}' successfully. Click the IMPORT SUBCIRCUIT button to place it."
+            }
+        except Exception as e:
+            return {"error": f"Failed to synthesize subcircuit: {str(e)}"}
+
     def _find_voltage_sources(self):
         sources = []
         try:
@@ -581,4 +609,27 @@ def get_tools_schema():
                 "required": ["filename", "code"],
             },
         },
+        {
+            "name": "synthesize_subcircuit",
+            "description": "Synthesizes a SPICE .subckt macro definition from natural language and saves it to a .sub file. Call this when the user asks you to create a custom component model, subcircuit, or macro (like a 555 timer or op-amp model).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "A short, descriptive name for the subcircuit (e.g. 'NE555' or 'LM7805')."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "A brief description of the subcircuit."
+                    },
+                    "subcircuit_code": {
+                        "type": "string",
+                        "description": "The complete, raw SPICE text containing the .subckt definition, including the pins/nodes and internal components, ending with .ends."
+                    }
+                },
+                "required": ["name", "description", "subcircuit_code"],
+            },
+        },
     ]
+

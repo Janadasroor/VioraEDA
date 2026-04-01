@@ -30,6 +30,12 @@ public:
     QString geminiGlobalInstructions() const;
     void setGeminiGlobalInstructions(const QString& instructions);
 
+    QString geminiSelectedModel() const;
+    void setGeminiSelectedModel(const QString& model);
+
+    QString geminiSelectedMode() const;
+    void setGeminiSelectedMode(const QString& mode);
+
     QString octopartApiKey() const;
     void setOctopartApiKey(const QString& key);
 
@@ -102,6 +108,8 @@ private:
     QString m_currentTheme;
     QString m_geminiApiKey;
     QString m_geminiGlobalInstructions;
+    QString m_geminiSelectedModel;
+    QString m_geminiSelectedMode;
     QStringList m_symbolPaths;
     QStringList m_modelPaths;
     QStringList m_libraryRoots;
