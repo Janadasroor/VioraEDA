@@ -18,6 +18,8 @@
 #include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QTimer>
+#include "../simulator/core/sim_report_generator.h"
+#include "../simulator/core/raw_data_parser.h"
 #include <QLoggingCategory>
 #include <QProcess>
 #include <iostream>
@@ -1285,6 +1287,64 @@ bool runSchematicRender(const QString& filePath, const QString& outPath, const Q
     return true;
 }
 
+bool runGenerateReport(const QString& schematicPath, const QString& outPath, const QCommandLineParser& parser) {
+    SimReportGenerator generator;
+    SimReportGenerator::ReportOptions opts;
+    opts.title = parser.value("title");
+    opts.author = parser.value("author");
+    opts.includeSchematic = !parser.isSet("no-schematic");
+    opts.includeWaveforms = !parser.isSet("no-waveforms");
+    opts.includeMeasurements = !parser.isSet("no-measurements");
+    opts.includeNetlist = !parser.isSet("no-netlist");
+    opts.maxWaveformPoints = parser.value("max-points").toInt();
+    if (opts.maxWaveformPoints == 0) opts.maxWaveformPoints = 1000;
+    
+    generator.setSchematicPath(schematicPath);
+    generator.setOptions(opts);
+    
+    const QString rawFilePath = parser.value("raw-file");
+    if (!rawFilePath.isEmpty()) {
+        RawData data;
+        QString error;
+        if (RawDataParser::loadRawAscii(rawFilePath, &data, &error)) {
+            SimResults results = data.toSimResults();
+            generator.setSimulationResults(results);
+            
+            QString netlistPath = rawFilePath;
+            netlistPath.replace(".raw", ".cir");
+            QFile netlistFile(netlistPath);
+            if (netlistFile.exists() && netlistFile.open(QIODevice::ReadOnly)) {
+                generator.setNetlist(QString::fromUtf8(netlistFile.readAll()));
+                netlistFile.close();
+            }
+        }
+    }
+    
+    const QString schematicPngPath = parser.value("schematic-png");
+    if (!schematicPngPath.isEmpty()) {
+        QImage schematicImg(schematicPngPath);
+        if (!schematicImg.isNull()) {
+            generator.setSchematicImage(schematicImg);
+        }
+    }
+    
+    if (!generator.saveToFile(outPath)) {
+        std::cerr << "Error: Failed to save report to " << outPath.toStdString() << std::endl;
+        return false;
+    }
+    
+    if (parser.isSet("json")) {
+        QJsonObject out;
+        out["schematic"] = schematicPath;
+        out["report"] = outPath;
+        out["success"] = true;
+        printJsonValue(out);
+    } else {
+        printInfoStd("Design review report generated: " + outPath.toStdString());
+    }
+    return true;
+}
+
 bool runSymbolQuery(const QStringList& args) {
     if (args.size() < 2) {
         std::cerr << "Usage: vio-cmd symbol-query <file.viosym>" << std::endl;
@@ -2097,6 +2157,7 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
     std::unique_ptr<QTemporaryFile> tempNetlist;
 
     const QString suffix = QFileInfo(filePath).suffix().toLower();
+    const bool applyCompat = parser.isSet("compat");
     if (suffix == "flxsch") {
         QGraphicsScene scene;
         QString pageSize;
@@ -2129,6 +2190,31 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
             return false;
         }
         tempNetlist->write(netlist.toUtf8());
+        tempNetlist->flush();
+        runPath = tempNetlist->fileName();
+    } else if (applyCompat && suffix == "cir") {
+        QFile inFile(filePath);
+        if (!inFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            std::cerr << "Error: Cannot read netlist file: " << filePath.toStdString() << std::endl;
+            return false;
+        }
+        QString rawNetlist = QString::fromUtf8(inFile.readAll());
+        inFile.close();
+
+        QString compatNetlist = SpiceNetlistGenerator::generateCompatibilityLayer(rawNetlist);
+        if (compatNetlist.isEmpty()) {
+            std::cerr << "Error: Failed to apply compatibility layer to netlist." << std::endl;
+            return false;
+        }
+
+        const QString baseName = QFileInfo(filePath).completeBaseName();
+        const QString tempPattern = QDir::tempPath() + "/viospice_compat_" + baseName + "_XXXXXX.cir";
+        tempNetlist = std::make_unique<QTemporaryFile>(tempPattern);
+        if (!tempNetlist->open()) {
+            std::cerr << "Error: Failed to create temporary netlist." << std::endl;
+            return false;
+        }
+        tempNetlist->write(compatNetlist.toUtf8());
         tempNetlist->flush();
         runPath = tempNetlist->fileName();
     }
@@ -3237,7 +3323,7 @@ static void printCommandHelp(const QString& command) {
         std::cout << "  --export-raw csv|json  --signal <name> (repeatable)\n";
         std::cout << "  --max-points <n>  --base-signal <name>  --range t0:t1\n";
         std::cout << "  --stats  --measure <expr> (repeatable)  --measure-format text|json\n";
-        std::cout << "  --quiet  --json  --timeout <10s>\n";
+        std::cout << "  --compat  --quiet  --json  --timeout <10s>\n";
         return;
     }
     if (command == "raw-export") {
@@ -3256,6 +3342,14 @@ static void printCommandHelp(const QString& command) {
         std::cout << "schematic-netlist <file.flxsch>\n";
         std::cout << "  --analysis tran|ac|op  --step <s>  --stop <s>\n";
         std::cout << "  --format spice|json  --out <file>\n";
+        return;
+    }
+    if (command == "generate-report") {
+        std::cout << "generate-report <file.flxsch> <out.html>\n";
+        std::cout << "  --title <title>  --author <name>\n";
+        std::cout << "  --raw-file <file.raw>  --schematic-png <image.png>\n";
+        std::cout << "  --no-schematic  --no-waveforms  --no-measurements  --no-netlist\n";
+        std::cout << "  --max-points <n>  --json\n";
         return;
     }
     if (command == "schematic-query") {
@@ -3326,6 +3420,16 @@ int main(int argc, char *argv[]) {
     QCommandLineOption summaryOption("summary", "Show concise summary (raw-info)");
     QCommandLineOption signalRegexOption("signal-regex", "Filter signals by regex (raw-export)", "pattern");
     QCommandLineOption outOption("out", "Write output to file (schematic-netlist)", "file");
+    QCommandLineOption reportTitleOption("title", "Report title", "title", "VioSpice Design Review");
+    QCommandLineOption reportAuthorOption("author", "Report author", "author", "VioSpice");
+    QCommandLineOption noSchematicOption("no-schematic", "Exclude schematic section from report");
+    QCommandLineOption noWaveformsOption("no-waveforms", "Exclude waveforms section from report");
+    QCommandLineOption noMeasurementsOption("no-measurements", "Exclude measurements section from report");
+    QCommandLineOption noNetlistOption("no-netlist", "Exclude netlist section from report");
+    QCommandLineOption rawFileOption("raw-file", "Simulation results file (.raw) to include in report", "file");
+    QCommandLineOption schematicPngOption("schematic-png", "Schematic image file (.png) to embed in report", "file");
+    QCommandLineOption compatOption("compat", "Apply LTspice compatibility layer to raw netlist before running (netlist-run)");
+    parser.addOption(compatOption);
     parser.addOption(jsonOption);
     parser.addOption(transparentOption);
     parser.addOption(includeCommentsOption);
@@ -3355,9 +3459,17 @@ int main(int argc, char *argv[]) {
     parser.addOption(summaryOption);
     parser.addOption(signalRegexOption);
     parser.addOption(outOption);
+    parser.addOption(reportTitleOption);
+    parser.addOption(reportAuthorOption);
+    parser.addOption(noSchematicOption);
+    parser.addOption(noWaveformsOption);
+    parser.addOption(noMeasurementsOption);
+    parser.addOption(noNetlistOption);
+    parser.addOption(rawFileOption);
+    parser.addOption(schematicPngOption);
 
     // Positional arguments
-    parser.addPositionalArgument("command", "Command to run: drc, erc, simulate, netlist-run, netlist-validate, raw-info, raw-export, render, schematic-render, symbol-render, symbol-query, symbol-validate, symbol-list, symbol-export, symbol-import, library-index, schematic-query, schematic-netlist, schematic-bom, schematic-validate, schematic-diff, schematic-transform, schematic-probe, netlist-compare, audit, autofix, process, python, plugins-smoke, plugin-pack, plugin-inspect");
+    parser.addPositionalArgument("command", "Command to run: drc, erc, simulate, netlist-run, netlist-validate, raw-info, raw-export, render, schematic-render, symbol-render, symbol-query, symbol-validate, symbol-list, symbol-export, symbol-import, library-index, schematic-query, schematic-netlist, schematic-bom, schematic-validate, schematic-diff, schematic-transform, schematic-probe, netlist-compare, generate-report, audit, autofix, process, python, plugins-smoke, plugin-pack, plugin-inspect");
     parser.addPositionalArgument("file", "File to process (.pcb or .sch), except for plugins-smoke");
     parser.addPositionalArgument("script", "JSON script file for 'process' command", "");
 
@@ -3685,6 +3797,12 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         return runSchematicRender(filePath, args.at(2), parser) ? 0 : 1;
+    } else if (command == "generate-report") {
+        if (args.size() < 3) {
+            std::cerr << "Usage: vio-cmd generate-report <file.flxsch> <out.html> [--title 'My Design'] [--author 'John Doe']" << std::endl;
+            return 1;
+        }
+        return runGenerateReport(filePath, args.at(2), parser) ? 0 : 1;
     } else if (command == "symbol-render") {
         return runSymbolRender(args, parser) ? 0 : 1;
     } else if (command == "symbol-query") {

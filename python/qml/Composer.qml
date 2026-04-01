@@ -156,7 +156,7 @@ Rectangle {
                 MinimalSelector {
                     id: modelSelector
                     model: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.availableModels) ? geminiBridge.availableModels : ["Gemini 2.0 Flash"]
-                    currentIndex: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.availableModels) ? model.indexOf(geminiBridge.currentModel) : 0
+                    currentIndex: (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.availableModels) ? Math.max(0, model.indexOf(geminiBridge.currentModel)) : 0
                     onActivated: (index) => { if (geminiBridge) geminiBridge.currentModel = model[index] }
                 }
             }
@@ -246,8 +246,6 @@ Rectangle {
         property int popupWidth: 200
         property bool showDescriptions: false
         property string headerTitle: ""
-        
-        onClosed: composerRoot.forceFocus()
 
         background: Item { 
             implicitWidth: contentLayout.implicitWidth + 8
@@ -309,6 +307,7 @@ Rectangle {
         }
 
         popup: Popup {
+            onClosed: composerRoot.forceFocus()
             y: -height - 8
             width: cb.popupWidth
             implicitHeight: contentColumn.implicitHeight + (cb.headerTitle !== "" ? 40 : 0)

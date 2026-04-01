@@ -248,6 +248,7 @@ GUIDELINES:
 4. ACTION-TAGS: Use <ACTION>Description</ACTION> before starting a tool call to update the UI status.
 5. SUGGESTIONS: Always provide at least 2 relevant <SUGGESTION>Label|command</SUGGESTION> tags at the very end of your response for common follow-up actions (e.g. "Plot NODE", "Run Sim").
 6. PLOTTING: Use the `plot_signal` tool for static images in the chat. Use <SUGGESTION>Plot NODE|plot signal:NODE</SUGGESTION> or <SNIPPET>{"commands": ["plot signal:NODE"]}</SNIPPET> for opening an interactive oscilloscope window.
+7. SUBCIRCUITS: When the user asks you to synthesize or create a custom subcircuit/model, ALWAYS use the `synthesize_subcircuit` tool. After it returns the file path, you MUST output a snippet: <SNIPPET>{"commands": ["import_subckt <absolute_file_path>"]}</SNIPPET> so the UI can pop up the import dialog!
 """
 
     full_system_prompt = (

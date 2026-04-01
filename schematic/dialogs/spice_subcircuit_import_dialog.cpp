@@ -370,3 +370,9 @@ void SpiceSubcircuitImportDialog::onAccepted() {
 
     accept();
 }
+
+void SpiceSubcircuitImportDialog::setPreloadedNetlist(const QString& netlist) {
+    if (m_textEdit) {
+        m_textEdit->setPlainText(netlist);
+    }
+}

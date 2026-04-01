@@ -139,6 +139,9 @@ private slots:
     void onOpenFindReplace();
     void onOpenModelArchitect();
     void onImportSpiceSubcircuit();
+    void onImportSpiceSubcircuitFile(const QString& filePath);
+    void onCheckpointRequested();
+    void onRewindRequested();
     void onOpenPowerNetsManager();
     void onOpenBusAliasesManager();
     void onOpenERCRulesConfig();
@@ -321,6 +324,9 @@ private:
     // UI Phase 2 Components
     class SchematicMiniMap* m_miniMap = nullptr;
     QAction* m_toggleMiniMapAction = nullptr;
+
+    // Context and Checkpoints
+    QJsonObject m_lastCheckpoint;
 
     // Undo/Redo
     QUndoStack *m_undoStack;

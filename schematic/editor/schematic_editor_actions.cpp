@@ -2,6 +2,8 @@
 // Clipboard, selection, undo/redo, and property editing actions for SchematicEditor
 
 #include "schematic_editor.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 #include "../../core/config_manager.h"
 #include "schematic_item.h"
 #include "schematic_commands.h"
@@ -1944,6 +1946,69 @@ void SchematicEditor::onImportSpiceSubcircuit() {
     m_isModified = true;
 }
 
+void SchematicEditor::onImportSpiceSubcircuitFile(const QString& filePath) {
+    SpiceSubcircuitImportDialog dlg(m_projectDir, m_currentFilePath, this);
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        statusBar()->showMessage(QString("Failed to open subcircuit file: %1").arg(filePath), 5000);
+        // Fall back to empty dialog
+    } else {
+        const QString netlist = QString::fromUtf8(file.readAll());
+        file.close();
+        dlg.setPreloadedNetlist(netlist);
+    }
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const auto res = dlg.result();
+    statusBar()->showMessage(QString("Saved subcircuit %1 to %2").arg(res.subcktName, res.relativeIncludePath), 5000);
+
+    if (!res.insertIncludeDirective) return;
+
+    auto* dirItem = new SchematicSpiceDirectiveItem(QString(".include \"%1\"").arg(res.relativeIncludePath));
+    if (m_view) {
+        dirItem->setPos(m_view->mapToScene(m_view->viewport()->rect().center()));
+    }
+    if (res.insertIncludeDirective) {
+        m_undoStack->push(new AddItemCommand(m_scene, dirItem));
+    } else {
+        delete dirItem;
+    }
+
+    if (res.openSymbolEditor) {
+        const SymbolDefinition def = buildImportedSubcktSymbol(res);
+        SymbolEditor* editor = new SymbolEditor(def, nullptr);
+        editor->setAttribute(Qt::WA_DeleteOnClose);
+        editor->setWindowTitle("Symbol Editor - " + def.name());
+
+        QString projectKey = m_projectDir;
+        if (projectKey.isEmpty() && !m_currentFilePath.isEmpty()) {
+            projectKey = QFileInfo(m_currentFilePath).absolutePath();
+        }
+        editor->setProjectKey(projectKey);
+        connect(editor, &SymbolEditor::symbolSaved, this, [this](const SymbolDefinition&) {
+            if (m_componentsPanel) m_componentsPanel->populate();
+        });
+
+        connect(editor, &SymbolEditor::placeInSchematicRequested, this, &SchematicEditor::onPlaceSymbolInSchematic);
+
+        if (res.autoPlaceAfterSave) {
+            auto placed = std::make_shared<bool>(false);
+            connect(editor, &SymbolEditor::symbolSaved, this, [this, placed](const SymbolDefinition& sym) {
+                if (*placed) return;
+                *placed = true;
+                onPlaceSymbolInSchematic(sym);
+                statusBar()->showMessage(QString("Placed generated symbol %1 in schematic").arg(sym.name()), 5000);
+            });
+        }
+
+        editor->show();
+    }
+
+    m_isModified = true;
+}
+
 void SchematicEditor::onOpenCommandPalette() {
     CommandPalette* palette = new CommandPalette(this);
     palette->setPlaceholderText("Search symbols, pins, or run commands...");
@@ -2159,4 +2224,26 @@ void SchematicEditor::onAssignModel(const QString& modelName) {
     m_undoStack->endMacro();
 
     statusBar()->showMessage(QString("Assigned model '%1' to %2 component(s)").arg(modelName).arg(targets.size()), 4000);
+}
+void SchematicEditor::onCheckpointRequested() {
+    if (!m_scene) return;
+    qDebug() << "[SchematicEditor] Creating AI checkpoint...";
+    m_lastCheckpoint = SchematicFileIO::serializeSceneToJson(m_scene, m_currentPageSize);
+}
+
+void SchematicEditor::onRewindRequested() {
+    if (m_lastCheckpoint.isEmpty()) {
+        qDebug() << "[SchematicEditor] Rewind requested but no checkpoint exists.";
+        return;
+    }
+    if (!m_scene) return;
+
+    qDebug() << "[SchematicEditor] Executing AI Rewind...";
+    QString error;
+    if (SchematicFileIO::loadSchematicFromJson(m_scene, m_lastCheckpoint, &error)) {
+        m_isModified = true;
+        update();
+    } else {
+        qWarning() << "[SchematicEditor] Rewind failed:" << error;
+    }
 }

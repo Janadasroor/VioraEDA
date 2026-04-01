@@ -4252,3 +4252,28 @@ QString SpiceNetlistGenerator::formatValue(double value) {
     if (value < 1) return QString::number(value * 1e3) + "m";
     return QString::number(value);
 }
+
+QString SpiceNetlistGenerator::generateCompatibilityLayer(const QString& rawNetlist) {
+    if (rawNetlist.isEmpty()) return QString();
+
+    QString processed = rawNetlist;
+    processed = processed.trimmed();
+
+    QStringList lines = processed.split('\n', Qt::SkipEmptyParts);
+    QStringList outLines;
+    QStringList warnings;
+
+    for (QString line : lines) {
+        line = line.trimmed();
+        if (line.isEmpty() || line.startsWith('*') || line.startsWith(';') || line.startsWith('#')) {
+            outLines << line;
+            continue;
+        }
+
+        line = rewriteLtspiceDirectiveLine(line, &warnings);
+
+        outLines << line;
+    }
+
+    return outLines.join('\n');
+}

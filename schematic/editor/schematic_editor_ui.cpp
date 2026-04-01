@@ -1176,6 +1176,9 @@ void SchematicEditor::createDockWidgets() {
     m_geminiPanel->setUndoStack(m_undoStack);
     connect(m_geminiPanel, &GeminiPanel::runSimulationRequested, this, &SchematicEditor::onRunSimulation);
     connect(m_geminiPanel, &GeminiPanel::runERCRequested, this, &SchematicEditor::onRunERC);
+    connect(m_geminiPanel, &GeminiPanel::importSubcircuitRequested, this, &SchematicEditor::onImportSpiceSubcircuitFile);
+    connect(m_geminiPanel, &GeminiPanel::checkpointRequested, this, &SchematicEditor::onCheckpointRequested);
+    connect(m_geminiPanel, &GeminiPanel::rewindRequested, this, &SchematicEditor::onRewindRequested);
     connect(m_geminiPanel, &GeminiPanel::togglePanelRequested, this, [this](const QString& pName) {
         QString n = pName.toLower();
         if (n.contains("left")) onToggleLeftSidebar();

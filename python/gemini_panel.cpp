@@ -222,6 +222,12 @@ void GeminiPanel::onBridgeSendMessage(const QString& text) {
         m_bridge->updateTitle(title.toUpper());
     }
 
+    if (text.trimmed().toLower() == "/rewind") {
+        appendSystemAction("Rewind", "🕰️ Rewinding schematic state...", "🕰️");
+        emit rewindRequested();
+        return;
+    }
+
     if (m_bridge && m_bridge->currentMode().toLower() == "cmd") {
         parseAndExecuteCommandModeInput(text);
     } else {
@@ -499,6 +505,7 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
         if (doc.isObject()) {
             QJsonObject obj = doc.object();
             if (obj.contains("commands") && obj["commands"].isArray()) {
+                emit checkpointRequested();
                 QJsonArray cmds = obj["commands"].toArray();
                 for (const auto& cmdVal : cmds) {
                     parseAndExecuteCommandModeInput(cmdVal.toString());
@@ -537,6 +544,7 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
         if (match.hasMatch()) {
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(0).toUtf8());
             if (doc.isObject()) {
+                emit checkpointRequested();
                 QJsonArray cmds = doc.object()["commands"].toArray();
                 for (const auto& cmdVal : cmds) {
                     parseAndExecuteCommandModeInput(cmdVal.toString());
@@ -951,6 +959,11 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
         QString panel = cmd.mid(7).trimmed();
         appendSystemNote("<b>UI:</b> Toggling panel: " + panel);
         emit togglePanelRequested(panel);
+    } else if (cmd.startsWith("import_subckt ")) {
+        QString path = in.mid(14).trimmed();
+        emit checkpointRequested();
+        appendSystemAction("Import Subcircuit", "Opening symbol generator for: " + QFileInfo(path).fileName(), "📦");
+        emit importSubcircuitRequested(path);
     } else {
         appendSystemNote("<b>Unknown Command:</b> \"" + in + "\".<br/>Type <b>help</b> for a list of available system commands.");
     }
