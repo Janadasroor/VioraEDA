@@ -106,6 +106,7 @@ private slots:
     void updateCoordinates(QPointF pos);
     void onSelectionChanged();
     void onItemDoubleClicked(SchematicItem* item);
+    void onItemPlaced(SchematicItem* item);
     void onSelectionDoubleClicked(const QList<SchematicItem*>& items);
     void openItemProperties(SchematicItem* item);
     void onPropertyChanged(const QString& name, const QVariant& value);

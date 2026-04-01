@@ -76,6 +76,7 @@ signals:
     void selectionChanged();
     void itemRightClicked(class SchematicItem* item);
     void itemDoubleClicked(class SchematicItem* item);
+    void itemPlaced(class SchematicItem* item);
     void itemSelectionDoubleClicked(const QList<SchematicItem*>& items);
     void pageTitleBlockDoubleClicked();
     void syncSheetRequested(class SchematicSheetItem* sheet);

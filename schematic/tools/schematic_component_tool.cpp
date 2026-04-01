@@ -144,6 +144,7 @@ void SchematicComponentTool::mousePressEvent(QMouseEvent* event) {
             view()->scene()->addItem(component);
         }
         qDebug() << "Placed schematic component:" << m_componentType << "at" << snappedPos;
+        view()->itemPlaced(component);
         event->accept();
     }
 }

@@ -1259,6 +1259,15 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
     }
 }
 
+void SchematicEditor::onItemPlaced(SchematicItem* item) {
+    if (!item) return;
+
+    // Professional UX: Auto-open the instrument window when placed
+    if (item->itemTypeName() == "OscilloscopeInstrument" || item->itemTypeName() == "Oscilloscope") {
+        openOscilloscopeWindow(item);
+    }
+}
+
 void SchematicEditor::onSelectionDoubleClicked(const QList<SchematicItem*>& items) {
     if (items.isEmpty()) return;
 
