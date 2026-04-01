@@ -3512,7 +3512,9 @@ int main(int argc, char *argv[]) {
     QCommandLineOption rangeOption("range", "Limit exported samples to time window (t0:t1)", "t0:t1");
     QCommandLineOption measureOption("measure", "Compute measurement (repeatable). Examples: V(net1)_max, I(V1)_rms, V(net1)@t=1ms", "expr");
     QCommandLineOption measureFormatOption("measure-format", "Measure output format (text|json)", "format", "text");
+    QCommandLineOption assertOption("assert", "Fail if assertion is false (repeatable). Examples: \"V(OUT) > 4.5\", \"V(OUT)_min > 4.5\"", "expr");
     QCommandLineOption summaryOption("summary", "Show concise summary (raw-info)");
+
     QCommandLineOption signalRegexOption("signal-regex", "Filter signals by regex (raw-export)", "pattern");
     QCommandLineOption outOption("out", "Write output to file (schematic-netlist)", "file");
     QCommandLineOption reportTitleOption("title", "Report title", "title", "VioSpice Design Review");

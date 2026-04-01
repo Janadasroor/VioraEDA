@@ -218,19 +218,50 @@ void SettingsDialog::setupUI() {
     // Page 4: AI Assistant
     QWidget* pageAI = new QWidget();
     QVBoxLayout* layAI = new QVBoxLayout(pageAI);
+    layAI->setSpacing(15);
+
     QGroupBox* grpAPI = new QGroupBox("Gemini API Configuration");
     QFormLayout* formAPI = new QFormLayout(grpAPI);
     m_geminiKeyEdit = new QLineEdit();
     m_geminiKeyEdit->setEchoMode(QLineEdit::Password);
+    m_geminiKeyEdit->setPlaceholderText("Enter your Google Gemini API Key...");
     formAPI->addRow("API Key:", m_geminiKeyEdit);
     layAI->addWidget(grpAPI);
     
+    QGroupBox* grpAiModels = new QGroupBox("Model Selection");
+    QFormLayout* formModels = new QFormLayout(grpAiModels);
+    m_geminiChatModelCombo = new QComboBox();
+    m_geminiOverlayModelCombo = new QComboBox();
+    
+    m_refreshModelsBtn = new QPushButton("Refresh Available Models");
+    m_refreshModelsBtn->setIcon(QIcon(":/icons/tool_reload.svg"));
+    m_refreshModelsBtn->setFixedWidth(200);
+
+    formModels->addRow("Chat Assistant Model:", m_geminiChatModelCombo);
+    formModels->addRow("Net Info Overlay Model:", m_geminiOverlayModelCombo);
+    formModels->addRow("", m_refreshModelsBtn);
+    layAI->addWidget(grpAiModels);
+
+    connect(m_refreshModelsBtn, &QPushButton::clicked, this, []() {
+        emit ConfigManager::instance().requestModelRefresh();
+    });
+
+    QGroupBox* grpFeatures = new QGroupBox("AI Feature Toggles");
+    QVBoxLayout* layFeat = new QVBoxLayout(grpFeatures);
+    m_aiChatCheck = new QCheckBox("Enable AI Chat Assistant (sidebar)");
+    m_aiOverlayCheck = new QCheckBox("Enable Smart Probe Net Information Overlay");
+    m_aiErcCheck = new QCheckBox("Enable Real-time ERC Debugging Suggestions");
+    layFeat->addWidget(m_aiChatCheck);
+    layFeat->addWidget(m_aiOverlayCheck);
+    layFeat->addWidget(m_aiErcCheck);
+    layAI->addWidget(grpFeatures);
+    
     QLabel* aiDesc = new QLabel(
-        "viospice uses Gemini 2.5 Flash Lite to provide AI assistance for circuit generation, "
-        "ERC debugging, and FluxScript authoring."
+        "viospice uses Gemini Flash models to provide intelligent design assistance, "
+        "automated simulation analysis, and FluxScript generation."
     );
     aiDesc->setWordWrap(true);
-    aiDesc->setStyleSheet("color: #a1a1aa; margin-top: 10px;");
+    aiDesc->setStyleSheet(QString("color: %1; margin-top: 10px; font-style: italic;").arg(textSec));
     layAI->addWidget(aiDesc);
     layAI->addStretch();
     m_pagesStack->addWidget(pageAI);
@@ -285,6 +316,25 @@ void SettingsDialog::loadSettings() {
     m_maxIterSpin->setValue(config.maxIterations());
 
     m_geminiKeyEdit->setText(config.geminiApiKey());
+    
+    // Model Selection Setup
+    QStringList models = config.availableGeminiModels();
+    if (models.isEmpty()) {
+        models << "gemini-2.0-flash" << "gemini-2.0-flash-lite" << "gemini-1.5-flash" << "gemini-1.5-pro";
+    }
+    m_geminiChatModelCombo->clear();
+    m_geminiChatModelCombo->addItems(models);
+    m_geminiChatModelCombo->setCurrentText(config.geminiChatModel());
+    
+    m_geminiOverlayModelCombo->clear();
+    m_geminiOverlayModelCombo->addItems(models);
+    m_geminiOverlayModelCombo->setCurrentText(config.geminiOverlayModel());
+    
+    // Features
+    m_aiChatCheck->setChecked(config.aiChatEnabled());
+    m_aiOverlayCheck->setChecked(config.aiOverlayEnabled());
+    m_aiErcCheck->setChecked(config.aiErcEnabled());
+
     m_symbolPathsEdit->setPlainText(config.rawSymbolPaths().join("\n"));
     m_modelPathsEdit->setPlainText(config.rawModelPaths().join("\n"));
     m_libraryRootsEdit->setPlainText(config.libraryRoots().join("\n"));
@@ -317,6 +367,12 @@ void SettingsDialog::onAccept() {
     config.setMaxIterations(m_maxIterSpin->value());
 
     config.setGeminiApiKey(m_geminiKeyEdit->text());
+    config.setGeminiOverlayModel(m_geminiOverlayModelCombo->currentText());
+    config.setGeminiChatModel(m_geminiChatModelCombo->currentText());
+    config.setAiChatEnabled(m_aiChatCheck->isChecked());
+    config.setAiOverlayEnabled(m_aiOverlayCheck->isChecked());
+    config.setAiErcEnabled(m_aiErcCheck->isChecked());
+
     config.setSymbolPaths(m_symbolPathsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));
     config.setModelPaths(m_modelPathsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));
     config.setLibraryRoots(m_libraryRootsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));

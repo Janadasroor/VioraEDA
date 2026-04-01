@@ -1,4 +1,5 @@
 #include "smart_probe_engine.h"
+#include "../../core/config_manager.h"
 #include "../../python/gemini_panel.h"
 #include "smart_probe_overlay.h"
 #include <QDebug>
@@ -40,11 +41,14 @@ void SmartProbeEngine::probe(const QString& netName, const SimResults& results, 
     m_currentPos = viewPos;
 
     m_overlay->showAt(viewPos, netName, formatInstantValue(netName, results), context);
+    m_overlay->clearAIAnnotation(); // Reset for new net
 
-    if (m_annotationCache.contains(netName)) {
-        m_overlay->updateAIAnnotation(m_annotationCache[netName]);
-    } else {
-        m_debounceTimer->start();
+    if (ConfigManager::instance().aiOverlayEnabled()) {
+        if (m_annotationCache.contains(netName)) {
+            m_overlay->updateAIAnnotation(m_annotationCache[netName]);
+        } else {
+            m_debounceTimer->start();
+        }
     }
 }
 
