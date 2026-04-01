@@ -1158,6 +1158,14 @@ void SimulationPanel::updateCommandDisplay() {
         cmdParams.start = m_param1 ? m_param1->text() : QString("10");
         cmdParams.stop = m_param2 ? m_param2->text() : QString("1Meg");
         cmdParams.step = m_param3 ? m_param3->text() : QString("10");
+    } else if (idx == 3) {
+        cmdParams.type = SpiceNetlistGenerator::SParameter;
+        cmdParams.start = m_param1 ? m_param1->text() : QString("10");
+        cmdParams.stop = m_param2 ? m_param2->text() : QString("1Meg");
+        cmdParams.step = m_param3 ? m_param3->text() : QString("10");
+        cmdParams.rfPort1Source = m_param4 ? m_param4->text().toStdString() : "V1";
+        cmdParams.rfPort2Node = m_param5 ? m_param5->text().toStdString() : "OUT";
+        cmdParams.rfZ0 = m_param6 ? m_param6->text().toDouble() : 50.0;
     } else {
         cmdParams.type = SpiceNetlistGenerator::OP;
     }
@@ -1588,7 +1596,7 @@ void SimulationPanel::setupUI() {
     configForm->setLabelAlignment(Qt::AlignRight);
 
     m_analysisType = new QComboBox();
-    m_analysisType->addItems({"Transient", "DC OP", "AC Sweep", "Monte Carlo", "Parametric Sweep", "Sensitivity", "Real-time Mode"});
+    m_analysisType->addItems({"Transient", "DC OP", "AC Sweep", "RF S-Parameter", "Monte Carlo", "Parametric Sweep", "Sensitivity", "Real-time Mode"});
     m_analysisType->setCurrentIndex(1);
     m_analysisType->setStyleSheet("QComboBox { background: #121214; color: #eee; }");
     configForm->addRow("Type:", m_analysisType);
@@ -1613,13 +1621,15 @@ void SimulationPanel::setupUI() {
     m_param3 = new QLineEdit("0");
     m_param4 = new QLineEdit();
     m_param5 = new QLineEdit();
-    for(auto* l : {m_param1, m_param2, m_param3, m_param4, m_param5}) l->setStyleSheet("QLineEdit { background: #121214; color: #fff; border: 1px solid #333; }");
+    m_param6 = new QLineEdit("50");
+    for(auto* l : {m_param1, m_param2, m_param3, m_param4, m_param5, m_param6}) l->setStyleSheet("QLineEdit { background: #121214; color: #fff; border: 1px solid #333; }");
     
-    configForm->addRow("Step:", m_param1);
+    configForm->addRow("Step/Start:", m_param1);
     configForm->addRow("Stop:", m_param2);
-    configForm->addRow("Start:", m_param3);
-    configForm->addRow("P4:", m_param4);
-    configForm->addRow("P5:", m_param5);
+    configForm->addRow("Start/Pts:", m_param3);
+    configForm->addRow("P4/Src:", m_param4);
+    configForm->addRow("P5/Node:", m_param5);
+    configForm->addRow("Z0:", m_param6);
     sidebarLayout->addWidget(configFrame);
 
     QLabel* generatorsLabel = new QLabel("SOURCE GENERATORS");
@@ -1881,6 +1891,12 @@ void SimulationPanel::setupUI() {
     m_viewTabs = new QTabWidget();
     m_viewTabs->setStyleSheet(QString("QTabWidget::pane { border: 1px solid %1; } QTabBar::tab { background: %2; color: %3; padding: 8px; } QTabBar::tab:selected { background: %4; }")
                             .arg(borderColor, panelBg, textColor, accent));
+
+    m_rfTab = new QWidget();
+    QVBoxLayout* rfLayout = new QVBoxLayout(m_rfTab);
+    m_smithChart = new SmithChartWidget();
+    rfLayout->addWidget(m_smithChart);
+    m_viewTabs->addTab(m_rfTab, "RF Analysis");
     
     m_waveformViewer = new WaveformViewer();
     m_scopeContainer = m_waveformViewer;
@@ -1992,42 +2008,53 @@ void SimulationPanel::onAnalysisChanged(int index) {
         setLabel(m_param2, "Stop Time:");
         setLabel(m_param3, "Start Time:");
         m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_param4->setVisible(false); m_param5->setVisible(false);
+        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("1u"); m_param2->setText("10m"); m_param3->setText("0");
     } else if (index == 1) { // DC OP
         m_param1->setVisible(false); m_param2->setVisible(false); m_param3->setVisible(false);
-        m_param4->setVisible(false); m_param5->setVisible(false);
+        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
     } else if (index == 2) { // AC Sweep
         setLabel(m_param1, "Start Freq:");
         setLabel(m_param2, "Stop Freq:");
         setLabel(m_param3, "Points/Dec:");
         m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_param4->setVisible(false); m_param5->setVisible(false);
+        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("10"); m_param2->setText("1Meg"); m_param3->setText("10");
-    } else if (index == 3) { // Monte Carlo
+    } else if (index == 3) { // RF S-Parameter
+        setLabel(m_param1, "Start Freq:");
+        setLabel(m_param2, "Stop Freq:");
+        setLabel(m_param3, "Points/Dec:");
+        setLabel(m_param4, "Port 1 Src:");
+        setLabel(m_param5, "Port 2 Node:");
+        setLabel(m_param6, "Ref Z0:");
+        m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
+        m_param4->setVisible(true); m_param5->setVisible(true); m_param6->setVisible(true);
+        m_param1->setText("10"); m_param2->setText("1Meg"); m_param3->setText("10");
+        m_param4->setText("V1"); m_param5->setText("OUT"); m_param6->setText("50");
+    } else if (index == 4) { // Monte Carlo
         setLabel(m_param1, "Runs:");
         m_param1->setVisible(true); m_param2->setVisible(false); m_param3->setVisible(false);
-        m_param4->setVisible(false); m_param5->setVisible(false);
+        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("10");
-    } else if (index == 4) { // Parametric Sweep
+    } else if (index == 5) { // Parametric Sweep
         setLabel(m_param1, "Component:");
         setLabel(m_param2, "Param:");
         setLabel(m_param3, "Start:");
         setLabel(m_param4, "Stop:");
         setLabel(m_param5, "Steps:");
         m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_param4->setVisible(true); m_param5->setVisible(true);
+        m_param4->setVisible(true); m_param5->setVisible(true); m_param6->setVisible(false);
         m_param1->setText("R1"); m_param2->setText("resistance"); m_param3->setText("1k");
         m_param4->setText("10k"); m_param5->setText("10");
-    } else if (index == 5) { // Sensitivity
+    } else if (index == 6) { // Sensitivity
         setLabel(m_param1, "Target Signal:");
         m_param1->setVisible(true); m_param2->setVisible(false); m_param3->setVisible(false);
-        m_param4->setVisible(false); m_param5->setVisible(false);
+        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("V(Out)");
-    } else if (index == 6) { // Real-time
+    } else if (index == 7) { // Real-time
         setLabel(m_param1, "Update (ms):");
         m_param1->setVisible(true); m_param2->setVisible(false); m_param3->setVisible(false);
-        m_param4->setVisible(false); m_param5->setVisible(false);
+        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("100");
     }
 }
@@ -2206,10 +2233,11 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
         case SimAnalysisType::Transient: idx = 0; break;
         case SimAnalysisType::OP:        idx = 1; break;
         case SimAnalysisType::AC:        idx = 2; break;
-        case SimAnalysisType::MonteCarlo: idx = 3; break;
-        case SimAnalysisType::Sensitivity: idx = 4; break;
+        case SimAnalysisType::SParameter: idx = 3; break;
+        case SimAnalysisType::MonteCarlo: idx = 4; break;
         case SimAnalysisType::ParametricSweep: idx = 5; break;
-        case SimAnalysisType::RealTime: idx = 6; break;
+        case SimAnalysisType::Sensitivity: idx = 6; break;
+        case SimAnalysisType::RealTime: idx = 7; break;
     }
     
     m_analysisType->setCurrentIndex(idx);
@@ -2227,6 +2255,13 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
             m_param1->setText(QString::number(fStart, 'g', 12));
             m_param2->setText(QString::number(fStop, 'g', 12));
             m_param3->setText(QString::number(pts));
+        } else if (idx == 3) { // RF S-Parameter
+            m_param1->setText(QString::number(cfg.fStart, 'g', 12));
+            m_param2->setText(QString::number(cfg.fStop, 'g', 12));
+            m_param3->setText(QString::number(cfg.pts));
+            m_param4->setText(cfg.rfPort1Source);
+            m_param5->setText(cfg.rfPort2Node);
+            m_param6->setText(QString::number(cfg.rfZ0, 'g', 10));
         }
     }
 
@@ -2253,19 +2288,22 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
         cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 10);
         cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 1e6);
         cfg.pts = std::max(1, (m_param3 ? m_param3->text().trimmed().toInt() : 10));
-        if (cfg.fStart <= 0.0) cfg.fStart = 10.0;
-        if (cfg.fStop <= 0.0) cfg.fStop = 1e6;
-        if (cfg.pts <= 0) cfg.pts = 10;
     } else if (idx == 3) {
-        cfg.type = SimAnalysisType::MonteCarlo;
+        cfg.type = SimAnalysisType::SParameter;
+        cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 10);
+        cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 1e6);
+        cfg.pts = std::max(1, (m_param3 ? m_param3->text().trimmed().toInt() : 10));
+        cfg.rfPort1Source = m_param4 ? m_param4->text().trimmed() : "V1";
+        cfg.rfPort2Node = m_param5 ? m_param5->text().trimmed() : "OUT";
+        cfg.rfZ0 = parseValue(m_param6 ? m_param6->text().trimmed() : QString(), 50.0);
     } else if (idx == 4) {
-        cfg.type = SimAnalysisType::ParametricSweep;
+        cfg.type = SimAnalysisType::MonteCarlo;
     } else if (idx == 5) {
-        cfg.type = SimAnalysisType::Sensitivity;
+        cfg.type = SimAnalysisType::ParametricSweep;
     } else if (idx == 6) {
+        cfg.type = SimAnalysisType::Sensitivity;
+    } else if (idx == 7) {
         cfg.type = SimAnalysisType::RealTime;
-    } else {
-        cfg.stop = 10e-3;
     }
     
     cfg.commandText = m_commandLine ? m_commandLine->text() : QString();
@@ -2273,7 +2311,7 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
 }
 
 bool SimulationPanel::isRealTimeMode() const {
-    return m_analysisType && m_analysisType->currentIndex() == 6;
+    return m_analysisType && m_analysisType->currentIndex() == 7;
 }
 
 
@@ -2407,6 +2445,14 @@ void SimulationPanel::onRunSimulation() {
             params.start = fStartText.isEmpty() ? "10" : fStartText;
             params.stop = fStopText.isEmpty() ? "1Meg" : fStopText;
             params.step = ptsText.isEmpty() ? "10" : ptsText;
+        } else if (idx == 3) {
+            params.type = SpiceNetlistGenerator::SParameter;
+            params.start = fStartText.isEmpty() ? "10" : fStartText;
+            params.stop = fStopText.isEmpty() ? "1Meg" : fStopText;
+            params.step = ptsText.isEmpty() ? "10" : ptsText;
+            params.rfPort1Source = m_param4->text().trimmed();
+            params.rfPort2Node = m_param5->text().trimmed();
+            params.rfZ0 = m_param6->text().trimmed().isEmpty() ? "50" : m_param6->text().trimmed();
         } else {
             params.type = SpiceNetlistGenerator::OP;
         }
@@ -2562,6 +2608,27 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
 
     plotBuiltinResults(effectiveResults);
     evaluateMeasStatements(effectiveResults);
+
+    // --- RF / Smith Chart Update ---
+    if (effectiveResults.analysisType == SimAnalysisType::SParameter && m_smithChart) {
+        QVector<std::complex<double>> s11Points;
+        for (const auto& w : effectiveResults.waveforms) {
+            if (w.name == "S11" || w.name == "s11") {
+                const size_t n = std::min(w.yData.size(), w.yPhase.size());
+                s11Points.reserve(static_cast<int>(n));
+                for (size_t i = 0; i < n; ++i) {
+                    double mag = w.yData[i];
+                    double phaseRad = w.yPhase[i] * M_PI / 180.0;
+                    s11Points.append(std::polar(mag, phaseRad));
+                }
+                break;
+            }
+        }
+        m_smithChart->setData(s11Points);
+        if (m_viewTabs && m_rfTab) {
+            m_viewTabs->setCurrentWidget(m_rfTab);
+        }
+    }
 
     if (m_waveformViewer) {
         m_waveformViewer->endBatchUpdate();

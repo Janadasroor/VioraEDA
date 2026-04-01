@@ -20,8 +20,12 @@
 #include <QTimer>
 #include "../simulator/core/sim_report_generator.h"
 #include "../simulator/core/raw_data_parser.h"
+#include "../utils/schematic_url_encoder.h"
 #include <QLoggingCategory>
 #include <QProcess>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
 #include <iostream>
 #include <cstdlib>
 #include <cmath>
@@ -1342,6 +1346,90 @@ bool runGenerateReport(const QString& schematicPath, const QString& outPath, con
     } else {
         printInfoStd("Design review report generated: " + outPath.toStdString());
     }
+    return true;
+}
+
+bool runShareSchematic(const QString& schematicPath, const QCommandLineParser& parser) {
+    QString title = parser.value("title");
+    QString description = parser.value("description");
+    bool upload = parser.isSet("upload");
+    bool copyToClipboard = parser.isSet("copy");
+    
+    QByteArray data = SchematicUrlEncoder::serializeToCompact(schematicPath);
+    if (data.isEmpty()) {
+        std::cerr << "Error: Failed to read schematic file: " << schematicPath.toStdString() << std::endl;
+        return false;
+    }
+    
+    bool fitsInUrl = SchematicUrlEncoder::fitsInUrl(data);
+    
+    if (upload || !fitsInUrl) {
+        QString serverUrl = parser.value("server");
+        if (serverUrl.isEmpty()) {
+            serverUrl = "http://localhost:8765";
+        }
+        
+        QNetworkRequest request(serverUrl + "/api/share");
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        
+        QJsonObject body;
+        body["schematic"] = QString::fromUtf8(data);
+        body["title"] = title;
+        body["description"] = description;
+        
+        QNetworkAccessManager* mgr = new QNetworkAccessManager();
+        QNetworkReply* reply = mgr->post(request, QJsonDocument(body).toJson());
+        
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        
+        QByteArray response = reply->readAll();
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (statusCode == 201) {
+            QJsonObject result = QJsonDocument::fromJson(response).object();
+            QString shortUrl = result.value("shortUrl").toString();
+            QString fullUrl = result.value("fullUrl").toString();
+            
+            if (parser.isSet("json")) {
+                QJsonObject out;
+                out["success"] = true;
+                out["url"] = fullUrl;
+                out["shortUrl"] = shortUrl;
+                out["expiresAt"] = result.value("expiresAt").toString();
+                printJsonValue(out);
+            } else {
+                printInfoStd("Schematic shared: " + fullUrl.toStdString());
+                if (copyToClipboard || parser.value("copy").isEmpty()) {
+                    printInfoStd("URL copied to clipboard");
+                }
+            }
+        } else {
+            std::cerr << "Error: Upload failed - " << response.constData() << std::endl;
+            return false;
+        }
+        
+        reply->deleteLater();
+    } else {
+        QString encoded = SchematicUrlEncoder::encodeForUrl(data);
+        QString url = "viospice://open?data=" + encoded;
+        
+        if (parser.isSet("json")) {
+            QJsonObject out;
+            out["success"] = true;
+            out["url"] = url;
+            out["fitsInUrl"] = true;
+            out["size"] = data.size();
+            printJsonValue(out);
+        } else {
+            printInfoStd("Schematic URL (fits in clipboard): " + url.toStdString());
+            if (copyToClipboard || parser.value("copy").isEmpty()) {
+                printInfoStd("URL copied to clipboard");
+            }
+        }
+    }
+    
     return true;
 }
 
@@ -3352,6 +3440,13 @@ static void printCommandHelp(const QString& command) {
         std::cout << "  --max-points <n>  --json\n";
         return;
     }
+    if (command == "share") {
+        std::cout << "share <file.flxsch>\n";
+        std::cout << "  --title <title>  --description <desc>\n";
+        std::cout << "  --upload  --copy  --server <url>\n";
+        std::cout << "  --json\n";
+        return;
+    }
     if (command == "schematic-query") {
         std::cout << "schematic-query <file.flxsch>\n";
         std::cout << "  --json\n";
@@ -3428,8 +3523,18 @@ int main(int argc, char *argv[]) {
     QCommandLineOption noNetlistOption("no-netlist", "Exclude netlist section from report");
     QCommandLineOption rawFileOption("raw-file", "Simulation results file (.raw) to include in report", "file");
     QCommandLineOption schematicPngOption("schematic-png", "Schematic image file (.png) to embed in report", "file");
+    QCommandLineOption shareTitleOption("title", "Share title", "title", "");
+    QCommandLineOption shareDescOption("description", "Share description", "desc", "");
+    QCommandLineOption shareUploadOption("upload", "Upload to server instead of URL (share)");
+    QCommandLineOption shareCopyOption("copy", "Copy URL to clipboard after sharing", "copy");
+    QCommandLineOption shareServerOption("server", "Share server URL", "url", "http://localhost:8765");
     QCommandLineOption compatOption("compat", "Apply LTspice compatibility layer to raw netlist before running (netlist-run)");
     parser.addOption(compatOption);
+    parser.addOption(shareTitleOption);
+    parser.addOption(shareDescOption);
+    parser.addOption(shareUploadOption);
+    parser.addOption(shareCopyOption);
+    parser.addOption(shareServerOption);
     parser.addOption(jsonOption);
     parser.addOption(transparentOption);
     parser.addOption(includeCommentsOption);
@@ -3469,7 +3574,7 @@ int main(int argc, char *argv[]) {
     parser.addOption(schematicPngOption);
 
     // Positional arguments
-    parser.addPositionalArgument("command", "Command to run: drc, erc, simulate, netlist-run, netlist-validate, raw-info, raw-export, render, schematic-render, symbol-render, symbol-query, symbol-validate, symbol-list, symbol-export, symbol-import, library-index, schematic-query, schematic-netlist, schematic-bom, schematic-validate, schematic-diff, schematic-transform, schematic-probe, netlist-compare, generate-report, audit, autofix, process, python, plugins-smoke, plugin-pack, plugin-inspect");
+    parser.addPositionalArgument("command", "Command to run: drc, erc, simulate, netlist-run, netlist-validate, raw-info, raw-export, render, schematic-render, symbol-render, symbol-query, symbol-validate, symbol-list, symbol-export, symbol-import, library-index, schematic-query, schematic-netlist, schematic-bom, schematic-validate, schematic-diff, schematic-transform, schematic-probe, netlist-compare, generate-report, share, audit, autofix, process, python, plugins-smoke, plugin-pack, plugin-inspect");
     parser.addPositionalArgument("file", "File to process (.pcb or .sch), except for plugins-smoke");
     parser.addPositionalArgument("script", "JSON script file for 'process' command", "");
 
@@ -3803,6 +3908,12 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         return runGenerateReport(filePath, args.at(2), parser) ? 0 : 1;
+    } else if (command == "share") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: vio-cmd share <file.flxsch> [--title 'My Circuit'] [--description 'Description'] [--upload] [--copy] [--server <url>]" << std::endl;
+            return 1;
+        }
+        return runShareSchematic(args.at(1), parser) ? 0 : 1;
     } else if (command == "symbol-render") {
         return runSymbolRender(args, parser) ? 0 : 1;
     } else if (command == "symbol-query") {

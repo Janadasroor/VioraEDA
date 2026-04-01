@@ -665,6 +665,19 @@ void SimManager::runAC(QGraphicsScene* scene, NetManager* netMgr, double fStart,
     runNgspiceSimulation(netlist, config);
 }
 
+void SimManager::runRFAnalysis(QGraphicsScene* scene, NetManager* netMgr, double fStart, double fStop, int points, const QString& p1Src, const QString& p2Node, double z0) {
+    SimAnalysisConfig config;
+    config.type = SimAnalysisType::SParameter;
+    config.fStart = fStart;
+    config.fStop = fStop;
+    config.fPoints = points;
+    config.rfPort1Source = p1Src.toStdString();
+    config.rfPort2Node = p2Node.toStdString();
+    config.rfZ0 = z0;
+    QString netlist = generateNetlist(scene, netMgr, config);
+    runNgspiceSimulation(netlist, config);
+}
+
 void SimManager::runMonteCarlo(QGraphicsScene* scene, NetManager* netMgr, int runs) {
     // Ngspice support for Monte Carlo usually involves a control script loop.
     emit logMessage("Monte Carlo via Ngspice not fully implemented yet, running OP.");
@@ -740,6 +753,15 @@ QString SimManager::generateNetlist(QGraphicsScene* scene, NetManager* netMgr, c
             params.start = QString::number(config.fStart > 0.0 ? config.fStart : 10.0, 'g', 12);
             params.stop = QString::number(config.fStop > 0.0 ? config.fStop : 1e6, 'g', 12);
             params.step = QString::number(config.fPoints > 0 ? config.fPoints : 10);
+            break;
+        case SimAnalysisType::SParameter:
+            params.type = SpiceNetlistGenerator::SParameter;
+            params.start = QString::number(config.fStart > 0.0 ? config.fStart : 10.0, 'g', 12);
+            params.stop = QString::number(config.fStop > 0.0 ? config.fStop : 1e6, 'g', 12);
+            params.step = QString::number(config.fPoints > 0 ? config.fPoints : 10);
+            params.rfPort1Source = QString::fromStdString(config.rfPort1Source);
+            params.rfPort2Node = QString::fromStdString(config.rfPort2Node);
+            params.rfZ0 = QString::number(config.rfZ0, 'g', 6);
             break;
         case SimAnalysisType::OP:
         default:

@@ -4251,6 +4251,26 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             case FFT:
                 // FFT is handled post-simulation, not a SPICE directive itself
                 break;
+            case SParameter:
+                {
+                    auto safeNumber = [](const QString& text, double fallback) {
+                        double parsed = 0.0;
+                        if (SimValueParser::parseSpiceNumber(text, parsed) && parsed > 0.0) {
+                            return text.trimmed();
+                        }
+                        return QString::number(fallback, 'g', 12);
+                    };
+
+                    const QString pts = safeNumber(params.step, 10.0);
+                    const QString start = safeNumber(params.start, 10.0);
+                    const QString stop = safeNumber(params.stop, 1e6);
+                    const QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
+                    
+                    netlist += QString(".ac dec %1 %2 %3\n").arg(pts, start, stop);
+                    netlist += QString(".net V(%1) %2 Rin=%3 Rout=%3\n")
+                                   .arg(params.rfPort2Node, params.rfPort1Source, z0);
+                }
+                break;
         }
     }
 
@@ -4323,6 +4343,11 @@ QString SpiceNetlistGenerator::buildCommand(const SimulationParams& params) {
         }
         case FFT:
             return ".fft";
+        case SParameter: {
+            const QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
+            return QString(".net V(%1) %2 Rin=%3 Rout=%4")
+                .arg(params.rfPort2Node, params.rfPort1Source, z0, z0);
+        }
     }
     return ".op";
 }

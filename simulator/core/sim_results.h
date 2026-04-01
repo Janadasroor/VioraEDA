@@ -9,7 +9,7 @@
 #include <functional>
 
 enum class SimAnalysisType {
-    OP, Transient, AC, DC, MonteCarlo, Sensitivity, ParametricSweep, Noise, Distortion, Optimization, FFT, RealTime
+    OP, Transient, AC, DC, MonteCarlo, Sensitivity, ParametricSweep, Noise, Distortion, Optimization, FFT, RealTime, SParameter
 };
 
 enum class SimIntegrationMethod {
@@ -102,6 +102,11 @@ struct SimAnalysisConfig {
     int optimizationYieldSamples = 0;   // 0 => disabled
     int optimizationSeed = 42;
     double optimizationYieldTargetTolerance = 0.0; // abs tolerance around target; 0 => disabled
+
+    // S-Parameter settings
+    std::string rfPort1Source; // e.g. "V1"
+    std::string rfPort2Node;   // e.g. "N1"
+    double rfZ0 = 50.0;        // Reference impedance (Ohms)
 
     // Numerical settings
     double relTol = 1e-3;

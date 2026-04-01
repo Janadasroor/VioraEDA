@@ -26,6 +26,7 @@ public:
     void runDCOP(QGraphicsScene* scene, NetManager* netMgr);
     void runTransient(QGraphicsScene* scene, NetManager* netMgr, double tStop, double tStep);
     void runAC(QGraphicsScene* scene, NetManager* netMgr, double fStart, double fStop, int points);
+    void runRFAnalysis(QGraphicsScene* scene, NetManager* netMgr, double fStart, double fStop, int points, const QString& p1Src, const QString& p2Node, double z0 = 50.0);
     
     void runMonteCarlo(QGraphicsScene* scene, NetManager* netMgr, int runs);
     void runParametricSweep(QGraphicsScene* scene, NetManager* netMgr, const QString& component, const QString& param, double start, double stop, int steps);
