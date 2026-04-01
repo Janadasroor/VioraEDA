@@ -197,6 +197,8 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     // Initial data fetch
     refreshModelList();
     loadHistory();
+
+    connect(&ConfigManager::instance(), &ConfigManager::requestModelRefresh, this, &GeminiPanel::refreshModelList);
 }
 
 void GeminiPanel::setMode(const QString& mode) {
@@ -429,7 +431,10 @@ void GeminiPanel::askSmartProbe(const QString& prompt,
     QString py = PythonManager::getPythonExecutable();
 
     QStringList args;
-    args << prompt << "--mode" << "ask" << "--model" << (m_bridge ? m_bridge->currentModel() : "gemini-2.0-flash");
+    QString overlayModel = ConfigManager::instance().geminiOverlayModel();
+    if (overlayModel.isEmpty()) overlayModel = (m_bridge ? m_bridge->currentModel() : "gemini-2.0-flash-lite");
+    
+    args << prompt << "--mode" << "ask" << "--model" << overlayModel;
     
     struct ProbeState {
         QString fullResponse;
@@ -786,6 +791,9 @@ void GeminiPanel::onModelFetchFinished(int exitCode, QProcess::ExitStatus) {
             m_bridge->updateAvailableModels(models);
             qDebug() << "[GeminiPanel] Models updated:" << models.count() << "found.";
         }
+        
+        // Persist to config for settings dialog
+        ConfigManager::instance().setAvailableGeminiModels(models);
     } else {
         qDebug() << "[GeminiPanel] Failed to parse model list JSON. Output was:" << output;
     }

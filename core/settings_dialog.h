@@ -10,6 +10,7 @@
 #include <QStackedWidget>
 #include <QTextEdit>
 #include <QLineEdit>
+#include <QPushButton>
 #include "ui/color_button.h"
 
 class SettingsDialog : public QDialog {
@@ -46,6 +47,12 @@ private:
     
     // AI
     QLineEdit* m_geminiKeyEdit;
+    QComboBox* m_geminiOverlayModelCombo;
+    QComboBox* m_geminiChatModelCombo;
+    QPushButton* m_refreshModelsBtn;
+    QCheckBox* m_aiOverlayCheck;
+    QCheckBox* m_aiChatCheck;
+    QCheckBox* m_aiErcCheck;
     
     // Libraries
     QTextEdit* m_symbolPathsEdit;

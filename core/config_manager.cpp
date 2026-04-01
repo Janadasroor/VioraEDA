@@ -43,10 +43,31 @@ void ConfigManager::setGeminiSelectedModel(const QString& model) {
     m_settings.sync();
 }
 
+QString ConfigManager::geminiOverlayModel() const { return m_geminiOverlayModel; }
+void ConfigManager::setGeminiOverlayModel(const QString& model) {
+    m_geminiOverlayModel = model;
+    m_settings.setValue("api/geminiOverlayModel", m_geminiOverlayModel);
+    m_settings.sync();
+}
+
+QString ConfigManager::geminiChatModel() const { return m_geminiChatModel; }
+void ConfigManager::setGeminiChatModel(const QString& model) {
+    m_geminiChatModel = model;
+    m_settings.setValue("api/geminiChatModel", m_geminiChatModel);
+    m_settings.sync();
+}
+
 QString ConfigManager::geminiSelectedMode() const { return m_geminiSelectedMode; }
 void ConfigManager::setGeminiSelectedMode(const QString& mode) {
     m_geminiSelectedMode = mode;
     m_settings.setValue("api/geminiSelectedMode", m_geminiSelectedMode);
+    m_settings.sync();
+}
+
+QStringList ConfigManager::availableGeminiModels() const { return m_availableGeminiModels; }
+void ConfigManager::setAvailableGeminiModels(const QStringList& models) {
+    m_availableGeminiModels = models;
+    m_settings.setValue("api/availableModels", m_availableGeminiModels);
     m_settings.sync();
 }
 
@@ -162,14 +183,24 @@ void ConfigManager::setFeatureEnabled(const QString& name, bool enabled) {
     m_settings.sync();
 }
 
+bool ConfigManager::aiOverlayEnabled() const { return isFeatureEnabled("ai_overlay", true); }
+void ConfigManager::setAiOverlayEnabled(bool enabled) { setFeatureEnabled("ai_overlay", enabled); }
+bool ConfigManager::aiChatEnabled() const { return isFeatureEnabled("ai_chat", true); }
+void ConfigManager::setAiChatEnabled(bool enabled) { setFeatureEnabled("ai_chat", enabled); }
+bool ConfigManager::aiErcEnabled() const { return isFeatureEnabled("ai_erc", true); }
+void ConfigManager::setAiErcEnabled(bool enabled) { setFeatureEnabled("ai_erc", enabled); }
+
 void ConfigManager::save() {
     m_settings.setValue("autoSave/enabled", m_autoSaveEnabled);
     m_settings.setValue("autoSave/interval", m_autoSaveInterval);
     m_settings.setValue("appearance/theme", m_currentTheme);
-    m_settings.setValue("api/geminiKey", m_geminiApiKey);
+    m_settings.setValue("api/geminiApiKey", m_geminiApiKey);
     m_settings.setValue("api/geminiInstructions", m_geminiGlobalInstructions);
     m_settings.setValue("api/geminiSelectedModel", m_geminiSelectedModel);
+    m_settings.setValue("api/geminiOverlayModel", m_geminiOverlayModel);
+    m_settings.setValue("api/geminiChatModel", m_geminiChatModel);
     m_settings.setValue("api/geminiSelectedMode", m_geminiSelectedMode);
+    m_settings.setValue("api/availableModels", m_availableGeminiModels);
     m_settings.setValue("libraries/symbols", m_symbolPaths);
     m_settings.setValue("libraries/models", m_modelPaths);
     m_settings.setValue("libraries/roots", m_libraryRoots);
@@ -197,7 +228,10 @@ void ConfigManager::load() {
     m_geminiApiKey = m_settings.value("api/geminiKey", "").toString();
     m_geminiGlobalInstructions = m_settings.value("api/geminiInstructions", "").toString();
     m_geminiSelectedModel = m_settings.value("api/geminiSelectedModel", "gemini-2.0-flash").toString();
+    m_geminiOverlayModel = m_settings.value("api/geminiOverlayModel", "gemini-2.0-flash-lite").toString();
+    m_geminiChatModel = m_settings.value("api/geminiChatModel", "gemini-2.0-flash").toString();
     m_geminiSelectedMode = m_settings.value("api/geminiSelectedMode", "Ask").toString();
+    m_availableGeminiModels = m_settings.value("api/availableModels").toStringList();
     m_symbolPaths = m_settings.value("libraries/symbols").toStringList();
     m_modelPaths = m_settings.value("libraries/models").toStringList();
     m_libraryRoots = m_settings.value("libraries/roots").toStringList();

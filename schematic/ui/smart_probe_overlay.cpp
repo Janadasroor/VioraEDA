@@ -68,6 +68,12 @@ void SmartProbeOverlay::refreshTheme() {
     m_aiLabel->setStyleSheet(QString("color: %1; font-size: 11px; line-height: 1.4;").arg(primaryColor));
 }
 
+void SmartProbeOverlay::clearAIAnnotation() {
+    if (m_aiLabel) m_aiLabel->clear();
+    if (m_aiStatusLabel) m_aiStatusLabel->clear();
+    if (m_separator) m_separator->hide();
+}
+
 void SmartProbeOverlay::showAt(const QPoint& pos, const QString& netName, const QString& instantVal, const QString& context) {
     refreshTheme(); // Sync with current theme before showing
     

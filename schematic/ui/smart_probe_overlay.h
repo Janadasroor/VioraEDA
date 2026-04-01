@@ -16,6 +16,7 @@ public:
     void showAt(const QPoint& pos, const QString& netName, const QString& instantVal, const QString& context);
     void updateAIAnnotation(const QString& text);
     void setAIStatus(const QString& status);
+    void clearAIAnnotation();
     void hideOverlay();
     void refreshTheme();
 

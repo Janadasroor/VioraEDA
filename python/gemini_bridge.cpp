@@ -8,9 +8,14 @@
 #include <QGuiApplication>
 
 GeminiBridge::GeminiBridge(QObject* parent) : QObject(parent) {
-    m_currentModel = ConfigManager::instance().geminiSelectedModel();
+    m_currentModel = ConfigManager::instance().geminiChatModel();
+    if (m_currentModel.isEmpty()) m_currentModel = ConfigManager::instance().geminiSelectedModel();
+    
     m_currentMode = ConfigManager::instance().geminiSelectedMode();
-    m_availableModels << m_currentModel;
+    m_availableModels = ConfigManager::instance().availableGeminiModels();
+    if (!m_availableModels.contains(m_currentModel)) {
+        m_availableModels << m_currentModel;
+    }
 }
 
 QString GeminiBridge::textColor() const {

@@ -33,8 +33,17 @@ public:
     QString geminiSelectedModel() const;
     void setGeminiSelectedModel(const QString& model);
 
+    QString geminiOverlayModel() const;
+    void setGeminiOverlayModel(const QString& model);
+
+    QString geminiChatModel() const;
+    void setGeminiChatModel(const QString& model);
+
     QString geminiSelectedMode() const;
     void setGeminiSelectedMode(const QString& mode);
+
+    QStringList availableGeminiModels() const;
+    void setAvailableGeminiModels(const QStringList& models);
 
     QString octopartApiKey() const;
     void setOctopartApiKey(const QString& key);
@@ -99,6 +108,17 @@ public:
     void save();
     void load();
 
+    // Specific AI Feature Toggles
+    bool aiOverlayEnabled() const;
+    void setAiOverlayEnabled(bool enabled);
+    bool aiChatEnabled() const;
+    void setAiChatEnabled(bool enabled);
+    bool aiErcEnabled() const;
+    void setAiErcEnabled(bool enabled);
+
+signals:
+    void requestModelRefresh();
+
 private:
     ConfigManager();
     QSettings m_settings;
@@ -109,7 +129,10 @@ private:
     QString m_geminiApiKey;
     QString m_geminiGlobalInstructions;
     QString m_geminiSelectedModel;
+    QString m_geminiOverlayModel;
+    QString m_geminiChatModel;
     QString m_geminiSelectedMode;
+    QStringList m_availableGeminiModels;
     QStringList m_symbolPaths;
     QStringList m_modelPaths;
     QStringList m_libraryRoots;
