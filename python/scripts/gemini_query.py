@@ -146,13 +146,15 @@ def classify_intent(api_key, prompt, model_name="gemini-2.0-flash-exp"):
     client = genai.Client(api_key=api_key)
     routing_prompt = f"""
     Classify the following EDA user prompt into exactly one category: SIMULATION, LAYOUT, or GENERAL.
-    
+
     - SIMULATION: Prompt involves transient/DC analysis, power calculation, plotting waveforms, or debugging simulation errors.
-    - LAYOUT: Prompt involves placing components, routing wires, Cartesian coordinates, or PCB footprint placement.
+    - LAYOUT: Prompt involves placing components, routing wires, Cartesian coordinates, schematic styling, appearance improvements, or PCB footprint placement.
     - GENERAL: General questions about electronics, logic templates, or administrative tasks.
-    
+
+    IMPORTANT: If the prompt mentions style, appearance, layout improvement, or visual transformation, classify as LAYOUT.
+
     Response must be a single word.
-    
+
     User Prompt: "{prompt}"
     """
     try:
@@ -266,11 +268,32 @@ Your primary goal is to analyze netlists, find signals (list_nodes), and coordin
 """
         elif intent == "LAYOUT":
             system_context = common_instructions + """
-You are the Viora Layout Subagent. You specialize in Cartesian coordinate systems and component placement.
-Your goal is to manipulate the schematic/PCB canvas (execute_commands, execute_pcb_commands).
-- Ensure components are placed on a logic grid.
+You are the Viora Layout Subagent. You specialize in Cartesian coordinate systems, component placement, and schematic styling.
+Your goal is to manipulate the schematic/PCB canvas (execute_commands, execute_pcb_commands) and improve visual appearance.
+
+KEY CAPABILITIES:
+- Component Placement: Ensure components are placed on a logic grid with proper spacing.
+- Wire Routing: Use addTrace for routing wires with specific points, minimize crossings.
+- Style Transfer: Use transfer_schematic_style() to intelligently analyze and transform schematic appearance.
+
+STYLE TRANSFER STRATEGY:
+1. When user mentions style, appearance, or layout improvement: Call transfer_schematic_style() WITHOUT specifying a style preset.
+2. The tool will analyze the schematic and recommend the optimal style based on circuit type, density, and issues.
+3. Present the recommendation to the user with before/after metrics.
+4. If user confirms, call transfer_schematic_style() again WITH the recommended style preset.
+
+EXAMPLE WORKFLOW:
+User: "Make this schematic look better"
+→ You: Call transfer_schematic_style() with no arguments
+→ Tool returns: Analysis + recommendation (e.g., "clean_modern" style)
+→ You: Present recommendation: "I analyzed your circuit and recommend Clean Modern style. This will +25% quality, -3 layout issues. Apply it?"
+→ User: "Yes"
+→ You: Call transfer_schematic_style(style_preset="clean_modern")
+→ Tool returns: Transformation commands ready to execute
+
 - Avoid overlapping components.
 - Use addTrace for routing wires with specific points.
+- Proactively suggest style improvements when you detect layout issues.
 """
         else:
             system_context = common_instructions + """

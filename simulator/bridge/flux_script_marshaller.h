@@ -1,33 +1,22 @@
-#ifndef FLUX_SCRIPT_MARSHALLER_H
-#define FLUX_SCRIPT_MARSHALLER_H
+#ifndef FLUX_SCRIPT_MARSHALLER_BRIDGE_H
+#define FLUX_SCRIPT_MARSHALLER_BRIDGE_H
 
-#include <string>
+#include <flux/marshaller.h>
 #include <map>
-#include <vector>
-
-#ifdef slots
-#undef slots
-#endif
-#include <pybind11/pybind11.h>
-#define slots Q_SLOTS
-
-namespace py = pybind11;
+#include <string>
 
 /**
- * @brief Utilities for converting between C++ simulation data and Python objects.
- * Designed for high performance during tight simulation loops.
+ * @brief Legacy bridge to the new standalone FluxScript Marshaller.
  */
 class FluxScriptMarshaller {
 public:
-    /**
-     * @brief Converts a C++ map of pin voltages to a Python dictionary.
-     */
-    static py::dict voltagesToDict(const std::map<std::string, double>& voltages);
+    static pybind11::dict voltagesToDict(const std::map<std::string, double>& voltages) {
+        return Flux::Marshaller::mapToDict(voltages);
+    }
 
-    /**
-     * @brief Converts a Python object (float or dict) to a C++ map of output values.
-     */
-    static std::map<std::string, double> pythonToOutputs(const py::object& result);
+    static std::map<std::string, double> pythonToOutputs(const pybind11::object& result) {
+        return Flux::Marshaller::dictToMap(result);
+    }
 };
 
-#endif // FLUX_SCRIPT_MARSHALLER_H
+#endif // FLUX_SCRIPT_MARSHALLER_BRIDGE_H

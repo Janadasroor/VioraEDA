@@ -7,9 +7,15 @@
 #include <memory>
 #include <atomic>
 #include <functional>
+#include <complex>
 
 enum class SimAnalysisType {
     OP, Transient, AC, DC, MonteCarlo, Sensitivity, ParametricSweep, Noise, Distortion, Optimization, FFT, RealTime, SParameter
+};
+
+struct SParameterPoint {
+    double frequency;
+    std::complex<double> s11, s12, s21, s22;
 };
 
 enum class SimIntegrationMethod {
@@ -186,6 +192,9 @@ public:
     std::map<std::string, SimMeasurementMetadata> measurementMetadata;
     std::vector<std::string> diagnostics;
     std::vector<std::string> fixSuggestions;
+
+    std::vector<SParameterPoint> sParameterResults;
+    double rfZ0 = 50.0; // Reference impedance used for this set of results
 
     struct Snapshot {
         std::map<std::string, double> nodeVoltages;

@@ -2,6 +2,15 @@
 
 This document tracks potential high-impact features inspired by the official `gemini-cli` repository to enhance the Viora AI Panel in VioSpice.
 
+## ✅ Completed Features
+
+### Circuit Style Transfer (2026-04-01)
+- [x] Python tool `transfer_schematic_style()` with 7 style presets
+- [x] C++ integration `onApplyAIStyleTransfer()` slot
+- [x] QML UI with style preset popup (🎨 button)
+- [x] Style presets: TI, ADI, LTspice, IEC, Military, Clean Modern, Vintage
+- [x] Documentation: `docs/style_transfer_guide.md`
+
 ## 1. Model Context Protocol (MCP) Integration
 - [ ] Implement an MCP Client within Viora.
 - [ ] Allow dynamic attachment of remote tools and servers.

@@ -177,8 +177,8 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_quickWidget = new QQuickWidget(this);
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
     m_quickWidget->engine()->rootContext()->setContextProperty("geminiBridge", m_bridge);
-    
-    // Set source (adjust path if necessary)
+
+    // Set source
     m_quickWidget->setSource(QUrl::fromLocalFile(QDir::current().absoluteFilePath("python/qml/GeminiRoot.qml")));
     
     mainLayout->addWidget(m_quickWidget);

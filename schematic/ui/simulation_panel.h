@@ -162,7 +162,7 @@ private:
     TabOscilloscopeState saveCurrentTabState() const;
     void restoreTabState(const TabOscilloscopeState& state);
     static QString tabStateKey(QGraphicsScene* scene);
-    void parseCommandText(const QString& command);
+    void parseCommandText(const QString& command, bool skipTypeOverride = false);
     void updateCommandDisplay();
     bool buildDerivedPowerWaveform(const QString& signalName, QVector<double>& time, QVector<double>& values) const;
     QStringList connectedNetsForItem(class SchematicItem* item, bool updateNets = true) const;

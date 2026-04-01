@@ -53,6 +53,7 @@
 #include "../dialogs/switch_properties_dialog.h"
 #include "../items/tuning_slider_symbol_item.h"
 #include "../dialogs/tuning_slider_properties_dialog.h"
+#include "../dialogs/design_rule_editor.h"
 #include "../dialogs/voltage_controlled_switch_dialog.h"
 #include "../dialogs/csw_properties_dialog.h"
 #include "../dialogs/vcvs_properties_dialog.h"
@@ -2066,11 +2067,21 @@ void SchematicEditor::onOpenCommandPalette() {
 }
 
 void SchematicEditor::onOpenERCRulesConfig() {
+    // Show the existing ERC Matrix Dialog
     ERCRulesDialog dlg(m_ercRules, this);
     if (dlg.exec() == QDialog::Accepted) {
         m_ercRules = dlg.getRules();
         m_isModified = true;
         statusBar()->showMessage("ERC Rules updated.", 3000);
+    }
+}
+
+void SchematicEditor::onOpenDesignRuleEditor() {
+    // Open the new DesignRuleEditor for creating/editing custom rules
+    DesignRule* rule = DesignRuleEditor::createRule(RuleCategory::Custom, this);
+    if (rule) {
+        statusBar()->showMessage(QString("Created rule: %1").arg(rule->name()), 3000);
+        // TODO: Add rule to project rule set
     }
 }
 

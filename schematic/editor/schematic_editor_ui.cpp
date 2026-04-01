@@ -526,6 +526,7 @@ void SchematicEditor::createToolBar() {
     toolsMenu->addAction(createComponentIcon("Annotate"), "Annotate Components", this, &SchematicEditor::onAnnotate);
     toolsMenu->addAction(createComponentIcon("ERC"), "Run ERC Checker", QKeySequence("F7"), this, &SchematicEditor::onRunERC);
     toolsMenu->addAction("Configure ERC Rules...", this, &SchematicEditor::onOpenERCRulesConfig);
+    toolsMenu->addAction("Design Rule Editor...", this, &SchematicEditor::onOpenDesignRuleEditor);
     toolsMenu->addAction("Clear ERC Exclusions", this, &SchematicEditor::onClearErcExclusions);
     toolsMenu->addAction("Bus Aliases...", this, &SchematicEditor::onOpenBusAliasesManager);
     toolsMenu->addAction(createComponentIcon("Netlist"), "Netlist Editor", this, &SchematicEditor::onOpenNetlistEditor);
@@ -1546,6 +1547,10 @@ void SchematicEditor::createDockWidgets() {
         pCfg.fStart = m_simConfig.fStart;
         pCfg.fStop = m_simConfig.fStop;
         pCfg.pts = m_simConfig.pts;
+        pCfg.rfPort1Source = m_simConfig.rfPort1Source;
+        pCfg.rfPort2Node = m_simConfig.rfPort2Node;
+        pCfg.rfZ0 = m_simConfig.rfZ0;
+        pCfg.commandText = m_simConfig.commandText;
         m_simulationPanel->setAnalysisConfig(pCfg);
 
         connect(m_simulationPanel, &SimulationPanel::resultsReady, this, &SchematicEditor::onSimulationResultsReady);
@@ -1759,8 +1764,8 @@ void SchematicEditor::createDrawingToolbar() {
     
     drawToolbar->addSeparator();
     
-    addManipAction("Flip H", "Flip Horizontal (Ctrl+Shift+E)", &SchematicEditor::onFlipHorizontal)->setShortcut(QKeySequence("Ctrl+Shift+E"));
-    addManipAction("Flip V", "Flip Vertical (Ctrl+E)", &SchematicEditor::onFlipVertical)->setShortcut(QKeySequence("Ctrl+E"));
+    addManipAction("Flip H", "Flip Horizontal (H)", &SchematicEditor::onFlipHorizontal)->setShortcut(QKeySequence("H"));
+    addManipAction("Flip V", "Flip Vertical (V)", &SchematicEditor::onFlipVertical)->setShortcut(QKeySequence("V"));
 
     drawToolbar->addSeparator();
 
@@ -1925,8 +1930,12 @@ void SchematicEditor::onOpenSimulationSetup() {
             pCfg.fStart = m_simConfig.fStart;
             pCfg.fStop = m_simConfig.fStop;
             pCfg.pts = m_simConfig.pts;
+            pCfg.rfPort1Source = m_simConfig.rfPort1Source;
+            pCfg.rfPort2Node = m_simConfig.rfPort2Node;
+            pCfg.rfZ0 = m_simConfig.rfZ0;
+            pCfg.commandText = m_simConfig.commandText;
             m_simulationPanel->setAnalysisConfig(pCfg);
-            
+
             // Sync schematic directive with the command text from dialog
             if (!m_simConfig.commandText.isEmpty()) {
                 m_simulationPanel->updateSchematicDirectiveFromCommand(m_simConfig.commandText);
@@ -1992,6 +2001,10 @@ bool SchematicEditor::editDirectiveWithSimulationSetup(const QString& currentCom
         pCfg.fStart = m_simConfig.fStart;
         pCfg.fStop = m_simConfig.fStop;
         pCfg.pts = m_simConfig.pts;
+        pCfg.rfPort1Source = m_simConfig.rfPort1Source;
+        pCfg.rfPort2Node = m_simConfig.rfPort2Node;
+        pCfg.rfZ0 = m_simConfig.rfZ0;
+        pCfg.commandText = m_simConfig.commandText;
         m_simulationPanel->setAnalysisConfig(pCfg);
     }
 
@@ -2261,6 +2274,10 @@ void SchematicEditor::onRunSimulation() {
         m_simConfig.fStart = cfg.fStart;
         m_simConfig.fStop = cfg.fStop;
         m_simConfig.pts = cfg.pts;
+        m_simConfig.rfPort1Source = cfg.rfPort1Source;
+        m_simConfig.rfPort2Node = cfg.rfPort2Node;
+        m_simConfig.rfZ0 = cfg.rfZ0;
+        m_simConfig.commandText = cfg.commandText;
     }
 
     SimAnalysisConfig config;
@@ -2278,6 +2295,14 @@ void SchematicEditor::onRunSimulation() {
         config.fStart = m_simConfig.fStart > 0.0 ? m_simConfig.fStart : 10.0;
         config.fStop = m_simConfig.fStop > 0.0 ? m_simConfig.fStop : 1e6;
         config.fPoints = m_simConfig.pts > 0 ? m_simConfig.pts : 10;
+    } else if (m_simConfig.type == SimAnalysisType::SParameter) {
+        config.type = SimAnalysisType::SParameter;
+        config.fStart = m_simConfig.fStart > 0.0 ? m_simConfig.fStart : 10.0;
+        config.fStop = m_simConfig.fStop > 0.0 ? m_simConfig.fStop : 1e6;
+        config.fPoints = m_simConfig.pts > 0 ? m_simConfig.pts : 10;
+        config.rfPort1Source = m_simConfig.rfPort1Source.toStdString();
+        config.rfPort2Node = m_simConfig.rfPort2Node.toStdString();
+        config.rfZ0 = m_simConfig.rfZ0 > 0.0 ? m_simConfig.rfZ0 : 50.0;
     }
 
     // 2. Trigger Engine via Ngspice backend asynchronously.

@@ -1,16 +1,17 @@
-set(FLUXCORE_SOURCES ${CORE_SOURCES})
-list(TRANSFORM FLUXCORE_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/../")
+# Strip 'core/' prefix from CORE_SOURCES defined in project_sources.cmake
+set(LOCAL_CORE_SOURCES ${CORE_SOURCES})
+list(TRANSFORM LOCAL_CORE_SOURCES REPLACE "^core/" "")
 
-add_library(FluxCore STATIC ${FLUXCORE_SOURCES})
+if(VIOSPICE_ENABLE_PYTHON)
+    list(APPEND LOCAL_CORE_SOURCES
+        flux_python.cpp
+    )
+endif()
+
+add_library(FluxCore STATIC ${LOCAL_CORE_SOURCES})
 set_target_properties(FluxCore PROPERTIES AUTOMOC ON)
 vioraeda_configure_module_target(FluxCore)
-if(VIOSPICE_ENGINE_FOUND)
-    target_link_libraries(FluxCore PRIVATE VIOSPICE_ENGINE::viospice)
-    target_include_directories(FluxCore PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
-endif()
-if(VIOSPICE_ENABLE_PYTHON)
-    target_link_libraries(FluxCore PRIVATE pybind11::embed)
-endif()
+target_link_libraries(FluxCore PUBLIC FluxScript)
 
 # Headless library for Clean Architecture models and engines
 set(HEADLESS_SOURCES
@@ -20,7 +21,7 @@ set(HEADLESS_SOURCES
     ../schematic/models/schematic_page_model.h
     ../schematic/models/erc_engine.h
     ../schematic/analysis/netlist_engine.h
-    sync_engine.h
+    sync_manager.h
 )
 add_library(FluxHeadless STATIC ${HEADLESS_SOURCES})
 set_target_properties(FluxHeadless PROPERTIES AUTOMOC ON)

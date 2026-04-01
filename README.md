@@ -1,6 +1,6 @@
-# VIOSpice 
+# VioraEDA 
 
-**VIOSpice** is a high-performance, open-source SPICE-class circuit simulator with a modern, interactive schematic editor. Designed for speed and visual excellence, it bridges the gap between traditional simulation engines and modern user interfaces.
+**VioraEDA** is a high-performance, open-source SPICE-class circuit simulator with a modern, interactive schematic editor. Designed for speed and visual excellence, it bridges the gap between traditional simulation engines and modern user interfaces.
 
 
 ## Key Features
@@ -30,7 +30,7 @@
 
 ### Simulation Engine Setup
 
-Before building VIOSpice, ensure that the custom **ngspice-shared** library is installed to your system:
+Before building VioraEDA, ensure that the custom **ngspice-shared** library is installed to your system:
 
 ```bash
 cd path/to/ngspice/release
@@ -41,8 +41,8 @@ sudo make install
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/Janadasroor/vspice.git
-   cd vspice
+   git clone https://github.com/Janadasroor/VioraEDA.git
+   cd VioraEDA
    ```
 
 2. **Configure and build**:
@@ -54,7 +54,7 @@ sudo make install
 
 3. **Run the application**:
    ```bash
-   ./viospice
+   ./VioraEDA
    ```
 
 ## Workflow

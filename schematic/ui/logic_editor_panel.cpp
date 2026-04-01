@@ -45,6 +45,8 @@
 #include <pybind11/stl.h>
 #include <QFileSystemWatcher>
 
+namespace py = pybind11;
+
 LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)
     : QMainWindow(parent, Qt::Window), m_scene(scene), m_netManager(netManager) {
     

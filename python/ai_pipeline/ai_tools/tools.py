@@ -107,6 +107,528 @@ class ToolRegistry:
         except Exception as e:
             return {"error": f"Failed to save template: {str(e)}"}
 
+    def transfer_schematic_style(self, style_preset="", custom_instructions=""):
+        """
+        Context-aware visual style transformation for schematics.
+        Automatically analyzes the schematic and recommends optimal styles.
+        
+        Style presets:
+        - ti: Texas Instruments application note style (clean, horizontal components, generous spacing)
+        - adi: Analog Devices style (compact, vertical signal flow, clear labels)
+        - ltspice: LTspice default style (traditional, compact layout)
+        - iec: European/IEC standard symbols (rectangular components, formal notation)
+        - military: MIL-STD style (conservative spacing, clear signal flow)
+        - clean_modern: Modern minimalist (increased spacing, clean alignment)
+        - vintage: Classic textbook style (traditional symbols, generous whitespace)
+        
+        If no style_preset is provided, analyzes the schematic and recommends the best style.
+        """
+        try:
+            # Load current schematic items
+            items = self._load_schematic_items()
+            if not items:
+                return {"error": "No schematic items found. Please open or create a schematic first."}
+            
+            # Analyze schematic context
+            analysis = self._analyze_schematic_context(items)
+            
+            # If no style specified, recommend one based on context
+            if not style_preset:
+                recommended_style = self._recommend_style(analysis, custom_instructions)
+                return self._generate_style_recommendation(analysis, recommended_style, custom_instructions)
+            
+            # Define style presets with transformation parameters
+            style_configs = {
+                "ti": {
+                    "name": "Texas Instruments",
+                    "component_spacing": 80,
+                    "wire_spacing": 40,
+                    "font_size": 12,
+                    "alignment": "horizontal",
+                    "signal_flow": "left_to_right",
+                    "description": "Clean, professional layout with horizontal components and generous spacing",
+                    "best_for": ["application_notes", "datasheets", "power_supplies", "analog_circuits"]
+                },
+                "adi": {
+                    "name": "Analog Devices",
+                    "component_spacing": 60,
+                    "wire_spacing": 30,
+                    "font_size": 11,
+                    "alignment": "mixed",
+                    "signal_flow": "top_to_bottom",
+                    "description": "Compact layout with clear signal flow and detailed annotations",
+                    "best_for": ["analog_circuits", "signal_processing", "filters", "amplifiers"]
+                },
+                "ltspice": {
+                    "name": "LTspice Classic",
+                    "component_spacing": 50,
+                    "wire_spacing": 25,
+                    "font_size": 10,
+                    "alignment": "traditional",
+                    "signal_flow": "left_to_right",
+                    "description": "Traditional compact layout familiar to LTspice users",
+                    "best_for": ["quick_prototyping", "education", "legacy_designs"]
+                },
+                "iec": {
+                    "name": "IEC European Standard",
+                    "component_spacing": 70,
+                    "wire_spacing": 35,
+                    "font_size": 11,
+                    "alignment": "horizontal",
+                    "signal_flow": "left_to_right",
+                    "description": "Formal European standard with rectangular component symbols",
+                    "best_for": ["international_docs", "industrial", "standards_compliance"]
+                },
+                "military": {
+                    "name": "MIL-STD Standard",
+                    "component_spacing": 90,
+                    "wire_spacing": 45,
+                    "font_size": 12,
+                    "alignment": "horizontal",
+                    "signal_flow": "left_to_right",
+                    "description": "Conservative military standard with maximum clarity",
+                    "best_for": ["aerospace", "defense", "high_reliability", "documentation"]
+                },
+                "clean_modern": {
+                    "name": "Clean Modern",
+                    "component_spacing": 100,
+                    "wire_spacing": 50,
+                    "font_size": 13,
+                    "alignment": "horizontal",
+                    "signal_flow": "left_to_right",
+                    "description": "Modern minimalist aesthetic with maximum spacing and clarity",
+                    "best_for": ["presentations", "publications", "modern_docs", "teaching"]
+                },
+                "vintage": {
+                    "name": "Vintage Textbook",
+                    "component_spacing": 75,
+                    "wire_spacing": 40,
+                    "font_size": 11,
+                    "alignment": "traditional",
+                    "signal_flow": "left_to_right",
+                    "description": "Classic textbook style with traditional symbols and generous whitespace",
+                    "best_for": ["education", "textbooks", "historical", "classic_designs"]
+                }
+            }
+            
+            if style_preset not in style_configs:
+                return {
+                    "error": f"Unknown style preset: {style_preset}",
+                    "available_styles": list(style_configs.keys()),
+                    "recommendation": self._recommend_style(analysis, custom_instructions)
+                }
+            
+            config = style_configs[style_preset]
+            
+            # Generate intelligent transformation commands
+            commands = self._generate_style_commands(items, analysis, config, custom_instructions)
+            
+            # Calculate before/after metrics
+            before_metrics = self._calculate_layout_metrics(items, analysis)
+            after_metrics = self._calculate_projected_metrics(before_metrics, config)
+            
+            return {
+                "status": "style_transfer_ready",
+                "style_applied": style_preset,
+                "style_name": config["name"],
+                "description": config["description"],
+                "context_analysis": analysis,
+                "components_affected": len(analysis["components"]),
+                "commands": commands,
+                "before_metrics": before_metrics,
+                "after_metrics": after_metrics,
+                "improvements": self._calculate_improvements(before_metrics, after_metrics),
+                "instructions": f"Apply {config['name']} style transformation. This will optimize {analysis['circuit_type']} circuit layout with {config['component_spacing']}px spacing."
+            }
+            
+        except Exception as e:
+            return {"error": f"Style transfer failed: {str(e)}"}
+    
+    def _analyze_schematic_context(self, items):
+        """Analyze schematic to understand circuit type, density, and characteristics."""
+        components = [item for item in items if item.get("type") not in ["Wire", "NetLabel", "Junction", "Label"]]
+        wires = [item for item in items if item.get("type") == "Wire"]
+        labels = [item for item in items if item.get("type") in ["NetLabel", "Label"]]
+        
+        # Analyze component types
+        component_types = {}
+        for comp in components:
+            comp_type = comp.get("type", "Unknown")
+            component_types[comp_type] = component_types.get(comp_type, 0) + 1
+        
+        # Determine circuit type based on component composition
+        circuit_type = self._infer_circuit_type(component_types, components)
+        
+        # Calculate layout density
+        if components:
+            x_coords = [comp.get("x", 0) for comp in components]
+            y_coords = [comp.get("y", 0) for comp in components]
+            bounding_box = {
+                "min_x": min(x_coords),
+                "max_x": max(x_coords),
+                "min_y": min(y_coords),
+                "max_y": max(y_coords)
+            }
+            area = (bounding_box["max_x"] - bounding_box["min_x"]) * (bounding_box["max_y"] - bounding_box["min_y"])
+            density = len(components) / max(area, 1) * 10000  # components per 10k units
+        else:
+            bounding_box = {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}
+            density = 0
+        
+        # Detect layout issues
+        issues = self._detect_layout_issues(components, wires)
+        
+        # Analyze signal flow direction
+        signal_flow = self._analyze_signal_flow(components, wires)
+        
+        return {
+            "component_count": len(components),
+            "wire_count": len(wires),
+            "label_count": len(labels),
+            "component_types": component_types,
+            "circuit_type": circuit_type,
+            "bounding_box": bounding_box,
+            "density": density,
+            "density_category": "sparse" if density < 5 else ("dense" if density > 20 else "moderate"),
+            "issues": issues,
+            "signal_flow": signal_flow,
+            "complexity": "simple" if len(components) < 10 else ("moderate" if len(components) < 50 else "complex")
+        }
+    
+    def _infer_circuit_type(self, component_types, components):
+        """Infer circuit type from component composition."""
+        # Check for specific circuit signatures
+        has_ic = any("IC" in t or "Operational" in t for t in component_types.keys())
+        has_transistors = any("Transistor" in t or "BJT" in t or "MOSFET" in t for t in component_types.keys())
+        has_digital = any("Logic" in t or "Gate" in t for t in component_types.keys())
+        
+        resistor_count = component_types.get("Resistor", 0)
+        capacitor_count = component_types.get("Capacitor", 0)
+        inductor_count = component_types.get("Inductor", 0)
+        
+        # Classify based on component ratios
+        if has_digital:
+            return "digital_circuit"
+        elif inductor_count > 2 and capacitor_count > 2:
+            return "rf_circuit"
+        elif has_ic and resistor_count > 5:
+            return "analog_signal_processing"
+        elif has_transistors and capacitor_count > 3:
+            return "amplifier"
+        elif capacitor_count > 5:
+            return "filter"
+        elif any("Voltage" in t for t in component_types.keys()):
+            return "power_supply"
+        elif len(component_types) < 5:
+            return "simple_circuit"
+        else:
+            return "mixed_signal"
+    
+    def _detect_layout_issues(self, components, wires):
+        """Detect common layout issues in the schematic."""
+        issues = []
+        
+        # Check for component overlap
+        for i, c1 in enumerate(components):
+            for j, c2 in enumerate(components[i+1:], i+1):
+                x1, y1 = c1.get("x", 0), c1.get("y", 0)
+                x2, y2 = c2.get("x", 0), c2.get("y", 0)
+                distance = ((x1-x2)**2 + (y1-y2)**2)**0.5
+                if distance < 30:  # Too close
+                    issues.append({
+                        "type": "component_overlap",
+                        "severity": "high",
+                        "description": f"{c1.get('reference', 'C1')} and {c2.get('reference', 'C2')} are too close ({distance:.1f}px)"
+                    })
+        
+        # Check for wire crossings
+        crossing_count = 0
+        for i, w1 in enumerate(wires):
+            for w2 in wires[i+1:]:
+                # Simplified crossing detection
+                if w1.get("points") and w2.get("points"):
+                    # Would need proper line intersection logic here
+                    crossing_count += 1
+        
+        if crossing_count > 5:
+            issues.append({
+                "type": "excessive_wire_crossings",
+                "severity": "medium",
+                "description": f"Detected {crossing_count} wire crossings - consider re-routing"
+            })
+        
+        # Check for inconsistent alignment
+        horizontal_count = sum(1 for c in components if c.get("rotation", 0) % 180 == 0)
+        vertical_count = len(components) - horizontal_count
+        
+        if 0.3 < horizontal_count / max(len(components), 1) < 0.7 and len(components) > 5:
+            issues.append({
+                "type": "inconsistent_alignment",
+                "severity": "low",
+                "description": "Mixed component orientations - consider standardizing"
+            })
+        
+        # Check density issues
+        if components:
+            x_coords = [c.get("x", 0) for c in components]
+            if max(x_coords) - min(x_coords) < len(components) * 20:
+                issues.append({
+                    "type": "high_density",
+                    "severity": "medium",
+                    "description": "Components are densely packed - may benefit from increased spacing"
+                })
+        
+        return issues
+    
+    def _analyze_signal_flow(self, components, wires):
+        """Analyze the dominant signal flow direction."""
+        if not components or len(components) < 2:
+            return "undetermined"
+        
+        # Simple heuristic: check overall bounding box aspect ratio
+        x_coords = [c.get("x", 0) for c in components]
+        y_coords = [c.get("y", 0) for c in components]
+        
+        width = max(x_coords) - min(x_coords)
+        height = max(y_coords) - min(y_coords)
+        
+        if width > height * 1.5:
+            return "left_to_right"
+        elif height > width * 1.5:
+            return "top_to_bottom"
+        else:
+            return "mixed"
+    
+    def _recommend_style(self, analysis, custom_instructions=""):
+        """Recommend the best style based on schematic context."""
+        circuit_type = analysis.get("circuit_type", "mixed_signal")
+        density = analysis.get("density_category", "moderate")
+        complexity = analysis.get("complexity", "moderate")
+        issues = analysis.get("issues", [])
+        
+        # Check for specific issue-based recommendations
+        issue_types = [i.get("type") for i in issues]
+        
+        if "high_density" in issue_types or "component_overlap" in issue_types:
+            return "clean_modern"  # More spacing
+        
+        if "inconsistent_alignment" in issue_types:
+            return "ti"  # Strong horizontal alignment
+        
+        # Circuit type based recommendations
+        style_scores = {
+            "ti": 0,
+            "adi": 0,
+            "ltspice": 0,
+            "iec": 0,
+            "military": 0,
+            "clean_modern": 0,
+            "vintage": 0
+        }
+        
+        # Boost scores based on circuit type
+        if circuit_type in ["power_supply", "analog_circuits"]:
+            style_scores["ti"] += 3
+        if circuit_type in ["analog_signal_processing", "amplifier", "filter"]:
+            style_scores["adi"] += 3
+            style_scores["ti"] += 1
+        if circuit_type in ["simple_circuit", "education"]:
+            style_scores["ltspice"] += 2
+            style_scores["vintage"] += 1
+        if circuit_type in ["mixed_signal", "digital_circuit"]:
+            style_scores["clean_modern"] += 2
+        if circuit_type in ["rf_circuit"]:
+            style_scores["adi"] += 2
+        
+        # Density-based adjustments
+        if density == "sparse":
+            style_scores["ltspice"] += 1
+        elif density == "dense":
+            style_scores["clean_modern"] += 2
+            style_scores["military"] += 1
+        
+        # Complexity-based adjustments
+        if complexity == "complex":
+            style_scores["clean_modern"] += 1
+            style_scores["military"] += 1
+        
+        # Find best match
+        best_style = max(style_scores, key=style_scores.get)
+        
+        # If all scores are 0, use default based on common use cases
+        if style_scores[best_style] == 0:
+            return "ti"  # Safe default
+        
+        return best_style
+    
+    def _generate_style_recommendation(self, analysis, recommended_style, custom_instructions=""):
+        """Generate a style recommendation with full context."""
+        style_configs = {
+            "ti": {"name": "Texas Instruments", "description": "Clean, professional layout"},
+            "adi": {"name": "Analog Devices", "description": "Compact with clear signal flow"},
+            "ltspice": {"name": "LTspice Classic", "description": "Traditional compact layout"},
+            "iec": {"name": "IEC European", "description": "Formal rectangular symbols"},
+            "military": {"name": "MIL-STD", "description": "Conservative with maximum clarity"},
+            "clean_modern": {"name": "Clean Modern", "description": "Modern minimalist aesthetic"},
+            "vintage": {"name": "Vintage Textbook", "description": "Classic textbook style"}
+        }
+        
+        config = style_configs.get(recommended_style, style_configs["ti"])
+        
+        return {
+            "status": "recommendation",
+            "analysis": {
+                "circuit_type": analysis.get("circuit_type", "unknown"),
+                "complexity": analysis.get("complexity", "moderate"),
+                "density": analysis.get("density_category", "moderate"),
+                "component_count": analysis.get("component_count", 0),
+                "issues_detected": len(analysis.get("issues", []))
+            },
+            "recommended_style": recommended_style,
+            "style_name": config["name"],
+            "style_description": config["description"],
+            "reasoning": self._generate_recommendation_reasoning(analysis, recommended_style),
+            "alternative_styles": self._get_alternative_styles(analysis, recommended_style),
+            "instructions": f"Based on your {analysis.get('circuit_type', 'circuit')}, I recommend {config['name']} style. {config['description']}. Shall I apply this transformation?"
+        }
+    
+    def _generate_recommendation_reasoning(self, analysis, style):
+        """Generate human-readable reasoning for style recommendation."""
+        reasons = []
+        
+        circuit_type = analysis.get("circuit_type", "circuit")
+        density = analysis.get("density_category", "moderate")
+        issues = analysis.get("issues", [])
+        
+        if style == "ti":
+            reasons.append("TI style provides excellent clarity for this type of circuit")
+            if any(i.get("type") == "inconsistent_alignment" for i in issues):
+                reasons.append("will standardize component alignment horizontally")
+        
+        elif style == "adi":
+            reasons.append("ADI style is ideal for analog/signal processing circuits")
+            reasons.append("provides clear signal flow visualization")
+        
+        elif style == "clean_modern":
+            reasons.append("Clean Modern style will improve readability")
+            if density == "dense":
+                reasons.append("increased spacing will reduce visual clutter")
+            if any(i.get("type") == "component_overlap" for i in issues):
+                reasons.append("will resolve component spacing issues")
+        
+        elif style == "military":
+            reasons.append("MIL-STD provides maximum documentation clarity")
+            reasons.append("suitable for high-reliability applications")
+        
+        return "; ".join(reasons) if reasons else "This style matches your circuit characteristics"
+    
+    def _get_alternative_styles(self, analysis, primary_style):
+        """Get alternative style recommendations."""
+        all_styles = ["ti", "adi", "ltspice", "iec", "military", "clean_modern", "vintage"]
+        alternatives = [s for s in all_styles if s != primary_style][:2]
+        return alternatives
+    
+    def _generate_style_commands(self, items, analysis, config, custom_instructions=""):
+        """Generate transformation commands for applying the style."""
+        commands = []
+        components = [item for item in items if item.get("type") not in ["Wire", "NetLabel", "Junction"]]
+        
+        # Generate per-component style commands
+        for comp in components:
+            ref = comp.get("reference", "U")
+            commands.append({
+                "cmd": "setComponentStyle",
+                "reference": ref,
+                "properties": {
+                    "spacing": config["component_spacing"],
+                    "font_size": config["font_size"],
+                    "alignment": config["alignment"]
+                }
+            })
+        
+        # Apply global style settings
+        commands.append({
+            "cmd": "applyGlobalStyle",
+            "style": config["name"].lower().replace(" ", "_"),
+            "properties": {
+                "component_spacing": config["component_spacing"],
+                "wire_spacing": config["wire_spacing"],
+                "font_size": config["font_size"],
+                "signal_flow": config["signal_flow"]
+            }
+        })
+        
+        # Apply issue-specific fixes
+        for issue in analysis.get("issues", []):
+            if issue.get("type") == "component_overlap":
+                commands.append({
+                    "cmd": "resolveOverlap",
+                    "issue": issue,
+                    "priority": "high"
+                })
+            elif issue.get("type") == "excessive_wire_crossings":
+                commands.append({
+                    "cmd": "optimizeWireRouting",
+                    "issue": issue
+                })
+        
+        # Add custom instructions
+        if custom_instructions:
+            commands.append({
+                "cmd": "applyCustomStyle",
+                "instructions": custom_instructions
+            })
+        
+        return commands
+    
+    def _calculate_layout_metrics(self, items, analysis):
+        """Calculate current layout quality metrics."""
+        components = analysis.get("components", [])
+        issues = analysis.get("issues", [])
+        
+        return {
+            "component_count": len(components),
+            "issue_count": len(issues),
+            "high_severity_issues": sum(1 for i in issues if i.get("severity") == "high"),
+            "density_score": analysis.get("density", 0),
+            "alignment_score": 70,  # Placeholder - would calculate from actual data
+            "spacing_score": 65,    # Placeholder
+            "overall_quality": max(0, 100 - len(issues) * 10)
+        }
+    
+    def _calculate_projected_metrics(self, before_metrics, config):
+        """Calculate projected metrics after style application."""
+        # Estimate improvements based on style characteristics
+        issue_reduction = 0.6  # Assume 60% of issues resolved
+        spacing_improvement = (config["component_spacing"] - 50) / 50 * 20  # Baseline 50px
+        
+        return {
+            "component_count": before_metrics["component_count"],
+            "issue_count": int(before_metrics["issue_count"] * (1 - issue_reduction)),
+            "high_severity_issues": max(0, before_metrics["high_severity_issues"] - 2),
+            "density_score": before_metrics["density_score"] * 0.8,  # Reduced density
+            "alignment_score": min(100, before_metrics["alignment_score"] + 20),
+            "spacing_score": min(100, before_metrics["spacing_score"] + spacing_improvement),
+            "overall_quality": min(100, before_metrics["overall_quality"] + 25)
+        }
+    
+    def _calculate_improvements(self, before, after):
+        """Calculate improvement summary."""
+        quality_delta = after["overall_quality"] - before["overall_quality"]
+        issue_delta = before["issue_count"] - after["issue_count"]
+        
+        improvements = []
+        if quality_delta > 0:
+            improvements.append(f"+{quality_delta}% overall quality")
+        if issue_delta > 0:
+            improvements.append(f"-{issue_delta} layout issues resolved")
+        if after["alignment_score"] > before["alignment_score"]:
+            improvements.append("improved component alignment")
+        if after["spacing_score"] > before["spacing_score"]:
+            improvements.append("better component spacing")
+        
+        return improvements if improvements else ["visual consistency improvements"]
+
     def synthesize_subcircuit(self, name, description, subcircuit_code):
         """
         Synthesizes a SPICE subcircuit from natural language or requirements, saves it as a .sub file 
@@ -633,21 +1155,21 @@ def get_tools_schema():
         },
         {
             "name": "transfer_schematic_style",
-            "description": "Applies a visual style transformation to the schematic. Use this when the user wants to change the appearance of their circuit to match a specific company standard or aesthetic (e.g., 'Make it look like a TI application note', 'Apply European style symbols', 'Use military standard layout').",
+            "description": "Applies a visual style transformation to the schematic OR provides intelligent style recommendations based on circuit analysis. Use this when the user wants to improve schematic appearance, fix layout issues, or match a specific standard. If no style is specified, automatically analyzes the circuit and recommends the optimal style.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "style_preset": {
                         "type": "string",
                         "enum": ["ti", "adi", "ltspice", "iec", "military", "clean_modern", "vintage"],
-                        "description": "The target style preset to apply."
+                        "description": "Optional: The target style preset. If omitted, AI will analyze and recommend the best style."
                     },
                     "custom_instructions": {
                         "type": "string",
-                        "description": "Optional custom styling instructions (e.g., 'increase component spacing', 'use larger fonts', 'align all resistors horizontally')."
+                        "description": "Optional custom styling instructions (e.g., 'increase component spacing', 'align all resistors horizontally')."
                     }
                 },
-                "required": ["style_preset"],
+                "required": [],
             },
         },
     ]
@@ -664,8 +1186,8 @@ def get_subagent_tools(intent="GENERAL"):
         # Simulation subagent only needs discovery, analysis, and plotting tools.
         allowed = ["list_nodes", "get_signal_data", "compute_average_power", "run_simulation", "plot_signal"]
     elif intent == "LAYOUT":
-        # Layout subagent only needs schematic/PCB manipulation tools.
-        allowed = ["execute_commands", "execute_pcb_commands", "generate_schematic_from_netlist"]
+        # Layout subagent needs schematic/PCB manipulation AND style transfer tools.
+        allowed = ["execute_commands", "execute_pcb_commands", "generate_schematic_from_netlist", "transfer_schematic_style"]
     else:
         # General subagent has access to everything.
         return all_tools

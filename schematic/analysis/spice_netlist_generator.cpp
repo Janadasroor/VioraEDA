@@ -37,6 +37,7 @@ struct UserSpiceContentSummary {
     bool hasElementCards = false;
     bool hasLtspiceStartup = false;
     bool hasExplicitSaveDirective = false;
+    bool hasNetDirective = false;
 };
 
 bool isLikelyLogicInputPinName(const QString& rawPinName) {
@@ -2554,7 +2555,11 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
         if (line.startsWith('*') || line.startsWith(';') || line.startsWith('#')) continue;
 
         if (line.startsWith('.')) {
-            const QString card = line.section(QRegularExpression("\\s+"), 0, 0).trimmed().toLower();
+            QString card;
+            int firstSpace = line.indexOf(' ');
+            if (firstSpace > 0) card = line.left(firstSpace).trimmed().toLower();
+            else card = line.trimmed().toLower();
+
             if (analysisCards.contains(card)) {
                 summary.hasExplicitAnalysisCard = true;
                 if (analysisSeen.contains(card)) {
@@ -2567,6 +2572,10 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
 
             if (card == ".save") {
                 summary.hasExplicitSaveDirective = true;
+            }
+
+            if (card == ".net") {
+                summary.hasNetDirective = true;
             }
 
             if (card == ".tran" && line.contains("startup", Qt::CaseInsensitive)) {
@@ -2695,6 +2704,8 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
 QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& projectDir, NetManager* /*netManager*/, const SimulationParams& params) {
     if (!scene) return "* Missing scene\n";
 
+    qDebug() << "[SpiceNetlistGenerator] type=" << params.type << "rfPort1Source=" << params.rfPort1Source << "rfPort2Node=" << params.rfPort2Node << "rfZ0=" << params.rfZ0;
+
     QString netlist;
     netlist += "* viospice Automated Hierarchical SPICE Netlist\n";
     netlist += "* Generated on " + QDateTime::currentDateTime().toString() + "\n\n";
@@ -2720,6 +2731,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     bool hasExplicitAnalysisCard = false;
     bool hasUserElementCards = false;
     bool hasExplicitSaveDirective = false;
+    bool hasNetDirective = false;
     for (QGraphicsItem* item : scene->items()) {
         if (auto* si = dynamic_cast<SchematicItem*>(item)) {
             if (si->itemType() == SchematicItem::SpiceDirectiveType) {
@@ -2735,6 +2747,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                         hasExplicitAnalysisCard = hasExplicitAnalysisCard || summary.hasExplicitAnalysisCard;
                         hasUserElementCards = hasUserElementCards || summary.hasElementCards;
                         hasExplicitSaveDirective = hasExplicitSaveDirective || summary.hasExplicitSaveDirective;
+                        hasNetDirective = hasNetDirective || summary.hasNetDirective;
 
                         const QStringList cmdLines = collapseSpiceContinuationLines(cmd);
                         int subcktDepth = 0;
@@ -2742,6 +2755,18 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                             const QString trimmedCmdLine = rawCmdLine.trimmed();
                             if (trimmedCmdLine.isEmpty()) {
                                 netlist += "\n";
+                                continue;
+                            }
+
+                            // Skip user .net directives for SParameter analysis - we generate our own in the correct location
+                            if (params.type == SParameter && trimmedCmdLine.startsWith(".net", Qt::CaseInsensitive)) {
+                                netlist += "* Skipped user .net directive (auto-generated for SParameter analysis): " + trimmedCmdLine + "\n";
+                                continue;
+                            }
+
+                            // Skip user .ac directives for SParameter analysis - we generate our own in the correct location
+                            if (params.type == SParameter && trimmedCmdLine.startsWith(".ac", Qt::CaseInsensitive)) {
+                                netlist += "* Skipped user .ac directive (auto-generated for SParameter analysis): " + trimmedCmdLine + "\n";
                                 continue;
                             }
 
@@ -4168,7 +4193,26 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
 
     // 5. Simulation command
     netlist += "\n";
-    if (!hasExplicitAnalysisCard) {
+
+    // For SParameter (RF) analysis, always generate .ac and .net commands
+    if (params.type == SParameter) {
+        auto safeNumber = [](const QString& text, double fallback) {
+            double parsed = 0.0;
+            if (SimValueParser::parseSpiceNumber(text, parsed) && parsed > 0.0) {
+                return text.trimmed();
+            }
+            return QString::number(fallback, 'g', 12);
+        };
+
+        const QString pts = safeNumber(params.step, 10.0);
+        const QString start = safeNumber(params.start, 10.0);
+        const QString stop = safeNumber(params.stop, 1e6);
+        const QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
+
+        netlist += QString(".ac dec %1 %2 %3\n").arg(pts, start, stop);
+        netlist += QString(".net V(%1) %2 Rin=%3 Rout=%3\n")
+                       .arg(params.rfPort2Node, params.rfPort1Source, z0);
+    } else if (!hasExplicitAnalysisCard) {
         switch (params.type) {
             case Transient:
                 netlist += QString(".tran %1 %2\n").arg(params.step, params.stop);
@@ -4251,26 +4295,6 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             case FFT:
                 // FFT is handled post-simulation, not a SPICE directive itself
                 break;
-            case SParameter:
-                {
-                    auto safeNumber = [](const QString& text, double fallback) {
-                        double parsed = 0.0;
-                        if (SimValueParser::parseSpiceNumber(text, parsed) && parsed > 0.0) {
-                            return text.trimmed();
-                        }
-                        return QString::number(fallback, 'g', 12);
-                    };
-
-                    const QString pts = safeNumber(params.step, 10.0);
-                    const QString start = safeNumber(params.start, 10.0);
-                    const QString stop = safeNumber(params.stop, 1e6);
-                    const QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
-                    
-                    netlist += QString(".ac dec %1 %2 %3\n").arg(pts, start, stop);
-                    netlist += QString(".net V(%1) %2 Rin=%3 Rout=%3\n")
-                                   .arg(params.rfPort2Node, params.rfPort1Source, z0);
-                }
-                break;
         }
     }
 
@@ -4280,7 +4304,16 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             netlist += QString(".save %1\n").arg(saveVec);
         }
     }
-    netlist += ".control\nrun\n.endc\n.end\n";
+    netlist += ".control\n";
+    // For SParameter analysis, save S-parameters to Touchstone file and load back
+    if (params.type == SParameter) {
+        netlist += "run\n";
+        netlist += "wrs2p s_param.s2p\n";
+        netlist += "setplot write\n";
+    } else {
+        netlist += "run\n";
+    }
+    netlist += ".endc\n.end\n";
     return netlist;
 }
 
@@ -4345,8 +4378,10 @@ QString SpiceNetlistGenerator::buildCommand(const SimulationParams& params) {
             return ".fft";
         case SParameter: {
             const QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
+            const QString p1 = params.rfPort1Source.isEmpty() ? "V1" : params.rfPort1Source;
+            const QString p2 = params.rfPort2Node.isEmpty() ? "OUT" : params.rfPort2Node;
             return QString(".net V(%1) %2 Rin=%3 Rout=%4")
-                .arg(params.rfPort2Node, params.rfPort1Source, z0, z0);
+                .arg(p2, p1, z0, z0);
         }
     }
     return ".op";
