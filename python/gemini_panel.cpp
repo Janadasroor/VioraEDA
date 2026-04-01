@@ -129,7 +129,6 @@ GeminiPanel::~GeminiPanel() {
     m_isDestroying = true;
 
     // 1. First, tell the QML engine to stop and clear context properties
-    // This prevents QML from trying to access geminiBridge properties during destruction
     if (m_quickWidget) {
         m_quickWidget->setSource(QUrl());
         if (auto engine = m_quickWidget->engine()) {
@@ -139,28 +138,29 @@ GeminiPanel::~GeminiPanel() {
         }
     }
 
-    // 2. Disconnect and stop background processes
-    if (m_process) {
-        m_process->disconnect(this);
-        if (m_process->state() != QProcess::NotRunning) {
-            m_process->terminate();
-            if (!m_process->waitForFinished(500)) {
-                m_process->kill();
+    // 2. Safely stop all processes
+    auto stopProcess = [](QProcess* proc) {
+        if (proc) {
+            proc->disconnect();
+            if (proc->state() != QProcess::NotRunning) {
+                proc->terminate();
+                if (!proc->waitForFinished(300)) {
+                    proc->kill();
+                }
             }
         }
-    }
-    if (m_modelFetchProcess) {
-        m_modelFetchProcess->disconnect(this);
-        if (m_modelFetchProcess->state() != QProcess::NotRunning) {
-            m_modelFetchProcess->terminate();
-            if (!m_modelFetchProcess->waitForFinished(500)) {
-                m_modelFetchProcess->kill();
-            }
-        }
-    }
+    };
+
+    stopProcess(m_process);
+    stopProcess(m_probeProcess);
+    stopProcess(m_modelFetchProcess);
     
-    // 3. Disconnect any remaining connections to prevent signals from reaching a half-destroyed object
-    disconnect();
+    // 3. Clean up timers
+    if (m_thinkingPulseTimer) m_thinkingPulseTimer->stop();
+    if (m_syncTimer) m_syncTimer->stop();
+
+    // Note: No manual disconnect() here as it can trigger warnings during destruction
+    // and Qt's QObject destructor handles it automatically for all children.
 }
 
 GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent) 
