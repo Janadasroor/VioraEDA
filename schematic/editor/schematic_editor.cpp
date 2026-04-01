@@ -353,6 +353,7 @@ void SchematicEditor::addSchematicTab(const QString& name) {
         }
     });
     connect(view, &SchematicView::itemDoubleClicked, this, &SchematicEditor::onItemDoubleClicked);
+    connect(view, &SchematicView::itemPlaced, this, &SchematicEditor::onItemPlaced);
     connect(view, &SchematicView::itemSelectionDoubleClicked, this, &SchematicEditor::onSelectionDoubleClicked);
     connect(view, &SchematicView::editSimulationDirective, this, &SchematicEditor::onEditSimulationFromDirective);
     connect(view, &SchematicView::syncSheetRequested, this, [this, scene](SchematicSheetItem* sheet) {

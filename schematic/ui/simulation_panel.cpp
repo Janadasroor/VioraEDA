@@ -2963,28 +2963,32 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     QSet<QString> currentWaveNames;
     
     // Safer clearing of series and axes
-    const auto seriesList = m_chart->series();
-    for (auto* series : seriesList) {
-        m_chart->removeSeries(series);
-        series->deleteLater();
+    if (m_chart) {
+        const auto seriesList = m_chart->series();
+        for (auto* series : seriesList) {
+            m_chart->removeSeries(series);
+            series->deleteLater();
+        }
+        
+        const auto axesList = m_chart->axes();
+        for (auto* axis : axesList) {
+            m_chart->removeAxis(axis);
+            axis->deleteLater();
+        }
     }
     
-    const auto axesList = m_chart->axes();
-    for (auto* axis : axesList) {
-        m_chart->removeAxis(axis);
-        axis->deleteLater();
-    }
-    
-    const auto specSeriesList = m_spectrumChart->series();
-    for (auto* series : specSeriesList) {
-        m_spectrumChart->removeSeries(series);
-        series->deleteLater();
-    }
-    
-    const auto specAxesList = m_spectrumChart->axes();
-    for (auto* axis : specAxesList) {
-        m_spectrumChart->removeAxis(axis);
-        axis->deleteLater();
+    if (m_spectrumChart) {
+        const auto specSeriesList = m_spectrumChart->series();
+        for (auto* series : specSeriesList) {
+            m_spectrumChart->removeSeries(series);
+            series->deleteLater();
+        }
+        
+        const auto specAxesList = m_spectrumChart->axes();
+        for (auto* axis : specAxesList) {
+            m_spectrumChart->removeAxis(axis);
+            axis->deleteLater();
+        }
     }
 
     m_signalList->blockSignals(true);
