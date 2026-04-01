@@ -136,6 +136,42 @@ def _maybe_answer_average_power_direct(prompt, registry):
         )
     return None
 
+    return None
+
+
+def classify_intent(api_key, prompt, model_name="gemini-2.0-flash-exp"):
+    """
+    Fast, pre-flight classification of user intent to route to the correct subagent.
+    """
+    client = genai.Client(api_key=api_key)
+    routing_prompt = f"""
+    Classify the following EDA user prompt into exactly one category: SIMULATION, LAYOUT, or GENERAL.
+    
+    - SIMULATION: Prompt involves transient/DC analysis, power calculation, plotting waveforms, or debugging simulation errors.
+    - LAYOUT: Prompt involves placing components, routing wires, Cartesian coordinates, or PCB footprint placement.
+    - GENERAL: General questions about electronics, logic templates, or administrative tasks.
+    
+    Response must be a single word.
+    
+    User Prompt: "{prompt}"
+    """
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=routing_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=10
+            )
+        )
+        intent = response.text.strip().upper()
+        if "SIMULATION" in intent: return "SIMULATION"
+        if "LAYOUT" in intent: return "LAYOUT"
+    except:
+        pass
+    return "GENERAL"
+
+
 def generate(prompt="", context="", mode="schematic", history="", instructions="", image_base64="", project_path="", retries=3, model=""):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -194,16 +230,32 @@ If the user asks you to save the generated script for later use, you MUST use th
 You are FluxAI, an expert Electronic Design Architect.
 Your goal is to explain and analyze circuits for the user.
 You have access to the full schematic context.
-
-GUIDELINES:
-1. Visual Descriptions: Describe the circuit topology clearly (e.g. "This looks like a buck converter with L1 and D1...").
-2. Functional Analysis: Explain how parts of the circuit work together.
-3. Design Audit: If the user asks for an audit or review:
-   - Perform a "sanity check" on component values (e.g. "100uF for a decoupling cap seems excessive here").
-   - Check for missing essential components (decoupling capacitors, pull-up resistors, protection diodes).
-   - Analyze power dissipation if simulation data is available (via compute_average_power).
-   - Identify potential reliability risks (e.g. "VGS of Q1 is near its maximum rating").
-4. Professionalism: Be technical, clear, and encouraging. Use <HIGHLIGHT> tags for components you mention.
+"""
+    elif mode == "schematic":
+        intent = classify_intent(api_key, prompt, model_name=model or "gemini-2.0-flash-exp")
+        print(f"<ACTION>Orchestrator: Routing to {intent} Subagent...</ACTION>", end="", flush=True)
+        
+        if intent == "SIMULATION":
+            system_context = common_instructions + """
+You are the Viora Simulation Subagent. You are an expert in SPICE analysis.
+Your primary goal is to analyze netlists, find signals (list_nodes), and coordinate simulations (run_simulation).
+- Always check node names before plotting.
+- Explain simulation failures by analyzing the log output.
+- Use compute_average_power for energy analysis.
+"""
+        elif intent == "LAYOUT":
+            system_context = common_instructions + """
+You are the Viora Layout Subagent. You specialize in Cartesian coordinate systems and component placement.
+Your goal is to manipulate the schematic/PCB canvas (execute_commands, execute_pcb_commands).
+- Ensure components are placed on a logic grid.
+- Avoid overlapping components.
+- Use addTrace for routing wires with specific points.
+"""
+        else:
+            system_context = common_instructions + """
+You are the General Viora EDA Co-pilot. You handle synthesis, subcircuits, and general questions.
+- Use synthesize_subcircuit for model creation.
+- Use generate_schematic_from_netlist for boost/buck design requests.
 """
     else:
         system_context = common_instructions + """
@@ -296,8 +348,17 @@ GUIDELINES:
     tools_config = []
     registry = None
     if project_path and ToolRegistry and get_tools_schema:
+        from ai_pipeline.ai_tools.tools import get_subagent_tools
         registry = ToolRegistry(project_path)
-        tools_config = [types.Tool(function_declarations=get_tools_schema())]
+        
+        # Decide which tool schema to use based on intent
+        if mode == "schematic":
+            # intent was defined in the mode=="schematic" branch above
+            subagent_tools = get_subagent_tools(intent)
+        else:
+            subagent_tools = get_tools_schema()
+            
+        tools_config = [types.Tool(function_declarations=subagent_tools)]
 
     # Streaming tool calling loop
     for _ in range(5):
@@ -318,6 +379,11 @@ GUIDELINES:
             
             full_response_content = None
             final_usage = None
+            
+            accumulated_text = ""
+            tool_calls = []
+            tool_call_parts = []
+            
             for chunk in stream:
                 if not chunk.candidates:
                     continue
@@ -337,34 +403,29 @@ GUIDELINES:
                     
                     # Handle text response
                     if part.text:
+                        accumulated_text += part.text
                         cleaned = re.sub(r"(?i)(?:^|\s)[\u25c8*•\-]*\s*context attached\b", " ", part.text)
                         print(cleaned, end="", flush=True)
                     
                     # Handle function calls (tools)
                     if part.function_call:
-                        if not full_response_content:
-                            full_response_content = chunk.candidates[0].content
-
-                if chunk.candidates[0].finish_reason == 'STOP' or chunk.candidates[0].content.parts:
-                    if not full_response_content:
-                        full_response_content = chunk.candidates[0].content
+                        tool_calls.append(part.function_call)
+                        tool_call_parts.append(part)
 
             # Output final usage metadata ONCE after the stream is fully finished
             if final_usage:
                 print(f"<USAGE>{json.dumps(final_usage)}</USAGE>", end="", flush=True)
 
-            # Check for tool calls in the final accumulated response (or last chunk)
-            # For simplicity with the new SDK, we'll assume tool calls arrive and we break the stream.
-            # But generate_content_stream usually sends tool calls as a single chunk.
-            
-            # Since we can't easily "look back" at the full response from the stream without accumulating,
-            # we'll use the last candidate if it has tool calls.
-            tool_calls = [p.function_call for p in chunk.candidates[0].content.parts if p.function_call]
-            
             if not tool_calls:
                 return
 
-            contents.append(chunk.candidates[0].content)
+            # Accumulate full history item safely
+            model_parts = []
+            if accumulated_text:
+                model_parts.append(types.Part.from_text(text=accumulated_text))
+            model_parts.extend(tool_call_parts)
+            contents.append(types.Content(role="model", parts=model_parts))
+            
             tool_results_parts = []
             for call in tool_calls:
                 # Output structured data for the UI dashboard
