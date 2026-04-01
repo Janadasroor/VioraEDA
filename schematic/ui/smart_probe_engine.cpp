@@ -9,17 +9,28 @@ SmartProbeEngine::SmartProbeEngine(GeminiPanel* geminiPanel, SmartProbeOverlay* 
     m_debounceTimer->setSingleShot(true);
     m_debounceTimer->setInterval(600);
     connect(m_debounceTimer, &QTimer::timeout, this, &SmartProbeEngine::onDebounceTimeout);
+
+    m_hideTimer = new QTimer(this);
+    m_hideTimer->setSingleShot(true);
+    m_hideTimer->setInterval(250); // 250ms grace period before hiding
+    connect(m_hideTimer, &QTimer::timeout, this, &SmartProbeEngine::onHideTimeout);
 }
 
 void SmartProbeEngine::probe(const QString& netName, const SimResults& results, const QString& context, const QPoint& viewPos) {
     if (netName.isEmpty()) {
         m_debounceTimer->stop();
-        m_overlay->hideOverlay();
+        if (!m_hideTimer->isActive()) {
+            m_hideTimer->start();
+        }
         return;
     }
 
+    // Stop hide timer if we found a net
+    m_hideTimer->stop();
+
     if (m_currentNet == netName && m_overlay->isVisible()) {
-        // Keep it open if still on the same net
+        // Smoothly follow the mouse if still on the same net
+        m_overlay->move(viewPos);
         return;
     }
 
@@ -35,6 +46,11 @@ void SmartProbeEngine::probe(const QString& netName, const SimResults& results, 
     } else {
         m_debounceTimer->start();
     }
+}
+
+void SmartProbeEngine::onHideTimeout() {
+    m_currentNet.clear();
+    m_overlay->hideOverlay();
 }
 
 void SmartProbeEngine::clearCache() {

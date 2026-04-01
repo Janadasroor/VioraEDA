@@ -17,6 +17,7 @@ public:
     void updateAIAnnotation(const QString& text);
     void setAIStatus(const QString& status);
     void hideOverlay();
+    void refreshTheme();
 
     double opacity() const { return m_opacity; }
     void setOpacity(double opacity);
@@ -30,6 +31,7 @@ private:
     QLabel* m_contextLabel;
     QLabel* m_aiLabel;
     QLabel* m_aiStatusLabel;
+    QFrame* m_separator;
     
     double m_opacity = 0.0;
     QPropertyAnimation* m_fadeAnimation;
