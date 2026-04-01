@@ -10,6 +10,7 @@
 #include "../dialogs/voltage_source_ltspice_dialog.h"
 #include "../dialogs/spice_directive_dialog.h"
 #include "../dialogs/current_source_ltspice_dialog.h"
+#include "../dialogs/batch_edit_dialog.h"
 #include "../dialogs/cccs_properties_dialog.h"
 #include "../dialogs/ccvs_properties_dialog.h"
 #include "../dialogs/transmission_line_properties_dialog.h"
@@ -1346,7 +1347,24 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
         }
 
         menu.addAction("Edit All Properties...", [this, selectedItems]() {
-            emit itemDoubleClicked(selectedItems.first());
+            // Open BatchEditDialog for multiple selected components
+            if (selectedItems.size() > 1) {
+                // Filter to only items with editable values
+                QList<SchematicItem*> editableItems;
+                for (auto* item : selectedItems) {
+                    if (item && !item->value().isEmpty()) {
+                        editableItems.append(item);
+                    }
+                }
+                
+                if (!editableItems.isEmpty()) {
+                    BatchEditDialog dialog(editableItems, this);
+                    dialog.exec();
+                }
+            } else if (!selectedItems.isEmpty()) {
+                // Single item - use existing double-click behavior
+                emit itemDoubleClicked(selectedItems.first());
+            }
         });
     }
 

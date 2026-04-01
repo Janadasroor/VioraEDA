@@ -348,9 +348,10 @@ void SchematicEditor::setupTabShortcuts() {
     });
     addAction(duplicateTabAction);
 
-    // Ctrl+B: Quick Open dialog
+    // Ctrl+P: Quick Open dialog (VS Code style)
     QAction* quickOpenAction = new QAction("Quick Open", this);
-    quickOpenAction->setShortcut(QKeySequence("Ctrl+B"));
+    quickOpenAction->setShortcut(QKeySequence("Ctrl+P"));
+    quickOpenAction->setShortcutContext(Qt::ApplicationShortcut);
     connect(quickOpenAction, &QAction::triggered, this, &SchematicEditor::showQuickOpenDialog);
     addAction(quickOpenAction);
 
@@ -397,7 +398,7 @@ void SchematicEditor::setupTabBarSignals() {
     });
 }
 
-// ─── Quick Open Dialog (Ctrl+B) ────────────────────────────────────────────
+// ─── Quick Open Dialog (Ctrl+P) ────────────────────────────────────────────
 
 void SchematicEditor::showQuickOpenDialog() {
     if (!m_quickOpenDialog) {

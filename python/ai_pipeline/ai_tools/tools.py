@@ -631,6 +631,25 @@ def get_tools_schema():
                 "required": ["name", "description", "subcircuit_code"],
             },
         },
+        {
+            "name": "transfer_schematic_style",
+            "description": "Applies a visual style transformation to the schematic. Use this when the user wants to change the appearance of their circuit to match a specific company standard or aesthetic (e.g., 'Make it look like a TI application note', 'Apply European style symbols', 'Use military standard layout').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "style_preset": {
+                        "type": "string",
+                        "enum": ["ti", "adi", "ltspice", "iec", "military", "clean_modern", "vintage"],
+                        "description": "The target style preset to apply."
+                    },
+                    "custom_instructions": {
+                        "type": "string",
+                        "description": "Optional custom styling instructions (e.g., 'increase component spacing', 'use larger fonts', 'align all resistors horizontally')."
+                    }
+                },
+                "required": ["style_preset"],
+            },
+        },
     ]
 
 

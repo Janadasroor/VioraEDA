@@ -354,7 +354,7 @@ private:
     void setupTabShortcuts();
     void setupTabBarSignals();
 
-    // Quick Open dialog (Ctrl+B)
+    // Quick Open dialog (Ctrl+P)
     void showQuickOpenDialog();
     void onQuickOpenFileSelected(const QString& filePath);
     class QuickOpenDialog* m_quickOpenDialog;

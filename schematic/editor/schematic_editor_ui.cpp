@@ -439,6 +439,7 @@ void SchematicEditor::createToolBar() {
     editMenu->addSeparator();
     QAction* batchEditAction = editMenu->addAction(getThemeIcon(":/icons/tool_edit.svg"), "Batch Edit Values...", this, &SchematicEditor::onBatchEdit);
     batchEditAction->setShortcut(QKeySequence("Ctrl+E"));
+    batchEditAction->setShortcutContext(Qt::ApplicationShortcut);
     batchEditAction->setToolTip("Edit values of multiple selected components simultaneously");
 
     // View Menu
