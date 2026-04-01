@@ -108,6 +108,23 @@ void OscilloscopeWindow::setupUI() {
     hGl->addWidget(m_triggerLevelSpin, 2, 1);
     
     controlLayout->addWidget(hGroup);
+
+    // Waveform Memory Group
+    QGroupBox* memGroup = new QGroupBox("Waveform Memory", this);
+    QVBoxLayout* memVl = new QVBoxLayout(memGroup);
+    m_freezeBtn = new QPushButton("📸 Freeze Traces", this);
+    m_freezeBtn->setStyleSheet(
+        "QPushButton { background-color: #2563eb; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #1d4ed8; }"
+    );
+    m_clearMemBtn = new QPushButton("🗑️ Clear Memories", this);
+    m_clearMemBtn->setStyleSheet(
+        "QPushButton { background-color: #3f3f46; color: #d1d5db; padding: 5px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #52525b; }"
+    );
+    memVl->addWidget(m_freezeBtn);
+    memVl->addWidget(m_clearMemBtn);
+    controlLayout->addWidget(memGroup);
     
     QPushButton* propBtn = new QPushButton("Properties...", this);
     propBtn->setStyleSheet("background-color: #3b3b3b; color: #fff; border: 1px solid #555; padding: 5px;");
@@ -120,6 +137,8 @@ void OscilloscopeWindow::setupUI() {
     connect(m_timebaseSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &OscilloscopeWindow::onTimebaseChanged);
     connect(m_triggerSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &OscilloscopeWindow::onTriggerSourceChanged);
     connect(m_triggerLevelSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &OscilloscopeWindow::onTriggerLevelChanged);
+    connect(m_freezeBtn, &QPushButton::clicked, this, &OscilloscopeWindow::onFreezeClicked);
+    connect(m_clearMemBtn, &QPushButton::clicked, this, &OscilloscopeWindow::onClearMemoriesClicked);
 }
 
 void OscilloscopeWindow::updateResults(const SimResults& results, NetManager* netManager) {
@@ -229,4 +248,16 @@ void OscilloscopeWindow::onTriggerSourceChanged(int index) {
 void OscilloscopeWindow::onTriggerLevelChanged(double value) {
     m_config.triggerLevel = value;
     emit configChanged(m_itemId, m_config);
+}
+
+void OscilloscopeWindow::onFreezeClicked() {
+    if (m_scopeDisplay) {
+        m_scopeDisplay->freezeCurrentTraces();
+    }
+}
+
+void OscilloscopeWindow::onClearMemoriesClicked() {
+    if (m_scopeDisplay) {
+        m_scopeDisplay->clearMemories();
+    }
 }
