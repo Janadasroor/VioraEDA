@@ -52,6 +52,8 @@ private slots:
     void onOffsetChanged(int ch, double value);
     void onTriggerSourceChanged(int index);
     void onTriggerLevelChanged(double value);
+    void onFreezeClicked();
+    void onClearMemoriesClicked();
 
 private:
     void setupUI();
@@ -76,6 +78,8 @@ private:
     QDoubleSpinBox* m_timebaseSpin;
     QComboBox* m_triggerSourceCombo;
     QDoubleSpinBox* m_triggerLevelSpin;
+    QPushButton* m_freezeBtn;
+    QPushButton* m_clearMemBtn;
 
     NetManager* m_lastNetManager = nullptr;
 };

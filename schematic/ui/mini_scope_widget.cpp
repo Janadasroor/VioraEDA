@@ -59,6 +59,25 @@ void MiniScopeWidget::setMultiTraceData(const QMap<QString, QVector<QPointF>>& t
     m_globalMaxY = 0;
     bool first = true;
 
+    // First consider memories in boundaries
+    for (const auto& mem : m_memories) {
+        for (const auto& data : mem) {
+            if (data.points.isEmpty()) continue;
+            if (first) {
+                m_globalMinY = data.minV;
+                m_globalMaxY = data.maxV;
+                m_minX = data.points.first().x();
+                m_maxX = data.points.last().x();
+                first = false;
+            } else {
+                m_globalMinY = std::min(m_globalMinY, data.minV);
+                m_globalMaxY = std::max(m_globalMaxY, data.maxV);
+                m_minX = std::min(m_minX, data.points.first().x());
+                m_maxX = std::max(m_maxX, data.points.last().x());
+            }
+        }
+    }
+
     for (auto it = traces.begin(); it != traces.end(); ++it) {
         if (it.value().isEmpty()) continue;
 
@@ -143,6 +162,25 @@ void MiniScopeWidget::calculateMeasurements(const QString& name, const QVector<Q
     }
 }
 
+void MiniScopeWidget::freezeCurrentTraces() {
+    if (m_traces.isEmpty()) return;
+    
+    // Store deep copy of current traces as a new memory layer
+    m_memories.append(m_traces);
+    
+    // Cap memory layers (e.g. max 5)
+    while (m_memories.size() > 5) {
+        m_memories.removeFirst();
+    }
+    
+    update();
+}
+
+void MiniScopeWidget::clearMemories() {
+    m_memories.clear();
+    update();
+}
+
 void MiniScopeWidget::clear() {
     m_traces.clear();
     update();
@@ -193,7 +231,24 @@ void MiniScopeWidget::paintEvent(QPaintEvent*) {
         return h - ((y - m_globalMinY) / range * h);
     };
 
-    // Draw Traces
+    // Draw Memories (Ghost traces: dashed, transparent)
+    for (const auto& mem : m_memories) {
+        for (const auto& data : mem) {
+            if (data.points.isEmpty()) continue;
+            QPainterPath path;
+            path.moveTo(mapX(data.points[0].x()), mapY(data.points[0].y()));
+            for (int i = 1; i < data.points.size(); ++i) {
+                path.lineTo(mapX(data.points[i].x()), mapY(data.points[i].y()));
+            }
+            
+            QColor ghostColor = data.color;
+            ghostColor.setAlpha(100);
+            painter.setPen(QPen(ghostColor, 1.0, Qt::DashLine));
+            painter.drawPath(path);
+        }
+    }
+
+    // Draw Live Traces
     int legendY = 15;
     for (auto it = m_traces.begin(); it != m_traces.end(); ++it) {
         const auto& data = it.value();

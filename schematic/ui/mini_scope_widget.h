@@ -20,9 +20,18 @@ public:
      * @brief Updates the waveform data for multiple traces.
      */
     void setMultiTraceData(const QMap<QString, QVector<QPointF>>& traces);
-    
-    // Legacy single trace support
     void setData(const QVector<QPointF>& points);
+    
+    /**
+     * @brief Snapshot current traces and store in memory.
+     */
+    void freezeCurrentTraces();
+    
+    /**
+     * @brief Clear all frozen traces.
+     */
+    void clearMemories();
+    
     void clear();
 
 protected:
@@ -41,6 +50,7 @@ private:
     void calculateMeasurements(const QString& name, const QVector<QPointF>& points);
     
     QMap<QString, TraceData> m_traces;
+    QList<QMap<QString, TraceData>> m_memories;
     double m_globalMinY = -1.0;
     double m_globalMaxY = 1.0;
     double m_minX = 0.0;
