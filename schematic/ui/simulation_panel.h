@@ -24,6 +24,7 @@
 #include "../../simulator/core/sim_results.h"
 #include "../../simulator/core/sim_meas_evaluator.h"
 #include "../../ui/waveform_viewer.h"
+#include "smith_chart_widget.h"
 
 class QGraphicsScene;
 class SchematicEditor;
@@ -56,6 +57,9 @@ public:
         double fStop;
         int pts;
         QString commandText;
+        QString rfPort1Source;
+        QString rfPort2Node;
+        double rfZ0;
     };
     void setAnalysisConfig(const AnalysisConfig& cfg);
     AnalysisConfig getAnalysisConfig() const;
@@ -186,6 +190,7 @@ private:
     QLineEdit* m_param3 = nullptr; // e.g., Step Size / Points
     QLineEdit* m_param4 = nullptr; 
     QLineEdit* m_param5 = nullptr; 
+    QLineEdit* m_param6 = nullptr; 
 
     // Source generator controls
     QComboBox* m_generatorType = nullptr;
@@ -240,6 +245,8 @@ private:
     class QDoubleSpinBox* m_scopeVoltDiv = nullptr;
     QComboBox* m_scopeChannelCombo = nullptr;
     QWidget* m_scopeContainer = nullptr;
+    SmithChartWidget* m_smithChart = nullptr;
+    QWidget* m_rfTab = nullptr;
     
     QString m_lastNetlistPath;
     QCheckBox* m_overlayPreviousRun;

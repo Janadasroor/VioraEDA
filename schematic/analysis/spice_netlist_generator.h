@@ -29,7 +29,8 @@ public:
         Meas,
         Step,
         Sens,
-        FFT
+        FFT,
+        SParameter
     };
 
     struct SimulationParams {
@@ -65,6 +66,11 @@ public:
 
         // Sensitivity: .sens <output>
         QString sensOutput;
+
+        // RF / S-Parameter Analysis
+        QString rfPort1Source; // e.g. "V1" (Standard Spice source name)
+        QString rfPort2Node;   // e.g. "Net1" or "N001"
+        QString rfZ0;          // Reference impedance as string
     };
 
     static QString generate(QGraphicsScene* scene, const QString& projectDir, NetManager* netManager, const SimulationParams& params);

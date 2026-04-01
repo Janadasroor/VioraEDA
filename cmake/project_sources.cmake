@@ -340,6 +340,8 @@ set(SCHEMATIC_SOURCES
     schematic/tools/schematic_sheet_tool.h
     schematic/tools/schematic_wire_utils.cpp
     schematic/tools/schematic_wire_utils.h
+    utils/schematic_url_encoder.cpp
+    utils/schematic_url_encoder.h
     
     # I/O
     schematic/io/schematic_file_io.cpp

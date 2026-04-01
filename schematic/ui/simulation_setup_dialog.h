@@ -27,6 +27,11 @@ public:
         double rtStep = 1e-3;
         QString commandText;
 
+        // RF / S-Parameter
+        QString rfPort1Source = "V1";
+        QString rfPort2Node = "OUT";
+        double rfZ0 = 50.0;
+
         QJsonObject toJson() const;
         static Config fromJson(const QJsonObject& obj);
     };
@@ -50,6 +55,9 @@ private:
     QLineEdit* m_param1;
     QLineEdit* m_param2;
     QLineEdit* m_param3;
+    QLineEdit* m_param4;
+    QLineEdit* m_param5;
+    QLineEdit* m_param6;
 };
 
 #endif // SIMULATION_SETUP_DIALOG_H
