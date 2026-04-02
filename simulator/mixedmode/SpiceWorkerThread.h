@@ -37,7 +37,7 @@ public:
     void submitNetlist(const QString& netlistText);
     void stopSimulation();
 
-signals:
+Q_SIGNALS:
     void logMessage(const QString& message);
     void simulationStarted();
     void simulationStopped();

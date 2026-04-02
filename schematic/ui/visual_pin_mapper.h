@@ -15,7 +15,7 @@ public:
     QStringList inputPins() const { return m_inputs; }
     QStringList outputPins() const { return m_outputs; }
 
-signals:
+Q_SIGNALS:
     void pinsChanged();
 
 protected:

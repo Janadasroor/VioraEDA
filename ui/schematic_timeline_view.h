@@ -26,13 +26,13 @@ public:
     void setWorkingDir(const QString& dir);
     void loadHistory(const QString& schematicPath);
 
-signals:
+Q_SIGNALS:
     void commitSelected(const QString& sha, const QJsonObject& schematicJson);
     void compareCommitsRequested(const QString& shaA, const QString& shaB);
     void checkoutRequested(const QString& sha);
     void createBranchRequested(const QString& sha, const QString& branchName);
 
-private slots:
+private Q_SLOTS:
     void onCommitSelected(QListWidgetItem* item);
     void onCompareClicked();
     void onCheckoutClicked();

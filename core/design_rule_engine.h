@@ -109,7 +109,7 @@ public:
     static int optimalThreadCount();
     static RuleEngineConfig defaultConfig();
 
-signals:
+Q_SIGNALS:
     // Execution state
     void executionStarted();
     void executionFinished(const QList<DesignRuleViolation>& violations);
@@ -124,7 +124,7 @@ signals:
     void violationFound(const DesignRuleViolation& violation);
     void batchViolationsFound(const QList<DesignRuleViolation>& violations);
 
-private slots:
+private Q_SLOTS:
     void onFutureFinished();
     void onProgressUpdated(int value);
 

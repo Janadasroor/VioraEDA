@@ -12,7 +12,7 @@ public:
         connect(this, &QValueAxis::tickCountChanged, this, &SiAxisFormatter::updateLabels);
     }
 
-private slots:
+private Q_SLOTS:
     void updateLabels(double min, double max) {
         // Unfortunately, QValueAxis doesn't allow custom formatting directly via API.
         // We must override the axis behavior or use a workaround.

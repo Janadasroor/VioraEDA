@@ -201,7 +201,7 @@ void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
      }
 
      if (event->button() == Qt::RightButton) {
-         emit rightClicked();
+         Q_EMIT rightClicked();
          event->accept();
          return;
      }
@@ -211,7 +211,7 @@ void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
               QGraphicsItem* hit = itemAt(event->pos());
               if (QGraphicsItem* handle = findResizeHandleItem(hit)) {
                   m_rectResizeActive = true;
-                  emit rectResizeStarted(handle->data(1).toString(), snapToGrid(mapToScene(event->pos())));
+                  Q_EMIT rectResizeStarted(handle->data(1).toString(), snapToGrid(mapToScene(event->pos())));
                   event->accept();
                   return;
               }
@@ -221,7 +221,7 @@ void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
               if (m_currentTool == 8) { // Erase tool
                   QGraphicsItem* hit = itemAt(event->pos());
                   if (hit) {
-                      emit itemErased(hit);
+                      Q_EMIT itemErased(hit);
                   }
                   event->accept();
                   return;
@@ -235,20 +235,20 @@ void SymbolEditorView::mousePressEvent(QMouseEvent* event) {
                   bool isAltPressed = (event->modifiers() & Qt::AltModifier);
                   
                   // Emit signal with position and metadata for editor to handle point selection
-                  emit penClicked(m_penPressPos, -1, isAltPressed ? 1 : 0);
+                  Q_EMIT penClicked(m_penPressPos, -1, isAltPressed ? 1 : 0);
                   
                   event->accept();
                   return;
               }
               m_isDrawing = true;
               m_drawStart = snapToGrid(mapToScene(event->pos()));
-              emit pointClicked(m_drawStart);
+              Q_EMIT pointClicked(m_drawStart);
               event->accept();
               return;
           } else {
               // Select tool - check for bezier edit point clicks
               m_bezierEditPressPos = snapToGrid(mapToScene(event->pos()));
-              emit bezierEditPointClicked(m_bezierEditPressPos);
+              Q_EMIT bezierEditPointClicked(m_bezierEditPressPos);
               m_bezierEditIsDragging = false;
               
               m_snapPressPos  = snapToGrid(mapToScene(event->pos()));
@@ -273,11 +273,11 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
     m_hasMousePos = true;
     m_lastSnappedMousePos = snapped;
     if (m_snapCursorCrosshair) viewport()->update();
-    emit coordinatesChanged(scenePos);
-    emit mouseMoved(snapped);
+    Q_EMIT coordinatesChanged(scenePos);
+    Q_EMIT mouseMoved(snapped);
 
     if (m_rectResizeActive) {
-        emit rectResizeUpdated(snapToGrid(scenePos));
+        Q_EMIT rectResizeUpdated(snapToGrid(scenePos));
         event->accept();
         return;
     }
@@ -293,12 +293,12 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
 
     if (m_isDrawing) {
         if (m_currentTool == 13 && m_penIsDragging) { // Pen tool dragging
-            emit penHandleDragged(snapToGrid(mapToScene(event->pos())));
+            Q_EMIT penHandleDragged(snapToGrid(mapToScene(event->pos())));
         } else if (m_currentTool != 13) {
             QPointF rawPos = mapToScene(event->pos());
             QPointF snapped = snapToGrid(rawPos);
             updateDrawGuides(rawPos);
-            emit lineDragged(m_drawStart, snapped);
+            Q_EMIT lineDragged(m_drawStart, snapped);
         }
         event->accept();
         return;
@@ -309,7 +309,7 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
         QPointF currentPos = mapToScene(event->pos());
         if (QLineF(m_penPressPos, snapToGrid(currentPos)).length() > PEN_DRAG_THRESHOLD) {
             m_penIsDragging = true;
-            emit penHandleDragged(snapToGrid(currentPos));
+            Q_EMIT penHandleDragged(snapToGrid(currentPos));
         }
     }
     
@@ -318,12 +318,12 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
         QPointF currentPos = mapToScene(event->pos());
         if (QLineF(m_bezierEditPressPos, snapToGrid(currentPos)).length() > PEN_DRAG_THRESHOLD) {
             m_bezierEditIsDragging = true;
-            emit bezierEditPointDragged(snapToGrid(currentPos));
+            Q_EMIT bezierEditPointDragged(snapToGrid(currentPos));
         }
     } else if (m_bezierEditIsDragging) {
         // Continue dragging if button still pressed
         if (event->buttons() & Qt::LeftButton) {
-            emit bezierEditPointDragged(snapToGrid(mapToScene(event->pos())));
+            Q_EMIT bezierEditPointDragged(snapToGrid(mapToScene(event->pos())));
         }
     }
 
@@ -347,7 +347,7 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
         if (m_rectResizeActive) {
             m_rectResizeActive = false;
-            emit rectResizeFinished(snapToGrid(mapToScene(event->pos())));
+            Q_EMIT rectResizeFinished(snapToGrid(mapToScene(event->pos())));
             event->accept();
             return;
         }
@@ -355,12 +355,12 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
         if (m_isDrawing) {
             if (m_currentTool == 13) { // Pen tool
                 QPointF releasePos = snapToGrid(mapToScene(event->pos()));
-                emit penPointFinished();
-                emit penPointAdded(m_penPressPos);
+                Q_EMIT penPointFinished();
+                Q_EMIT penPointAdded(m_penPressPos);
                 m_penIsDragging = false;
             } else {
                 clearPinAlignmentGuides();
-                emit drawingFinished(m_drawStart, snapToGrid(mapToScene(event->pos())));
+                Q_EMIT drawingFinished(m_drawStart, snapToGrid(mapToScene(event->pos())));
             }
             m_isDrawing = false;
             event->accept();
@@ -374,7 +374,7 @@ void SymbolEditorView::mouseMoveEvent(QMouseEvent* event) {
             QPointF snapEnd = snapToGrid(mapToScene(event->pos()));
             QPointF delta   = snapEnd - m_snapPressPos;
             if (delta != QPointF(0, 0) && scene() && !scene()->selectedItems().isEmpty())
-                emit itemsMoved(delta);
+                Q_EMIT itemsMoved(delta);
         }
         setDragMode(QGraphicsView::NoDrag);
         clearPinAlignmentGuides();
@@ -405,12 +405,12 @@ void SymbolEditorView::zoomByFactor(qreal factor) {
 
 void SymbolEditorView::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape)
-        emit rightClicked();
+        Q_EMIT rightClicked();
     QGraphicsView::keyPressEvent(event);
 }
 
 void SymbolEditorView::contextMenuEvent(QContextMenuEvent* event) {
-    emit contextMenuRequested(event->pos());
+    Q_EMIT contextMenuRequested(event->pos());
 }
 
 void SymbolEditorView::drawForeground(QPainter* painter, const QRectF& rect) {

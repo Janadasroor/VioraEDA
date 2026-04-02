@@ -32,7 +32,7 @@ public:
     QString findLibraryPath(const QString& name) const;
     void loadLibraryFile(const QString& path);
 
-signals:
+Q_SIGNALS:
     void libraryReloaded();
     void progressUpdated(const QString& status, int progress, int total);
 

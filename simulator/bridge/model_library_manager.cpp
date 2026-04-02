@@ -109,7 +109,7 @@ void ModelLibraryManager::reload() {
         }
     }
     
-    emit libraryReloaded();
+    Q_EMIT libraryReloaded();
 }
 
 QVector<SpiceModelInfo> ModelLibraryManager::allModels() const {
@@ -176,7 +176,7 @@ void ModelLibraryManager::scanDirectory(const QString& path) {
         if (isKicadModelPath(f)) continue;
         
         current++;
-        emit progressUpdated(QString("Loading model: %1").arg(QFileInfo(f).fileName()), current, total);
+        Q_EMIT progressUpdated(QString("Loading model: %1").arg(QFileInfo(f).fileName()), current, total);
         loadLibraryFile(f);
     }
 }

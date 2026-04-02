@@ -21,7 +21,7 @@ class CurrentSourceLTSpiceDialog : public QDialog {
 public:
     CurrentSourceLTSpiceDialog(CurrentSourceItem* item, QUndoStack* undoStack = nullptr, QGraphicsScene* scene = nullptr, const QString& projectDir = QString(), QWidget* parent = nullptr);
 
-private slots:
+private Q_SLOTS:
     void onFunctionChanged();
     void onAccepted();
     void onPwlBrowse();

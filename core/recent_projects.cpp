@@ -34,7 +34,7 @@ void RecentProjects::addProject(const QString& projectPath) {
     trimToMax();
 
     save();
-    emit projectsChanged();
+    Q_EMIT projectsChanged();
 
     qDebug() << "Added recent project:" << projectPath;
 }
@@ -42,7 +42,7 @@ void RecentProjects::addProject(const QString& projectPath) {
 void RecentProjects::removeProject(const QString& projectPath) {
     if (m_projects.removeAll(projectPath) > 0) {
         save();
-        emit projectsChanged();
+        Q_EMIT projectsChanged();
         qDebug() << "Removed recent project:" << projectPath;
     }
 }
@@ -50,7 +50,7 @@ void RecentProjects::removeProject(const QString& projectPath) {
 void RecentProjects::clear() {
     m_projects.clear();
     save();
-    emit projectsChanged();
+    Q_EMIT projectsChanged();
     qDebug() << "Cleared all recent projects";
 }
 

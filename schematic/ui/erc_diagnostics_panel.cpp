@@ -31,7 +31,7 @@ ERCDiagnosticsPanel::ERCDiagnosticsPanel(QWidget* parent) : QWidget(parent) {
         for (const auto& v : m_violations) {
             summary += QString("- [%1] %2\n").arg(v.severity == ERCViolation::Error ? "Error" : "Warning").arg(v.message);
         }
-        emit aiFixRequested(summary);
+        Q_EMIT aiFixRequested(summary);
     });
     toolbarLayout->addWidget(aiBtn);
 
@@ -101,7 +101,7 @@ QColor ERCDiagnosticsPanel::colorForSeverity(ERCViolation::Severity severity) {
 void ERCDiagnosticsPanel::onItemDoubleClicked(QTreeWidgetItem* item, int) {
     int idx = item->data(0, Qt::UserRole).toInt();
     if (idx >= 0 && idx < m_violations.size()) {
-        emit violationSelected(m_violations[idx]);
+        Q_EMIT violationSelected(m_violations[idx]);
     }
 }
 
@@ -119,8 +119,8 @@ void ERCDiagnosticsPanel::onCustomContextMenu(const QPoint& pos) {
     const auto& v = m_violations[idx];
 
     QMenu menu;
-    menu.addAction("Jump to Item", [this, v]() { emit violationSelected(v); });
-    menu.addAction("Ignore Violation", [this, v]() { emit ignoreRequested(v); });
+    menu.addAction("Jump to Item", [this, v]() { Q_EMIT violationSelected(v); });
+    menu.addAction("Ignore Violation", [this, v]() { Q_EMIT ignoreRequested(v); });
     menu.addSeparator();
     menu.addAction("Copy Message", [v]() { QApplication::clipboard()->setText(v.message); });
     menu.exec(m_treeWidget->mapToGlobal(pos));

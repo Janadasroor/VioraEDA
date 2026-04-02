@@ -45,7 +45,7 @@ public:
     Result result() const { return m_result; }
     void setPreloadedNetlist(const QString& netlist);
 
-private slots:
+private Q_SLOTS:
     void onAccepted();
     void updateFromText();
     void onAiGenerateClicked();

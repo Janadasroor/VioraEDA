@@ -14,11 +14,15 @@ SmartSignalItem::SmartSignalItem(QPointF pos, QGraphicsItem* parent)
     m_inputPins << "In1";
     m_outputPins << "Out1";
     m_pythonCode = "class SmartSignal:\n    def update(self, t, inputs):\n        return inputs.get('In1', 0.0)";
+    m_fluxCode = "def update(t) {\n    return V(\"In1\");\n}";
+    m_engineType = EngineType::Python;
     
     setReference("SB1");
     setName("Smart Block");
     updateSize();
+    updateDocstring();
 }
+
 
 void SmartSignalItem::setInputPins(const QStringList& pins) {
     m_inputPins = pins;
@@ -87,12 +91,18 @@ void SmartSignalItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, 
         }
         painter->drawPath(path);
     } else {
-        // Fallback: Draw "FluxScript" indicator
-        painter->setPen(QColor(139, 92, 246)); // Purple
+        // Fallback: Draw engine indicator
+        if (m_engineType == EngineType::FluxScript) {
+            painter->setPen(QColor(16, 185, 129)); // High-performance Green
+            painter->drawText(rect.adjusted(5, 5, -5, -m_size.height() + 15), Qt::AlignCenter, "FLUX JIT LOGIC");
+        } else {
+            painter->setPen(QColor(139, 92, 246)); // Purple
+            painter->drawText(rect.adjusted(5, 5, -5, -m_size.height() + 15), Qt::AlignCenter, "PYTHON LOGIC");
+        }
         QFont font("Inter", 7, QFont::Bold);
         painter->setFont(font);
-        painter->drawText(rect.adjusted(5, 5, -5, -m_size.height() + 15), Qt::AlignCenter, "PYTHON LOGIC");
     }
+
 
     // Draw Input Pins (Left)
     painter->setPen(QPen(Qt::white, 1.5));
@@ -141,6 +151,9 @@ QJsonObject SmartSignalItem::toJson() const {
     QJsonObject j = SchematicItem::toJson();
     j["type"] = itemTypeName();
     j["pythonCode"] = m_pythonCode;
+    j["fluxCode"] = m_fluxCode;
+    j["engineType"] = (m_engineType == EngineType::FluxScript) ? "flux" : "python";
+
     
     QJsonArray inArray;
     for (const auto& p : m_inputPins) inArray.append(p);
@@ -186,6 +199,9 @@ QJsonObject SmartSignalItem::toJson() const {
 bool SmartSignalItem::fromJson(const QJsonObject& json) {
     SchematicItem::fromJson(json);
     m_pythonCode = json["pythonCode"].toString();
+    m_fluxCode = json["fluxCode"].toString();
+    m_engineType = (json["engineType"].toString() == "flux") ? EngineType::FluxScript : EngineType::Python;
+
     
     m_inputPins.clear();
     QJsonArray inArray = json["inputs"].toArray();
@@ -244,4 +260,17 @@ QString SmartSignalItem::docstring() const {
         return match.captured(2).trimmed();
     }
     return QString();
+}
+
+void SmartSignalItem::updateDocstring() {
+    QString ds = docstring();
+    if (!ds.isEmpty()) {
+        setToolTip(ds);
+        return;
+    }
+
+    const QString engineName =
+        (m_engineType == EngineType::FluxScript) ? QStringLiteral("FluxScript")
+                                                 : QStringLiteral("Python");
+    setToolTip(QStringLiteral("Smart Signal Block (%1): %2").arg(engineName, name()));
 }

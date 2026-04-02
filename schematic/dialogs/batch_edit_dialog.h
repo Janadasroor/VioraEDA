@@ -24,7 +24,7 @@ public:
     // Get the list of items to edit
     QList<SchematicItem*> selectedItems() const { return m_items; }
 
-private slots:
+private Q_SLOTS:
     void onApply();
     void onPatternTextChanged(const QString& text);
     void onPreviewValueChanged();

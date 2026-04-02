@@ -27,11 +27,11 @@ public:
 
     void setProjectContext(const QString& currentFile, const QString& projectDir);
 
-signals:
+Q_SIGNALS:
     void navigateToResult(const EditorSearchResult& result);
     void replaceRequested(const EditorSearchResult& result, const QString& newValue);
 
-private slots:
+private Q_SLOTS:
     void onSearch();
     void onReplaceSelected();
     void onReplaceAll();

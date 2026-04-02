@@ -193,6 +193,6 @@ void LogicAnalyzerWindow::clear() {
 }
 
 void LogicAnalyzerWindow::closeEvent(QCloseEvent* event) {
-    emit windowClosing(m_id);
+    Q_EMIT windowClosing(m_id);
     QMainWindow::closeEvent(event);
 }

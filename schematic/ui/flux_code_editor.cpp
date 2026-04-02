@@ -16,6 +16,8 @@
 #include <QStringListModel>
 #include <QToolTip>
 #include "../../core/diagnostics/debugger.h"
+#include "../../core/jit_context_manager.h"
+
 
 namespace Flux {
 
@@ -24,18 +26,20 @@ CodeEditor::CodeEditor(QGraphicsScene* scene, NetManager* netManager, QWidget* p
     
     setMouseTracking(true);
     
-    // Initialize default completer
+    // Initialize FluxScript keywords
     QStringList keywords = {
-        "def", "class", "if", "else", "elif", "for", "while", "return", "import", "from",
-        "True", "False", "None", "self", "SmartSignal", "update", "init", "inputs",
+        "var", "let", "def", "if", "else", "elif", "for", "while", "return", "import", "from",
+        "intrinsic", "V", "I", "P", "sim", "math", "Eigen", 
+        "True", "False", "None", 
         "math.sin", "math.cos", "math.tan", "math.pi", "math.exp", "math.log", "math.sqrt",
-        "inputs.get", "abs", "round", "min", "max", "len", "print"
+        "abs", "round", "min", "max", "len", "println"
     };
     QCompleter* completer = new QCompleter(keywords, this);
     completer->setModelSorting(QCompleter::CaseInsensitivelySortedModel);
     completer->setCaseSensitivity(Qt::CaseInsensitive);
     completer->setWrapAround(false);
     setCompleter(completer);
+
 }
 
 void CodeEditor::setScene(QGraphicsScene* scene, NetManager* netManager) {
@@ -47,11 +51,13 @@ void CodeEditor::updateCompletionKeywords(const QStringList& additionalKeywords)
     if (!m_completer) return;
     
     QStringList baseKeywords = {
-        "def", "class", "if", "else", "elif", "for", "while", "return", "import", "from",
-        "True", "False", "None", "self", "SmartSignal", "update", "init", "inputs",
+        "var", "let", "def", "if", "else", "elif", "for", "while", "return", "import", "from",
+        "intrinsic", "V", "I", "P", "sim", "math", "Eigen", 
+        "True", "False", "None", 
         "math.sin", "math.cos", "math.tan", "math.pi", "math.exp", "math.log", "math.sqrt",
-        "inputs.get", "abs", "round", "min", "max", "len", "print"
+        "abs", "round", "min", "max", "len", "println"
     };
+
     
     QStringList allKeywords = baseKeywords + additionalKeywords;
     allKeywords.removeDuplicates();
@@ -72,7 +78,25 @@ void CodeEditor::setActiveDebugLine(int line) {
 }
 
 void CodeEditor::onRunRequested() {
+#ifdef HAVE_FLUXSCRIPT
+    QString source = toPlainText();
+    QMap<int, QString> errors;
+    
+    // Clear old errors
+    setErrorLines({});
+    
+    if (JITContextManager::instance().compileAndLoad(source, errors)) {
+        // Success notification is handled by the manager signal if needed,
+        // or we can show a tooltip/status bar message here.
+        qDebug() << "FluxScript: Run successful.";
+    } else {
+        // Show errors in editor
+        setErrorLines(errors);
+        qDebug() << "FluxScript: Run failed with errors.";
+    }
+#endif
 }
+
 
 void CodeEditor::keyPressEvent(QKeyEvent* e) {
     if (m_completer && m_completer->popup()->isVisible()) {
@@ -106,16 +130,19 @@ bool CodeEditor::event(QEvent* e) {
         QString word = cursor.selectedText();
         
         static QMap<QString, QString> helpDb = {
-            {"update", "<b>update(self, t, inputs)</b><br>The main simulation loop. Called at every time-step.<br><i>t</i>: current time in seconds.<br><i>inputs</i>: dictionary of input pin voltages."},
-            {"init", "<b>init(self)</b><br>Called once when the simulation starts.<br>Use this to initialize parameters or internal state."},
-            {"self", "Refers to the current <b>SmartSignal</b> instance."},
-            {"params", "<b>self.params</b><br>A dictionary used to define UI-controllable parameters."},
-            {"inputs", "A dictionary containing the current voltages of all input pins."},
-            {"math", "Python's standard math library."},
-            {"np", "NumPy library for high-performance numerical operations."},
-            {"sin", "<b>math.sin(x)</b><br>Returns the sine of x (measured in radians)."},
+            {"V", "<b>V(node)</b><br>Returns the real-time voltage at the specified node.<br><i>Example</i>: V(\"N001\")"},
+            {"I", "<b>I(branch)</b><br>Returns the current flowing through a branch or device.<br><i>Example</i>: I(\"V1\")"},
+            {"P", "<b>P(param)</b><br>Gets or sets a simulation parameter.<br><i>Example</i>: P(\"R1.R\") = 10k"},
+            {"sim", "<b>sim object</b><br>Simulation control object.<br><i>Methods</i>: sim.run(), sim.stop(), sim.pause()"},
+            {"var", "Explicit variable declaration with type inference."},
+            {"intrinsic", "Declares an external C/C++ function for JIT linking."},
+            {"math", "FluxScript's high-performance math library (mapped to LLVM intrinsics)."},
+            {"println", "<b>println(str)</b><br>Logs a message to the VioSpice simulation console."},
+            {"Eigen", "Linear algebra support via the Eigen JIT bridge."},
+            {"sin", "<b>math.sin(x)</b><br>Returns the sine of x (radians). Evaluated at JIT-speed."},
             {"pi", "The mathematical constant π (3.14159...)."}
         };
+
         
         if (helpDb.contains(word)) {
             QToolTip::showText(helpEvent->globalPos(), helpDb[word], this);

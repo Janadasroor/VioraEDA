@@ -19,7 +19,7 @@ public:
     void probe(const QString& netName, const SimResults& results, const QString& context, const QPoint& viewPos);
     void clearCache();
 
-private slots:
+private Q_SLOTS:
     void onDebounceTimeout();
     void onHideTimeout();
 

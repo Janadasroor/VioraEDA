@@ -19,7 +19,7 @@ public:
     QMap<QString, QString> paramExpressions() const;
     QString newSymbolName() const { return m_newSymbolName; }
 
-private slots:
+private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
 

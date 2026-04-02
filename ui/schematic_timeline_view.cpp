@@ -200,7 +200,7 @@ void SchematicTimelineView::onCommitSelected(QListWidgetItem* item) {
     
     m_compareBtn->setEnabled(true);
     
-    emit commitSelected(sha, QJsonDocument::fromJson(content.toUtf8()).object());
+    Q_EMIT commitSelected(sha, QJsonDocument::fromJson(content.toUtf8()).object());
 }
 
 void SchematicTimelineView::onCompareClicked() {
@@ -218,12 +218,12 @@ void SchematicTimelineView::onCompareClicked() {
     if (!ok || selected.isEmpty()) return;
     
     QString compareSha = selected.split(" - ").first();
-    emit compareCommitsRequested(m_currentSha, compareSha);
+    Q_EMIT compareCommitsRequested(m_currentSha, compareSha);
 }
 
 void SchematicTimelineView::onCheckoutClicked() {
     if (m_currentSha.isEmpty()) return;
-    emit checkoutRequested(m_currentSha);
+    Q_EMIT checkoutRequested(m_currentSha);
 }
 
 void SchematicTimelineView::onCreateBranchClicked() {
@@ -233,7 +233,7 @@ void SchematicTimelineView::onCreateBranchClicked() {
     QString branchName = QInputDialog::getText(this, "Create Branch", "Branch name:", QLineEdit::Normal, "", &ok);
     if (!ok || branchName.isEmpty()) return;
     
-    emit createBranchRequested(m_currentSha, branchName);
+    Q_EMIT createBranchRequested(m_currentSha, branchName);
 }
 
 void SchematicTimelineView::onRefreshClicked() {

@@ -1019,7 +1019,7 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
                     }
                 }
 
-                emit progressUpdated(QString("Loading KiCad library: %1").arg(libName), currentKicad, totalKicad);
+                Q_EMIT progressUpdated(QString("Loading KiCad library: %1").arg(libName), currentKicad, totalKicad);
 
                 // Check if already loaded...
                 bool alreadyLoaded = false;

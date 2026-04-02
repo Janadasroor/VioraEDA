@@ -1523,17 +1523,17 @@ void SimulationPanel::setupUI() {
 
     QPushButton* probePinBtn = new QPushButton("Probe On Canvas");
     probePinBtn->setStyleSheet("background-color: #1d4ed8; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
-    connect(probePinBtn, &QPushButton::clicked, this, [this]() { emit placementToolRequested("Probe"); });
+    connect(probePinBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Probe"); });
     toolbar->addWidget(probePinBtn);
 
     QPushButton* placeScopeBtn = new QPushButton("Place Scope");
     placeScopeBtn->setStyleSheet("background-color: #0f766e; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
-    connect(placeScopeBtn, &QPushButton::clicked, this, [this]() { emit placementToolRequested("Oscilloscope Instrument"); });
+    connect(placeScopeBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Oscilloscope Instrument"); });
     toolbar->addWidget(placeScopeBtn);
 
     QPushButton* placeMeterBtn = new QPushButton("Place Voltmeter");
     placeMeterBtn->setStyleSheet("background-color: #0f766e; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
-    connect(placeMeterBtn, &QPushButton::clicked, this, [this]() { emit placementToolRequested("Voltmeter (DC)"); });
+    connect(placeMeterBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Voltmeter (DC)"); });
     toolbar->addWidget(placeMeterBtn);
 
     QPushButton* removeProbeBtn = new QPushButton("Remove Probe");
@@ -1566,7 +1566,7 @@ void SimulationPanel::setupUI() {
     toolbar->addWidget(showCurrentCheck);
 
     auto updateOverlays = [this, showVoltageCheck, showCurrentCheck]() {
-        emit overlayVisibilityChanged(showVoltageCheck->isChecked(), showCurrentCheck->isChecked());
+        Q_EMIT overlayVisibilityChanged(showVoltageCheck->isChecked(), showCurrentCheck->isChecked());
     };
     connect(showVoltageCheck, &QCheckBox::toggled, this, updateOverlays);
     connect(showCurrentCheck, &QCheckBox::toggled, this, updateOverlays);
@@ -1815,7 +1815,7 @@ void SimulationPanel::setupUI() {
         const QString type = item->data(Qt::UserRole + 1).toString();
         const QString id = item->data(Qt::UserRole + 2).toString();
         if (!type.isEmpty() && !id.isEmpty()) {
-            emit simulationTargetRequested(type, id);
+            Q_EMIT simulationTargetRequested(type, id);
         }
     });
     sidebarLayout->addWidget(m_issueList, 1);
@@ -2369,9 +2369,8 @@ void SimulationPanel::onRunSimulation() {
         return;
     }
 
-    if (m_waveformViewer && (!m_overlayPreviousRun || !m_overlayPreviousRun->isChecked())) {
-        m_waveformViewer->beginBatchUpdate();
-        m_waveformViewer->clear();
+    if (!m_overlayPreviousRun || !m_overlayPreviousRun->isChecked()) {
+        clearResults();
     }
 
     const int idx = m_analysisType->currentIndex();
@@ -2410,6 +2409,7 @@ void SimulationPanel::onRunSimulation() {
             const QString msg = "Simulation build failed: " + result.error;
             m_logOutput->append(msg);
             appendIssueItem(msg);
+            clearResults(); // Ensure stale data is cleared if build fails
             return;
         }
 
@@ -2896,7 +2896,7 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 currents[name] = val;
             }
         }
-        emit timeSnapshotReady(lastT, nodeVoltages, currents);
+        Q_EMIT timeSnapshotReady(lastT, nodeVoltages, currents);
     }
 
     // 2. Update Waveform Viewer and Scope Chart
@@ -2986,7 +2986,7 @@ void SimulationPanel::onTimelineValueChanged(int value) {
     QMap<QString, double> currents;
     for (auto const& [name, val] : snap.branchCurrents) currents[name.c_str()] = val;
     
-    emit timeSnapshotReady(t, nodeVoltages, currents);
+    Q_EMIT timeSnapshotReady(t, nodeVoltages, currents);
 }
 
 void SimulationPanel::plotBuiltinResults(const SimResults& results) {
@@ -3429,7 +3429,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     if (m_logicAnalyzer) m_logicAnalyzer->endBatchUpdate();
 
     updateVirtualMeters(results);
-    emit resultsReady(results);
+    Q_EMIT resultsReady(results);
 
     m_signalList->blockSignals(false);
     m_isSimInitiator = false; // Just in case, though onSimResultsReady handles it

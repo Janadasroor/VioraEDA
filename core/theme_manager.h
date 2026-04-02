@@ -16,7 +16,7 @@ public:
     void setTheme(PCBTheme* theme);
     PCBTheme* currentTheme() const { return m_theme; }
 
-signals:
+Q_SIGNALS:
     void themeChanged();
 
 private:

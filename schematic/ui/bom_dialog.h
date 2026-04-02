@@ -13,7 +13,7 @@ public:
     explicit BOMDialog(const ECOPackage& pkg, QWidget* parent = nullptr);
     ~BOMDialog();
 
-private slots:
+private Q_SLOTS:
     void onExportCSV();
     void onExportHTML();
 

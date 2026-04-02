@@ -39,13 +39,14 @@ public:
 protected:
     void closeEvent(class QCloseEvent* event) override;
 
-signals:
+Q_SIGNALS:
     void closed();
 
-private slots:
+private Q_SLOTS:
     void onCodeChanged();
     void onAiPromptReturn();
     void onApplyClicked();
+    void onEngineChanged(int index);
     void updatePreview();
     void runLinter();
     void onLinterResult(const QString& output);
@@ -128,6 +129,8 @@ private:
     QPushButton* m_stopBtn;
     
     QLabel* m_statusLabel;
+    class QComboBox* m_engineCombo;
+    QLabel* m_engineLabel;
 };
 
 #endif // LOGIC_EDITOR_PANEL_H

@@ -16,7 +16,7 @@ public:
     QString controlSource() const;
     QString transresistance() const;
 
-private slots:
+private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
 

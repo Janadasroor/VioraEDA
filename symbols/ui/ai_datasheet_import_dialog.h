@@ -27,7 +27,7 @@ public:
 
     QList<Flux::Model::SymbolPrimitive> generatedPins() const { return m_generatedPins; }
 
-private slots:
+private Q_SLOTS:
     void onGenerateClicked();
     void onProcessReadyRead();
     void onProcessFinished(int exitCode);

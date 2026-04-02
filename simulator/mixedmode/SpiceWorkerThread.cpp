@@ -73,10 +73,10 @@ void SpiceWorkerThread::run() {
         }
 
         resetRunState();
-        emit simulationStarted();
+        Q_EMIT simulationStarted();
 
         if (!loadCircuit(netlistText)) {
-            emit simulationError(QStringLiteral("Failed to load netlist into ngspice."));
+            Q_EMIT simulationError(QStringLiteral("Failed to load netlist into ngspice."));
             continue;
         }
 
@@ -92,14 +92,14 @@ void SpiceWorkerThread::run() {
 
         flushLogs();
         flushDigitalStates();
-        emit simulationStopped();
+        Q_EMIT simulationStopped();
 
         if (m_stopRequested.load()) {
             break;
         }
     }
 #else
-    emit simulationError(QStringLiteral("Ngspice shared library support is not available in this build."));
+    Q_EMIT simulationError(QStringLiteral("Ngspice shared library support is not available in this build."));
 #endif
 }
 
@@ -132,7 +132,7 @@ void SpiceWorkerThread::flushDigitalStates() {
     }
 
     if (!batch.isEmpty()) {
-        emit digitalStatesReady(batch);
+        Q_EMIT digitalStatesReady(batch);
     }
 }
 
@@ -146,7 +146,7 @@ void SpiceWorkerThread::flushLogs() {
     }
 
     for (const QString& line : logs) {
-        emit logMessage(line);
+        Q_EMIT logMessage(line);
     }
 }
 

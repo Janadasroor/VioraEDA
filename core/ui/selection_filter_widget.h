@@ -14,7 +14,7 @@ public:
     bool isFilterEnabled(const QString& type) const;
     void setFilterEnabled(const QString& type, bool enabled);
 
-signals:
+Q_SIGNALS:
     void filterChanged();
 
 private:

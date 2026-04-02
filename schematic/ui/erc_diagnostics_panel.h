@@ -17,13 +17,13 @@ public:
     void setViolations(const QList<ERCViolation>& violations);
     void clear();
 
-signals:
+Q_SIGNALS:
     void violationSelected(const ERCViolation& violation);
     void ignoreRequested(const ERCViolation& violation);
     void clearIgnoredRequested();
     void aiFixRequested(const QString& violationsSummary);
 
-private slots:
+private Q_SLOTS:
     void onItemDoubleClicked(QTreeWidgetItem* item, int column);
     void onFilterChanged();
     void onCustomContextMenu(const QPoint& pos);

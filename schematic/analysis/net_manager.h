@@ -63,7 +63,7 @@ public:
     void setBusAliases(const QMap<QString, QList<QString>>& aliases);
     QMap<QString, QList<QString>> busAliases() const { return m_busAliases; }
 
-signals:
+Q_SIGNALS:
     void netAdded(const QString& netName);
     void netRemoved(const QString& netName);
     void connectionAdded(const QString& netName, SchematicItem* item, const QPointF& point);

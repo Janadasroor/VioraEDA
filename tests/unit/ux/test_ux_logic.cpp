@@ -129,7 +129,7 @@ QString repoRootFromThisFile() {
 class TestUXLogic : public QObject {
     Q_OBJECT
 
-private slots:
+private Q_SLOTS:
     void initTestCase() {
         // Initialize the registry
         SchematicMenuRegistry::instance().initializeDefaultActions();

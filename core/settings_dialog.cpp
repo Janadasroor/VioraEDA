@@ -243,7 +243,7 @@ void SettingsDialog::setupUI() {
     layAI->addWidget(grpAiModels);
 
     connect(m_refreshModelsBtn, &QPushButton::clicked, this, []() {
-        emit ConfigManager::instance().requestModelRefresh();
+        Q_EMIT ConfigManager::instance().requestModelRefresh();
     });
 
     QGroupBox* grpFeatures = new QGroupBox("AI Feature Toggles");

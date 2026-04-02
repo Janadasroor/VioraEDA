@@ -27,7 +27,7 @@ void SchematicSpiceDirectiveItem::contextMenuEvent(QGraphicsSceneContextMenuEven
     QAction* selectedAction = menu.exec(event->screenPos());
     
     if (selectedAction == editAction) {
-        emit editSimulationRequested(text());
+        Q_EMIT editSimulationRequested(text());
     } else if (selectedAction == deleteAction) {
         if (QGraphicsScene* s = scene()) {
             s->removeItem(this);

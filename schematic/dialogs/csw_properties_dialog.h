@@ -16,7 +16,7 @@ public:
     QString modelName() const;
     QString commandText() const;
 
-private slots:
+private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
 

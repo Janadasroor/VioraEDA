@@ -34,7 +34,7 @@ public:
     // Helper to add QActions automatically
     void addAction(QAction* action);
 
-signals:
+Q_SIGNALS:
     void resultSelected(const QVariant& data);
     void queryChanged(const QString& query);
 
@@ -42,7 +42,7 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void showEvent(QShowEvent* event) override;
 
-private slots:
+private Q_SLOTS:
     void onSearchTextChanged(const QString& text);
     void onItemSelected(QListWidgetItem* item);
     void accept() override;

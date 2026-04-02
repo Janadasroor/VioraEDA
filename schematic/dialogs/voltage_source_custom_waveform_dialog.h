@@ -22,7 +22,7 @@ public:
     bool saveToFileEnabled() const { return m_saveToFileEnabled; }
     QString pwlFilePath() const { return m_pwlFilePath; }
 
-private slots:
+private Q_SLOTS:
     void onClear();
     void onAccepted();
 

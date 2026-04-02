@@ -12,7 +12,7 @@ public:
     explicit ERCRulesDialog(const SchematicERCRules& currentRules, QWidget* parent = nullptr);
     SchematicERCRules getRules() const;
 
-private slots:
+private Q_SLOTS:
     void onCellClicked(int row, int col);
     void onResetDefaults();
 

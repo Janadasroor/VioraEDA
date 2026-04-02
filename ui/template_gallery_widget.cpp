@@ -348,7 +348,7 @@ void TemplateGalleryWidget::filterBySearch(const QString& query) {
 void TemplateGalleryWidget::onTryItClicked(const QString& templateId) {
     Template tpl = m_templatesById.value(templateId);
     if (!tpl.schematicPath.isEmpty()) {
-        emit openSchematicRequested(tpl.schematicPath);
+        Q_EMIT openSchematicRequested(tpl.schematicPath);
     }
 }
 

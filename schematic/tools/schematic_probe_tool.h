@@ -37,7 +37,7 @@ public:
         return "probe.svg";
     }
 
-signals:
+Q_SIGNALS:
     void signalProbed(const QString& signalName);
     void signalUnprobed(const QString& signalName);
     void signalDifferentialProbed(const QString& pNet, const QString& nNet);

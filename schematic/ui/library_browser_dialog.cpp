@@ -490,7 +490,7 @@ void LibraryBrowserDialog::onResultSelected(QListWidgetItem* item) {
 
 void LibraryBrowserDialog::onPlaceClicked() {
     if (!m_selectedSymbol.name().isEmpty()) {
-        emit symbolPlaced(m_selectedSymbol);
+        Q_EMIT symbolPlaced(m_selectedSymbol);
         accept();
     }
 }

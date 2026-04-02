@@ -1,0 +1,85 @@
+# Patch for VioSpice vio-cmd to add FluxScript integration
+# Apply this to cli/main.cpp
+
+# Step 1: Add include at top of file (after other includes)
+Add after line ~80:
+```cpp
+#include "flux_command.h"
+```
+
+# Step 2: Add flux command handler in main() function
+Find the command dispatch section (around line 3820) and add:
+
+```cpp
+if (command == "flux") {
+    VioSpice::FluxCommand fluxCmd;
+    QStringList fluxArgs;
+    for (int i = 1; i < args.size(); ++i) {
+        fluxArgs << args.at(i);
+    }
+    return fluxCmd.run(fluxArgs, g_quiet);
+}
+```
+
+# Step 3: Update help to include flux command
+Find printGeneralHelp() function and add to command list:
+
+```cpp
+std::cout << "  flux          FluxScript SPICE integration\n";
+```
+
+# Step 4: Update printCommandHelp() to handle flux
+Add case for "flux":
+
+```cpp
+if (command == "flux") {
+    std::cout << "vio-cmd flux - FluxScript SPICE Integration\n";
+    std::cout << "\n";
+    std::cout << "Usage: vio-cmd flux <subcommand> [options] [file.flux]\n";
+    std::cout << "\n";
+    std::cout << "Subcommands:\n";
+    std::cout << "  run <file.flux>     Compile and run FluxScript file\n";
+    std::cout << "  compile <file.flux> Generate SPICE netlist\n";
+    std::cout << "  eval <expression>   Evaluate FluxScript expression\n";
+    std::cout << "  repl                Interactive REPL mode\n";
+    std::cout << "\n";
+    std::cout << "Examples:\n";
+    std::cout << "  vio-cmd flux run circuit.flux\n";
+    std::cout << "  vio-cmd flux compile circuit.flux -o circuit.cir\n";
+    std::cout << "  vio-cmd flux eval \"sin(pi/2)\"\n";
+    std::cout << "  vio-cmd flux repl\n";
+    return;
+}
+```
+
+# Step 5: Update CMakeLists.txt
+In viospice/cli/CMakeLists.txt, add:
+
+```cmake
+# FluxScript integration
+set(VIO_CMD_SOURCES
+    ${VIO_CMD_SOURCES}
+    flux_command.cpp
+)
+
+# Link with FluxScript if available
+if(FLUXSCRIPT_FOUND)
+    target_link_libraries(vio-cmd PRIVATE FluxScript)
+    target_compile_definitions(vio-cmd PRIVATE HAVE_FLUXSCRIPT)
+endif()
+```
+
+# Step 6: Add CMake option for FluxScript
+In viospice/CMakeLists.txt, add:
+
+```cmake
+option(VIOSPICE_ENABLE_FLUXSCRIPT "Enable FluxScript integration" ON)
+
+if(VIOSPICE_ENABLE_FLUXSCRIPT)
+    find_package(FluxScript QUIET)
+    if(FluxScript_FOUND)
+        set(FLUXSCRIPT_FOUND TRUE)
+        include_directories(${FLUXSCRIPT_INCLUDE_DIRS})
+    endif()
+endif()
+```

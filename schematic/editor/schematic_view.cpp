@@ -209,7 +209,7 @@ void SchematicView::setCurrentTool(const QString& toolName) {
 
     if (tool) {
         setCurrentTool(tool);
-        emit toolChanged(toolName);
+        Q_EMIT toolChanged(toolName);
         qDebug() << "Switched to schematic tool:" << toolName;
     } else {
         qWarning() << "Failed to create schematic tool:" << toolName;
@@ -354,7 +354,7 @@ void SchematicView::wheelEvent(QWheelEvent *event) {
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta);
         event->accept();
     }
-    emit transformationChanged();
+    Q_EMIT transformationChanged();
 }
 
 void SchematicView::mousePressEvent(QMouseEvent *event) {
@@ -498,10 +498,10 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                     // --- Second click: complete differential probe ---
                     if (probedNet != m_probeStartNet) {
                         // Different net: differential V(net1, net2)
-                        emit netProbed(QString("V(%1,%2)").arg(m_probeStartNet, probedNet));
+                        Q_EMIT netProbed(QString("V(%1,%2)").arg(m_probeStartNet, probedNet));
                     } else {
                         // Same net: single probe
-                        emit netProbed(QString("V(%1)").arg(probedNet));
+                        Q_EMIT netProbed(QString("V(%1)").arg(probedNet));
                     }
                     m_probeStartNet.clear();
                     clearProbeStartMarker();
@@ -515,7 +515,7 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                     setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, scenePos);
                 } else {
                     // --- Normal click: single probe ---
-                    emit netProbed(QString("V(%1)").arg(probedNet));
+                    Q_EMIT netProbed(QString("V(%1)").arg(probedNet));
                     setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
                 }
                 event->accept();
@@ -541,9 +541,9 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                     // Voltage probe on net at/under component body
                     if (!m_probeStartNet.isEmpty()) {
                         if (bodyNet != m_probeStartNet) {
-                            emit netProbed(QString("V(%1,%2)").arg(m_probeStartNet, bodyNet));
+                            Q_EMIT netProbed(QString("V(%1,%2)").arg(m_probeStartNet, bodyNet));
                         } else {
-                            emit netProbed(QString("V(%1)").arg(bodyNet));
+                            Q_EMIT netProbed(QString("V(%1)").arg(bodyNet));
                         }
                         m_probeStartNet.clear();
                         clearProbeStartMarker();
@@ -555,7 +555,7 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                         event->accept();
                         return;
                     } else {
-                        emit netProbed(QString("V(%1)").arg(bodyNet));
+                        Q_EMIT netProbed(QString("V(%1)").arg(bodyNet));
                     }
                     setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
                     event->accept();
@@ -566,7 +566,7 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                 if (compItem) {
                     QString ref = compItem->reference();
                     if (!ref.isEmpty()) {
-                        emit netProbed(QString("%1(%2)").arg(powerHeld ? "P" : "I", ref));
+                        Q_EMIT netProbed(QString("%1(%2)").arg(powerHeld ? "P" : "I", ref));
                         setProbeCursorOverlay(powerHeld ? SchematicProbeTool::ProbeKind::Power
                                                         : SchematicProbeTool::ProbeKind::Current,
                                               scenePos);
@@ -620,7 +620,7 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
         gridPos = snapToGrid(scenePos);
     }
     
-    emit coordinatesChanged(gridPos);
+    Q_EMIT coordinatesChanged(gridPos);
 
     // Track cursor scene position for crosshair
     m_cursorScenePos = gridPos;
@@ -897,7 +897,7 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
         QGraphicsItem* item = itemAt(event->pos());
         if (item) {
             if (auto* pageItem = dynamic_cast<SchematicPageItem*>(item)) {
-                emit pageTitleBlockDoubleClicked();
+                Q_EMIT pageTitleBlockDoubleClicked();
                 event->accept();
                 return;
             }
@@ -937,9 +937,9 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
                 }
 
                 if (bulkEnabled && selection.size() > 1 && selection.contains(target)) {
-                    emit itemSelectionDoubleClicked(selection);
+                    Q_EMIT itemSelectionDoubleClicked(selection);
                 } else {
-                    emit itemDoubleClicked(target);
+                    Q_EMIT itemDoubleClicked(target);
                 }
                 event->accept();
                 return;
@@ -1363,7 +1363,7 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
                 }
             } else if (!selectedItems.isEmpty()) {
                 // Single item - use existing double-click behavior
-                emit itemDoubleClicked(selectedItems.first());
+                Q_EMIT itemDoubleClicked(selectedItems.first());
             }
         });
     }
@@ -1453,7 +1453,7 @@ void SchematicView::drawBackground(QPainter *painter, const QRectF &rect) {
 
 void SchematicView::scrollContentsBy(int dx, int dy) {
     QGraphicsView::scrollContentsBy(dx, dy);
-    emit transformationChanged();
+    Q_EMIT transformationChanged();
 }
 void SchematicView::drawForeground(QPainter *painter, const QRectF &rect) {
     if (m_heatmapEnabled) {
@@ -1721,7 +1721,7 @@ void SchematicView::setHandToolActive(bool active) {
         else viewport()->unsetCursor();
     }
     
-    emit toolChanged(m_handToolActive ? "Hand" : (m_currentTool ? m_currentTool->name() : "Select"));
+    Q_EMIT toolChanged(m_handToolActive ? "Hand" : (m_currentTool ? m_currentTool->name() : "Select"));
 }
 void SchematicView::addHint(const QString& text, const QPointF& pos, const QString& ref) {
     if (!scene()) return;
@@ -1773,11 +1773,11 @@ void SchematicView::dropEvent(QDropEvent* event) {
     
     if (mime->hasFormat("application/x-viospice-snippet")) {
         QString json = QString::fromUtf8(mime->data("application/x-viospice-snippet"));
-        emit snippetDropped(json, scenePos);
+        Q_EMIT snippetDropped(json, scenePos);
         event->acceptProposedAction();
     } else if (mime->hasFormat("application/x-viospice-netlist")) {
         QString netlistText = QString::fromUtf8(mime->data("application/x-viospice-netlist"));
-        emit netlistDropped(netlistText, scenePos);
+        Q_EMIT netlistDropped(netlistText, scenePos);
         event->acceptProposedAction();
     } else {
         QGraphicsView::dropEvent(event);

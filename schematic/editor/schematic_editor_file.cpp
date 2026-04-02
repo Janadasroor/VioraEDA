@@ -249,7 +249,7 @@ protected:
         m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
     }
 
-private slots:
+private Q_SLOTS:
     void updateLineNumberAreaWidth(int) {
         setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
     }

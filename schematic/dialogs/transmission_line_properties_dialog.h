@@ -23,7 +23,7 @@ public:
     QString directiveText() const { return m_directiveText; }
     QString originalModelName() const { return m_originalModelName; }
 
-private slots:
+private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
     void onInsertOrUpdateModelDirective();

@@ -23,7 +23,7 @@ public:
     int maxWorkspaces() const { return m_maxWorkspaces; }
     void setMaxWorkspaces(int max);
 
-signals:
+Q_SIGNALS:
     void workspacesChanged();
 
 private:

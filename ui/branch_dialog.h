@@ -15,14 +15,14 @@ public:
     void setBranches(const QVector<GitBranch>& branches, const QString& currentBranch);
     void setRemotes(const QStringList& remotes);
 
-signals:
+Q_SIGNALS:
     void switchRequested(const QString& branch);
     void createRequested(const QString& name);
     void deleteRequested(const QString& branch);
     void mergeRequested(const QString& branch);
     void addRemoteRequested(const QString& name, const QString& url);
 
-private slots:
+private Q_SLOTS:
     void onSwitchClicked();
     void onCreateClicked();
     void onDeleteClicked();

@@ -84,7 +84,7 @@ public:
     Q_INVOKABLE void exportChat();
     Q_INVOKABLE void clearToolCalls();
 
-signals:
+Q_SIGNALS:
     void messagesChanged();
     void availableModelsChanged();
     void currentModelChanged();
@@ -111,7 +111,7 @@ signals:
     void showInstructionsRequested();
     void exportRequested();
 
-public slots:
+public Q_SLOTS:
     void updateMessages(const QVariantList& msgs);
     void setWorking(bool working, const QString& thinking = "");
     void updateStatus(const QString& status);
@@ -119,7 +119,7 @@ public slots:
     void updateTitle(const QString& title);
     void addToolCall(const QVariantMap& call);
     void updateToolResult(const QString& toolName, const QVariantMap& result);
-    void notifyThemeChanged() { emit themeChanged(); }
+    void notifyThemeChanged() { Q_EMIT themeChanged(); }
 
 private:
     QVariantList m_messages;

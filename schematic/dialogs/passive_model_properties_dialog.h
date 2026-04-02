@@ -27,7 +27,7 @@ public:
     bool excludeFromSimulation() const;
     bool excludeFromPcb() const;
 
-private slots:
+private Q_SLOTS:
     void pickModel();
 
 private:

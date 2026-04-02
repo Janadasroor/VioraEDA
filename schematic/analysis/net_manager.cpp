@@ -23,7 +23,7 @@ QString NetManager::createNet(const QString& name) {
     if (!m_nets.contains(netName)) {
         m_nets[netName] = QList<NetConnection>();
         m_netWires[netName] = QList<WireItem*>();
-        emit netAdded(netName);
+        Q_EMIT netAdded(netName);
         qDebug() << "Created net:" << netName;
     }
 
@@ -35,7 +35,7 @@ void NetManager::removeNet(const QString& netName) {
     if (m_nets.contains(netName)) {
         m_nets.remove(netName);
         m_netWires.remove(netName);
-        emit netRemoved(netName);
+        Q_EMIT netRemoved(netName);
         qDebug() << "Removed net:" << netName;
     }
 }
@@ -59,7 +59,7 @@ void NetManager::addConnection(const QString& netName, SchematicItem* item, cons
     NetConnection connection = {item, point, pinName};
     if (!m_nets[netName].contains(connection)) {
         m_nets[netName].append(connection);
-        emit connectionAdded(netName, item, point);
+        Q_EMIT connectionAdded(netName, item, point);
         qDebug() << "Added connection to net" << netName << "at" << point;
     }
 }
@@ -70,13 +70,13 @@ void NetManager::removeConnection(const QString& netName, SchematicItem* item, c
 
     NetConnection connection = {item, point, QString()};
     m_nets[netName].removeAll(connection);
-    emit connectionRemoved(netName, item, point);
+    Q_EMIT connectionRemoved(netName, item, point);
 
     // Remove net if it becomes empty
     if (m_nets[netName].isEmpty() && m_netWires[netName].isEmpty()) {
         m_nets.remove(netName);
         m_netWires.remove(netName);
-        emit netRemoved(netName);
+        Q_EMIT netRemoved(netName);
     }
 }
 

@@ -1189,6 +1189,11 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
                 if (auto* smart = dynamic_cast<SmartSignalItem*>(item)) {
                     if (smart->reference() == comp.reference) {
                         inst.pythonScript = smart->pythonCode().toStdString();
+                        inst.fluxScript = smart->fluxCode().toStdString();
+                        inst.engine = (smart->engineType() == SmartSignalItem::EngineType::FluxScript) ? 
+                                       SimComponentInstance::ScriptEngine::FluxScript : 
+                                       SimComponentInstance::ScriptEngine::Python;
+
                         for (const QString& pin : smart->inputPins()) inst.inputPinNames.push_back(pin.toStdString());
                         for (const QString& pin : smart->outputPins()) inst.outputPinNames.push_back(pin.toStdString());
                         break;

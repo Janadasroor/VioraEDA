@@ -9,7 +9,13 @@
  */
 class SmartSignalItem : public SchematicItem {
 public:
+    enum class EngineType {
+        Python,
+        FluxScript
+    };
+
     SmartSignalItem(QPointF pos = QPointF(0, 0), QGraphicsItem* parent = nullptr);
+
 
     // SchematicItem interface
     QString itemTypeName() const override { return "SmartSignalBlock"; }
@@ -30,11 +36,20 @@ public:
     QString pythonCode() const { return m_pythonCode; }
     void setPythonCode(const QString& code) { 
         m_pythonCode = code; 
-        QString ds = docstring();
-        if (!ds.isEmpty()) setToolTip(ds);
-        else setToolTip("Smart Signal Block: " + name());
+        updateDocstring();
         update(); 
     }
+
+    QString fluxCode() const { return m_fluxCode; }
+    void setFluxCode(const QString& code) {
+        m_fluxCode = code;
+        updateDocstring();
+        update();
+    }
+
+    EngineType engineType() const { return m_engineType; }
+    void setEngineType(EngineType type) { m_engineType = type; update(); }
+
 
     QStringList inputPins() const { return m_inputPins; }
     void setInputPins(const QStringList& pins);
@@ -69,8 +84,11 @@ public:
 
 private:
     void updateSize();
+    void updateDocstring();
 
     QString m_pythonCode;
+    QString m_fluxCode;
+    EngineType m_engineType = EngineType::Python;
     QStringList m_inputPins;
     QStringList m_outputPins;
     QMap<QString, double> m_parameters;

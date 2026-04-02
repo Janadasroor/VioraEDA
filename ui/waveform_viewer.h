@@ -27,7 +27,7 @@ class VioChartView : public QChartView {
     Q_OBJECT
 public:
     VioChartView(QChart *chart, QWidget *parent = nullptr);
-signals:
+Q_SIGNALS:
     void mouseMoved(const QPointF &value);
     void cursorMoved(int id, double x);
     void cursorsMoved();
@@ -113,7 +113,7 @@ public:
 protected:
     void keyPressEvent(QKeyEvent *event) override;
 
-private slots:
+private Q_SLOTS:
     void onNodeSelected();
     void zoomIn();
     void zoomOut();

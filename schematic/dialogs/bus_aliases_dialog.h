@@ -14,7 +14,7 @@ public:
 
     QMap<QString, QList<QString>> aliases() const { return m_aliases; }
 
-private slots:
+private Q_SLOTS:
     void onAddRow();
     void onRemoveRow();
     void onAccept();

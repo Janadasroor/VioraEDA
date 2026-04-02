@@ -20,7 +20,7 @@ public:
     void setRange(double min, double max);
     void setValue(double val);
 
-signals:
+Q_SIGNALS:
     void valueChanged(double newVal);
 
 protected:

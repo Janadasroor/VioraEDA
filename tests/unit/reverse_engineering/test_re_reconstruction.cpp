@@ -9,7 +9,7 @@ using namespace VioraEDA::ReverseEngineering;
 
 class TestREReconstruction : public QObject {
     Q_OBJECT
-private slots:
+private Q_SLOTS:
     void testFullPipelineStack() {
         // 1. Setup Mock Workspace
         QList<NormalizedLayer*> layers;

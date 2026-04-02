@@ -438,7 +438,7 @@ void ProjectExplorerWidget::onDoubleClicked(const QModelIndex& index) {
     QModelIndex sourceIndex = m_proxyModel->mapToSource(index);
     QString path = m_model->filePath(sourceIndex);
     if (QFileInfo(path).isFile()) {
-        emit fileDoubleClicked(path);
+        Q_EMIT fileDoubleClicked(path);
     }
 }
 
@@ -463,7 +463,7 @@ void ProjectExplorerWidget::onContextMenuRequested(const QPoint& pos) {
 
     if (info.isFile()) {
         QAction* openAct = menu.addAction("Open");
-        connect(openAct, &QAction::triggered, this, [this, path]() { emit fileDoubleClicked(path); });
+        connect(openAct, &QAction::triggered, this, [this, path]() { Q_EMIT fileDoubleClicked(path); });
 
         QAction* openExtAct = menu.addAction("Open in External Editor");
         connect(openExtAct, &QAction::triggered, this, [path]() {
@@ -518,7 +518,7 @@ void ProjectExplorerWidget::onContextMenuRequested(const QPoint& pos) {
                             .arg(result.componentCount)
                             .arg(result.airWireCount)
                             .arg(result.outputPath));
-                    emit fileDoubleClicked(result.outputPath);
+                    Q_EMIT fileDoubleClicked(result.outputPath);
                 } else {
                     QMessageBox::warning(this, "New Schematic from Netlist",
                         "Failed to generate schematic:\n" + result.errorMessage);

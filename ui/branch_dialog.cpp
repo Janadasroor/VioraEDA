@@ -123,14 +123,14 @@ QString BranchDialog::selectedBranch() const {
 void BranchDialog::onSwitchClicked() {
     QString branch = selectedBranch();
     if (branch.isEmpty()) { QMessageBox::warning(this, "Switch", "Select a branch."); return; }
-    emit switchRequested(branch);
+    Q_EMIT switchRequested(branch);
     close();
 }
 
 void BranchDialog::onCreateClicked() {
     QString name = m_newBranchEdit->text().trimmed();
     if (name.isEmpty()) { QMessageBox::warning(this, "Create", "Enter a branch name."); return; }
-    emit createRequested(name);
+    Q_EMIT createRequested(name);
     m_newBranchEdit->clear();
 }
 
@@ -138,21 +138,21 @@ void BranchDialog::onDeleteClicked() {
     QString branch = selectedBranch();
     if (branch.isEmpty()) { QMessageBox::warning(this, "Delete", "Select a branch."); return; }
     if (branch == m_currentBranch) { QMessageBox::warning(this, "Delete", "Cannot delete current branch."); return; }
-    emit deleteRequested(branch);
+    Q_EMIT deleteRequested(branch);
 }
 
 void BranchDialog::onMergeClicked() {
     QString branch = selectedBranch();
     if (branch.isEmpty()) { QMessageBox::warning(this, "Merge", "Select a branch."); return; }
     if (branch == m_currentBranch) { QMessageBox::warning(this, "Merge", "Cannot merge branch into itself."); return; }
-    emit mergeRequested(branch);
+    Q_EMIT mergeRequested(branch);
 }
 
 void BranchDialog::onAddRemoteClicked() {
     QString name = m_remoteNameEdit->text().trimmed();
     QString url = m_remoteUrlEdit->text().trimmed();
     if (name.isEmpty() || url.isEmpty()) { QMessageBox::warning(this, "Add Remote", "Enter name and URL."); return; }
-    emit addRemoteRequested(name, url);
+    Q_EMIT addRemoteRequested(name, url);
     m_remoteNameEdit->clear();
     m_remoteUrlEdit->clear();
 }

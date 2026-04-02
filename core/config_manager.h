@@ -116,7 +116,7 @@ public:
     bool aiErcEnabled() const;
     void setAiErcEnabled(bool enabled);
 
-signals:
+Q_SIGNALS:
     void requestModelRefresh();
 
 private:

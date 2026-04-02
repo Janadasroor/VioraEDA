@@ -14,7 +14,7 @@ void PushButtonItem::onInteractivePress(const QPointF&) {
     m_isPressed = true;
     setValue("0.001"); // Closed resistance
     setParamExpression("resistance", "0.001");
-    emit interactiveStateChanged();
+    Q_EMIT interactiveStateChanged();
     update();
 }
 
@@ -22,7 +22,7 @@ void PushButtonItem::onInteractiveRelease(const QPointF&) {
     m_isPressed = false;
     setValue("1e12"); // Open resistance
     setParamExpression("resistance", "1e12");
-    emit interactiveStateChanged();
+    Q_EMIT interactiveStateChanged();
     update();
 }
 

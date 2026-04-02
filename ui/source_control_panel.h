@@ -18,10 +18,10 @@ class SourceControlPanel : public QWidget {
 public:
     explicit SourceControlPanel(QWidget* parent = nullptr);
 
-public slots:
+public Q_SLOTS:
     void refresh();
 
-private slots:
+private Q_SLOTS:
     void onStatusUpdated();
     void onBranchChanged(const QString& branch);
     void onOperationStarted(const QString& op);

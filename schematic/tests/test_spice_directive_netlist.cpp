@@ -25,7 +25,7 @@
 class SpiceDirectiveNetlistTest : public QObject {
     Q_OBJECT
 
-private slots:
+private Q_SLOTS:
     void generatesWarningsAndHonorsManualDirectives();
     void reportsDuplicateElementsAndUnclosedSubckts();
     void honorsExplicitSaveDirective();

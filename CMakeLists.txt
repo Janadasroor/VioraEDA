@@ -33,20 +33,9 @@ else()
 endif()
 # -----------------------
 
-option(VIOSPICE_ENABLE_PYTHON "Enable Python support" ON)
-if(VIOSPICE_ENABLE_PYTHON)
-    include(FetchContent)
-    FetchContent_Declare(
-      pybind11
-      GIT_REPOSITORY https://github.com/pybind/pybind11.git
-      GIT_TAG        v2.12.0
-    )
-    FetchContent_MakeAvailable(pybind11)
-endif()
-
-
-
 # --- FluxScript Support ---
+set(FLUX_BUILD_EDITOR ON CACHE BOOL "Build the FluxEditor GUI module" FORCE)
+set(VIOSPICE_ENABLE_PYTHON ON CACHE BOOL "Enable Python-backed editor features" FORCE)
 add_subdirectory(../fluxscript fluxscript_build)
 # -----------------------
 
@@ -59,9 +48,7 @@ add_subdirectory(core)
 add_subdirectory(symbols)
 add_subdirectory(ui)
 add_subdirectory(simulator)
-if(VIOSPICE_ENABLE_PYTHON)
-    add_subdirectory(python)
-endif()
+add_subdirectory(python)
 
 if(BUILD_TESTING)
     add_executable(test_spice_directive_netlist schematic/tests/test_spice_directive_netlist.cpp)
@@ -81,9 +68,6 @@ if(BUILD_TESTING)
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Test
     )
-    if(VIOSPICE_ENABLE_PYTHON)
-        target_link_libraries(test_spice_directive_netlist PRIVATE FluxPython)
-    endif()
     add_test(NAME schematic.spice_directive_netlist COMMAND test_spice_directive_netlist)
 
     # Design Rule Management System Tests
@@ -97,7 +81,7 @@ if(BUILD_TESTING)
         FluxSymbols
         FluxSimulator
         FluxScript
-        FluxScriptUI
+        FluxScriptManager
         FluxUI
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
@@ -116,6 +100,7 @@ if(BUILD_VIOSPICE_CLI)
     # CLI tool
     qt_add_executable(vio_cmd
         cli/main.cpp
+        cli/flux_command.cpp
         resources/resources.qrc
     )
 
@@ -126,13 +111,10 @@ if(BUILD_VIOSPICE_CLI)
         FluxCore
         FluxSimulator
         FluxScript
-        FluxScriptUI
+        FluxScriptManager
         FluxUI
     )
 
-    if(VIOSPICE_ENABLE_PYTHON)
-        target_link_libraries(vio_cmd PRIVATE FluxPython)
-    endif()
 
     if(VIOSPICE_ENGINE_FOUND)
         target_link_libraries(vio_cmd PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
@@ -160,12 +142,9 @@ if(BUILD_VIOSPICE_APP)
         FluxCore
         FluxUI # Link twice if there are circular dependencies
         FluxScript
-        FluxScriptUI
+        FluxScriptManager
     )
 
-    if(VIOSPICE_ENABLE_PYTHON)
-        target_link_libraries(viospice PRIVATE FluxPython)
-    endif()
 
     if(VIOSPICE_ENGINE_FOUND)
         target_link_libraries(viospice PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})

@@ -115,8 +115,8 @@ void VioChartView::mouseMoveEvent(QMouseEvent *event) {
         
         if (m_movingCursor == 1) m_c1x = x;
         else m_c2x = x;
-        emit cursorMoved(m_movingCursor, x);
-        emit cursorsMoved();
+        Q_EMIT cursorMoved(m_movingCursor, x);
+        Q_EMIT cursorsMoved();
         viewport()->update();
     }
     if (m_crosshairEnabled) {
@@ -128,12 +128,12 @@ void VioChartView::mouseMoveEvent(QMouseEvent *event) {
     }
 
     QPointF value = chart()->mapToValue(event->pos());
-    emit mouseMoved(value);
+    Q_EMIT mouseMoved(value);
     QChartView::mouseMoveEvent(event);
 }
 
 void VioChartView::mousePressEvent(QMouseEvent *event) {
-    emit clicked();
+    Q_EMIT clicked();
     if (event->button() == Qt::MiddleButton) {
         m_panning = true;
         m_panStart = event->position();
@@ -165,7 +165,7 @@ void VioChartView::mousePressEvent(QMouseEvent *event) {
                     }
 
                     if (!text.isEmpty()) {
-                        emit legendCtrlClicked(text);
+                        Q_EMIT legendCtrlClicked(text);
                         event->accept();
                         return;
                     }
@@ -174,7 +174,7 @@ void VioChartView::mousePressEvent(QMouseEvent *event) {
         }
     }
     if (event->button() == Qt::RightButton) {
-        emit contextMenuRequested(mapToGlobal(event->pos()));
+        Q_EMIT contextMenuRequested(mapToGlobal(event->pos()));
         event->accept();
         return;
     }
@@ -221,7 +221,7 @@ void VioChartView::mouseReleaseEvent(QMouseEvent *event) {
             double xMax = std::max(topLeft.x(), bottomRight.x());
             double yMin = std::min(topLeft.y(), bottomRight.y());
             double yMax = std::max(topLeft.y(), bottomRight.y());
-            emit zoomRectCompleted(QRectF(QPointF(xMin, yMin), QPointF(xMax, yMax)));
+            Q_EMIT zoomRectCompleted(QRectF(QPointF(xMin, yMin), QPointF(xMax, yMax)));
         }
         event->accept();
         return;

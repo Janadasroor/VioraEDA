@@ -12,7 +12,7 @@ class GeminiInstructionsDialog : public QDialog {
 public:
     explicit GeminiInstructionsDialog(const QString& projectPath, QWidget* parent = nullptr);
 
-private slots:
+private Q_SLOTS:
     void onScopeChanged(int index);
     void onSaveClicked();
 

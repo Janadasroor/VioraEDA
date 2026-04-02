@@ -57,7 +57,7 @@ public:
 
     void setTabVisible(int index, bool visible);
 
-public slots:
+public Q_SLOTS:
     void accept() override;
     void reject() override;
     virtual void onApply();

@@ -23,7 +23,7 @@ public:
     QString netName() const { return m_netName; }
     QColor signalColor() const { return m_colorButton->property("color").value<QColor>(); }
     
-private slots:
+private Q_SLOTS:
     void onExpressionChanged();
     void insertOperator(const QString &op);
     void onColorClicked();

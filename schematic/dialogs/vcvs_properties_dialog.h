@@ -16,7 +16,7 @@ public:
 
     QString gainValue() const;
 
-private slots:
+private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
 

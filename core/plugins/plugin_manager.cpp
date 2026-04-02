@@ -136,7 +136,7 @@ void PluginManager::loadEnabledPlugins() {
 
             m_plugins.append(fluxPlugin);
             m_loaders.append(loader);
-            emit pluginLoaded(fluxPlugin->name());
+            Q_EMIT pluginLoaded(fluxPlugin->name());
             qDebug() << "Loaded plugin:" << fluxPlugin->name();
             result.status = PluginLoadResult::Status::Loaded;
             result.lifecycleStatus = PluginLoadResult::LifecycleStatus::Enabled;
@@ -276,7 +276,7 @@ int PluginManager::findLoadResultIndexByPath(const QString& normalizedPath) cons
 void PluginManager::unloadPlugins() {
     for (FluxPlugin* plugin : m_plugins) {
         plugin->shutdown();
-        emit pluginUnloaded(plugin->name());
+        Q_EMIT pluginUnloaded(plugin->name());
     }
     m_plugins.clear();
 

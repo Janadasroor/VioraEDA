@@ -20,27 +20,27 @@ SchematicLayoutOptimizer::SchematicLayoutOptimizer(QObject* parent)
 void SchematicLayoutOptimizer::optimizeLayout(QGraphicsScene* scene) {
     if (!scene) return;
 
-    emit optimizationProgress(0);
+    Q_EMIT optimizationProgress(0);
 
     // Step 1: Apply orthogonal routing
     applyOrthogonalRouting(scene);
-    emit optimizationProgress(25);
+    Q_EMIT optimizationProgress(25);
 
     // Step 2: Minimize wire crossings
     minimizeWireCrossings(scene);
-    emit optimizationProgress(50);
+    Q_EMIT optimizationProgress(50);
 
     // Step 3: Create bus groups
     if (m_enableBusGrouping) {
         createBusGroups(scene);
     }
-    emit optimizationProgress(75);
+    Q_EMIT optimizationProgress(75);
 
     // Step 4: Apply HDI clearance standards
     applyHDIClearance(scene);
-    emit optimizationProgress(100);
+    Q_EMIT optimizationProgress(100);
 
-    emit optimizationComplete(1); // Placeholder for actual improvement count
+    Q_EMIT optimizationComplete(1); // Placeholder for actual improvement count
 }
 
 void SchematicLayoutOptimizer::applyOrthogonalRouting(QGraphicsScene* scene) {

@@ -14,7 +14,7 @@ protected:
     void onApply() override;
     void applyPreview() override;
 
-private slots:
+private Q_SLOTS:
     void onSyncPorts();
     void onBrowseFile();
 

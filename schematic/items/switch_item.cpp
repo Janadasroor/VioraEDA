@@ -20,7 +20,7 @@ SwitchItem::SwitchItem(QPointF pos, QGraphicsItem *parent) : SchematicItem(paren
 void SwitchItem::onInteractiveClick(const QPointF&) {
     setOpen(!m_isOpen);
 
-    emit interactiveStateChanged();
+    Q_EMIT interactiveStateChanged();
     update();
 }
 

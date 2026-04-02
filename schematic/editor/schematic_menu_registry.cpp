@@ -330,7 +330,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return items.size() == 1 && items.first()->itemType() == SchematicItem::BusType;
     };
     editBusLabel.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
-        emit view->itemDoubleClicked(items.first());
+        Q_EMIT view->itemDoubleClicked(items.first());
     };
     registerAction(SchematicItem::BusType, editBusLabel);
 
@@ -343,7 +343,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return items.size() == 1 && items.first()->itemType() == SchematicItem::NetLabelType;
     };
     editNetLabelItem.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
-        emit view->itemDoubleClicked(items.first());
+        Q_EMIT view->itemDoubleClicked(items.first());
     };
     registerAction(SchematicItem::NetLabelType, editNetLabelItem);
 
@@ -460,7 +460,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return items.size() == 1 && items.first()->itemType() == SchematicItem::VoltageSourceType;
     };
     editWaveform.handler = [](SchematicView* view, const auto& items) {
-        emit view->itemDoubleClicked(items.first());
+        Q_EMIT view->itemDoubleClicked(items.first());
     };
     registerAction(SchematicItem::VoltageSourceType, editWaveform);
 
@@ -491,7 +491,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return vsrc && vsrc->sourceType() == VoltageSourceItem::Sine;
     };
     setSine.handler = [](SchematicView* view, const auto& items) {
-        emit view->itemDoubleClicked(items.first()); // Since Sine needs multiple fields, just open properties
+        Q_EMIT view->itemDoubleClicked(items.first()); // Since Sine needs multiple fields, just open properties
     };
     registerAction(SchematicItem::VoltageSourceType, setSine);
 
@@ -504,7 +504,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return vsrc && vsrc->sourceType() == VoltageSourceItem::Pulse;
     };
     setPulse.handler = [](SchematicView* view, const auto& items) {
-        emit view->itemDoubleClicked(items.first()); // Same for pulse
+        Q_EMIT view->itemDoubleClicked(items.first()); // Same for pulse
     };
     registerAction(SchematicItem::VoltageSourceType, setPulse);
 
@@ -517,7 +517,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return items.size() == 1 && items.first()->itemType() == SchematicItem::LabelType;
     };
     editText.handler = [](SchematicView* view, const auto& items) {
-        emit view->itemDoubleClicked(items.first());
+        Q_EMIT view->itemDoubleClicked(items.first());
     };
     registerAction(SchematicItem::LabelType, editText);
 
@@ -568,7 +568,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return items.size() == 1 && items.first()->itemType() == SchematicItem::SheetType;
     };
     enterSheet.handler = [](SchematicView* view, const auto& items) {
-        emit view->itemDoubleClicked(items.first());
+        Q_EMIT view->itemDoubleClicked(items.first());
     };
     registerAction(SchematicItem::SheetType, enterSheet);
 
@@ -579,7 +579,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         return items.size() == 1 && items.first()->itemType() == SchematicItem::SheetType;
     };
     syncPins.handler = [](SchematicView* view, const auto& items) {
-        emit view->syncSheetRequested(static_cast<SchematicSheetItem*>(items.first()));
+        Q_EMIT view->syncSheetRequested(static_cast<SchematicSheetItem*>(items.first()));
     };
     registerAction(SchematicItem::SheetType, syncPins);
 }

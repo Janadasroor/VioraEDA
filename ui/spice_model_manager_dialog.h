@@ -15,7 +15,7 @@ class SpiceModelManagerDialog : public QDialog {
 public:
     explicit SpiceModelManagerDialog(QWidget* parent = nullptr);
 
-private slots:
+private Q_SLOTS:
     void onSearchChanged(const QString& query);
     void onModelSelected(const QModelIndex& index);
     void onReloadLibraries();

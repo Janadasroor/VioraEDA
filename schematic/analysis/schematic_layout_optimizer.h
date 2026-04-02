@@ -40,7 +40,7 @@ public:
     QList<QList<WireItem*>> identifyBusGroups(QGraphicsScene* scene);
     void alignBusWires(QList<WireItem*>& busWires, qreal spacing = 20.0);
 
-signals:
+Q_SIGNALS:
     void optimizationProgress(int percentage);
     void optimizationComplete(int improvementsMade);
 

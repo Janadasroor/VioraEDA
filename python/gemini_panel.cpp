@@ -1,6 +1,6 @@
 #include "gemini_panel.h"
 #include "gemini_instructions_dialog.h"
-#include "python_manager.h"
+#include "flux_script_manager.h"
 #include "config_manager.h"
 #include "theme_manager.h"
 #include "gemini_bridge.h"
@@ -128,9 +128,13 @@ QVariantList parseMessageParts(const QString& text) {
 GeminiPanel::~GeminiPanel() {
     m_isDestroying = true;
 
-    // 1. First, tell the QML engine to stop and clear context properties
+    // Stop timers before any teardown can trigger queued UI updates.
+    if (m_thinkingPulseTimer) m_thinkingPulseTimer->stop();
+    if (m_syncTimer) m_syncTimer->stop();
+
+    // Detach the bridge from QML. Clearing the source here is unnecessary and can
+    // provoke crashes while the widget and engine are already being destroyed.
     if (m_quickWidget) {
-        m_quickWidget->setSource(QUrl());
         if (auto engine = m_quickWidget->engine()) {
             if (auto context = engine->rootContext()) {
                 context->setContextProperty("geminiBridge", nullptr);
@@ -138,7 +142,6 @@ GeminiPanel::~GeminiPanel() {
         }
     }
 
-    // 2. Safely stop all processes
     auto stopProcess = [](QProcess* proc) {
         if (proc) {
             proc->disconnect();
@@ -154,13 +157,8 @@ GeminiPanel::~GeminiPanel() {
     stopProcess(m_process);
     stopProcess(m_probeProcess);
     stopProcess(m_modelFetchProcess);
-    
-    // 3. Clean up timers
-    if (m_thinkingPulseTimer) m_thinkingPulseTimer->stop();
-    if (m_syncTimer) m_syncTimer->stop();
 
-    // Note: No manual disconnect() here as it can trigger warnings during destruction
-    // and Qt's QObject destructor handles it automatically for all children.
+    // Child QObject destruction handles the remaining cleanup.
 }
 
 GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent) 
@@ -177,9 +175,6 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_quickWidget = new QQuickWidget(this);
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
     m_quickWidget->engine()->rootContext()->setContextProperty("geminiBridge", m_bridge);
-
-    // Set source
-    m_quickWidget->setSource(QUrl::fromLocalFile(QDir::current().absoluteFilePath("python/qml/GeminiRoot.qml")));
     
     mainLayout->addWidget(m_quickWidget);
 
@@ -209,12 +204,19 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     m_syncTimer->setSingleShot(true);
     m_syncTimer->setInterval(50); // 20 FPS (Smooth typing)
     connect(m_syncTimer, &QTimer::timeout, this, &GeminiPanel::syncHistoryToBridge);
-    
-    // Initial data fetch
-    refreshModelList();
-    loadHistory();
 
     connect(&ConfigManager::instance(), &ConfigManager::requestModelRefresh, this, &GeminiPanel::refreshModelList);
+
+    // Defer QML loading and startup work until the surrounding editor UI has settled.
+    QTimer::singleShot(0, this, [this]() {
+        if (m_isDestroying || !m_quickWidget) {
+            return;
+        }
+
+        m_quickWidget->setSource(QUrl::fromLocalFile(QDir::current().absoluteFilePath("python/qml/GeminiRoot.qml")));
+        refreshModelList();
+        loadHistory();
+    });
 }
 
 void GeminiPanel::setMode(const QString& mode) {
@@ -242,7 +244,7 @@ void GeminiPanel::onBridgeSendMessage(const QString& text) {
 
     if (text.trimmed().toLower() == "/rewind") {
         appendSystemAction("Rewind", "🕰️ Rewinding schematic state...", "🕰️");
-        emit rewindRequested();
+        Q_EMIT rewindRequested();
         return;
     }
 
@@ -400,7 +402,7 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
         m_process = nullptr;
     }
     m_process = new QProcess(this);
-    m_process->setProcessEnvironment(PythonManager::getConfiguredEnvironment());
+    m_process->setProcessEnvironment(FluxScriptManager::getConfiguredEnvironment());
 
     m_responseBuffer.clear();
     m_errorBuffer.clear();
@@ -418,8 +420,8 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     });
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &GeminiPanel::onProcessFinished);
 
-    QString sPath = QDir(PythonManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
-    QString py = PythonManager::getPythonExecutable();
+    QString sPath = QDir(FluxScriptManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
+    QString py = FluxScriptManager::getPythonExecutable();
     
     qDebug() << "[GeminiPanel] Executing:" << py << sPath << args.join(" ");
     m_process->start(py, QStringList() << sPath << args);
@@ -435,7 +437,7 @@ void GeminiPanel::askSmartProbe(const QString& prompt,
 
     if (!m_probeProcess) {
         m_probeProcess = new QProcess(this);
-        m_probeProcess->setProcessEnvironment(PythonManager::getConfiguredEnvironment());
+        m_probeProcess->setProcessEnvironment(FluxScriptManager::getConfiguredEnvironment());
     } else {
         m_probeProcess->disconnect(this);
     }
@@ -443,8 +445,8 @@ void GeminiPanel::askSmartProbe(const QString& prompt,
     QString key = ConfigManager::instance().geminiApiKey().trimmed();
     if (key.isEmpty()) return;
 
-    QString sPath = QDir(PythonManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
-    QString py = PythonManager::getPythonExecutable();
+    QString sPath = QDir(FluxScriptManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
+    QString py = FluxScriptManager::getPythonExecutable();
 
     QStringList args;
     QString overlayModel = ConfigManager::instance().geminiOverlayModel();
@@ -577,7 +579,7 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
         if (doc.isObject()) {
             QJsonObject obj = doc.object();
             if (obj.contains("commands") && obj["commands"].isArray()) {
-                emit checkpointRequested();
+                Q_EMIT checkpointRequested();
                 QJsonArray cmds = obj["commands"].toArray();
                 for (const auto& cmdVal : cmds) {
                     parseAndExecuteCommandModeInput(cmdVal.toString());
@@ -616,7 +618,7 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
         if (match.hasMatch()) {
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(0).toUtf8());
             if (doc.isObject()) {
-                emit checkpointRequested();
+                Q_EMIT checkpointRequested();
                 QJsonArray cmds = doc.object()["commands"].toArray();
                 for (const auto& cmdVal : cmds) {
                     parseAndExecuteCommandModeInput(cmdVal.toString());
@@ -768,12 +770,12 @@ void GeminiPanel::refreshModelList() {
     if (m_modelFetchProcess && m_modelFetchProcess->state() != QProcess::NotRunning) return;
 
     m_modelFetchProcess = new QProcess(this);
-    m_modelFetchProcess->setProcessEnvironment(PythonManager::getConfiguredEnvironment());
+    m_modelFetchProcess->setProcessEnvironment(FluxScriptManager::getConfiguredEnvironment());
 
     connect(m_modelFetchProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &GeminiPanel::onModelFetchFinished);
 
-    QString sPath = QDir(PythonManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
-    QString py = PythonManager::getPythonExecutable();
+    QString sPath = QDir(FluxScriptManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
+    QString py = FluxScriptManager::getPythonExecutable();
 
     qDebug() << "[GeminiPanel] Fetching models using:" << py;
     m_modelFetchProcess->start(py, QStringList() << sPath << "--list-models");
@@ -992,13 +994,13 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
         }
     } else if (cmd == "run erc") {
         appendSystemAction("ERC", "Running Electrical Rules Check...", "🔍");
-        emit runERCRequested();
+        Q_EMIT runERCRequested();
     } else if (cmd == "run simulation" || cmd == "run sim") {
         appendSystemAction("Simulation", "Initializing SPICE simulation...", "⚡");
-        emit runSimulationRequested();
+        Q_EMIT runSimulationRequested();
         
         // Also ensure simulation data is fresh if needed
-        emit runSimulationRequested(); 
+        Q_EMIT runSimulationRequested(); 
     } else if (cmd == "list components" || cmd == "list parts") {
         if (!m_scene) {
             appendSystemNote("<b>Error:</b> Schematic scene is not active.");
@@ -1020,7 +1022,7 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
         }
     } else if (cmd == "zoom fit" || cmd == "zoom all") {
         appendSystemNote("<b>View:</b> Fitting schematic to view...");
-        emit zoomFitRequested();
+        Q_EMIT zoomFitRequested();
     } else if (cmd == "clear chat" || cmd == "clear history" || cmd == "clear") {
         clearHistory();
     } else if (cmd == "export netlist" || cmd == "show netlist") {
@@ -1033,12 +1035,12 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
     } else if (cmd.startsWith("toggle ")) {
         QString panel = cmd.mid(7).trimmed();
         appendSystemNote("<b>UI:</b> Toggling panel: " + panel);
-        emit togglePanelRequested(panel);
+        Q_EMIT togglePanelRequested(panel);
     } else if (cmd.startsWith("import_subckt ")) {
         QString path = in.mid(14).trimmed();
-        emit checkpointRequested();
+        Q_EMIT checkpointRequested();
         appendSystemAction("Import Subcircuit", "Opening symbol generator for: " + QFileInfo(path).fileName(), "📦");
-        emit importSubcircuitRequested(path);
+        Q_EMIT importSubcircuitRequested(path);
     } else {
         appendSystemNote("<b>Unknown Command:</b> \"" + in + "\".<br/>Type <b>help</b> for a list of available system commands.");
     }

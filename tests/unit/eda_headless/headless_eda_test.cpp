@@ -21,7 +21,7 @@ using namespace Flux::Analysis;
 class HeadlessEDATest : public QObject {
     Q_OBJECT
 
-private slots:
+private Q_SLOTS:
     // --- PCB TESTS ---
     void testTraceToPadConnectivity() {
         TraceModel t;

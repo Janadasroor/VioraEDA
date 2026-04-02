@@ -10,7 +10,7 @@ using namespace Flux::Core;
 class TestDesignRule : public QObject {
     Q_OBJECT
 
-private slots:
+private Q_SLOTS:
     // DesignRule tests
     void testRuleCreation();
     void testRuleSerialization();

@@ -40,7 +40,7 @@ public:
     void zoomOutX();
     void autoScale();
 
-signals:
+Q_SIGNALS:
     void timePerDivChanged(double ms);
     void horizontalOffsetChanged(double ms);
 

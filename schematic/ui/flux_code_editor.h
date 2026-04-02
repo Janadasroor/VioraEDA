@@ -24,7 +24,7 @@ public:
     void setErrorLines(const QMap<int, QString>& errors) override;
     void setActiveDebugLine(int line) override;
 
-public slots:
+public Q_SLOTS:
     void onRunRequested() override;
     void showFindReplaceDialog();
     void findNext(const QString& text, bool forward = true);
@@ -35,7 +35,7 @@ protected:
     void focusInEvent(QFocusEvent* e) override;
     bool event(QEvent* e) override;
 
-private slots:
+private Q_SLOTS:
     void onContentChanged();
     void insertCompletion(const QString& completion);
 

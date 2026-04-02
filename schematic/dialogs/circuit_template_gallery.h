@@ -46,7 +46,7 @@ public:
     Template selectedTemplate() const { return m_selectedTemplate; }
     QMap<QString, QString> customParameters() const { return m_customParameters; }
 
-private slots:
+private Q_SLOTS:
     void onCategorySelected(QListWidgetItem* item);
     void onTemplateSelected(QListWidgetItem* item);
     void onSearchTextChanged(const QString& text);

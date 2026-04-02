@@ -29,7 +29,7 @@ public:
     explicit PluginManagerDialog(QWidget* parent = nullptr);
     ~PluginManagerDialog();
 
-private slots:
+private Q_SLOTS:
     void refreshPluginList();
     void onPluginSelected(QListWidgetItem* item);
     void onToggleSelectedPluginEnabled();

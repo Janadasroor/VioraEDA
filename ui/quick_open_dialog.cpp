@@ -128,7 +128,7 @@ void QuickOpenDialog::showEvent(QShowEvent* event) {
 
 void QuickOpenDialog::hideEvent(QHideEvent* event) {
     QDialog::hideEvent(event);
-    emit dialogClosed();
+    Q_EMIT dialogClosed();
 }
 
 bool QuickOpenDialog::eventFilter(QObject* watched, QEvent* event) {
@@ -245,7 +245,7 @@ void QuickOpenDialog::updateFileList(const QString& filter) {
 void QuickOpenDialog::onFileDoubleClicked(QListWidgetItem* item) {
     QString filePath = item->data(Qt::UserRole + 2).toString();
     if (!filePath.isEmpty()) {
-        emit fileSelected(filePath);
+        Q_EMIT fileSelected(filePath);
         accept();
     }
 }
@@ -260,7 +260,7 @@ void QuickOpenDialog::selectAndOpenCurrent() {
     if (item) {
         QString filePath = item->data(Qt::UserRole + 2).toString();
         if (!filePath.isEmpty()) {
-            emit fileSelected(filePath);
+            Q_EMIT fileSelected(filePath);
             accept();
         }
     } else if (m_fileList->count() > 0) {

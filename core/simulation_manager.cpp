@@ -63,7 +63,7 @@ void SimulationManager::initialize() {
 
 void SimulationManager::runSimulation(const QString& netlist, SimControl* control) {
     if (!isAvailable()) {
-        emit errorOccurred("Simulation engine not installed.");
+        Q_EMIT errorOccurred("Simulation engine not installed.");
         return;
     }
     if (!m_isInitialized) initialize();
@@ -90,12 +90,12 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     const bool loaded = loadNetlistInternal(netlist, true, &error);
     if (!loaded) {
         m_bufferTimer->stop();
-        if (!error.isEmpty()) emit errorOccurred(error);
+        if (!error.isEmpty()) Q_EMIT errorOccurred(error);
         return;
     }
 
     m_bufferTimer->start();
-    emit simulationStarted();
+    Q_EMIT simulationStarted();
     qDebug() << "SimulationManager: Setting ascii mode for real-time streaming and starting bg_run";
     ngSpice_Command(const_cast<char*>("set filetype=ascii"));
     const int rc = ngSpice_Command((char*)"bg_run");
@@ -104,8 +104,8 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         m_bgRunIssued = false;
         QString finalErr = "Ngspice failed to start simulation.";
         if (!m_lastErrorMessage.isEmpty()) finalErr = m_lastErrorMessage;
-        emit errorOccurred(finalErr);
-        emit simulationFinished();
+        Q_EMIT errorOccurred(finalErr);
+        Q_EMIT simulationFinished();
         return;
     }
     m_bgRunIssued = true;
@@ -201,7 +201,7 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
         const int rc = ngSpice_Circ(m_circPtrs.data());
         loaded = (rc == 0 && !m_lastLoadFailed);
         if (!loaded) {
-            emit outputReceived(QString("Ngspice: failed to load circuit via ngSpice_Circ (rc=%1), falling back to source.").arg(rc));
+            Q_EMIT outputReceived(QString("Ngspice: failed to load circuit via ngSpice_Circ (rc=%1), falling back to source.").arg(rc));
             if (m_lastLoadFailed) {
                 if (errorOut) {
                     *errorOut = m_lastErrorMessage.isEmpty() ? "Ngspice rejected the netlist during parse/model load." : m_lastErrorMessage;
@@ -244,7 +244,7 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
     }
 
     if (!loaded) {
-        emit outputReceived("Ngspice: no circuits loaded after load attempt.");
+        Q_EMIT outputReceived("Ngspice: no circuits loaded after load attempt.");
         if (errorOut) *errorOut = "No circuits loaded. Check netlist syntax.";
         if (!keepStorage) { m_circStorage.clear(); m_circPtrs.clear(); }
         return false;
@@ -283,6 +283,51 @@ void SimulationManager::shutdown() {
 #endif
 }
 
+double SimulationManager::getVectorValue(const QString& name) {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized) return 0.0;
+    
+    // We use ngGet_Vec_Info which is safe to call during simulation 
+    // if ngspice is compiled with shared library support.
+    pvector_info info = ngGet_Vec_Info(name.toLatin1().data());
+    if (info && info->v_realdata) {
+        // For transient/DC it's usually 1 point if we are paused, 
+        // or we get the "current" point (the last one).
+        if (info->v_length > 0) {
+            return info->v_realdata[info->v_length - 1];
+        }
+    }
+#endif
+    return 0.0;
+}
+
+void SimulationManager::setParameter(const QString& name, double value) {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized) return;
+    
+    // Use 'alter' or 'set' command depending on what it is.
+    // For component values (e.g. R1), use 'alter'. 
+    // For global params, use 'set'.
+    QString cmd;
+    if (name.contains('.')) {
+        // Component parameter: R1.R = 10k
+        QStringList parts = name.split('.');
+        cmd = QString("alter %1 %2 = %3").arg(parts[0], parts[1], QString::number(value, 'g', 12));
+    } else {
+        cmd = QString("set %1=%2").arg(name, QString::number(value, 'g', 12));
+    }
+    
+    ngSpice_Command(cmd.toLatin1().data());
+#endif
+}
+
+void SimulationManager::sendInternalCommand(const QString& command) {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized) return;
+    ngSpice_Command(command.toLatin1().data());
+#endif
+}
+
 void SimulationManager::processBufferedData() {
     std::vector<SimDataPoint> batch;
     std::vector<QString> logBatch;
@@ -301,7 +346,7 @@ void SimulationManager::processBufferedData() {
     }
 
     for (const QString& msg : logBatch) {
-        emit outputReceived(msg);
+        Q_EMIT outputReceived(msg);
     }
 
     std::vector<double> times;
@@ -319,7 +364,7 @@ void SimulationManager::processBufferedData() {
         names << m_vectorMap[i].name;
     }
 
-    emit realTimeDataBatchReceived(times, valueRows, names);
+    Q_EMIT realTimeDataBatchReceived(times, valueRows, names);
 }
 
 // --- Callbacks ---
@@ -522,9 +567,9 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
         const QString writeCmd = "write " + rawPath;
         ngSpice_Command(writeCmd.toLatin1().data());
         ngSpice_Command((char*)"set filetype=ascii");
-        emit rawResultsReady(rawPath);
+        Q_EMIT rawResultsReady(rawPath);
     }
 #endif
     m_bgRunIssued = false;
-    emit simulationFinished();
+    Q_EMIT simulationFinished();
 }

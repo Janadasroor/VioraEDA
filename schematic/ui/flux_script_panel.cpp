@@ -8,6 +8,9 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QVariantMap>
+#include <QTextEdit>
+#include "../../core/jit_context_manager.h"
+
 
 namespace Flux {
 
@@ -24,10 +27,19 @@ ScriptPanel::ScriptPanel(QGraphicsScene* scene, NetManager* netManager, QWidget*
     QHBoxLayout* toolLayout = new QHBoxLayout(toolbar);
     toolLayout->setContentsMargins(5, 5, 5, 5);
 
-    QLabel* title = new QLabel("FluxScript Editor");
+    QLabel* title = new QLabel("FluxScript Editor"
+#ifndef HAVE_FLUXSCRIPT
+        " (Disabled)"
+#endif
+    );
     title->setStyleSheet("color: #cccccc; font-weight: bold; font-size: 11px;");
     toolLayout->addWidget(title);
-    toolLayout->addSpacing(20);
+    
+#ifndef HAVE_FLUXSCRIPT
+    QLabel* disabledMsg = new QLabel("JIT simulation support is disabled.");
+    disabledMsg->setStyleSheet("color: #ff5555; font-size: 10px; margin-left: 10px;");
+    toolLayout->addWidget(disabledMsg);
+#endif
 
     // Debug Controls
     QPushButton* resumeBtn = new QPushButton("Resume");
@@ -72,11 +84,33 @@ ScriptPanel::ScriptPanel(QGraphicsScene* scene, NetManager* netManager, QWidget*
     completer->updateCompletions();
     m_editor->setCompleter(completer);
     
-    layout->addWidget(m_editor);
+    layout->addWidget(m_editor, 1); // Give editor most space
+
+    // Console
+    m_console = new QTextEdit();
+    m_console->setReadOnly(true);
+    m_console->setPlaceholderText("FluxScript Console Output...");
+    m_console->setStyleSheet(
+        "QTextEdit { background: #1e1e1e; color: #d4d4d4; border-top: 1px solid #3e3e42; font-family: monospace; font-size: 11px; }"
+    );
+    m_console->setMaximumHeight(150);
+    layout->addWidget(m_console);
+
+    // Connect to JIT Manager signals
+    connect(&JITContextManager::instance(), &JITContextManager::compilationFinished, [this](bool success, QString message) {
+        m_console->append(QString("<b style='color:%1'>[JIT] %2</b>").arg(success ? "#4caf50" : "#f44336", message));
+    });
+
+    connect(&JITContextManager::instance(), &JITContextManager::scriptOutput, [this](const QString& message) {
+        m_console->append(message);
+    });
+
+
 
     connect(runBtn, &QPushButton::clicked, [this]() {
-        // Debugger::instance().start();
+#ifdef HAVE_FLUXSCRIPT
         m_editor->onRunRequested();
+#endif
     });
 
     /* Legacy Debugger disabled

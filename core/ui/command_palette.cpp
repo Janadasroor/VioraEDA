@@ -172,7 +172,7 @@ void CommandPalette::onSearchTextChanged(const QString& text) {
     }
 
     updateList();
-    emit queryChanged(text);
+    Q_EMIT queryChanged(text);
 }
 
 void CommandPalette::updateList() {
@@ -206,7 +206,7 @@ void CommandPalette::onItemSelected(QListWidgetItem* item) {
     if (row >= 0 && row < list.size()) {
         const auto& res = list[row];
         if (res.action) res.action();
-        emit resultSelected(res.data);
+        Q_EMIT resultSelected(res.data);
     }
     
     QDialog::accept();

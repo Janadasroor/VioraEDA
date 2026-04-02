@@ -21,11 +21,11 @@ public:
     explicit PowerNetsManagerDialog(QWidget* parent = nullptr);
     void setRows(const QVector<PowerNetUsageRow>& rows);
 
-signals:
+Q_SIGNALS:
     void renameRequested(const QString& oldName, const QString& newName);
     void refreshRequested();
 
-private slots:
+private Q_SLOTS:
     void onRenameClicked();
     void onRefreshClicked();
 

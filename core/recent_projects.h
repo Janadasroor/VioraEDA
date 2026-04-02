@@ -28,7 +28,7 @@ public:
     int maxProjects() const { return m_maxProjects; }
     void setMaxProjects(int max);
 
-signals:
+Q_SIGNALS:
     void projectsChanged();
 
 private:

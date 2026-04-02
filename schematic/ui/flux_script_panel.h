@@ -17,6 +17,7 @@ public:
 
 private:
     CodeEditor* m_editor;
+    QTextEdit* m_console;
 };
 
 } // namespace Flux

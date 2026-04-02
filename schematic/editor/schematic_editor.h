@@ -68,7 +68,7 @@ public:
     void onClearAllProbeMarkers();
     void removeProbeMarkerBySignalName(const QString& signalName);
 
-private slots:
+private Q_SLOTS:
     void onZoomFit();
     void onZoomAllComponents();
     void onZoomSelection();
@@ -97,7 +97,7 @@ private slots:
     void onPaste();
     void onSelectAll();
 
-private slots:
+private Q_SLOTS:
     // Layout optimization slots
     void onOptimizeLayout();
     void onApplyOrthogonalRouting();

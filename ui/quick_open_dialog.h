@@ -31,7 +31,7 @@ public:
     // Hide without closing (for reuse)
     void hideEvent(QHideEvent* event) override;
 
-signals:
+Q_SIGNALS:
     // Emitted when user selects a file (presses Enter)
     void fileSelected(const QString& filePath);
 
@@ -43,7 +43,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
 
-private slots:
+private Q_SLOTS:
     void onSearchTextChanged(const QString& text);
     void onFileDoubleClicked(QListWidgetItem* item);
     void onFileClicked(QListWidgetItem* item);

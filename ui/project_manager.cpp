@@ -2938,7 +2938,7 @@ void LauncherTile::setAccentColor(const QColor& color) {
 
 void LauncherTile::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton && isEnabled())
-        emit clicked();
+        Q_EMIT clicked();
 }
 
 void LauncherTile::enterEvent(QEnterEvent*) { m_hovered = true;  update(); }
@@ -3011,7 +3011,7 @@ bool CollapsibleSection::eventFilter(QObject* obj, QEvent* event) {
         m_collapsed = !m_collapsed;
         m_arrowLabel->setText(m_collapsed ? "▶" : "▼");
         m_content->setVisible(!m_collapsed);
-        emit toggled(m_collapsed);
+        Q_EMIT toggled(m_collapsed);
         return true;
     }
     return QWidget::eventFilter(obj, event);

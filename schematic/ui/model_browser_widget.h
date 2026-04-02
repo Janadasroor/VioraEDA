@@ -15,11 +15,11 @@ public:
     explicit ModelBrowserWidget(QWidget* parent = nullptr);
     ~ModelBrowserWidget();
 
-signals:
+Q_SIGNALS:
     void modelSelected(const SpiceModelInfo& info);
     void applyModelRequested(const SpiceModelInfo& info);
 
-private slots:
+private Q_SLOTS:
     void onSearchChanged(const QString& text);
     void onItemSelectionChanged(const QModelIndex& current);
     void onApplyClicked();

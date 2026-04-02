@@ -261,7 +261,7 @@ void BranchComparisonDialog::onMergeClicked() {
         QMessageBox::Yes | QMessageBox::No);
     
     if (reply == QMessageBox::Yes) {
-        emit mergeRequested(m_branchB, m_branchA);
+        Q_EMIT mergeRequested(m_branchB, m_branchA);
         accept();
     }
 }

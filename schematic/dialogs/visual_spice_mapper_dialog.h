@@ -18,7 +18,7 @@ public:
     QMap<int, QString> nodeMapping() const { return m_mapping; }
     QString spiceModelName() const;
 
-private slots:
+private Q_SLOTS:
     void onAccept();
 
 private:
