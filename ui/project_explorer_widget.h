@@ -27,10 +27,10 @@ public:
     void setRootPath(const QString& path);
     void setWorkspaceFolders(const QStringList& folders);
 
-signals:
+Q_SIGNALS:
     void fileDoubleClicked(const QString& filePath);
 
-private slots:
+private Q_SLOTS:
     void onDoubleClicked(const QModelIndex& index);
     void onFilterChanged(const QString& text);
     void onContextMenuRequested(const QPoint& pos);

@@ -79,6 +79,6 @@ void SchematicHierarchyPanel::scanHierarchy(const QString& filePath, QStandardIt
 void SchematicHierarchyPanel::onItemDoubleClicked(const QModelIndex& index) {
     QString filePath = index.data(Qt::UserRole).toString();
     if (!filePath.isEmpty()) {
-        emit sheetSelected(filePath);
+        Q_EMIT sheetSelected(filePath);
     }
 }

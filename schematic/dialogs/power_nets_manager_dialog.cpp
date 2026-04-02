@@ -73,9 +73,9 @@ void PowerNetsManagerDialog::onRenameClicked() {
         this, "Rename Power Net", "New net name:", QLineEdit::Normal, oldName, &ok).trimmed();
     if (!ok || newName.isEmpty() || newName == oldName) return;
 
-    emit renameRequested(oldName, newName);
+    Q_EMIT renameRequested(oldName, newName);
 }
 
 void PowerNetsManagerDialog::onRefreshClicked() {
-    emit refreshRequested();
+    Q_EMIT refreshRequested();
 }

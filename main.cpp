@@ -10,6 +10,9 @@
 #include "schematic/tools/schematic_tool_registry_builtin.h"
 #include "symbols/symbol_library.h"
 #include "simulator/bridge/model_library_manager.h"
+#include "simulator/bridge/flux_sim_bridge.h"
+#include "core/flux_script_engine.h"
+
 
 #include <QApplication>
 #include <QIcon>
@@ -29,6 +32,11 @@ int main(int argc, char *argv[])
 
     // Initialize global theme
     ThemeManager::instance();
+    
+    // Initialize FluxScript Simulation Bridge
+    initializeFluxSimBridge();
+    FluxScriptEngine::instance().initialize();
+
 
     a.setApplicationName("viospice");
     a.setApplicationVersion("0.1.0");

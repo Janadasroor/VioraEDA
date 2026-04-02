@@ -5,8 +5,7 @@
 #include "../items/smart_signal_item.h"
 #include "../../core/config_manager.h"
 #include "../../core/flux_python.h"
-#include "../../python/python_manager.h"
-#include "../bridge/flux_script_marshaller.h"
+#include "../../python/flux_script_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -27,7 +26,8 @@
 #include <QScrollArea>
 #include <QTableWidget>
 #include <QHeaderView>
-#include <QElapsedTimer>
+#include <QComboBox>
+#include "../../core/jit_context_manager.h"
 
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -39,13 +39,10 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include "visual_pin_mapper.h"
 #include "../../python/gemini_panel.h"
-#include <pybind11/eval.h>
-#include <pybind11/stl.h>
 #include <QFileSystemWatcher>
-
-namespace py = pybind11;
 
 LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)
     : QMainWindow(parent, Qt::Window), m_scene(scene), m_netManager(netManager) {
@@ -187,6 +184,19 @@ void LogicEditorPanel::setupUi() {
     m_stopBtn = new QPushButton("STOP");
     m_stopBtn->setStyleSheet("background: #3c3c3c; color: #cccccc; padding: 6px 12px; border-radius: 4px;");
     toolLayout->addWidget(m_stopBtn);
+
+    toolLayout->addStretch();
+    m_engineLabel = new QLabel("Engine:");
+    m_engineLabel->setStyleSheet("color: #888; font-weight: bold; margin-left: 10px;");
+    toolLayout->addWidget(m_engineLabel);
+
+    m_engineCombo = new QComboBox();
+    m_engineCombo->addItem("Legacy Python", static_cast<int>(SmartSignalItem::EngineType::Python));
+    m_engineCombo->addItem("FluxScript JIT", static_cast<int>(SmartSignalItem::EngineType::FluxScript));
+    m_engineCombo->setStyleSheet("background: #252526; color: #cccccc; border: 1px solid #3e3e42; padding: 4px 10px; border-radius: 4px; min-width: 150px;");
+    toolLayout->addWidget(m_engineCombo);
+
+    connect(m_engineCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LogicEditorPanel::onEngineChanged);
     
     mainLayout->addWidget(toolbar);
 
@@ -411,13 +421,13 @@ void LogicEditorPanel::runLinter() {
 
     // Use a temporary connection for the linter result
     auto* conn = new QMetaObject::Connection();
-    *conn = connect(&PythonManager::instance(), &PythonManager::scriptOutput, this, [this, conn](const QString& output) {
+    *conn = connect(&FluxScriptManager::instance(), &FluxScriptManager::scriptOutput, this, [this, conn](const QString& output) {
         this->onLinterResult(output);
         disconnect(*conn);
         delete conn;
     });
 
-    PythonManager::instance().runScript(scriptPath, {code});
+    FluxScriptManager::instance().runScript(scriptPath, {code});
 }
 
 void LogicEditorPanel::onLinterResult(const QString& output) {
@@ -434,11 +444,42 @@ void LogicEditorPanel::onLinterResult(const QString& output) {
     m_editor->setErrorLines(errors);
 }
 
+void LogicEditorPanel::onCodeChanged() {
+    if (m_previewTimer) {
+        m_previewTimer->start();
+    }
+}
+
 void LogicEditorPanel::onExplorerItemClicked(QListWidgetItem* item) {
     auto* smart = static_cast<SmartSignalItem*>(item->data(Qt::UserRole).value<void*>());
     if (smart) {
         setTargetBlock(smart);
     }
+}
+
+void LogicEditorPanel::onEngineChanged(int index) {
+    if (!m_targetBlock) return;
+    
+    auto newEngine = static_cast<SmartSignalItem::EngineType>(m_engineCombo->currentData().toInt());
+    if (newEngine == m_targetBlock->engineType()) return;
+
+    // Save current code to the OLD engine slot before switching
+    if (m_targetBlock->engineType() == SmartSignalItem::EngineType::Python) {
+        m_targetBlock->setPythonCode(m_editor->toPlainText());
+    } else {
+        m_targetBlock->setFluxCode(m_editor->toPlainText());
+    }
+
+    m_targetBlock->setEngineType(newEngine);
+    
+    // Load code from the NEW engine slot
+    m_editor->setPlainText(newEngine == SmartSignalItem::EngineType::Python ? 
+                          m_targetBlock->pythonCode() : m_targetBlock->fluxCode());
+    
+    updateEditorKeywords();
+    updatePreview();
+    
+    m_statusLabel->setText(QString("Switched to %1 Engine").arg(index == 0 ? "Python" : "FluxScript"));
 }
 
 void LogicEditorPanel::setTargetBlock(SmartSignalItem* item) {
@@ -455,7 +496,13 @@ void LogicEditorPanel::setTargetBlock(SmartSignalItem* item) {
     
     if (m_targetBlock) {
         setWindowTitle("viospice Logic IDE - [" + m_targetBlock->reference() + "]");
-        m_editor->setPlainText(m_targetBlock->pythonCode());
+        
+        m_engineCombo->blockSignals(true);
+        m_engineCombo->setCurrentIndex(m_targetBlock->engineType() == SmartSignalItem::EngineType::Python ? 0 : 1);
+        m_engineCombo->blockSignals(false);
+
+        m_editor->setPlainText(m_targetBlock->engineType() == SmartSignalItem::EngineType::Python ?
+                              m_targetBlock->pythonCode() : m_targetBlock->fluxCode());
         
         // Populate Pins
         m_pinMapper->setPins(m_targetBlock->inputPins(), m_targetBlock->outputPins());
@@ -589,85 +636,14 @@ void LogicEditorPanel::removeTestCase() {
 
 void LogicEditorPanel::runTests() {
     if (!m_targetBlock) return;
-    
     m_console->append("<br><font color='#007acc'>[Tester] Starting Test Suite...</font>");
-    
     QString code = m_editor->toPlainText();
-    if (!FluxPython::instance().isInitialized()) FluxPython::instance().initialize();
-    
-    QString error;
-    if (!FluxPython::instance().executeString(code, &error)) {
+    QMap<int, QString> errors;
+    if (!Flux::JITContextManager::instance().compileAndLoad(code, errors)) {
         m_console->append("<font color='#f44747'><b>Linter:</b> Code has syntax errors, skipping tests.</font>");
         return;
     }
-
-    auto globals = py::globals();
-    py::object instance = globals["SmartSignal"]();
-    if (py::hasattr(instance, "init")) instance.attr("init")();
-    
-    // Sync current UI parameters to Python instance
-    if (py::hasattr(instance, "params")) {
-        py::dict pyParams = instance.attr("params");
-        for (auto it = m_targetBlock->parameters().begin(); it != m_targetBlock->parameters().end(); ++it) {
-            pyParams[it.key().toStdString().c_str()] = it.value();
-        }
-    }
-
-    int passed = 0;
-    int total = m_testTable->rowCount();
-
-    for (int i = 0; i < total; ++i) {
-        QString name = m_testTable->item(i, 0)->text();
-        double time = m_testTable->item(i, 1)->text().toDouble();
-        
-        QJsonDocument inDoc = QJsonDocument::fromJson(m_testTable->item(i, 2)->text().toUtf8());
-        QJsonDocument expDoc = QJsonDocument::fromJson(m_testTable->item(i, 3)->text().toUtf8());
-        
-        py::dict pyInputs;
-        if (inDoc.isObject()) {
-            QJsonObject inObj = inDoc.object();
-            for (const QString& k : inObj.keys()) pyInputs[k.toStdString().c_str()] = inObj[k].toDouble();
-        }
-
-        py::tuple args = py::make_tuple(time, pyInputs);
-        py::object result = FluxPython::instance().safeCall(instance, "update", args, &error);
-
-        if (error.isEmpty() && !result.is_none()) {
-            auto actualOutputs = FluxScriptMarshaller::pythonToOutputs(result);
-            bool match = true;
-            QString failureReason;
-
-            if (expDoc.isObject()) {
-                QJsonObject expObj = expDoc.object();
-                for (const QString& k : expObj.keys()) {
-                    double expected = expObj[k].toDouble();
-                    std::string stdK = k.toStdString();
-                    double actual = actualOutputs.count(stdK) ? actualOutputs[stdK] : 0.0;
-                    if (std::abs(actual - expected) > 0.01) {
-                        match = false;
-                        failureReason = QString("Field '%1' expected %2, got %3").arg(k).arg(expected).arg(actual);
-                        break;
-                    }
-                }
-            }
-
-            if (match) {
-                m_testTable->item(i, 4)->setText("PASS");
-                m_testTable->item(i, 4)->setForeground(QColor(34, 197, 94));
-                passed++;
-            } else {
-                m_testTable->item(i, 4)->setText("FAIL");
-                m_testTable->item(i, 4)->setForeground(Qt::red);
-                m_console->append(QString("<font color='#f44747'>[Test FAIL] %1: %2</font>").arg(name, failureReason));
-            }
-        } else {
-            m_testTable->item(i, 4)->setText("ERROR");
-            m_testTable->item(i, 4)->setForeground(Qt::yellow);
-            m_console->append(QString("<font color='#f44747'>[Test ERROR] %1: %2</font>").arg(name, error));
-        }
-    }
-
-    m_console->append(QString("<br><b>Test Results: %1/%2 Passed.</b>").arg(passed).arg(total));
+    m_console->append("<font color='#f44747'><b>Tester:</b> Automated testing not yet migrated to new JIT engine.</font>");
 }
 
 void LogicEditorPanel::onCaptureSnapshot() {
@@ -724,9 +700,16 @@ void LogicEditorPanel::saveCurrentToBlock() {
         
         // Save Code
         QString currentCode = m_editor->toPlainText();
-        if (currentCode != m_targetBlock->pythonCode()) {
-            m_targetBlock->setPythonCode(currentCode);
-            changed = true;
+        if (m_targetBlock->engineType() == SmartSignalItem::EngineType::Python) {
+            if (currentCode != m_targetBlock->pythonCode()) {
+                m_targetBlock->setPythonCode(currentCode);
+                changed = true;
+            }
+        } else {
+            if (currentCode != m_targetBlock->fluxCode()) {
+                m_targetBlock->setFluxCode(currentCode);
+                changed = true;
+            }
         }
 
         // Save Pins
@@ -812,7 +795,7 @@ void LogicEditorPanel::onPinsUpdated() {
 
 void LogicEditorPanel::closeEvent(QCloseEvent* event) {
     saveCurrentToBlock();
-    emit closed();
+    Q_EMIT closed();
     QMainWindow::closeEvent(event);
 }
 
@@ -824,77 +807,23 @@ void LogicEditorPanel::updatePreview() {
         return;
     }
 
-    runLinter();
-
-    if (!FluxPython::instance().isInitialized()) {
-        FluxPython::instance().initialize();
-    }
-
+    if (m_targetBlock && m_targetBlock->engineType() == SmartSignalItem::EngineType::FluxScript) {
         m_console->clear();
-            m_console->append("<font color='#569cd6'>[System] Starting JIT-optimized preview simulation...</font>");
+        m_console->append("<font color='#569cd6'>[FluxScript] Starting JIT-optimized preview simulation...</font>");
         
-            QElapsedTimer timer;
-            timer.start();
+        QElapsedTimer timer;
+        timer.start();
         
-            try {
-                // --- High Performance JIT Path ---
-                // Instead of calling Python 200 times from C++, we call a JIT runner once.
-                auto globals = py::globals();
-                
-                // Load the runner script
-                QString scriptPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../python/scripts/jit_simulation_runner.py");
-                if (!QFile::exists(scriptPath)) {
-                    scriptPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("python/scripts/jit_simulation_runner.py");
-                }
-                
-                py::dict locals;
-                py::eval_file(scriptPath.toStdString(), globals, locals);
-                
-                py::dict pyParams;
-                if (m_targetBlock) {
-                    for (auto it = m_targetBlock->parameters().begin(); it != m_targetBlock->parameters().end(); ++it) {
-                        pyParams[it.key().toStdString().c_str()] = it.value();
-                    }
-                }
-        
-                py::object run_func = locals["run_jit_preview"];
-                py::tuple result = run_func(code.toStdString(), 0.0, 0.02, 0.0001, pyParams);
-                
-                if (result[0].is_none()) {
-                    m_console->append("<font color='#f44747'><b>JIT Error:</b> " + QString::fromStdString(result[2].cast<std::string>()) + "</font>");
-                    return;
-                }
-        
-                // Convert numpy arrays back to QVector
-                py::object t_arr = result[0];
-                py::object v_arr = result[1];
-                
-                QVector<QPointF> points;
-                auto t_vals = t_arr.cast<std::vector<double>>();
-                auto v_vals = v_arr.cast<std::vector<double>>();
-                
-                for (size_t i = 0; i < t_vals.size(); ++i) {
-                    points.append(QPointF(t_vals[i], v_vals[i]));
-                }
-        
-                QMap<QString, QVector<QPointF>> allTraces;
-                allTraces["out"] = points;
-                
-                m_scope->setMultiTraceData(allTraces);
-                if (m_targetBlock) {
-                    m_targetBlock->setPreviewData(points);
-                }
-                
-                qint64 elapsed = timer.elapsed();
-                m_console->append("<font color='#4ec9b0'>[System] JIT Preview successful. " + QString::number(points.size()) + " points in " + QString::number(elapsed) + "ms.</font>");
-                m_statusLabel->setText("JIT Preview Ready. Sim Time: " + QString::number(elapsed) + "ms");
-        
-            } catch (const std::exception& e) {
-                m_console->append("<font color='#f44747'><b>Bridge Error:</b> " + QString::fromStdString(e.what()) + "</font>");
-            }
+        QMap<int, QString> errors;
+        if (Flux::JITContextManager::instance().compileAndLoad(code, errors)) {
+            qint64 elapsed = timer.elapsed();
+            m_console->append("<font color='#4ec9b0'>[JIT] Compilation successful in " + QString::number(elapsed) + "ms.</font>");
+            m_statusLabel->setText("JIT Ready. Compilation: " + QString::number(elapsed) + "ms");
+        } else {
+            m_console->append("<font color='#f44747'>[JIT ERROR] Compilation failed.</font>");
+            m_editor->setErrorLines(errors);
         }
-void LogicEditorPanel::onCodeChanged() {
-    // Maybe show "unsaved" status?
+    }
 }
 
 void LogicEditorPanel::onPythonGenerated(const QString& code) {
@@ -906,10 +835,26 @@ void LogicEditorPanel::onPythonGenerated(const QString& code) {
 }
 
 void LogicEditorPanel::onApplyClicked() {
-    if (m_targetBlock) {
-        saveCurrentToBlock();
+    if (!m_targetBlock) return;
+    
+    saveCurrentToBlock();
+    
+    if (m_targetBlock->engineType() == SmartSignalItem::EngineType::FluxScript) {
+        m_console->append("<font color='#007acc'>[FluxScript] Compiling JIT Module for deployment...</font>");
+        QMap<int, QString> errors;
+        if (Flux::JITContextManager::instance().compileAndLoad(m_targetBlock->fluxCode(), errors)) {
+            m_console->append("<font color='#22c55e'>[JIT] Deployment Success! Current engine: FluxScript.</font>");
+            m_statusLabel->setText("Deployed FluxScript to " + m_targetBlock->reference());
+        } else {
+            const QString error = errors.isEmpty() ? QStringLiteral("Compilation failed.") : errors.constBegin().value();
+            m_console->append("<font color='#f44747'>[JIT ERROR] " + error + "</font>");
+        }
+    } else {
         m_console->append("<font color='#4ec9b0'>[System] Successfully deployed logic to " + m_targetBlock->reference() + "</font>");
+        m_statusLabel->setText("Deployed Python to " + m_targetBlock->reference());
     }
+    
+    m_targetBlock->update();
 }
 
 void LogicEditorPanel::onBakeClicked() {
@@ -938,7 +883,7 @@ void LogicEditorPanel::onBakeClicked() {
     args << code << blockName << inJson << outJson;
 
     auto* conn = new QMetaObject::Connection();
-    *conn = connect(&PythonManager::instance(), &PythonManager::scriptOutput, this, [this, conn, blockName](const QString& output) {
+    *conn = connect(&FluxScriptManager::instance(), &FluxScriptManager::scriptOutput, this, [this, conn, blockName](const QString& output) {
         disconnect(*conn);
         delete conn;
         
@@ -958,6 +903,6 @@ void LogicEditorPanel::onBakeClicked() {
         }
     });
 
-    PythonManager::instance().runScript(scriptPath, args);
+    FluxScriptManager::instance().runScript(scriptPath, args);
 }
 void LogicEditorPanel::onAiPromptReturn() {}

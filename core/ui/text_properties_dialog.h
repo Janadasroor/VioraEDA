@@ -19,7 +19,7 @@ public:
     QString alignment() const { return m_alignCombo->currentText(); }
     void setColor(const QColor& c);
 
-private slots:
+private Q_SLOTS:
     void onPickColor();
 
 private:

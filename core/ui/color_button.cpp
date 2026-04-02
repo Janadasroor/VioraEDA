@@ -16,7 +16,7 @@ void ColorButton::setColor(const QColor& color)
     if (m_color != color) {
         m_color = color;
         update();
-        emit colorChanged(m_color);
+        Q_EMIT colorChanged(m_color);
     }
 }
 

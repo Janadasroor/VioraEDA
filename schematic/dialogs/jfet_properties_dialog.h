@@ -17,7 +17,7 @@ public:
     QString modelName() const;
     QMap<QString, QString> paramExpressions() const;
 
-private slots:
+private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
 

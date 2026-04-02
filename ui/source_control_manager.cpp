@@ -26,7 +26,7 @@ void SourceControlManager::setProjectDir(const QString& dir) {
     const bool isRepo = m_isRepo;
     locker.unlock();
 
-    emit repoChanged(isRepo);
+    Q_EMIT repoChanged(isRepo);
     if (isRepo) refresh();
 }
 
@@ -81,10 +81,10 @@ void SourceControlManager::refresh() {
     }
 
     if (wasRepo != isRepo) {
-        emit repoChanged(isRepo);
+        Q_EMIT repoChanged(isRepo);
     }
-    emit statusUpdated();
-    emit branchChanged(currentBranch);
+    Q_EMIT statusUpdated();
+    Q_EMIT branchChanged(currentBranch);
 }
 
 void SourceControlManager::scheduleRefresh() {
@@ -94,7 +94,7 @@ void SourceControlManager::scheduleRefresh() {
 }
 
 void SourceControlManager::runAsync(const QString& opName, std::function<bool()> task) {
-    emit operationStarted(opName);
+    Q_EMIT operationStarted(opName);
 
     QFuture<bool> future = QtConcurrent::run([this, task]() {
         QMutexLocker locker(&m_backendMutex);
@@ -113,7 +113,7 @@ void SourceControlManager::runAsync(const QString& opName, std::function<bool()>
         }
 
         QString msg = ok ? (opName + " completed successfully") : (opName + " failed: " + backendError);
-        emit operationFinished(opName, ok, msg);
+        Q_EMIT operationFinished(opName, ok, msg);
 
         // Refresh after any mutating operation
         refresh();

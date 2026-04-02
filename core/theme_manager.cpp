@@ -30,7 +30,7 @@ void ThemeManager::setTheme(PCBTheme::ThemeType type) {
     // Apply globally
     m_theme->applyToApplication();
     
-    emit themeChanged();
+    Q_EMIT themeChanged();
 }
 
 void ThemeManager::setTheme(PCBTheme* theme) {
@@ -41,6 +41,6 @@ void ThemeManager::setTheme(PCBTheme* theme) {
         // Apply globally
         m_theme->applyToApplication();
         
-        emit themeChanged();
+        Q_EMIT themeChanged();
     }
 }

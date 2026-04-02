@@ -75,9 +75,4 @@ Rectangle {
         anchors.margins: 20
         visible: false
     }
-
-    // Initial load
-    Component.onCompleted: {
-        updateMessages();
-    }
 }

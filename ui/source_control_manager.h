@@ -28,7 +28,7 @@ public:
     int unstagedCount() const;
     int untrackedCount() const;
 
-public slots:
+public Q_SLOTS:
     void refresh();
     void scheduleRefresh(); // Debounced refresh
     void stageFile(const QString& path);
@@ -50,7 +50,7 @@ public slots:
 
     QString getFileContent(const QString& revision, const QString& path);
 
-signals:
+Q_SIGNALS:
     void repoChanged(bool isRepo);
     void statusUpdated();
     void branchChanged(const QString& currentBranch);

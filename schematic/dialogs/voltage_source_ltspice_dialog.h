@@ -21,7 +21,7 @@ class VoltageSourceLTSpiceDialog : public QDialog {
 public:
     VoltageSourceLTSpiceDialog(VoltageSourceItem* item, QUndoStack* undoStack = nullptr, QGraphicsScene* scene = nullptr, const QString& projectDir = QString(), QWidget* parent = nullptr);
 
-private slots:
+private Q_SLOTS:
     void onFunctionChanged();
     void onAccepted();
     void onPwlBrowse();

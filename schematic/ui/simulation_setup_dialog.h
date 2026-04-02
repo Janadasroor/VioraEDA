@@ -39,7 +39,7 @@ public:
     Config getConfig() const;
     void setConfig(const Config& cfg);
 
-private slots:
+private Q_SLOTS:
     void onAnalysisChanged(int index);
 
 private:

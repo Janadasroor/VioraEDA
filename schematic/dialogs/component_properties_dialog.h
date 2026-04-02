@@ -25,7 +25,7 @@ public:
     QString fileName() const;
     bool excludeFromSim() const;
 
-private slots:
+private Q_SLOTS:
     void onEditSpiceMapping();
     void onAccept();
 

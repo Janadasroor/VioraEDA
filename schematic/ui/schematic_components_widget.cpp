@@ -298,7 +298,7 @@ SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
 }
 
 void SchematicComponentsWidget::onApplyModelRequested(const SpiceModelInfo& info) {
-    emit modelAssignmentRequested(info.name);
+    Q_EMIT modelAssignmentRequested(info.name);
 }
 
 bool SchematicComponentsWidget::eventFilter(QObject* watched, QEvent* event) {
@@ -444,7 +444,7 @@ void SchematicComponentsWidget::onItemClicked(const QModelIndex& index) {
 
     const auto& sym = m_symbolListModel->symbolDefinition(sourceIndex);
     m_selectedSymbol = sym;
-    emit toolSelected(sym.name());
+    Q_EMIT toolSelected(sym.name());
     
     m_previewPopup->hide();
 }
@@ -481,11 +481,11 @@ void SchematicComponentsWidget::onCreateSymbol() {
     
     connect(editor, &SymbolEditor::symbolSaved, this, [this](const SymbolDefinition& symbol) {
         populate();
-        emit symbolCreated(symbol.name());
+        Q_EMIT symbolCreated(symbol.name());
     });
 
     connect(editor, &SymbolEditor::placeInSchematicRequested, this, [this](const SymbolDefinition& symbol) {
-        emit symbolPlacementRequested(symbol);
+        Q_EMIT symbolPlacementRequested(symbol);
     });
 
     editor->show();
@@ -493,7 +493,7 @@ void SchematicComponentsWidget::onCreateSymbol() {
 void SchematicComponentsWidget::onOpenLibraryBrowser() {
     LibraryBrowserDialog dialog(this);
     connect(&dialog, &LibraryBrowserDialog::symbolPlaced, this, [this](const SymbolDefinition& symbol) {
-        emit toolSelected(symbol.name());
+        Q_EMIT toolSelected(symbol.name());
     });
     dialog.exec();
 }

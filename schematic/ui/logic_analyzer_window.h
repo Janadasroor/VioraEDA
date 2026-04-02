@@ -20,7 +20,7 @@ public:
     QString instrumentId() const { return m_id; }
     void setInstrumentId(const QString& id) { m_id = id; }
 
-signals:
+Q_SIGNALS:
     void windowClosing(const QString& id);
 
 protected:

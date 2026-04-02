@@ -48,11 +48,11 @@ public:
     bool importLtspiceSymbol(const QString& path);
     bool loadLibrary(const QString& path);
     
-signals:
+Q_SIGNALS:
     void symbolSaved(const SymbolDefinition& symbol);
     void placeInSchematicRequested(const SymbolDefinition& symbol);
 
-private slots:
+private Q_SLOTS:
     void onToolSelected();
     void onSave();
     void onSaveToLibrary();

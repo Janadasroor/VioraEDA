@@ -40,12 +40,9 @@ set(VIORAEDA_APP_LINK_LIBS
     FluxSchematicCore
     FluxSchematicUI
     FluxUI
+    FluxScript
     ${VIORAEDA_QT_LINK_LIBS}
 )
-
-if(VIOSPICE_ENABLE_PYTHON)
-    list(APPEND VIORAEDA_APP_LINK_LIBS FluxPython FluxPythonBindings pybind11::embed)
-endif()
 
 set(VIORAEDA_CLI_LINK_LIBS
     FluxCore
@@ -53,12 +50,9 @@ set(VIORAEDA_CLI_LINK_LIBS
     FluxSchematicCore
     FluxSchematicUI
     FluxUI
+    FluxScript
     ${VIORAEDA_QT_LINK_LIBS}
 )
-
-if(VIOSPICE_ENABLE_PYTHON)
-    list(APPEND VIORAEDA_CLI_LINK_LIBS FluxPython FluxPythonBindings pybind11::embed)
-endif()
 
 set(VIORAEDA_PCH_HEADER "${CMAKE_SOURCE_DIR}/cmake/vioraeda_pch.h")
 
@@ -67,10 +61,7 @@ function(vioraeda_configure_module_target target)
         PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
         PRIVATE ${VIORAEDA_COMMON_INCLUDE_DIRS}
     )
-    target_link_libraries(${target} PRIVATE ${VIORAEDA_QT_LINK_LIBS})
-    if(VIOSPICE_ENABLE_PYTHON)
-        target_link_libraries(${target} PRIVATE pybind11::embed)
-    endif()
+    target_link_libraries(${target} PRIVATE ${VIORAEDA_QT_LINK_LIBS} FluxScript)
     if(VIORAEDA_ENABLE_PCH)
         target_precompile_headers(${target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${VIORAEDA_PCH_HEADER}>")
     endif()

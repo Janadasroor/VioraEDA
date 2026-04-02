@@ -24,7 +24,7 @@ public:
     bool applySmartMapRequested() const;
     QStringList selectedSuggestedMapping() const;
 
-private slots:
+private Q_SLOTS:
     void filterModels(const QString& text);
     void onModelSelected(QListWidgetItem* item);
     void applySelected();

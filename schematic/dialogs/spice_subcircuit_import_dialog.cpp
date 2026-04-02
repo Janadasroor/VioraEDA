@@ -24,7 +24,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QProgressBar>
-#include "../../python/python_manager.h"
+#include "../../python/flux_script_manager.h"
 
 namespace {
 
@@ -420,13 +420,13 @@ void SpiceSubcircuitImportDialog::onAiGenerateClicked() {
     }
 
     m_aiProcess = new QProcess(this);
-    m_aiProcess->setProcessEnvironment(PythonManager::getConfiguredEnvironment());
+    m_aiProcess->setProcessEnvironment(FluxScriptManager::getConfiguredEnvironment());
 
     connect(m_aiProcess, &QProcess::readyReadStandardOutput, this, &SpiceSubcircuitImportDialog::onAiProcessReadyRead);
     connect(m_aiProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &SpiceSubcircuitImportDialog::onAiProcessFinished);
 
-    QString scriptPath = QDir(PythonManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
-    QString pythonExec = PythonManager::getPythonExecutable();
+    QString scriptPath = QDir(FluxScriptManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
+    QString pythonExec = FluxScriptManager::getPythonExecutable();
 
     QStringList args;
     args << scriptPath << prompt.trimmed() << "--mode" << "subcircuit";

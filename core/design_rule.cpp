@@ -54,77 +54,77 @@ DesignRule::~DesignRule() {
 void DesignRule::setId(const QUuid& id) {
     if (m_id != id) {
         m_id = id;
-        emit idChanged(id);
+        Q_EMIT idChanged(id);
     }
 }
 
 void DesignRule::setName(const QString& name) {
     if (m_name != name) {
         m_name = name;
-        emit nameChanged(name);
+        Q_EMIT nameChanged(name);
     }
 }
 
 void DesignRule::setDescription(const QString& description) {
     if (m_description != description) {
         m_description = description;
-        emit descriptionChanged(description);
+        Q_EMIT descriptionChanged(description);
     }
 }
 
 void DesignRule::setCategory(RuleCategory category) {
     if (m_category != category) {
         m_category = category;
-        emit categoryChanged(category);
+        Q_EMIT categoryChanged(category);
     }
 }
 
 void DesignRule::setScope(RuleScope scope) {
     if (m_scope != scope) {
         m_scope = scope;
-        emit scopeChanged(scope);
+        Q_EMIT scopeChanged(scope);
     }
 }
 
 void DesignRule::setDefaultSeverity(RuleSeverity severity) {
     if (m_defaultSeverity != severity) {
         m_defaultSeverity = severity;
-        emit defaultSeverityChanged(severity);
+        Q_EMIT defaultSeverityChanged(severity);
     }
 }
 
 void DesignRule::setEnabled(bool enabled) {
     if (m_enabled != enabled) {
         m_enabled = enabled;
-        emit enabledChanged(enabled);
+        Q_EMIT enabledChanged(enabled);
     }
 }
 
 void DesignRule::setConfigurable(bool configurable) {
     if (m_configurable != configurable) {
         m_configurable = configurable;
-        emit configurableChanged(configurable);
+        Q_EMIT configurableChanged(configurable);
     }
 }
 
 void DesignRule::setParameters(const QVariantMap& params) {
     if (m_parameters != params) {
         m_parameters = params;
-        emit parametersChanged(params);
+        Q_EMIT parametersChanged(params);
     }
 }
 
 void DesignRule::setExpression(const QString& expr) {
     if (m_expression != expr) {
         m_expression = expr;
-        emit expressionChanged(expr);
+        Q_EMIT expressionChanged(expr);
     }
 }
 
 void DesignRule::setTags(const QStringList& tags) {
     if (m_tags != tags) {
         m_tags = tags;
-        emit tagsChanged(tags);
+        Q_EMIT tagsChanged(tags);
     }
 }
 
@@ -251,8 +251,8 @@ void DesignRuleSet::addRule(DesignRule* rule) {
     if (rule && !m_rules.contains(rule)) {
         m_rules.append(rule);
         rule->setParent(this);
-        emit ruleAdded(rule);
-        emit rulesChanged();
+        Q_EMIT ruleAdded(rule);
+        Q_EMIT rulesChanged();
     }
 }
 
@@ -261,8 +261,8 @@ void DesignRuleSet::removeRule(const QUuid& ruleId) {
         if (m_rules[i]->id() == ruleId) {
             DesignRule* rule = m_rules.takeAt(i);
             rule->deleteLater();
-            emit ruleRemoved(ruleId);
-            emit rulesChanged();
+            Q_EMIT ruleRemoved(ruleId);
+            Q_EMIT rulesChanged();
             return;
         }
     }
@@ -291,7 +291,7 @@ void DesignRuleSet::setAllEnabled(bool enabled) {
     for (DesignRule* rule : m_rules) {
         rule->setEnabled(enabled);
     }
-    emit rulesChanged();
+    Q_EMIT rulesChanged();
 }
 
 QJsonObject DesignRuleSet::toJson() const {
@@ -330,7 +330,7 @@ void DesignRuleSet::fromJson(const QJsonObject& json) {
         }
     }
 
-    emit rulesChanged();
+    Q_EMIT rulesChanged();
 }
 
 bool DesignRuleSet::saveToFile(const QString& filePath) const {

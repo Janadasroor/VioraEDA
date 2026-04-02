@@ -132,7 +132,7 @@ void OscilloscopeWindow::setupUI() {
     
     controlLayout->addStretch();
     
-    connect(propBtn, &QPushButton::clicked, [this]() { emit propertiesRequested(m_itemId); });
+    connect(propBtn, &QPushButton::clicked, [this]() { Q_EMIT propertiesRequested(m_itemId); });
     
     connect(m_timebaseSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &OscilloscopeWindow::onTimebaseChanged);
     connect(m_triggerSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &OscilloscopeWindow::onTriggerSourceChanged);
@@ -216,38 +216,38 @@ void OscilloscopeWindow::clear() {
 }
 
 void OscilloscopeWindow::closeEvent(QCloseEvent* event) {
-    emit windowClosing(m_itemId);
+    Q_EMIT windowClosing(m_itemId);
     event->accept();
 }
 
 void OscilloscopeWindow::onChannelToggled(int ch, bool checked) {
     m_config.channels[ch].enabled = checked;
-    emit configChanged(m_itemId, m_config);
+    Q_EMIT configChanged(m_itemId, m_config);
 }
 
 void OscilloscopeWindow::onTimebaseChanged(double value) {
     m_config.timebase = value;
-    emit configChanged(m_itemId, m_config);
+    Q_EMIT configChanged(m_itemId, m_config);
 }
 
 void OscilloscopeWindow::onVoltsDivChanged(int ch, double value) {
     if (value > 0) m_config.channels[ch].scale = 1.0 / value;
-    emit configChanged(m_itemId, m_config);
+    Q_EMIT configChanged(m_itemId, m_config);
 }
 
 void OscilloscopeWindow::onOffsetChanged(int ch, double value) {
     m_config.channels[ch].offset = value;
-    emit configChanged(m_itemId, m_config);
+    Q_EMIT configChanged(m_itemId, m_config);
 }
 
 void OscilloscopeWindow::onTriggerSourceChanged(int index) {
     m_config.triggerSource = QString("CH%1").arg(index + 1);
-    emit configChanged(m_itemId, m_config);
+    Q_EMIT configChanged(m_itemId, m_config);
 }
 
 void OscilloscopeWindow::onTriggerLevelChanged(double value) {
     m_config.triggerLevel = value;
-    emit configChanged(m_itemId, m_config);
+    Q_EMIT configChanged(m_itemId, m_config);
 }
 
 void OscilloscopeWindow::onFreezeClicked() {

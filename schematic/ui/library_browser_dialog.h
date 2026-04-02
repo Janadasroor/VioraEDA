@@ -22,10 +22,10 @@ public:
 
     SymbolDefinition selectedSymbol() const { return m_selectedSymbol; }
 
-signals:
+Q_SIGNALS:
     void symbolPlaced(const SymbolDefinition& symbol);
 
-private slots:
+private Q_SLOTS:
     void onSearch();
     void onCategorySelected(QTreeWidgetItem* item, int column);
     void onResultSelected(QListWidgetItem* item);

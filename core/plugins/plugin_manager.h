@@ -52,7 +52,7 @@ public:
     QList<FluxPlugin*> activePlugins() const { return m_plugins; }
     QList<PluginLoadResult> lastLoadResults() const { return m_lastLoadResults; }
 
-signals:
+Q_SIGNALS:
     void pluginLoaded(const QString& name);
     void pluginUnloaded(const QString& name);
 

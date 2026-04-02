@@ -259,12 +259,12 @@ void SchematicProbeTool::mousePressEvent(QMouseEvent* event) {
                 const QString markerKey = markerKeyFor(netName, kindTag);
 
                 if (findProbeMarker(view()->scene(), markerKey)) {
-                    emit signalClearFocusedPaneProbes();
+                    Q_EMIT signalClearFocusedPaneProbes();
                     // Don't remove all markers here anymore, let SimulationPanel handle selective removal
-                    emit signalProbed(signalName);
+                    Q_EMIT signalProbed(signalName);
                     placeProbeMarker(view()->scene(), scenePos, netName, kindTag);
                 } else {
-                    emit signalProbed(signalName);
+                    Q_EMIT signalProbed(signalName);
                     placeProbeMarker(view()->scene(), scenePos, netName, kindTag);
                 }
             }
@@ -310,7 +310,7 @@ void SchematicProbeTool::mouseReleaseEvent(QMouseEvent* event) {
             
             if (!endNetName.isEmpty() && endNetName != m_startNetName) {
                 // Differential Probe
-                emit signalDifferentialProbed(m_startNetName, endNetName);
+                Q_EMIT signalDifferentialProbed(m_startNetName, endNetName);
                 QToolTip::showText(event->globalPosition().toPoint(), 
                                  QString("Differential Probe: V(%1, %2)").arg(m_startNetName, endNetName), view());
             } else {
@@ -319,12 +319,12 @@ void SchematicProbeTool::mouseReleaseEvent(QMouseEvent* event) {
                 const QString markerKey = markerKeyFor(m_startNetName, "V");
 
                 if (findProbeMarker(view()->scene(), markerKey)) {
-                    emit signalClearFocusedPaneProbes();
+                    Q_EMIT signalClearFocusedPaneProbes();
                     // Don't remove all markers here anymore
-                    emit signalProbed(signalName);
+                    Q_EMIT signalProbed(signalName);
                     placeProbeMarker(view()->scene(), scenePos, m_startNetName, "V");
                 } else {
-                    emit signalProbed(signalName);
+                    Q_EMIT signalProbed(signalName);
                     // Place marker at the START point for single probe
                     placeProbeMarker(view()->scene(), scenePos, m_startNetName, "V");
                 }

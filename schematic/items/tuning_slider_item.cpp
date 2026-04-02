@@ -113,7 +113,7 @@ void TuningSliderItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event) {
 void TuningSliderItem::updateTargetValue() {
     if (m_target) {
         m_target->setValue(formatSpiceValue(m_currentValue));
-        emit valueChanged(m_currentValue);
+        Q_EMIT valueChanged(m_currentValue);
     }
 }
 

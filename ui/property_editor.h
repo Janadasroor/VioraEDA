@@ -30,13 +30,13 @@ public:
     void beginUpdate();
     void endUpdate();
 
-signals:
+Q_SIGNALS:
     // Emitted when a property changes. 
     // For SchematicItems, the editor might apply changes directly or emit this 
     // for the parent editor to create an UndoCommand.
     void propertyChanged(const QString& name, const QVariant& value);
 
-private slots:
+private Q_SLOTS:
     void onCellChanged(int row, int column);
     void onBoolToggled(bool checked); 
 

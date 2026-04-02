@@ -10,13 +10,13 @@ Debugger::Debugger(QObject* parent) : QObject(parent) {}
 void Debugger::setBreakpoint(int line) {
     if (!m_breakpoints.contains(line)) {
         m_breakpoints.insert(line);
-        emit breakpointsChanged();
+        Q_EMIT breakpointsChanged();
     }
 }
 
 void Debugger::removeBreakpoint(int line) {
     if (m_breakpoints.remove(line)) {
-        emit breakpointsChanged();
+        Q_EMIT breakpointsChanged();
     }
 }
 
@@ -26,25 +26,25 @@ bool Debugger::hasBreakpoint(int line) const {
 
 void Debugger::clearBreakpoints() {
     m_breakpoints.clear();
-    emit breakpointsChanged();
+    Q_EMIT breakpointsChanged();
 }
 
 void Debugger::setState(DebugState s) {
     if (m_state != s) {
         m_state = s;
-        emit stateChanged(m_state);
+        Q_EMIT stateChanged(m_state);
     }
 }
 
 void Debugger::setActiveLine(int line) {
     if (m_activeLine != line) {
         m_activeLine = line;
-        emit activeLineChanged(m_activeLine);
+        Q_EMIT activeLineChanged(m_activeLine);
     }
 }
 
 void Debugger::step() {
-    emit stepRequested();
+    Q_EMIT stepRequested();
 }
 
 void Debugger::resume() {

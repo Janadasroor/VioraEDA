@@ -2129,7 +2129,7 @@ void SchematicSelectTool::mouseReleaseEvent(QMouseEvent* event) {
     // Refresh net highlights after move
     if (view()) {
         SchematicConnectivity::updateVisualConnections(view()->scene());
-        emit view()->selectionChanged();
+        Q_EMIT view()->selectionChanged();
     }
 
     SchematicTool::mouseReleaseEvent(event);

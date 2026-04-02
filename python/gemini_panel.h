@@ -42,10 +42,10 @@ public:
                       std::function<void()> onDone);
     void setContextProvider(std::function<QString()> provider) { m_contextProvider = provider; }
 
-public slots:
+public Q_SLOTS:
     void clearHistory();
 
-signals:
+Q_SIGNALS:
     void fluxScriptGenerated(const QString& code);
     void symbolJsonGenerated(const QString& json);
     void pythonScriptGenerated(const QString& code);
@@ -62,7 +62,7 @@ signals:
     void rewindRequested();
     void checkpointRequested();
 
-private slots:
+private Q_SLOTS:
     void onProcessReadyRead();
     void onProcessFinished(int exitCode);
     void onRefreshModelsClicked();

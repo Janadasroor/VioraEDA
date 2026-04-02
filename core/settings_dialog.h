@@ -20,7 +20,7 @@ public:
     explicit SettingsDialog(QWidget* parent = nullptr);
     ~SettingsDialog();
 
-private slots:
+private Q_SLOTS:
     void onAccept();
 
 private:

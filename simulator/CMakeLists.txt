@@ -29,6 +29,8 @@ add_library(FluxSimulator STATIC
     bridge/sim_manager.cpp
     bridge/model_library_manager.h
     bridge/model_library_manager.cpp
+    bridge/flux_sim_bridge.h
+    bridge/flux_sim_bridge.cpp
     bridge/flux_script_marshaller.h
 )
 

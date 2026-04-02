@@ -19,7 +19,7 @@ public:
     QString netlist() const;
     void applyTheme();
 
-private slots:
+private Q_SLOTS:
     void onRun();
     void onClearLog();
     void onSaveAs();

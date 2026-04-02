@@ -259,7 +259,7 @@ public:
     virtual void onInteractivePress(const QPointF& scenePos) { Q_UNUSED(scenePos) }
     virtual void onInteractiveRelease(const QPointF& scenePos) { Q_UNUSED(scenePos) }
 
-signals:
+Q_SIGNALS:
     void interactiveStateChanged();
 
 protected:

@@ -53,7 +53,7 @@ void GeminiBridge::setCurrentModel(const QString& model) {
     if (m_currentModel != model) {
         m_currentModel = model;
         ConfigManager::instance().setGeminiSelectedModel(m_currentModel);
-        emit currentModelChanged();
+        Q_EMIT currentModelChanged();
     }
 }
 
@@ -61,36 +61,36 @@ void GeminiBridge::setCurrentMode(const QString& mode) {
     if (m_currentMode != mode) {
         m_currentMode = mode;
         ConfigManager::instance().setGeminiSelectedMode(m_currentMode);
-        emit currentModeChanged();
+        Q_EMIT currentModeChanged();
     }
 }
 
 void GeminiBridge::sendMessage(const QString& text) {
     qDebug() << "[GeminiBridge] sendMessage:" << text;
-    emit sendMessageRequested(text);
+    Q_EMIT sendMessageRequested(text);
 }
 
 void GeminiBridge::clearHistory() {
-    emit clearHistoryRequested();
+    Q_EMIT clearHistoryRequested();
 }
 
 void GeminiBridge::stopRun() {
-    emit stopRequested();
+    Q_EMIT stopRequested();
 }
 
 void GeminiBridge::refreshModels() {
-    emit refreshModelsRequested();
+    Q_EMIT refreshModelsRequested();
 }
 
 void GeminiBridge::updateMessages(const QVariantList& msgs) {
     m_messages = msgs;
-    emit messagesChanged();
+    Q_EMIT messagesChanged();
 }
 
 void GeminiBridge::setWorking(bool working, const QString& thinking) {
     if (m_isWorking != working) {
         m_isWorking = working;
-        emit isWorkingChanged();
+        Q_EMIT isWorkingChanged();
     }
     if (!thinking.isEmpty()) {
         updateStatus(thinking);
@@ -111,48 +111,48 @@ void GeminiBridge::updateStatus(const QString& status) {
             m_currentAction = status.trimmed();
         }
 
-        emit thinkingTextChanged();
-        emit currentToolChanged();
-        emit currentActionChanged();
+        Q_EMIT thinkingTextChanged();
+        Q_EMIT currentToolChanged();
+        Q_EMIT currentActionChanged();
     }
 }
 
 void GeminiBridge::updateAvailableModels(const QStringList& models) {
     if (m_availableModels != models) {
         m_availableModels = models;
-        emit availableModelsChanged();
+        Q_EMIT availableModelsChanged();
     }
 }
 
 void GeminiBridge::updateTitle(const QString& title) {
     if (m_conversationTitle != title) {
         m_conversationTitle = title;
-        emit conversationTitleChanged();
+        Q_EMIT conversationTitleChanged();
     }
 }
 
 void GeminiBridge::closePanel() {
-    emit closeRequested();
+    Q_EMIT closeRequested();
 }
 
 void GeminiBridge::showHistory() {
-    emit showHistoryRequested();
+    Q_EMIT showHistoryRequested();
 }
 
 void GeminiBridge::startNewChat() {
-    emit startNewChatRequested();
+    Q_EMIT startNewChatRequested();
 }
 void GeminiBridge::setTokenCount(int count) {
     if (m_tokenCount != count) {
         m_tokenCount = count;
-        emit tokenCountChanged();
+        Q_EMIT tokenCountChanged();
     }
 }
 
 void GeminiBridge::setUsagePercentage(double percentage) {
     if (m_usagePercentage != percentage) {
         m_usagePercentage = percentage;
-        emit usagePercentageChanged();
+        Q_EMIT usagePercentageChanged();
     }
 }
 
@@ -164,7 +164,7 @@ void GeminiBridge::copyToClipboard(const QString& text) {
 }
 
 void GeminiBridge::showInstructions() {
-    emit showInstructionsRequested();
+    Q_EMIT showInstructionsRequested();
 }
 
 void GeminiBridge::setZoomFactor(double zoom) {
@@ -172,7 +172,7 @@ void GeminiBridge::setZoomFactor(double zoom) {
     double boundedZoom = qBound(0.5, zoom, 3.0);
     if (m_zoomFactor != boundedZoom) {
         m_zoomFactor = boundedZoom;
-        emit zoomFactorChanged();
+        Q_EMIT zoomFactorChanged();
     }
 }
 
@@ -189,12 +189,12 @@ void GeminiBridge::resetZoom() {
 }
 
 void GeminiBridge::exportChat() {
-    emit exportRequested();
+    Q_EMIT exportRequested();
 }
 
 void GeminiBridge::addToolCall(const QVariantMap& call) {
     m_toolCalls.append(call);
-    emit toolCallsChanged();
+    Q_EMIT toolCallsChanged();
 }
 
 void GeminiBridge::updateToolResult(const QString& toolName, const QVariantMap& result) {
@@ -208,7 +208,7 @@ void GeminiBridge::updateToolResult(const QString& toolName, const QVariantMap& 
             }
             tool["status"] = "success";
             m_toolCalls[i] = tool;
-            emit toolCallsChanged();
+            Q_EMIT toolCallsChanged();
             return;
         }
     }
@@ -217,6 +217,6 @@ void GeminiBridge::updateToolResult(const QString& toolName, const QVariantMap& 
 void GeminiBridge::clearToolCalls() {
     if (!m_toolCalls.isEmpty()) {
         m_toolCalls.clear();
-        emit toolCallsChanged();
+        Q_EMIT toolCallsChanged();
     }
 }

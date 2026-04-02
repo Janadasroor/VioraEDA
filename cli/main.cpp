@@ -66,7 +66,7 @@
 #include "vioraeda/editor/pcb_api.h"
 #include "vioraeda/io/pcb_file_io.h"
 #endif
-#include "flux/core/flux_python.h"
+
 #include "schematic/analysis/spice_netlist_generator.h"
 #include "simulator/bridge/sim_schematic_bridge.h"
 #include "core/simulation_manager.h"
@@ -74,6 +74,9 @@
 #include "simulator/core/sim_value_parser.h"
 #include "simulator/bridge/model_library_manager.h"
 #include "simulator/core/raw_data_parser.h"
+
+// FluxScript Integration
+#include "flux_command.h"
 
 namespace {
 bool g_quiet = false;
@@ -3580,6 +3583,7 @@ QJsonObject resultsToJson(const SimResults& results) {
 static void printGeneralHelp() {
     std::cout << "Usage: vio-cmd <command> [file] [options]\n\n";
     std::cout << "Common commands:\n";
+    std::cout << "  flux              FluxScript SPICE integration\n";
     std::cout << "  schematic-query <file.flxsch>\n";
     std::cout << "  schematic-netlist <file.flxsch> [--analysis tran|ac|op] [--step <s>] [--stop <s>]\n";
     std::cout << "  netlist-run <file.cir|file.flxsch> [--analysis tran|ac|op] [--export-raw csv|json]\n";
@@ -3596,6 +3600,25 @@ static void printGeneralHelp() {
 }
 
 static void printCommandHelp(const QString& command) {
+    if (command == "flux") {
+        std::cout << "vio-cmd flux - FluxScript SPICE Integration\n";
+        std::cout << "\n";
+        std::cout << "Usage: vio-cmd flux <subcommand> [options] [file.flux]\n";
+        std::cout << "\n";
+        std::cout << "Subcommands:\n";
+        std::cout << "  run <file.flux>     Compile and run FluxScript file\n";
+        std::cout << "  compile <file.flux> Generate SPICE netlist\n";
+        std::cout << "  eval <expression>   Evaluate FluxScript expression\n";
+        std::cout << "  repl                Interactive REPL mode\n";
+        std::cout << "\n";
+        std::cout << "Examples:\n";
+        std::cout << "  vio-cmd flux run circuit.flux\n";
+        std::cout << "  vio-cmd flux compile circuit.flux -o circuit.cir\n";
+        std::cout << "  vio-cmd flux eval \"sin(pi/2)\"\n";
+        std::cout << "  vio-cmd flux repl\n";
+        return;
+    }
+
     if (command == "netlist-run") {
         std::cout << "netlist-run <file.cir|file.flxsch>\n";
         std::cout << "  --analysis tran|ac|op  --step <s>  --stop <s>\n";
@@ -3823,6 +3846,16 @@ int main(int argc, char *argv[]) {
     if (parser.isSet("schema")) {
         printSchema(command);
         return 0;
+    }
+
+    // FluxScript integration command
+    if (command == "flux") {
+        VioSpice::FluxCommand fluxCmd;
+        QStringList fluxArgs;
+        for (int i = 1; i < args.size(); ++i) {
+            fluxArgs << args.at(i);
+        }
+        return fluxCmd.run(fluxArgs, g_quiet);
     }
 
     if (command == "plugins-smoke") {
@@ -4420,29 +4453,9 @@ int main(int argc, char *argv[]) {
             std::cerr << "Usage: vio-cmd python <script.py> [args...]" << std::endl;
             return 1;
         }
-        
-        QString scriptPath = args.at(1);
-        QFile file(scriptPath);
-        if (!file.open(QIODevice::ReadOnly)) {
-            std::cerr << "Error: Could not open python script: " << scriptPath.toStdString() << std::endl;
-            return 1;
-        }
-        
-        QString code = QString::fromUtf8(file.readAll());
-        
-        FluxPython& py = FluxPython::instance();
-        py.initialize();
-        
-        extern void flux_python_init_bindings();
-        flux_python_init_bindings();
-        
-        QString error;
-        if (!py.executeString(code, &error)) {
-            std::cerr << "Python Error: " << error.toStdString() << std::endl;
-            return 1;
-        }
-        
-        py.finalize();
+
+        std::cerr << "Error: embedded Python support is not available in this build." << std::endl;
+        return 1;
     } else {
         std::cerr << "Unknown command: " << command.toStdString() << std::endl;
         return 1;

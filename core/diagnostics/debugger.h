@@ -33,7 +33,7 @@ public:
     void resume();
     void stop();
 
-signals:
+Q_SIGNALS:
     void stateChanged(DebugState newState);
     void breakpointsChanged();
     void activeLineChanged(int line);

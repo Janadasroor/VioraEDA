@@ -50,7 +50,7 @@ public:
     void pauseSimulation(bool pause);
     bool isPaused() const { return m_paused; }
 
-signals:
+Q_SIGNALS:
     void simulationStarted();
     void simulationFinished(const SimResults& results);
     void netlistGenerated(const QString& netlist, const SimAnalysisConfig& config);
@@ -60,7 +60,7 @@ signals:
     void errorOccurred(const QString& msg);
     void logMessage(const QString& msg);
 
-private slots:
+private Q_SLOTS:
     void onInteractiveStateChanged();
     void onRealTimeTick();
     void cleanupSimulation();

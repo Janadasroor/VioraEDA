@@ -633,7 +633,7 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
     });
     
     connect(this, &SimManager::generationFailed, this, [this](const QString& error) {
-        emit errorOccurred(error);
+        Q_EMIT errorOccurred(error);
     });
     
     m_resultsPending = false;
@@ -680,7 +680,7 @@ void SimManager::runRFAnalysis(QGraphicsScene* scene, NetManager* netMgr, double
 
 void SimManager::runMonteCarlo(QGraphicsScene* scene, NetManager* netMgr, int runs) {
     // Ngspice support for Monte Carlo usually involves a control script loop.
-    emit logMessage("Monte Carlo via Ngspice not fully implemented yet, running OP.");
+    Q_EMIT logMessage("Monte Carlo via Ngspice not fully implemented yet, running OP.");
     SimAnalysisConfig config;
     config.type = SimAnalysisType::OP;
     QString netlist = generateNetlist(scene, netMgr, config);
@@ -689,7 +689,7 @@ void SimManager::runMonteCarlo(QGraphicsScene* scene, NetManager* netMgr, int ru
 
 void SimManager::runParametricSweep(QGraphicsScene* scene, NetManager* netMgr, const QString& /*component*/, const QString& /*param*/, double /*start*/, double /*stop*/, int /*steps*/) {
     // Requires .control script loop
-    emit logMessage("Parametric Sweep via Ngspice not fully implemented yet, running OP.");
+    Q_EMIT logMessage("Parametric Sweep via Ngspice not fully implemented yet, running OP.");
     SimAnalysisConfig config;
     config.type = SimAnalysisType::OP;
     QString netlist = generateNetlist(scene, netMgr, config);
@@ -697,7 +697,7 @@ void SimManager::runParametricSweep(QGraphicsScene* scene, NetManager* netMgr, c
 }
 
 void SimManager::runSensitivity(QGraphicsScene* scene, NetManager* netMgr, const QString& targetSignal) {
-     emit logMessage("Sensitivity analysis via Ngspice not fully implemented yet.");
+     Q_EMIT logMessage("Sensitivity analysis via Ngspice not fully implemented yet.");
      // Fallback to OP
      SimAnalysisConfig config;
      config.type = SimAnalysisType::OP;
@@ -707,11 +707,11 @@ void SimManager::runSensitivity(QGraphicsScene* scene, NetManager* netMgr, const
 
 void SimManager::runNetlistText(const QString& netlistContent) {
     if (m_control) {
-        emit logMessage("A simulation is already running.");
+        Q_EMIT logMessage("A simulation is already running.");
         return;
     }
-    emit simulationStarted();
-    emit logMessage("Running ngspice netlist...");
+    Q_EMIT simulationStarted();
+    Q_EMIT logMessage("Running ngspice netlist...");
     SimAnalysisConfig config;
     config.type = SimAnalysisType::Transient;
     m_lastConfig = config;
@@ -722,13 +722,13 @@ void SimManager::runNetlistText(const QString& netlistContent) {
     m_activeStepLabel.clear();
     m_completedStepRuns = 0;
     if (!stepError.isEmpty()) {
-        emit logMessage(QString("LTspice .step emulation error: %1").arg(stepError));
-        emit errorOccurred(stepError);
-        emit simulationFinished(SimResults());
+        Q_EMIT logMessage(QString("LTspice .step emulation error: %1").arg(stepError));
+        Q_EMIT errorOccurred(stepError);
+        Q_EMIT simulationFinished(SimResults());
         return;
     }
     if (!m_pendingStepRuns.isEmpty()) {
-        emit logMessage(QString("Running LTspice .step sweep emulation with %1 run(s).").arg(m_pendingStepRuns.size()));
+        Q_EMIT logMessage(QString("Running LTspice .step sweep emulation with %1 run(s).").arg(m_pendingStepRuns.size()));
         startNextStepSweepRun();
         return;
     }
@@ -774,21 +774,21 @@ QString SimManager::generateNetlist(QGraphicsScene* scene, NetManager* netMgr, c
 
 void SimManager::runNgspiceSimulation(const QString& netlist, const SimAnalysisConfig& config) {
     if (m_control) {
-        emit logMessage("A simulation is already running.");
+        Q_EMIT logMessage("A simulation is already running.");
         return;
     }
 
-    emit simulationStarted();
+    Q_EMIT simulationStarted();
     m_lastConfig = config;
 
     if (netlist.isEmpty() || netlist.startsWith("* Missing scene")) {
-        emit logMessage("Ngspice: Data parse error or empty results.");
-        emit errorOccurred("Netlist generation failed or empty results.");
-        emit simulationFinished(SimResults());
+        Q_EMIT logMessage("Ngspice: Data parse error or empty results.");
+        Q_EMIT errorOccurred("Netlist generation failed or empty results.");
+        Q_EMIT simulationFinished(SimResults());
         return;
     }
 
-    emit logMessage(QString("Starting ngspice simulation (Analysis: %1)...").arg(static_cast<int>(config.type)));
+    Q_EMIT logMessage(QString("Starting ngspice simulation (Analysis: %1)...").arg(static_cast<int>(config.type)));
 
     QString stepError;
     m_pendingStepRuns = buildStepRuns(netlist, &stepError);
@@ -796,13 +796,13 @@ void SimManager::runNgspiceSimulation(const QString& netlist, const SimAnalysisC
     m_activeStepLabel.clear();
     m_completedStepRuns = 0;
     if (!stepError.isEmpty()) {
-        emit logMessage(QString("LTspice .step emulation error: %1").arg(stepError));
-        emit errorOccurred(stepError);
-        emit simulationFinished(SimResults());
+        Q_EMIT logMessage(QString("LTspice .step emulation error: %1").arg(stepError));
+        Q_EMIT errorOccurred(stepError);
+        Q_EMIT simulationFinished(SimResults());
         return;
     }
     if (!m_pendingStepRuns.isEmpty()) {
-        emit logMessage(QString("Running LTspice .step sweep emulation with %1 run(s).").arg(m_pendingStepRuns.size()));
+        Q_EMIT logMessage(QString("Running LTspice .step sweep emulation with %1 run(s).").arg(m_pendingStepRuns.size()));
         startNextStepSweepRun();
         return;
     }
@@ -816,13 +816,13 @@ void SimManager::startNextStepSweepRun() {
         m_stepSweepResults = SimResults();
         m_activeStepLabel.clear();
         m_completedStepRuns = 0;
-        emit simulationFinished(finalResults);
+        Q_EMIT simulationFinished(finalResults);
         return;
     }
 
     const PendingStepRun run = m_pendingStepRuns.takeFirst();
     m_activeStepLabel = run.label;
-    emit logMessage(QString("Running .step case %1").arg(run.label));
+    Q_EMIT logMessage(QString("Running .step case %1").arg(run.label));
     startNgspiceWithNetlist(run.netlist);
 }
 
@@ -871,7 +871,7 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
         out << activeNetlist;
         tempFile->close();
     } else {
-        emit errorOccurred("Failed to create temporary netlist file.");
+        Q_EMIT errorOccurred("Failed to create temporary netlist file.");
         delete tempFile;
         return;
     }
@@ -891,8 +891,8 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
 
     connect(&sm, &SimulationManager::outputReceived, this, &SimManager::logMessage, Qt::QueuedConnection);
     connect(&sm, &SimulationManager::errorOccurred, this, [this, safeTempFile](const QString& msg) {
-        emit logMessage(QString("Ngspice error: %1").arg(msg));
-        emit errorOccurred(msg);
+        Q_EMIT logMessage(QString("Ngspice error: %1").arg(msg));
+        Q_EMIT errorOccurred(msg);
         if (safeTempFile) safeTempFile->deleteLater();
         cleanupSimulation();
     }, Qt::QueuedConnection);
@@ -916,14 +916,14 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
                 if (!m_activeStepLabel.isEmpty() || !m_pendingStepRuns.isEmpty()) {
                     mergeStepSweepResults(result.second, m_activeStepLabel, m_completedStepRuns + 1);
                 } else {
-                    emit simulationFinished(result.second);
+                    Q_EMIT simulationFinished(result.second);
                 }
             } else {
                 const QString err = "Ngspice: Data parse error or empty results.";
-                emit logMessage(err);
-                emit errorOccurred(err);
+                Q_EMIT logMessage(err);
+                Q_EMIT errorOccurred(err);
                 // Still close run-state on editor side even when results are unavailable.
-                emit simulationFinished(SimResults());
+                Q_EMIT simulationFinished(SimResults());
             }
             
             const bool continueStepSweep = result.first && (!m_activeStepLabel.isEmpty() || !m_pendingStepRuns.isEmpty());
@@ -956,9 +956,9 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
         // We wait a bit to see if they arrive. If not, we cleanup.
         QTimer::singleShot(2000, this, [this, safeTempFile]() {
             if (m_control && !m_resultsPending) {
-                emit logMessage("Ngspice finished without RAW results; closing simulation run.");
+                Q_EMIT logMessage("Ngspice finished without RAW results; closing simulation run.");
                 if (m_pendingStepRuns.isEmpty() && m_activeStepLabel.isEmpty()) {
-                    emit simulationFinished(SimResults());
+                    Q_EMIT simulationFinished(SimResults());
                 }
                 if (safeTempFile) safeTempFile->deleteLater();
                 cleanupSimulation();
@@ -988,7 +988,7 @@ void SimManager::cleanupSimulation() {
 
 void SimManager::runRealTime(QGraphicsScene* scene, NetManager* netMgr, int intervalMs) {
     // Stub for now or implement via repeated OP
-    emit logMessage("Real-time simulation via Ngspice not yet optimized. Running single-shot OP.");
+    Q_EMIT logMessage("Real-time simulation via Ngspice not yet optimized. Running single-shot OP.");
     runDCOP(scene, netMgr);
 }
 
@@ -1023,16 +1023,16 @@ QStringList SimManager::preflightCheck(QGraphicsScene* scene, NetManager* netMgr
 }
 
 void SimManager::runWithNetlist(const SimNetlist& netlist) {
-     emit errorOccurred("Direct SimNetlist execution not supported with Ngspice backend yet. Use UI.");
+     Q_EMIT errorOccurred("Direct SimNetlist execution not supported with Ngspice backend yet. Use UI.");
 }
 
 void SimManager::stopAll() {
     SimulationManager::instance().stopSimulation();
     cleanupSimulation();
-    emit logMessage("Simulation stopped.");
+    Q_EMIT logMessage("Simulation stopped.");
 }
 
 void SimManager::pauseSimulation(bool pause) {
     // Ngspice bg_halt / bg_resume could be used
-    emit logMessage("Pause not fully implemented for Ngspice.");
+    Q_EMIT logMessage("Pause not fully implemented for Ngspice.");
 }

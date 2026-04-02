@@ -39,7 +39,7 @@ public:
     ProjectManager(QWidget* parent = nullptr);
     ~ProjectManager();
 
-private slots:
+private Q_SLOTS:
     void createNewProject();
     void openExistingProject();
     void addFolderToWorkspace();
@@ -154,7 +154,7 @@ public:
     void setIconFromChar(const QString& character, const QColor& bgColor);
     void setAccentColor(const QColor& color);
 
-signals:
+Q_SIGNALS:
     void clicked();
 
 protected:
@@ -186,7 +186,7 @@ public:
     bool isCollapsed() const { return m_collapsed; }
     void updateCount(int n);
 
-signals:
+Q_SIGNALS:
     void toggled(bool collapsed);
 
 protected:

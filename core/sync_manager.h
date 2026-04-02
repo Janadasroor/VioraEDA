@@ -22,7 +22,7 @@ public:
     void pushECO(const ECOPackage& package, ECOTarget target = ECOTarget::Any) {
         m_pendingECO = package;
         m_pendingTarget = target;
-        emit ecoAvailable();
+        Q_EMIT ecoAvailable();
     }
 
     ECOPackage pendingECO() const {
@@ -45,11 +45,11 @@ public:
     void pushCrossProbe(const QString& refDes, const QString& netName = "") {
         if (m_isProbing) return;
         m_isProbing = true;
-        emit crossProbeReceived(refDes, netName);
+        Q_EMIT crossProbeReceived(refDes, netName);
         m_isProbing = false;
     }
 
-signals:
+Q_SIGNALS:
     void ecoAvailable();
     void crossProbeReceived(const QString& refDes, const QString& netName);
 

@@ -2531,7 +2531,7 @@ void SymbolEditor::onPlaceInSchematic() {
         QMessageBox::warning(this, "Place Symbol", "Current symbol is empty or invalid.");
         return;
     }
-    emit placeInSchematicRequested(def);
+    Q_EMIT placeInSchematicRequested(def);
 
     // Find and raise SchematicEditor window
     for (QWidget* widget : QApplication::topLevelWidgets()) {
@@ -4198,7 +4198,7 @@ void SymbolEditor::onSave() {
         if (choice != QMessageBox::Yes) return;
     }
     m_symbol = symbolDefinition();
-    emit symbolSaved(m_symbol);
+    Q_EMIT symbolSaved(m_symbol);
 }
 
 void SymbolEditor::onSaveToLibrary() {
@@ -4297,7 +4297,7 @@ void SymbolEditor::onSaveToLibrary() {
         LibraryIndex::instance().addSymbol(m_symbol.name(), dirName, dirName);
         QMessageBox::information(this, "Saved",
             QString("'%1' \xE2\x86\x92 %2/").arg(m_symbol.name(), dirName));
-        emit symbolSaved(m_symbol);
+        Q_EMIT symbolSaved(m_symbol);
         if (m_undoStack) m_undoStack->setClean();
         populateLibraryTree();
         return;
@@ -4316,7 +4316,7 @@ void SymbolEditor::onSaveToLibrary() {
         LibraryIndex::instance().addSymbol(m_symbol.name(), lib->name(), m_symbol.category());
         QMessageBox::information(this, "Saved",
             QString("Symbol '%1' saved to library '%2'.").arg(m_symbol.name(), libName));
-        emit symbolSaved(m_symbol);
+        Q_EMIT symbolSaved(m_symbol);
         if (m_undoStack) m_undoStack->setClean();
         populateLibraryTree();
     }
@@ -6890,7 +6890,7 @@ void SymbolEditor::onLibraryContextMenu(const QPoint& pos) {
         setSymbolDefinition(copy);
         statusBar()->showMessage("Symbol copied. Edit and save to library.", 3000);
     } else if (selected == placeAct) {
-        emit placeInSchematicRequested(*def);
+        Q_EMIT placeInSchematicRequested(*def);
     } else if (selected == delAct) {
         if (QMessageBox::question(this, "Delete Symbol", 
             QString("Are you sure you want to delete '%1' from library '%2'?").arg(symbolName, libName)) == QMessageBox::Yes) {
@@ -7001,7 +7001,7 @@ void SymbolEditor::onCanvasContextMenu(const QPoint& pos) {
         addMenu->addAction(getThemeIcon(":/icons/tool_text.svg"), "Text", [this, pos]() { 
             m_currentTool = Text; 
             QPointF scenePos = m_view->snapToGrid(m_view->mapToScene(pos));
-            emit m_view->pointClicked(scenePos); 
+            Q_EMIT m_view->pointClicked(scenePos); 
         });
         addMenu->addSeparator();
         addMenu->addAction(getThemeIcon(":/icons/tool_anchor.svg"), "Set Anchor Point", [this]() { m_currentTool = Anchor; });

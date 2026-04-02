@@ -15,7 +15,7 @@ public:
 
     void loadGuide(const QString& filename);
 
-private slots:
+private Q_SLOTS:
     void onGuideSelected(QListWidgetItem* item);
 
 private:

@@ -55,7 +55,7 @@ public:
     bool isModified() const { return m_modifiedFlag; }
     void setModified(bool modified = true);
 
-signals:
+Q_SIGNALS:
     void projectModified();
     void projectSaved();
 

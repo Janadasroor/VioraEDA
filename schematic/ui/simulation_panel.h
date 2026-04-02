@@ -96,7 +96,7 @@ public:
         QString commandText;
     };
 
-signals:
+Q_SIGNALS:
     void resultsReady(const SimResults& results);
     void timeSnapshotReady(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& branchCurrents);
     void probeRequested();
@@ -109,7 +109,7 @@ public:
     void updateSchematicDirective();
     void updateSchematicDirectiveFromCommand(const QString& commandText);
 
-private slots:
+private Q_SLOTS:
     void onAnalysisChanged(int index);
     void onLogReceived(const QString& msg);
     void onSimulationFinished();

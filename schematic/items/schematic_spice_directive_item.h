@@ -26,7 +26,7 @@ public:
 protected:
     void contextMenuEvent(QGraphicsSceneContextMenuEvent* event) override;
 
-signals:
+Q_SIGNALS:
     void editSimulationRequested(const QString& currentCommand);
 
 private:

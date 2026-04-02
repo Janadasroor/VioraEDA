@@ -32,7 +32,13 @@ public:
     void stopSimulation();
     void shutdown();
 
-signals:
+    // --- Dynamic Interaction API ---
+    double getVectorValue(const QString& name);
+    void setParameter(const QString& name, double value);
+    void sendInternalCommand(const QString& command);
+
+
+Q_SIGNALS:
     void outputReceived(const QString& text);
     void simulationFinished();
     void rawResultsReady(const QString& rawPath);
@@ -40,7 +46,7 @@ signals:
     void errorOccurred(const QString& error);
     void realTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
 
-private slots:
+private Q_SLOTS:
     void handleSimulationFinished(const QString& rawPath);
     void processBufferedData();
 

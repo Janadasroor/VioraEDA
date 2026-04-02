@@ -118,7 +118,7 @@ void ModelBrowserWidget::onItemSelectionChanged(const QModelIndex& current) {
     
     m_detailLabel->setText(details);
     m_applyBtn->setEnabled(true);
-    emit modelSelected(found);
+    Q_EMIT modelSelected(found);
 }
 
 void ModelBrowserWidget::onApplyClicked() {
@@ -127,7 +127,7 @@ void ModelBrowserWidget::onApplyClicked() {
     
     QModelIndex sourceIndex = m_proxyModel->mapToSource(current);
     const auto& info = m_model->modelInfo(sourceIndex.row());
-    emit applyModelRequested(info);
+    Q_EMIT applyModelRequested(info);
 }
 
 void ModelBrowserWidget::onReloadClicked() {

@@ -24,11 +24,11 @@ public:
 
     void compareBranches(const QString& branchA, const QString& branchB);
 
-signals:
+Q_SIGNALS:
     void mergeRequested(const QString& sourceBranch, const QString& targetBranch);
     void checkoutRequested(const QString& branch);
 
-private slots:
+private Q_SLOTS:
     void onBranchAChanged(int index);
     void onBranchBChanged(int index);
     void onCompareClicked();

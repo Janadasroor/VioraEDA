@@ -30,7 +30,7 @@ public:
     explicit SymbolFieldEditorDialog(const QString& rootPath, const QString& projectDir, QWidget* parent = nullptr);
     ~SymbolFieldEditorDialog();
 
-private slots:
+private Q_SLOTS:
     void onSave();
     void onCellChanged(int row, int col);
 

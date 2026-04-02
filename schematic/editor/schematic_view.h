@@ -70,7 +70,7 @@ public:
     void showProbeStartMarker(const QPointF& scenePos);
     void clearProbeStartMarker();
 
-signals:
+Q_SIGNALS:
     void coordinatesChanged(QPointF pos);
     void toolChanged(const QString& toolName);
     void selectionChanged();
@@ -150,7 +150,7 @@ protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
 
-private slots:
+private Q_SLOTS:
     void handleAutoScroll();
 
 private:

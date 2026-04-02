@@ -39,11 +39,11 @@ public:
     };
 
     Config config() const { return m_config; }
-    void setConfig(const Config& cfg) { m_config = cfg; emit configChanged(); update(); }
+    void setConfig(const Config& cfg) { m_config = cfg; Q_EMIT configChanged(); update(); }
 
     QString channelNet(int chIdx) const; // Logic to find net on a specific channel pin
 
-signals:
+Q_SIGNALS:
     void configChanged();
 
 private:

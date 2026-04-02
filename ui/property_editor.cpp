@@ -247,7 +247,7 @@ void PropertyEditor::addProperty(const QString &name, const QVariant &value, con
             "}"
         );
         connect(combo, &QComboBox::currentTextChanged, this, [this, name](const QString &text) {
-            if (!m_blockSignals) emit propertyChanged(name, text);
+            if (!m_blockSignals) Q_EMIT propertyChanged(name, text);
         });
         m_table->setCellWidget(row, 1, combo);
     } else if (value.typeId() == QMetaType::Bool || value.toString() == "True" || value.toString() == "False") {
@@ -259,7 +259,7 @@ void PropertyEditor::addProperty(const QString &name, const QVariant &value, con
             "QCheckBox::indicator:checked { border-color: #569cd6; background: #569cd6; }"
         );
         connect(check, &QCheckBox::stateChanged, this, [this, name](int state) {
-            if (!m_blockSignals) emit propertyChanged(name, state == Qt::Checked);
+            if (!m_blockSignals) Q_EMIT propertyChanged(name, state == Qt::Checked);
         });
         m_table->setCellWidget(row, 1, check);
     } else {
@@ -279,5 +279,5 @@ void PropertyEditor::onCellChanged(int row, int column) {
     auto *nameItem = m_table->item(row, 0);
     auto *valueItem = m_table->item(row, column);
     if (!nameItem || !valueItem) return;
-    emit propertyChanged(nameItem->text(), valueItem->text());
+    Q_EMIT propertyChanged(nameItem->text(), valueItem->text());
 }

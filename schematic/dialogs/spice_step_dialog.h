@@ -22,7 +22,7 @@ public:
 
     QString commandText() const;
 
-private slots:
+private Q_SLOTS:
     void updateUiState();
     void updatePreview();
     void applyCommandText();

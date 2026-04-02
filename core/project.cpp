@@ -119,7 +119,7 @@ bool Project::save() {
     file.close();
 
     m_modifiedFlag = false;
-    emit projectSaved();
+    Q_EMIT projectSaved();
     qDebug() << "Project saved:" << projectFilePath();
 
     return true;
@@ -180,7 +180,7 @@ void Project::setModified(bool modified) {
     if (m_modifiedFlag != modified) {
         m_modifiedFlag = modified;
         if (modified) {
-            emit projectModified();
+            Q_EMIT projectModified();
         }
     }
 }

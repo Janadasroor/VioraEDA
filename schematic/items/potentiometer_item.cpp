@@ -31,7 +31,7 @@ void PotentiometerItem::setWiperPosition(double pos) {
     setParamExpression("r_upper", QString::number(r1));
     setParamExpression("r_lower", QString::number(r2));
 
-    emit interactiveStateChanged();
+    Q_EMIT interactiveStateChanged();
     update();
 }
 

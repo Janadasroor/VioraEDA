@@ -15,7 +15,7 @@ public:
     explicit DeveloperHelpWindow(QWidget *parent = nullptr);
     ~DeveloperHelpWindow();
 
-private slots:
+private Q_SLOTS:
     void onDocSelected(QTreeWidgetItem* item, int column);
 
 private:

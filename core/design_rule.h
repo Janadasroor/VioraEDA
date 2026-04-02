@@ -142,7 +142,7 @@ public:
     bool isValid() const;
     QString validationError() const;
 
-signals:
+Q_SIGNALS:
     void idChanged(const QUuid& id);
     void nameChanged(const QString& name);
     void descriptionChanged(const QString& desc);
@@ -210,7 +210,7 @@ public:
     static DesignRuleSet* createDefaultDRCSet(QObject* parent = nullptr);
     static DesignRuleSet* createKiCadCompatibleSet(QObject* parent = nullptr);
 
-signals:
+Q_SIGNALS:
     void ruleAdded(DesignRule* rule);
     void ruleRemoved(const QUuid& ruleId);
     void rulesChanged();

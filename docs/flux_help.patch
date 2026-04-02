@@ -1,0 +1,28 @@
+--- a/cli/main.cpp
++++ b/cli/main.cpp
+@@ -3599,6 +3599,25 @@ static void printGeneralHelp() {
+ }
+ 
+ static void printCommandHelp(const QString& command) {
++    if (command == "flux") {
++        std::cout << "vio-cmd flux - FluxScript SPICE Integration\n";
++        std::cout << "\n";
++        std::cout << "Usage: vio-cmd flux <subcommand> [options] [file.flux]\n";
++        std::cout << "\n";
++        std::cout << "Subcommands:\n";
++        std::cout << "  run <file.flux>     Compile and run FluxScript file\n";
++        std::cout << "  compile <file.flux> Generate SPICE netlist\n";
++        std::cout << "  eval <expression>   Evaluate FluxScript expression\n";
++        std::cout << "  repl                Interactive REPL mode\n";
++        std::cout << "\n";
++        std::cout << "Examples:\n";
++        std::cout << "  vio-cmd flux run circuit.flux\n";
++        std::cout << "  vio-cmd flux compile circuit.flux -o circuit.cir\n";
++        std::cout << "  vio-cmd flux eval \"sin(pi/2)\"\n";
++        std::cout << "  vio-cmd flux repl\n";
++        return;
++    }
++
+     if (command == "netlist-run") {
+         std::cout << "netlist-run <file.cir|file.flxsch>\n";
+         std::cout << "  --analysis tran|ac|op  --step <s>  --stop <s>\n";

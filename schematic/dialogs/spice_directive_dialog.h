@@ -18,7 +18,7 @@ class SpiceDirectiveDialog : public QDialog {
 public:
     SpiceDirectiveDialog(SchematicSpiceDirectiveItem* item, QUndoStack* undoStack = nullptr, QGraphicsScene* scene = nullptr, QWidget* parent = nullptr);
 
-private slots:
+private Q_SLOTS:
     void onAccepted();
     void applyCompatibilityFixes();
 

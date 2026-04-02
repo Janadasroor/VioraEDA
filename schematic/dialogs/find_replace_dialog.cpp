@@ -179,7 +179,7 @@ void FindReplaceDialog::searchInFile(const QString& filePath, const QString& ter
 void FindReplaceDialog::onResultDoubleClicked(QListWidgetItem* item) {
     int idx = item->data(Qt::UserRole).toInt();
     if (idx >= 0 && idx < m_results.size()) {
-        emit navigateToResult(m_results[idx]);
+        Q_EMIT navigateToResult(m_results[idx]);
     }
 }
 
@@ -189,7 +189,7 @@ void FindReplaceDialog::onReplaceSelected() {
 
     int idx = item->data(Qt::UserRole).toInt();
     if (idx >= 0 && idx < m_results.size()) {
-        emit replaceRequested(m_results[idx], m_replaceEdit->text());
+        Q_EMIT replaceRequested(m_results[idx], m_replaceEdit->text());
         onSearch(); // Refresh
     }
 }
@@ -197,7 +197,7 @@ void FindReplaceDialog::onReplaceSelected() {
 void FindReplaceDialog::onReplaceAll() {
     QString newVal = m_replaceEdit->text();
     for (const auto& res : m_results) {
-        emit replaceRequested(res, newVal);
+        Q_EMIT replaceRequested(res, newVal);
     }
     onSearch(); // Refresh
 }

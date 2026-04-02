@@ -16,7 +16,7 @@ public:
 
     QString commandText() const;
 
-private slots:
+private Q_SLOTS:
     void updatePreview();
     void applyCommandText();
 

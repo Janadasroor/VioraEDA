@@ -8,7 +8,7 @@ using namespace VioraEDA::ReverseEngineering;
 
 class TestREParsers : public QObject {
     Q_OBJECT
-private slots:
+private Q_SLOTS:
     void initTestCase() {
         // Ensure test-files directory exists relative to current run
     }

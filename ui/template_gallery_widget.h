@@ -40,11 +40,11 @@ public:
     void setProjectDirectory(const QString& dir);
     void updateTheme();
 
-signals:
+Q_SIGNALS:
     void templateSelected(const QString& schematicPath, const QString& netlistPath);
     void openSchematicRequested(const QString& filePath);
 
-private slots:
+private Q_SLOTS:
     void onCategoryChanged(int index);
     void onSearchChanged(const QString& text);
     void onTryItClicked(const QString& templateId);

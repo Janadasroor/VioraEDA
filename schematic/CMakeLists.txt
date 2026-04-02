@@ -4,10 +4,7 @@ list(TRANSFORM FLUXSCHEMATIC_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/../")
 add_library(FluxSchematic STATIC ${FLUXSCHEMATIC_SOURCES})
 set_target_properties(FluxSchematic PROPERTIES AUTOMOC ON)
 vioraeda_configure_module_target(FluxSchematic)
-target_link_libraries(FluxSchematic PUBLIC FluxCore FluxSymbols FluxSimulator FluxScriptUI FluxUI Qt${QT_VERSION_MAJOR}::Concurrent)
-if(VIOSPICE_ENABLE_PYTHON)
-    target_link_libraries(FluxSchematic PUBLIC FluxPython)
-endif()
+target_link_libraries(FluxSchematic PUBLIC FluxCore FluxSymbols FluxSimulator FluxScriptManager FluxUI Qt${QT_VERSION_MAJOR}::Concurrent)
 target_include_directories(FluxSchematic PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/core
     ${CMAKE_CURRENT_SOURCE_DIR}/../simulator/bridge

@@ -17,7 +17,7 @@ public:
     explicit SpiceModelArchitect(QWidget *parent = nullptr);
     ~SpiceModelArchitect();
 
-private slots:
+private Q_SLOTS:
     void onTypeChanged(int index);
     void onParameterChanged();
     void onCopyClicked();

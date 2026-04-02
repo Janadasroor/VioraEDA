@@ -20,7 +20,7 @@ public:
 
     QList<QMap<QString, QVariant>> results() const;
 
-private slots:
+private Q_SLOTS:
     void validate();
     void onImportCSV();
     void onExportCSV();

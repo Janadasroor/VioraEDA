@@ -23,20 +23,20 @@ void RecentWorkspaces::addWorkspace(const QString& workspacePath) {
     m_workspaces.prepend(workspacePath);
     trimToMax();
     save();
-    emit workspacesChanged();
+    Q_EMIT workspacesChanged();
 }
 
 void RecentWorkspaces::removeWorkspace(const QString& workspacePath) {
     if (m_workspaces.removeAll(workspacePath) > 0) {
         save();
-        emit workspacesChanged();
+        Q_EMIT workspacesChanged();
     }
 }
 
 void RecentWorkspaces::clear() {
     m_workspaces.clear();
     save();
-    emit workspacesChanged();
+    Q_EMIT workspacesChanged();
 }
 
 QStringList RecentWorkspaces::workspaces() const {

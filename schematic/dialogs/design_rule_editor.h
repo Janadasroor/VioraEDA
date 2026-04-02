@@ -25,7 +25,7 @@ public:
     static DesignRule* editRule(DesignRule* rule, QWidget* parent);
     static DesignRule* createRule(RuleCategory category, QWidget* parent);
 
-private slots:
+private Q_SLOTS:
     void onCategoryChanged(int index);
     void onSeverityChanged(int index);
     void onNameChanged(const QString& text);

@@ -23,7 +23,7 @@ public:
     void populate();
     void focusSearch();
 
-signals:
+Q_SIGNALS:
     void toolSelected(const QString &toolName);
     void symbolCreated(const QString &symbolName);
     void symbolPlacementRequested(const class SymbolDefinition& symbol);
@@ -32,7 +32,7 @@ signals:
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
-private slots:
+private Q_SLOTS:
     void onSearchTextChanged(const QString &text);
     void onItemClicked(const QModelIndex& index);
     void onCreateSymbol();
@@ -52,7 +52,7 @@ private:
     SymbolDefinition m_selectedSymbol;
     SymbolPreviewWidget* m_previewPopup;
 
-private slots:
+private Q_SLOTS:
     void onItemHovered(const QModelIndex& index);
 };
 

@@ -32,7 +32,7 @@ public:
     bool snapCursorCrosshairEnabled() const { return m_snapCursorCrosshair; }
     void setSnapCursorCrosshairEnabled(bool enabled) { m_snapCursorCrosshair = enabled; viewport()->update(); }
     
-signals:
+Q_SIGNALS:
     void pointClicked(QPointF scenePos);
     void mouseMoved(QPointF scenePos);
     void coordinatesChanged(QPointF scenePos);

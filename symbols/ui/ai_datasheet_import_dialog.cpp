@@ -1,5 +1,5 @@
 #include "ai_datasheet_import_dialog.h"
-#include "../../python/python_manager.h"
+#include "../../python/flux_script_manager.h"
 #include "../models/symbol_primitive.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -80,13 +80,13 @@ void AIDatasheetImportDialog::onGenerateClicked() {
     }
 
     m_process = new QProcess(this);
-    m_process->setProcessEnvironment(PythonManager::getConfiguredEnvironment());
+    m_process->setProcessEnvironment(FluxScriptManager::getConfiguredEnvironment());
     
     connect(m_process, &QProcess::readyReadStandardOutput, this, &AIDatasheetImportDialog::onProcessReadyRead);
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &AIDatasheetImportDialog::onProcessFinished);
 
-    QString scriptPath = QDir(PythonManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
-    QString pythonExec = PythonManager::getPythonExecutable();
+    QString scriptPath = QDir(FluxScriptManager::getScriptsDir()).absoluteFilePath("gemini_query.py");
+    QString pythonExec = FluxScriptManager::getPythonExecutable();
 
     QString prompt = QString(
         "You are an EDA expert. Extract pin information from the following datasheet text. "

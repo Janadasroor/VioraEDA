@@ -37,7 +37,7 @@ public:
      */
     void clear();
 
-signals:
+Q_SIGNALS:
     void windowClosing(const QUuid& id);
     void configChanged(const QUuid& id, const OscilloscopeItem::Config& cfg);
     void propertiesRequested(const QUuid& id);
@@ -45,7 +45,7 @@ signals:
 protected:
     void closeEvent(QCloseEvent* event) override;
 
-private slots:
+private Q_SLOTS:
     void onChannelToggled(int ch, bool checked);
     void onTimebaseChanged(double value);
     void onVoltsDivChanged(int ch, double value);

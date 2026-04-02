@@ -16,7 +16,7 @@ public:
 
     QString selectedModel() const;
 
-private slots:
+private Q_SLOTS:
     void filterModels(const QString& text);
     void onModelSelected(QListWidgetItem* item);
     void applySelected();

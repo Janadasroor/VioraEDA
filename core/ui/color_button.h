@@ -13,7 +13,7 @@ public:
     QColor color() const { return m_color; }
     void setColor(const QColor& color);
 
-signals:
+Q_SIGNALS:
     void colorChanged(const QColor& color);
 
 protected:

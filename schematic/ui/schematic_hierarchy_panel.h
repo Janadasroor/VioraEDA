@@ -15,10 +15,10 @@ public:
     void setProjectContext(const QString& rootFile);
     void refresh();
 
-signals:
+Q_SIGNALS:
     void sheetSelected(const QString& fileName);
 
-private slots:
+private Q_SLOTS:
     void onItemDoubleClicked(const QModelIndex& index);
 
 private:

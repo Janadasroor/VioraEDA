@@ -21,7 +21,7 @@ public:
 
     TitleBlockData result() const;
 
-private slots:
+private Q_SLOTS:
     void browseLogo();
     void clearLogo();
 

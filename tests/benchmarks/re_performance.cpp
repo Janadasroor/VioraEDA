@@ -14,7 +14,7 @@ using namespace VioraEDA::ReverseEngineering;
 
 class BenchmarkRE : public QObject {
     Q_OBJECT
-private slots:
+private Q_SLOTS:
     void benchmarkFullPipeline() {
         // Ensure library is ready
         auto& manager = FootprintLibraryManager::instance();

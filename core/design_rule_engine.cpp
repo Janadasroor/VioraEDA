@@ -98,7 +98,7 @@ void DesignRuleEngine::run(QGraphicsScene* scene, NetManager* netManager) {
     // Sort violations by severity
     sortViolations(m_violations);
 
-    emit executionFinished(m_violations);
+    Q_EMIT executionFinished(m_violations);
 }
 
 void DesignRuleEngine::runAsync(QGraphicsScene* scene, NetManager* netManager) {
@@ -109,7 +109,7 @@ void DesignRuleEngine::runAsync(QGraphicsScene* scene, NetManager* netManager) {
     m_violations.clear();
     m_stats = RuleExecutionStats();
 
-    emit executionStarted();
+    Q_EMIT executionStarted();
 
     m_future = QtConcurrent::run([this, scene, netManager]() {
         executeRules(scene, netManager);
@@ -124,7 +124,7 @@ void DesignRuleEngine::cancel() {
         m_watcher->cancel();
     }
     m_running = false;
-    emit executionCancelled();
+    Q_EMIT executionCancelled();
 }
 
 void DesignRuleEngine::executeRules(QGraphicsScene* scene, NetManager* netManager) {
@@ -161,7 +161,7 @@ void DesignRuleEngine::executeRules(QGraphicsScene* scene, NetManager* netManage
             progress.totalRules = totalRules;
             progress.currentRuleName = rule->name();
             progress.percentComplete = (rulesCompleted * 100) / totalRules;
-            emit progressUpdated(progress);
+            Q_EMIT progressUpdated(progress);
 
             auto future = QtConcurrent::run(m_threadPool, [this, rule, scene, netManager]() {
                 if (m_cancelled) return QList<DesignRuleViolation>();
@@ -179,7 +179,7 @@ void DesignRuleEngine::executeRules(QGraphicsScene* scene, NetManager* netManage
                 QMutexLocker locker(&m_violationsMutex);
                 m_violations.append(violations);
                 m_stats.violationsFound += violations.count();
-                emit batchViolationsFound(violations);
+                Q_EMIT batchViolationsFound(violations);
             }
             m_stats.rulesEvaluated++;
         }
@@ -196,18 +196,18 @@ void DesignRuleEngine::executeRules(QGraphicsScene* scene, NetManager* netManage
             progress.totalRules = totalRules;
             progress.currentRuleName = rule->name();
             progress.percentComplete = (rulesCompleted * 100) / totalRules;
-            emit progressUpdated(progress);
+            Q_EMIT progressUpdated(progress);
 
             auto violations = evaluateRule(rule, scene, netManager);
             if (!violations.isEmpty()) {
                 QMutexLocker locker(&m_violationsMutex);
                 m_violations.append(violations);
                 m_stats.violationsFound += violations.count();
-                emit batchViolationsFound(violations);
+                Q_EMIT batchViolationsFound(violations);
             }
             m_stats.rulesEvaluated++;
 
-            emit ruleEvaluated(rule->name(), violations.count());
+            Q_EMIT ruleEvaluated(rule->name(), violations.count());
         }
 
         m_stats.threadsUsed = 1;
@@ -411,7 +411,7 @@ void DesignRuleEngine::sortViolations(QList<DesignRuleViolation>& violations) {
 void DesignRuleEngine::onFutureFinished() {
     m_running = false;
     m_stats.totalTimeMs = m_watcher->property("elapsedTime").toLongLong();
-    emit executionFinished(m_violations);
+    Q_EMIT executionFinished(m_violations);
 }
 
 void DesignRuleEngine::onProgressUpdated(int value) {

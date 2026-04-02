@@ -62,7 +62,10 @@ struct SimComponentInstance {
     int vIdx = -1; // Branch current index in MNA solver
 
     // Scripted/Programmable Logic (Phase 3.3)
+    enum class ScriptEngine { Python, FluxScript };
+    ScriptEngine engine = ScriptEngine::Python;
     std::string pythonScript;
+    std::string fluxScript; 
     std::vector<std::string> inputPinNames;
     std::vector<std::string> outputPinNames;
 

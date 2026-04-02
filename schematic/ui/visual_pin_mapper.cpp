@@ -121,7 +121,7 @@ void VisualPinMapper::mouseReleaseEvent(QMouseEvent* event) {
                 QString name = m_outputs.takeAt(m_dragIdx);
                 m_outputs.insert(newIdx, name);
             }
-            emit pinsChanged();
+            Q_EMIT pinsChanged();
         }
         
         m_dragIdx = -1;
@@ -138,7 +138,7 @@ void VisualPinMapper::mouseDoubleClickEvent(QMouseEvent* event) {
             if (ok && !newName.isEmpty()) {
                 if (pr.isInput) m_inputs[pr.index] = newName;
                 else m_outputs[pr.index] = newName;
-                emit pinsChanged();
+                Q_EMIT pinsChanged();
                 updateRects();
                 update();
             }

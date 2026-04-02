@@ -88,7 +88,7 @@ public:
     // Categories across all libraries
     QStringList allCategories() const;
     
-signals:
+Q_SIGNALS:
     void progressUpdated(const QString& status, int progress, int total);
     void loadingFinished();
     

@@ -14,7 +14,7 @@ public:
     explicit ProjectAuditDialog(QWidget *parent = nullptr);
     ~ProjectAuditDialog();
 
-private slots:
+private Q_SLOTS:
     void refreshStats();
     void runFullAudit();
 
