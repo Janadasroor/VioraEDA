@@ -39,6 +39,15 @@ Then use:
 
 Install the additional API dependencies from [requirements.txt](/home/jnd/qt_projects/viospice/python/requirements.txt) first if they are not already present.
 
+Async job endpoints on the FastAPI service:
+
+- `POST /api/ml/jobs/simulate`
+- `POST /api/ml/jobs/batch`
+- `POST /api/ml/jobs/sweep`
+- `GET /api/ml/jobs/{job_id}`
+
+These endpoints return a `job_id` immediately and let clients poll for `queued`, `running`, `completed`, or `failed` status.
+
 ## Endpoints
 
 ### `GET /api/ml/health`
