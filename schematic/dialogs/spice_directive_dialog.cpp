@@ -1,10 +1,17 @@
 #include "spice_directive_dialog.h"
 #include "../editor/schematic_commands.h"
 #include "../ui/spice_highlighter.h"
+#include "../items/inductor_item.h"
 #include "../items/power_item.h"
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QSplitter>
 #include <QRegularExpression>
 #include <QSet>
@@ -64,6 +71,23 @@ QSet<QString> powerRailNetNames(QGraphicsScene* scene) {
     }
 
     return rails;
+}
+
+QStringList inductorReferences(QGraphicsScene* scene, const SchematicSpiceDirectiveItem* self = nullptr) {
+    QStringList refs;
+    if (!scene) return refs;
+
+    for (QGraphicsItem* item : scene->items()) {
+        if (item == self) continue;
+        auto* inductor = dynamic_cast<InductorItem*>(item);
+        if (!inductor) continue;
+        const QString ref = inductor->reference().trimmed().toUpper();
+        if (!ref.isEmpty()) refs.append(ref);
+    }
+
+    refs.removeDuplicates();
+    std::sort(refs.begin(), refs.end());
+    return refs;
 }
 
 bool isCommentLine(const QString& line) {
@@ -157,10 +181,57 @@ QString rewritePreviewDirectiveLine(const QString& line, QStringList* fixes = nu
     return out;
 }
 
+bool parseMutualCouplingLine(const QString& line, QString* nameOut, QString* l1Out, QString* l2Out, QString* coeffOut) {
+    static const QRegularExpression kLineRe(
+        "^\\s*(K\\S*)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)(?:\\s+.*)?$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = kLineRe.match(line.trimmed());
+    if (!match.hasMatch()) return false;
+
+    if (nameOut) *nameOut = match.captured(1).trimmed();
+    if (l1Out) *l1Out = match.captured(2).trimmed();
+    if (l2Out) *l2Out = match.captured(3).trimmed();
+    if (coeffOut) *coeffOut = match.captured(4).trimmed();
+    return true;
+}
+
+QString nextMutualCouplingName(const QString& currentText) {
+    QSet<int> usedNumbers;
+    const QStringList lines = collapseSpiceContinuationLines(currentText);
+    static const QRegularExpression numberedNameRe("^K(\\d+)$", QRegularExpression::CaseInsensitiveOption);
+
+    for (const QString& rawLine : lines) {
+        QString name;
+        if (!parseMutualCouplingLine(rawLine, &name, nullptr, nullptr, nullptr)) continue;
+        const QRegularExpressionMatch match = numberedNameRe.match(name.trimmed());
+        if (match.hasMatch()) usedNumbers.insert(match.captured(1).toInt());
+    }
+
+    int next = 1;
+    while (usedNumbers.contains(next)) ++next;
+    return QString("K%1").arg(next);
+}
+
+QString replaceOrAppendMutualCouplingLine(const QString& text, const QString& newLine) {
+    QStringList lines = text.split('\n');
+    for (QString& line : lines) {
+        if (parseMutualCouplingLine(line, nullptr, nullptr, nullptr, nullptr)) {
+            line = newLine;
+            return lines.join('\n');
+        }
+    }
+
+    while (!lines.isEmpty() && lines.last().trimmed().isEmpty()) {
+        lines.removeLast();
+    }
+    lines.append(newLine);
+    return lines.join('\n');
+}
+
 }
 
 SpiceDirectiveDialog::SpiceDirectiveDialog(SchematicSpiceDirectiveItem* item, QUndoStack* undoStack, QGraphicsScene* scene, QWidget* parent)
-    : QDialog(parent), m_item(item), m_undoStack(undoStack), m_scene(scene), m_commandEdit(nullptr), m_validationLabel(nullptr), m_previewEdit(nullptr), m_applyFixesButton(nullptr), m_okButton(nullptr), m_cancelButton(nullptr), m_highlighter(nullptr)
+    : QDialog(parent), m_item(item), m_undoStack(undoStack), m_scene(scene), m_commandEdit(nullptr), m_validationLabel(nullptr), m_previewEdit(nullptr), m_applyFixesButton(nullptr), m_mutualCouplingButton(nullptr), m_okButton(nullptr), m_cancelButton(nullptr), m_highlighter(nullptr)
 {
     setupUi();
     loadFromItem();
@@ -168,6 +239,7 @@ SpiceDirectiveDialog::SpiceDirectiveDialog(SchematicSpiceDirectiveItem* item, QU
     connect(m_okButton, &QPushButton::clicked, this, &SpiceDirectiveDialog::onAccepted);
     connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_applyFixesButton, &QPushButton::clicked, this, &SpiceDirectiveDialog::applyCompatibilityFixes);
+    connect(m_mutualCouplingButton, &QPushButton::clicked, this, &SpiceDirectiveDialog::openMutualCouplingBuilder);
     connect(m_commandEdit, &QPlainTextEdit::textChanged, this, &SpiceDirectiveDialog::validateDirectiveText);
     connect(m_commandEdit, &QPlainTextEdit::textChanged, this, &SpiceDirectiveDialog::updatePreview);
 
@@ -187,6 +259,7 @@ void SpiceDirectiveDialog::setupUi() {
         ".func .global .ic .nodeset .options .temp .step .meas .print\n\n"
         "You can also paste component and subcircuit lines such as:\n"
         "Vcc vcc 0 DC 15\n"
+        "K1 L1 L2 0.99\n"
         "X1 0 inv out vcc vee opamp\n"
         ".subckt opamp 1 2 3 4 5 ... .ends opamp", this);
     mainLayout->addWidget(infoLabel);
@@ -219,6 +292,8 @@ void SpiceDirectiveDialog::setupUi() {
     QHBoxLayout* btnLayout = new QHBoxLayout();
     m_applyFixesButton = new QPushButton("Apply Compatibility Fixes", this);
     btnLayout->addWidget(m_applyFixesButton);
+    m_mutualCouplingButton = new QPushButton("Mutual Coupling...", this);
+    btnLayout->addWidget(m_mutualCouplingButton);
     btnLayout->addStretch();
 
     m_cancelButton = new QPushButton("Cancel", this);
@@ -273,6 +348,90 @@ void SpiceDirectiveDialog::applyCompatibilityFixes() {
     }
 }
 
+void SpiceDirectiveDialog::openMutualCouplingBuilder() {
+    const QStringList inductors = inductorReferences(m_scene, m_item);
+    if (inductors.size() < 2) {
+        QMessageBox::warning(this, "Mutual Coupling",
+                             "At least two schematic inductors with reference designators are required.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Mutual Inductor Coupling");
+    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+    QLabel* info = new QLabel(
+        "Generate an LTspice/ngspice mutual coupling line.\n"
+        "Example: K1 L1 L2 0.99", &dlg);
+    info->setWordWrap(true);
+    layout->addWidget(info);
+
+    QFormLayout* form = new QFormLayout();
+    QLineEdit* nameEdit = new QLineEdit(nextMutualCouplingName(m_commandEdit ? m_commandEdit->toPlainText() : QString()), &dlg);
+    QComboBox* primaryBox = new QComboBox(&dlg);
+    QComboBox* secondaryBox = new QComboBox(&dlg);
+    primaryBox->addItems(inductors);
+    secondaryBox->addItems(inductors);
+    if (inductors.size() > 1) secondaryBox->setCurrentIndex(1);
+
+    QDoubleSpinBox* coeffSpin = new QDoubleSpinBox(&dlg);
+    coeffSpin->setDecimals(4);
+    coeffSpin->setRange(-1.0, 1.0);
+    coeffSpin->setSingleStep(0.01);
+    coeffSpin->setValue(0.99);
+
+    QString parsedName;
+    QString parsedL1;
+    QString parsedL2;
+    QString parsedCoeff;
+    const QStringList existingLines = collapseSpiceContinuationLines(m_commandEdit ? m_commandEdit->toPlainText() : QString());
+    for (const QString& rawLine : existingLines) {
+        if (!parseMutualCouplingLine(rawLine, &parsedName, &parsedL1, &parsedL2, &parsedCoeff)) continue;
+        nameEdit->setText(parsedName);
+        const int l1Index = primaryBox->findText(parsedL1.trimmed().toUpper(), Qt::MatchFixedString);
+        if (l1Index >= 0) primaryBox->setCurrentIndex(l1Index);
+        const int l2Index = secondaryBox->findText(parsedL2.trimmed().toUpper(), Qt::MatchFixedString);
+        if (l2Index >= 0) secondaryBox->setCurrentIndex(l2Index);
+        bool coeffOk = false;
+        const double coeff = parsedCoeff.toDouble(&coeffOk);
+        if (coeffOk && coeff >= -1.0 && coeff <= 1.0) coeffSpin->setValue(coeff);
+        break;
+    }
+
+    form->addRow("Name", nameEdit);
+    form->addRow("Primary", primaryBox);
+    form->addRow("Secondary", secondaryBox);
+    form->addRow("Coupling", coeffSpin);
+    layout->addLayout(form);
+
+    QLabel* hint = new QLabel("The generated line will replace the first existing K-card in this block, or be appended if none exists.", &dlg);
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted || !m_commandEdit) return;
+
+    const QString name = nameEdit->text().trimmed().toUpper();
+    const QString primary = primaryBox->currentText().trimmed().toUpper();
+    const QString secondary = secondaryBox->currentText().trimmed().toUpper();
+    if (name.isEmpty()) {
+        QMessageBox::warning(this, "Mutual Coupling", "A coupling name is required.");
+        return;
+    }
+    if (primary == secondary) {
+        QMessageBox::warning(this, "Mutual Coupling", "Select two different inductors.");
+        return;
+    }
+
+    const QString couplingLine = QString("%1 %2 %3 %4")
+        .arg(name, primary, secondary,
+             QString::number(coeffSpin->value(), 'f', coeffSpin->decimals()).remove(QRegularExpression("0+$")).remove(QRegularExpression("\\.$")));
+    m_commandEdit->setPlainText(replaceOrAppendMutualCouplingLine(m_commandEdit->toPlainText(), couplingLine));
+}
+
 void SpiceDirectiveDialog::saveToItem() {
     if (!m_item) return;
 
@@ -295,6 +454,9 @@ void SpiceDirectiveDialog::validateDirectiveText() {
     const QString text = m_commandEdit->toPlainText();
     const QStringList lines = collapseSpiceContinuationLines(text);
     const QSet<QString> sceneRefs = schematicReferences(m_scene);
+    const QStringList inductorRefList = inductorReferences(m_scene, m_item);
+    QSet<QString> inductorRefs;
+    for (const QString& ref : inductorRefList) inductorRefs.insert(ref);
     const QSet<QString> existingModelNames = schematicDirectiveModelNames(m_scene, m_item);
     const QSet<QString> powerRails = powerRailNetNames(m_scene);
 
@@ -410,6 +572,43 @@ void SpiceDirectiveDialog::validateDirectiveText() {
         }
 
         const QChar prefix = normalizedRef.isEmpty() ? QChar() : normalizedRef.at(0);
+        if (prefix == 'K') {
+            QString couplingName;
+            QString primaryRef;
+            QString secondaryRef;
+            QString coeffText;
+            if (!parseMutualCouplingLine(line, &couplingName, &primaryRef, &secondaryRef, &coeffText)) {
+                errors << QString("Line %1: invalid mutual coupling card. Expected 'Kname L1 L2 0.99'.").arg(lineNo);
+                continue;
+            }
+
+            const QString l1 = primaryRef.trimmed().toUpper();
+            const QString l2 = secondaryRef.trimmed().toUpper();
+            if (!l1.startsWith('L') || !l2.startsWith('L')) {
+                errors << QString("Line %1: mutual coupling must reference inductors (L...).").arg(lineNo);
+            }
+            if (l1 == l2) {
+                errors << QString("Line %1: mutual coupling must reference two different inductors.").arg(lineNo);
+            }
+            if (!inductorRefs.isEmpty()) {
+                if (!inductorRefs.contains(l1)) {
+                    warnings << QString("Line %1: inductor %2 was not found on the current schematic.").arg(lineNo).arg(primaryRef);
+                }
+                if (!inductorRefs.contains(l2)) {
+                    warnings << QString("Line %1: inductor %2 was not found on the current schematic.").arg(lineNo).arg(secondaryRef);
+                }
+            }
+
+            bool coeffOk = false;
+            const double coeff = coeffText.toDouble(&coeffOk);
+            if (!coeffOk) {
+                errors << QString("Line %1: coupling coefficient '%2' is not numeric.").arg(lineNo).arg(coeffText);
+            } else if (coeff < -1.0 || coeff > 1.0) {
+                errors << QString("Line %1: coupling coefficient must be between -1 and 1.").arg(lineNo);
+            }
+            continue;
+        }
+
         if ((prefix == 'V' || prefix == 'I') && !powerRails.isEmpty()) {
             const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
             if (parts.size() >= 2) {

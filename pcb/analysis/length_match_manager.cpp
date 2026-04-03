@@ -281,10 +281,10 @@ int LengthMatchManager::autoTuneGroup(const QString& groupId, QGraphicsScene* sc
             config.clearance = group->serpentineSpacing;
 
             SerpentineGenerator generator(scene);
-            bool ok = generator.generateSerpentine(config);
-            if (ok) {
+            const SerpentineGenerator::SerpentineResult result = generator.generateSerpentine(config);
+            if (result.success) {
                 tunedCount++;
-                entry.length += config.extraLength; // Update measured length
+                entry.length += result.actualAddedLength;
             }
         }
     }
