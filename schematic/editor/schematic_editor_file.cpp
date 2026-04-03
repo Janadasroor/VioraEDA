@@ -725,10 +725,6 @@ bool SchematicEditor::openFile(const QString& filePath) {
             }
         }
 
-        if (!embeddedScript.isEmpty() && m_scriptPanel) {
-            m_scriptPanel->setScript(embeddedScript);
-        }
-        
         updateGrid();
         updatePageFrame();
         
@@ -1281,15 +1277,6 @@ void SchematicEditor::handleIncomingECO() {
 void SchematicEditor::onOpenGeminiAI() {
     GeminiDialog* dialog = new GeminiDialog(m_scene, this);
     
-    // Connect dialog signals too, using QueuedConnection for GUI safety
-    connect(dialog->panel(), &GeminiPanel::fluxScriptGenerated, this, [this](const QString& code) {
-        if (m_scriptPanel) {
-            m_scriptPanel->setScript(code);
-            onOpenFluxScript(); 
-            statusBar()->showMessage("AI generated FluxScript is ready in the editor!", 5000);
-        }
-    }, Qt::QueuedConnection);
-
     dialog->show();
 }
 

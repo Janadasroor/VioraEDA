@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
             socket.write(fileToOpen.toUtf8());
             socket.waitForBytesWritten();
         }
-        return 0; 
+        return 0;
     }
 
     // No existing instance, start server for this one

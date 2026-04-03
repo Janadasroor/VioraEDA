@@ -2734,39 +2734,35 @@ void ProjectManager::onSettings() {
 }
 
 void ProjectManager::launchSchematicEditor(const QString& projectPath) {
-    qDebug() << "DBG: launchSchematicEditor start";
-    SchematicEditor* editor = new SchematicEditor;
-    editor->setAttribute(Qt::WA_DeleteOnClose);
-    
-    QString pFile = projectPath;
-    if (projectPath.isEmpty() || QFileInfo(projectPath).isDir()) {
-        pFile = resolveProjectPath(projectPath, "flxsch"); // Modern default for dirs
-    }
-    
-    QString pDir, pName;
-    if (!pFile.isEmpty()) {
-        QFileInfo fi(pFile);
-        pDir = fi.absolutePath();
-        pName = fi.completeBaseName();
-    } else if (!m_workspaceFolders.isEmpty()) {
-        // Use first workspace folder as project directory
-        pDir = m_workspaceFolders.first();
-        QDir dir(pDir);
-        pName = dir.dirName();
-    }
-    
-    qDebug() << "DBG: before setProjectContext";
-    editor->setProjectContext(pName, pDir, m_workspaceFolders);
-    qDebug() << "DBG: after setProjectContext";
+    QTimer::singleShot(100, this, [this, projectPath]() {
+        QCoreApplication::processEvents();
+        SchematicEditor* editor = new SchematicEditor;
+        editor->setAttribute(Qt::WA_DeleteOnClose);
 
-    if (QFile::exists(pFile)) {
-        qDebug() << "DBG: before openFile";
-        editor->openFile(pFile);
-        qDebug() << "DBG: after openFile";
-    }
-    qDebug() << "DBG: before show";
-    editor->show();
-    qDebug() << "DBG: after show";
+        QString pFile = projectPath;
+        if (projectPath.isEmpty() || QFileInfo(projectPath).isDir()) {
+            pFile = resolveProjectPath(projectPath, "flxsch");
+        }
+
+        QString pDir, pName;
+        if (!pFile.isEmpty()) {
+            QFileInfo fi(pFile);
+            pDir = fi.absolutePath();
+            pName = fi.completeBaseName();
+        } else if (!m_workspaceFolders.isEmpty()) {
+            pDir = m_workspaceFolders.first();
+            QDir dir(pDir);
+            pName = dir.dirName();
+        }
+
+        editor->setProjectContext(pName, pDir, m_workspaceFolders);
+
+        if (QFile::exists(pFile)) {
+            editor->openFile(pFile);
+        }
+        editor->show();
+        QCoreApplication::processEvents();
+    });
 }
 
 QString ProjectManager::resolveProjectPath(const QString& inputPath, const QString& extension) {

@@ -3,6 +3,12 @@
 
 #include <QObject>
 #include <QString>
+
+// CRITICAL: Undefine Qt's emit macro to prevent conflict with LLVM's emit() method
+#ifdef emit
+#undef emit
+#endif
+
 #include <variant>
 #include <vector>
 #include <complex>
