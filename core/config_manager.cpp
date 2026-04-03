@@ -78,10 +78,20 @@ void ConfigManager::setOctopartApiKey(const QString& key) {
 }
 
 namespace {
+QString sanitizeStoredPath(QString p) {
+    p = QDir::fromNativeSeparators(p).trimmed();
+    if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith('\'') && p.endsWith('\''))) {
+        p = p.mid(1, p.size() - 2).trimmed();
+    }
+    while (p.startsWith('"') || p.startsWith('\'')) p.remove(0, 1);
+    while (p.endsWith('"') || p.endsWith('\'')) p.chop(1);
+    return p.trimmed();
+}
+
 QStringList uniquePaths(const QStringList& in) {
     QStringList out;
     for (const QString& p : in) {
-        const QString trimmed = p.trimmed();
+        const QString trimmed = sanitizeStoredPath(p);
         if (trimmed.isEmpty()) continue;
         if (!out.contains(trimmed)) out.append(trimmed);
     }

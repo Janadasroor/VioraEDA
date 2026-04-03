@@ -202,19 +202,18 @@ int main(int argc, char *argv[])
     QObject::connect(&ModelLibraryManager::instance(), &ModelLibraryManager::progressUpdated, splash, updateSplash);
     QObject::connect(&FootprintLibraryManager::instance(), &FootprintLibraryManager::progressUpdated, splash, updateSplash);
 
-    QFuture<void> future = QtConcurrent::run([splash, startMainApp]() {
-        // Step 1: Load Symbols
+    QtConcurrent::run([splash, startMainApp]() {
+        // Load symbols first because startup UI depends on them. Model and footprint
+        // scans can be much larger, so do not block the splash on those.
         SymbolLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym");
 
-        // Step 2: Load Models
-        ModelLibraryManager::instance().reload();
-
-        // Step 3: Load Footprints
-        FootprintLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/footprints");
-
-        // Finalize properly on UI thread
         QMetaObject::invokeMethod(qApp, [startMainApp, splash]() {
             startMainApp(splash);
+
+            QtConcurrent::run([]() {
+                ModelLibraryManager::instance().reload();
+                FootprintLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/footprints");
+            });
         }, Qt::QueuedConnection);
     });
 
