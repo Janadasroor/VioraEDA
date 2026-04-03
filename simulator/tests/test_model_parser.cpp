@@ -226,6 +226,26 @@ void testBsim4MultilineModelParsing() {
     require(bsim4->params.count("AF") != 0 && bsim4->params.at("AF") == 1.0, "AF parse mismatch");
 }
 
+void testMutualInductorCardIsAccepted() {
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    const std::string content =
+        "L1 in 0 10u\n"
+        "L2 out 0 22u\n"
+        "K1 L1 L2 0.99\n";
+
+    const bool ok = SimModelParser::parseLibrary(netlist, content, SimModelParseOptions(), &diags);
+    require(ok, "parseLibrary failed for mutual inductor card");
+    require(netlist.components().size() == 2, "inductor primitives should still be parsed");
+
+    for (const auto& d : diags) {
+        if (d.message.find("unsupported primitive") != std::string::npos &&
+            d.text.find("K1") != std::string::npos) {
+            throw std::runtime_error("mutual inductor card incorrectly reported as unsupported");
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -239,6 +259,7 @@ int main() {
         testVdmosModelParsing();
         testNonAsciiAndXSpiceParsing();
         testBsim4MultilineModelParsing();
+        testMutualInductorCardIsAccepted();
         std::cout << "[PASS] model parser compatibility checks passed." << std::endl;
         return 0;
     } catch (const std::exception& ex) {

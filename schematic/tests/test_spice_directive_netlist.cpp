@@ -1,6 +1,7 @@
 #include <QtTest/QtTest>
 
 #include "../analysis/spice_netlist_generator.h"
+#include "../items/inductor_item.h"
 #include "../items/power_item.h"
 #include "../items/schematic_spice_directive_item.h"
 #include "../../core/simulation_manager.h"
@@ -50,6 +51,7 @@ private Q_SLOTS:
     void rewritesLtspicePwlRelativeBraceTimes();
     void warnsAboutIllFormedLtspicePwlRepeat();
     void rewritesLtspiceCurrentSourceSpecialForms();
+    void preservesMutualInductorDirectives();
     void loadsBoostConverterLtspiceDirectiveInNgspice();
     void emulatesLtspiceStepParamList();
     void emulatesLtspiceStepParamFileList();
@@ -851,6 +853,36 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceCurrentSourceSpecialForms() {
     QVERIFY2(netlist.contains("Rewrote LTspice current-source R= load on IRLOAD into an equivalent resistor for ngspice."), qPrintable(netlist));
     QVERIFY2(netlist.contains("Rewrote LTspice current-source tbl/table on ITBL into a behavioral current source for ngspice."), qPrintable(netlist));
     QVERIFY2(netlist.contains("Approximated LTspice current-source step(...) on ISTEP with a heuristic PWL load sequence"), qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::preservesMutualInductorDirectives() {
+    QGraphicsScene scene;
+
+    auto* l1 = new InductorItem(QPointF(-100, 0), "10u");
+    l1->setReference("L1");
+    scene.addItem(l1);
+
+    auto* l2 = new InductorItem(QPointF(100, 0), "22u");
+    l2->setReference("L2");
+    scene.addItem(l2);
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "K1 L1 L2 0.99\n"
+        ".tran 1u 1m",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("L1 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("L2 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("K1 L1 L2 0.99"), qPrintable(netlist));
+    QCOMPARE(netlist.count(".tran "), 1);
 }
 
 void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {
