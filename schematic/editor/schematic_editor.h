@@ -131,7 +131,6 @@ private Q_SLOTS:
     void onEditSimulationFromDirective(const QString& currentCommand);
     void onPauseSimulation();
     void onOpenNetlistEditor();
-    void onOpenFluxScript();
     void onOpenGeminiAI();
     void onShowHelp();
     void onShowDeveloperHelp();
@@ -235,6 +234,7 @@ private:
     bool editDirectiveWithGenericDialog(const QString& currentCommand, SchematicSpiceDirectiveItem* directiveItem);
     void beginMouseFollowPlacement(const QList<SchematicItem*>& items, const QString& actionLabel);
     void endMouseFollowPlacement(bool cancel);
+    void ensureGeminiPanelInitialized();
 
     // UI Components
     QTabWidget *m_workspaceTabs;
@@ -275,9 +275,8 @@ private:
 
     QDockWidget *m_geminiDock;
     class GeminiPanel* m_geminiPanel = nullptr;
+    bool m_allowGeminiDockInit = false;
 
-    QDockWidget *m_scriptDock;
-    Flux::ScriptPanel *m_scriptPanel;
     class LogicEditorPanel *m_logicEditorPanel;
 
     QDockWidget *m_sourceControlDock;

@@ -67,8 +67,21 @@ void FluxScriptManager::runScript(const QString& scriptName, const QStringList& 
 }
 
 QString FluxScriptManager::getScriptsDir() {
-    // Look for scripts in the parent directory of the app, or in /usr/share/vioraeda/flux/scripts
-    return QCoreApplication::applicationDirPath() + "/../fluxscript/scripts";
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList candidates = {
+        QDir(appDir).absoluteFilePath("../python/scripts"),
+        QDir(appDir).absoluteFilePath("python/scripts"),
+        QDir::current().absoluteFilePath("python/scripts"),
+        QDir(appDir).absoluteFilePath("../fluxscript/scripts")
+    };
+
+    for (const QString& candidate : candidates) {
+        if (QFile::exists(QDir(candidate).absoluteFilePath("gemini_query.py"))) {
+            return candidate;
+        }
+    }
+
+    return QDir::current().absoluteFilePath("python/scripts");
 }
 
 QString FluxScriptManager::getFluxExecutable() {

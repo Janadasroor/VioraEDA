@@ -86,3 +86,4 @@ tests/DATA/*
 tests/docs/*
 viospicelib/*
 .log
+.qtcreator/project.json

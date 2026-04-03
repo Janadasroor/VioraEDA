@@ -80,6 +80,7 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 
 SchematicEditor::SchematicEditor(QWidget *parent)
     : QMainWindow(parent),
+      m_workspaceTabs(nullptr),
       m_scene(nullptr),
       m_view(nullptr),
       m_netManager(nullptr),
@@ -93,31 +94,47 @@ SchematicEditor::SchematicEditor(QWidget *parent)
       m_projectExplorer(nullptr),
       m_libraryList(nullptr),
       m_ercDock(nullptr),
+      m_ercPanel(nullptr),
       m_ercList(nullptr),
       m_simulationPanel(nullptr),
+      m_toggleHeatmapAction(nullptr),
       m_geminiDock(nullptr),
       m_geminiPanel(nullptr),
-      m_scriptDock(nullptr),
-      m_scriptPanel(nullptr),
       m_logicEditorPanel(nullptr),
+      m_sourceControlDock(nullptr),
+      m_sourceControlPanel(nullptr),
+      m_oscilloscopeDock(nullptr),
       m_breadcrumbWidget(nullptr),
+      m_propertyBar(nullptr),
       m_runSimMenuAction(nullptr),
       m_stopSimMenuAction(nullptr),
       m_runSimToolbarAction(nullptr),
+      m_pauseSimToolbarAction(nullptr),
+      m_stopSimToolbarAction(nullptr),
+      m_showDetailedLogAction(nullptr),
+      m_simControlSubGroup(nullptr),
       m_coordLabel(nullptr),
       m_gridLabel(nullptr),
       m_layerLabel(nullptr),
+      m_netLabel(nullptr),
+      m_remoteLabel(nullptr),
       m_isModified(false),
       m_simulationRunning(false),
+      m_simPaused(false),
       m_showVoltageOverlays(true),
       m_showCurrentOverlays(true),
+      m_mouseFollowPlacementActive(false),
+      m_isSaving(false),
       m_undoStack(new QUndoStack(this)),
       m_api(new SchematicAPI(nullptr, m_undoStack, this)),
       m_updatingProperties(false),
       m_hierarchyDock(nullptr),
+      m_hierarchyPanel(nullptr),
       m_hierarchyTree(nullptr),
       m_ercRules(SchematicERCRules::defaultRules()),
-      m_quickOpenDialog(nullptr)
+      m_quickOpenDialog(nullptr),
+      m_miniMap(nullptr),
+      m_toggleMiniMapAction(nullptr)
 {
     setWindowTitle("viospice - Schematic Editor");
     setMinimumSize(640, 480);
@@ -193,6 +210,13 @@ SchematicEditor::SchematicEditor(QWidget *parent)
         tabifyDockWidget(m_ercDock, m_sourceControlDock);
         m_sourceControlDock->raise();
     }
+
+    // Never auto-open the Gemini dock from restored window state. The panel is
+    // expensive and currently unsafe to initialize during editor startup.
+    if (m_geminiDock) {
+        m_geminiDock->hide();
+    }
+    m_allowGeminiDockInit = true;
     
     // Theme and grid
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, &SchematicEditor::applyTheme);
@@ -1544,13 +1568,11 @@ void SchematicEditor::onToggleLeftSidebar() {
     if (m_componentDock && m_componentDock->isVisible()) visible = true;
     else if (m_projectExplorerDock && m_projectExplorerDock->isVisible()) visible = true;
     else if (m_geminiDock && m_geminiDock->isVisible()) visible = true;
-    else if (m_scriptDock && m_scriptDock->isVisible()) visible = true;
     else if (m_hierarchyDock && m_hierarchyDock->isVisible()) visible = true;
 
     if (m_componentDock) m_componentDock->setVisible(!visible);
     if (m_projectExplorerDock) m_projectExplorerDock->setVisible(!visible);
     if (m_geminiDock) m_geminiDock->setVisible(!visible);
-    if (m_scriptDock) m_scriptDock->setVisible(!visible);
     if (m_hierarchyDock) m_hierarchyDock->setVisible(!visible);
     ConfigManager::instance().saveWindowState("SchematicEditor", saveGeometry(), saveState());
 }

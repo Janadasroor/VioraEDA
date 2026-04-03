@@ -1101,6 +1101,99 @@ void SchematicEditor::createToolBar() {
     });
 }
 
+void SchematicEditor::ensureGeminiPanelInitialized() {
+    if (m_geminiPanel || !m_geminiDock) {
+        return;
+    }
+
+    auto* geminiScroll = qobject_cast<QScrollArea*>(m_geminiDock->widget());
+    if (!geminiScroll) {
+        return;
+    }
+
+    if (QWidget* oldWidget = geminiScroll->takeWidget()) {
+        oldWidget->deleteLater();
+    }
+
+    m_geminiPanel = new GeminiPanel(m_scene, this);
+    for (int i = 0; i < m_workspaceTabs->count(); ++i) {
+        if (auto* v = qobject_cast<SchematicView*>(m_workspaceTabs->widget(i))) {
+            v->setGeminiPanel(m_geminiPanel);
+        }
+    }
+
+    m_geminiPanel->setNetManager(m_netManager);
+    m_geminiPanel->setUndoStack(m_undoStack);
+
+    connect(m_geminiPanel, &GeminiPanel::runSimulationRequested, this, &SchematicEditor::onRunSimulation);
+    connect(m_geminiPanel, &GeminiPanel::runERCRequested, this, &SchematicEditor::onRunERC);
+    connect(m_geminiPanel, &GeminiPanel::importSubcircuitRequested, this, &SchematicEditor::onImportSpiceSubcircuitFile);
+    connect(m_geminiPanel, &GeminiPanel::checkpointRequested, this, &SchematicEditor::onCheckpointRequested);
+    connect(m_geminiPanel, &GeminiPanel::rewindRequested, this, &SchematicEditor::onRewindRequested);
+    connect(m_geminiPanel, &GeminiPanel::togglePanelRequested, this, [this](const QString& pName) {
+        QString n = pName.toLower();
+        if (n.contains("left")) onToggleLeftSidebar();
+        else if (n.contains("right") || n.contains("ai")) onToggleRightSidebar();
+        else if (n.contains("bottom") || n.contains("result") || n.contains("sim")) onToggleBottomPanel();
+    });
+    connect(m_geminiPanel, &GeminiPanel::itemsHighlighted, this, &SchematicEditor::onItemsHighlighted);
+    connect(m_geminiPanel, &GeminiPanel::snippetGenerated, this, [this](const QString& jsonSnippet) {
+        QPointF pos;
+        if (m_view) {
+            pos = m_view->mapToScene(m_view->viewport()->rect().center());
+        }
+        onSnippetGenerated(jsonSnippet, pos);
+    });
+    connect(m_geminiPanel, &GeminiPanel::netlistGenerated, this, [this](const QString& netlist) {
+        if (!m_scene) return;
+        QTemporaryFile tempFile;
+        if (tempFile.open()) {
+            QTextStream out(&tempFile);
+            out << netlist;
+            tempFile.close();
+
+            m_scene->clear();
+            NetlistToSchematic::convertToScene(tempFile.fileName(), m_scene);
+
+            if (m_netManager) {
+                m_netManager->updateNets(m_scene);
+            }
+            if (m_view) {
+                m_scene->setSceneRect(m_scene->itemsBoundingRect().marginsAdded(QMarginsF(50, 50, 50, 50)));
+                m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
+            }
+            statusBar()->showMessage("AI Schematic generated successfully!", 5000);
+        }
+    });
+
+    m_geminiPanel->setContextProvider([this]() {
+        QJsonObject ctx = SchematicFileIO::serializeSceneToJson(m_scene);
+
+        QJsonArray ercArray;
+        for (const auto& v : getErcViolations()) {
+            QJsonObject vObj;
+            vObj["severity"] = v.severity == ERCViolation::Critical ? "Critical" : (v.severity == ERCViolation::Error ? "Error" : "Warning");
+            vObj["message"] = v.message;
+            if (v.item) vObj["item"] = v.item->reference();
+            if (!v.netName.isEmpty()) vObj["net"] = v.netName;
+            ercArray.append(vObj);
+        }
+        ctx["erc_violations"] = ercArray;
+
+        QJsonArray symbolsArray;
+        for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) {
+            for (const QString& sym : lib->symbolNames()) {
+                symbolsArray.append(sym);
+            }
+        }
+        ctx["available_symbols"] = symbolsArray;
+
+        return QString::fromUtf8(QJsonDocument(ctx).toJson(QJsonDocument::Compact));
+    });
+
+    geminiScroll->setWidget(m_geminiPanel);
+}
+
 void SchematicEditor::createDockWidgets() {
     // Configure Dock Corners so bottom dock doesn't stretch across the entire width
     setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
@@ -1110,9 +1203,9 @@ void SchematicEditor::createDockWidgets() {
     m_componentDock = new QDockWidget("Components", this);
     m_componentDock->setObjectName("ComponentDock");
     m_componentDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
-    
+
     m_componentsPanel = new SchematicComponentsWidget(this);
-    
+
     connect(m_componentsPanel, &SchematicComponentsWidget::toolSelected, [this](const QString& toolName) {
         if (!toolName.isEmpty()) {
             m_view->setCurrentTool(toolName);
@@ -1233,99 +1326,28 @@ void SchematicEditor::createDockWidgets() {
     m_geminiDock = new QDockWidget("viospice AI Co-Pilot", this);
     m_geminiDock->setObjectName("GeminiDock");
     m_geminiDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
-    m_geminiPanel = new GeminiPanel(m_scene, this);
-    for (int i = 0; i < m_workspaceTabs->count(); ++i) {
-        if (auto* v = qobject_cast<SchematicView*>(m_workspaceTabs->widget(i))) {
-            v->setGeminiPanel(m_geminiPanel);
-        }
-    }
-    m_geminiPanel->setNetManager(m_netManager);
-    m_geminiPanel->setUndoStack(m_undoStack);
-    connect(m_geminiPanel, &GeminiPanel::runSimulationRequested, this, &SchematicEditor::onRunSimulation);
-    connect(m_geminiPanel, &GeminiPanel::runERCRequested, this, &SchematicEditor::onRunERC);
-    connect(m_geminiPanel, &GeminiPanel::importSubcircuitRequested, this, &SchematicEditor::onImportSpiceSubcircuitFile);
-    connect(m_geminiPanel, &GeminiPanel::checkpointRequested, this, &SchematicEditor::onCheckpointRequested);
-    connect(m_geminiPanel, &GeminiPanel::rewindRequested, this, &SchematicEditor::onRewindRequested);
-    connect(m_geminiPanel, &GeminiPanel::togglePanelRequested, this, [this](const QString& pName) {
-        QString n = pName.toLower();
-        if (n.contains("left")) onToggleLeftSidebar();
-        else if (n.contains("right") || n.contains("ai")) onToggleRightSidebar();
-        else if (n.contains("bottom") || n.contains("result") || n.contains("sim")) onToggleBottomPanel();
-    });
-    connect(m_geminiPanel, &GeminiPanel::itemsHighlighted, this, &SchematicEditor::onItemsHighlighted);
-    connect(m_geminiPanel, &GeminiPanel::snippetGenerated, this, [this](const QString& jsonSnippet) {
-        QPointF pos;
-        if (m_view) {
-            pos = m_view->mapToScene(m_view->viewport()->rect().center());
-        }
-        onSnippetGenerated(jsonSnippet, pos);
-    });
-    connect(m_geminiPanel, &GeminiPanel::netlistGenerated, this, [this](const QString& netlist) {
-        if (!m_scene) return;
-        QTemporaryFile tempFile;
-        if (tempFile.open()) {
-            QTextStream out(&tempFile);
-            out << netlist;
-            tempFile.close();
-            
-            // Generate onto canvas
-            // We may want to clear existing schematic items before replacing? Yes, let's clear the scene for a fresh generated circuit.
-            m_scene->clear(); 
-            // the above clear will unfortunately wipe grid/bg items if not careful. 
-            // In viospice, SchematicEditor has `m_undoStack`, we probably should just let NetlistToSchematic place items, 
-            // but the user's prompt was "make a boost converter circuit". If there are already things, they will overlap.
-            // Let's just place them and let the user delete old things if they want.
-            NetlistToSchematic::convertToScene(tempFile.fileName(), m_scene);
-            
-            if (m_netManager) {
-                m_netManager->updateNets(m_scene);
-            }
-            if (m_view) {
-                // Ensure everything is sized right
-                m_scene->setSceneRect(m_scene->itemsBoundingRect().marginsAdded(QMarginsF(50, 50, 50, 50)));
-                m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
-            }
-            statusBar()->showMessage("AI Schematic generated successfully!", 5000);
-        }
-    });
-    
-    m_geminiPanel->setContextProvider([this]() {
-        QJsonObject ctx = SchematicFileIO::serializeSceneToJson(m_scene);
-        
-        // Add ERC Violations to context
-        QJsonArray ercArray;
-        for (const auto& v : getErcViolations()) {
-            QJsonObject vObj;
-            vObj["severity"] = v.severity == ERCViolation::Critical ? "Critical" : (v.severity == ERCViolation::Error ? "Error" : "Warning");
-            vObj["message"] = v.message;
-            if (v.item) vObj["item"] = v.item->reference();
-            if (!v.netName.isEmpty()) vObj["net"] = v.netName;
-            ercArray.append(vObj);
-        }
-        ctx["erc_violations"] = ercArray;
-
-        // Add Available Symbols to context
-        QJsonArray symbolsArray;
-        for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) {
-            for (const QString& sym : lib->symbolNames()) {
-                symbolsArray.append(sym);
-            }
-        }
-        ctx["available_symbols"] = symbolsArray;
-
-        return QString::fromUtf8(QJsonDocument(ctx).toJson(QJsonDocument::Compact));
-    });
-    
     QScrollArea* geminiScroll = new QScrollArea(this);
-    geminiScroll->setWidget(m_geminiPanel);
     geminiScroll->setWidgetResizable(true);
     geminiScroll->setFrameShape(QFrame::NoFrame);
     geminiScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     if (ThemeManager::theme()) {
         geminiScroll->setStyleSheet(QString("QScrollArea { background-color: %1; border: none; }").arg(ThemeManager::theme()->panelBackground().name()));
     }
+    auto* geminiPlaceholder = new QLabel("AI panel will initialize when opened.", geminiScroll);
+    geminiPlaceholder->setAlignment(Qt::AlignCenter);
+    geminiPlaceholder->setWordWrap(true);
+    if (ThemeManager::theme()) {
+        geminiPlaceholder->setStyleSheet(QString("color: %1; padding: 24px;")
+            .arg(ThemeManager::theme()->textSecondary().name()));
+    }
+    geminiScroll->setWidget(geminiPlaceholder);
     m_geminiDock->setWidget(geminiScroll);
     addDockWidget(Qt::LeftDockWidgetArea, m_geminiDock);
+    connect(m_geminiDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+        if (visible && m_allowGeminiDockInit) {
+            ensureGeminiPanelInitialized();
+        }
+    });
 
     // Tabify docks so they don't crush each other
     tabifyDockWidget(m_componentDock, m_geminiDock);
@@ -1457,31 +1479,6 @@ void SchematicEditor::createDockWidgets() {
     connect(hierCollapseBtn, &QToolButton::clicked, m_hierarchyTree, &QTreeWidget::collapseAll);
 
     // === Simulation Window ===
-
-    connect(m_geminiPanel, &GeminiPanel::fluxScriptGenerated, this, [this](const QString& code) {
-        if (m_scriptPanel) {
-            m_scriptPanel->setScript(code);
-            onOpenFluxScript(); // Show the script dock
-            statusBar()->showMessage("AI generated FluxScript is ready in the editor!", 5000);
-        }
-    }, Qt::QueuedConnection);
-
-    // === FluxScript Dock ===
-    m_scriptDock = new QDockWidget("FluxScript Editor", this);
-    m_scriptDock->setObjectName("FluxScriptDock");
-    m_scriptPanel = new Flux::ScriptPanel(m_scene, m_netManager, this);
-    
-    QScrollArea* scriptScroll = new QScrollArea(this);
-    scriptScroll->setWidget(m_scriptPanel);
-    scriptScroll->setWidgetResizable(true);
-    scriptScroll->setFrameShape(QFrame::NoFrame);
-    if (ThemeManager::theme()) {
-        scriptScroll->setStyleSheet(QString("QScrollArea { background-color: %1; border: none; }").arg(ThemeManager::theme()->panelBackground().name()));
-    }
-    
-    m_scriptDock->setWidget(scriptScroll);
-    addDockWidget(Qt::LeftDockWidgetArea, m_scriptDock);
-    m_scriptDock->hide();
     m_componentDock->raise(); // Show components by default
 
     // === Source Control Dock ===
@@ -1507,7 +1504,6 @@ void SchematicEditor::createDockWidgets() {
     // Stack the left docks
     tabifyDockWidget(m_componentDock, m_hierarchyDock);
     tabifyDockWidget(m_hierarchyDock, m_geminiDock);
-    tabifyDockWidget(m_geminiDock, m_scriptDock);
     m_componentDock->raise();
 
     // === Oscilloscope Dock ===
@@ -2320,13 +2316,6 @@ void SchematicEditor::onPauseSimulation() {
     }
 
     SimManager::instance().pauseSimulation(!m_simPaused);
-}
-
-void SchematicEditor::onOpenFluxScript() {
-    if (m_scriptDock) {
-        m_scriptDock->show();
-        m_scriptDock->raise();
-    }
 }
 
 void SchematicEditor::updateBreadcrumbs() {
