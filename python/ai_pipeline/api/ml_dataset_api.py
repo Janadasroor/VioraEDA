@@ -184,12 +184,58 @@ def _parse_spice_number(value: Optional[str]) -> Optional[float]:
     return float(text)
 
 
-def _format_generated_value(number: float, fmt: Optional[str], integer: bool = False) -> Any:
+def _format_spice_number(number: float, precision: int = 6) -> str:
+    if number == 0:
+        return "0"
+    sign = "-" if number < 0 else ""
+    abs_value = abs(number)
+    suffixes = [
+        (1e12, "t"),
+        (1e9, "g"),
+        (1e6, "meg"),
+        (1e3, "k"),
+        (1.0, ""),
+        (1e-3, "m"),
+        (1e-6, "u"),
+        (1e-9, "n"),
+        (1e-12, "p"),
+        (1e-15, "f"),
+    ]
+    chosen_scale = None
+    chosen_suffix = ""
+    for scale, suffix in suffixes:
+        scaled = abs_value / scale
+        if 1 <= scaled < 1000:
+            chosen_scale = scale
+            chosen_suffix = suffix
+            break
+    if chosen_scale is None:
+        chosen_scale = 1.0
+        chosen_suffix = ""
+    scaled = abs_value / chosen_scale
+    text = f"{scaled:.{precision}g}"
+    if "e" in text.lower():
+        text = f"{scaled:.{precision}f}".rstrip("0").rstrip(".")
+    return f"{sign}{text}{chosen_suffix}"
+
+
+def _format_generated_value(
+    number: float,
+    fmt: Optional[str],
+    integer: bool = False,
+    engineering_format: Optional[str] = None,
+    engineering_precision: int = 6,
+) -> Any:
     if integer:
         rounded = int(round(number))
         if fmt:
             return fmt.format(value=rounded)
         return rounded
+    if engineering_format:
+        mode = str(engineering_format).strip().lower()
+        if mode == "spice":
+            return _format_spice_number(number, precision=engineering_precision)
+        raise ValueError(f"Unsupported engineering_format: {engineering_format}")
     if fmt:
         return fmt.format(value=number)
     return number
@@ -205,6 +251,8 @@ def _expand_parameter_values(param: Dict[str, Any]) -> List[Any]:
 
     name = str(param.get("name") or "").strip()
     value_format = param.get("value_format")
+    engineering_format = param.get("engineering_format")
+    engineering_precision = int(param.get("engineering_precision", 6))
 
     if "linspace" in param:
         cfg = dict(param["linspace"] or {})
@@ -214,9 +262,17 @@ def _expand_parameter_values(param: Dict[str, Any]) -> List[Any]:
         if start is None or stop is None or count <= 0:
             raise ValueError(f"parameter '{name}' has invalid linspace config")
         if count == 1:
-            return [_format_generated_value(start, value_format)]
+            return [_format_generated_value(start, value_format, engineering_format=engineering_format, engineering_precision=engineering_precision)]
         step = (stop - start) / (count - 1)
-        return [_format_generated_value(start + step * index, value_format) for index in range(count)]
+        return [
+            _format_generated_value(
+                start + step * index,
+                value_format,
+                engineering_format=engineering_format,
+                engineering_precision=engineering_precision,
+            )
+            for index in range(count)
+        ]
 
     if "logspace" in param:
         cfg = dict(param["logspace"] or {})
@@ -226,12 +282,20 @@ def _expand_parameter_values(param: Dict[str, Any]) -> List[Any]:
         if start is None or stop is None or count <= 0 or start <= 0 or stop <= 0:
             raise ValueError(f"parameter '{name}' has invalid logspace config")
         if count == 1:
-            return [_format_generated_value(start, value_format)]
+            return [_format_generated_value(start, value_format, engineering_format=engineering_format, engineering_precision=engineering_precision)]
         log_start = math.log10(start)
         log_stop = math.log10(stop)
         step = (log_stop - log_start) / (count - 1)
         values = [10 ** (log_start + step * index) for index in range(count)]
-        return [_format_generated_value(value, value_format) for value in values]
+        return [
+            _format_generated_value(
+                value,
+                value_format,
+                engineering_format=engineering_format,
+                engineering_precision=engineering_precision,
+            )
+            for value in values
+        ]
 
     if "range" in param:
         cfg = dict(param["range"] or {})
