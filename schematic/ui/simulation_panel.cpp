@@ -769,8 +769,18 @@ void SimulationPanel::clearTransientNetTableOverlay(QGraphicsScene* scene) {
 }
 
 void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) {
-    if (!m_scene || !m_netManager || results.analysisType != SimAnalysisType::Transient) return;
-    if (!m_autoNetTableCheck || !m_autoNetTableCheck->isChecked()) return;
+    if (!m_scene || !m_netManager) {
+        qDebug() << "[NetTable] skipped: missing scene or net manager";
+        return;
+    }
+    if (results.analysisType != SimAnalysisType::Transient) {
+        qDebug() << "[NetTable] skipped: analysis is not transient";
+        return;
+    }
+    if (!m_autoNetTableCheck || !m_autoNetTableCheck->isChecked()) {
+        qDebug() << "[NetTable] skipped: checkbox disabled";
+        return;
+    }
 
     m_netManager->updateNets(m_scene);
 
@@ -789,6 +799,7 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
             displayNames.insert(normalizedName, netName);
         }
     }
+    qDebug() << "[NetTable] voltage wave count:" << voltageWaves.size();
 
     QStringList netNames = m_netManager->netNames();
     std::sort(netNames.begin(), netNames.end(), [](const QString& a, const QString& b) {
@@ -821,6 +832,7 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
     }
 
     if (rows.isEmpty()) {
+        qDebug() << "[NetTable] no direct net matches, using waveform fallback";
         QStringList fallbackNames = displayNames.keys();
         std::sort(fallbackNames.begin(), fallbackNames.end(), [](const QString& a, const QString& b) {
             return a.localeAwareCompare(b) < 0;
@@ -845,7 +857,11 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
         }
     }
 
-    if (rows.isEmpty()) return;
+    qDebug() << "[NetTable] generated rows:" << rows.size();
+    if (rows.isEmpty()) {
+        qDebug() << "[NetTable] no rows generated";
+        return;
+    }
 
     clearTransientNetTableOverlay(m_scene);
     for (const auto& row : rows) {
@@ -895,6 +911,7 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
 
     tableItem->setRows(rows);
     m_netTableItems[m_scene] = tableItem;
+    qDebug() << "[NetTable] placed at scene pos:" << tableItem->pos() << "bounds:" << tableItem->sceneBoundingRect();
 
     if (m_editor) {
         m_editor->showNormal();
