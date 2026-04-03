@@ -7,9 +7,11 @@
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QVBoxLayout>
 
 namespace {
@@ -17,6 +19,51 @@ QString kindLabel(PassiveModelPropertiesDialog::Kind kind) {
     if (kind == PassiveModelPropertiesDialog::Kind::Resistor) return "Resistor";
     if (kind == PassiveModelPropertiesDialog::Kind::Capacitor) return "Capacitor";
     return "Inductor";
+}
+
+struct InductorValueParts {
+    QString inductance;
+    QString rser;
+    QString rpar;
+    QString cpar;
+    QString ic;
+};
+
+InductorValueParts parseInductorValue(const QString& rawValue) {
+    InductorValueParts parts;
+    QString text = rawValue.trimmed();
+    if (text.isEmpty()) {
+        parts.inductance = "10u";
+        parts.rser = "50m";
+        parts.rpar = "100Meg";
+        parts.cpar = "1p";
+        parts.ic = "0";
+        return parts;
+    }
+
+    const QStringList tokens = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    if (!tokens.isEmpty()) {
+        parts.inductance = tokens.first();
+    }
+
+    auto extract = [&](const QString& key, QString* out) {
+        static const QString patternTemplate = "\\b%1\\s*=\\s*([^\\s]+)";
+        const QRegularExpression re(patternTemplate.arg(QRegularExpression::escape(key)), QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch match = re.match(text);
+        if (match.hasMatch()) *out = match.captured(1).trimmed();
+    };
+
+    extract("Rser", &parts.rser);
+    extract("Rpar", &parts.rpar);
+    extract("Cpar", &parts.cpar);
+    extract("ic", &parts.ic);
+
+    if (parts.inductance.isEmpty()) parts.inductance = "10u";
+    if (parts.rser.isEmpty()) parts.rser = "50m";
+    if (parts.rpar.isEmpty()) parts.rpar = "100Meg";
+    if (parts.cpar.isEmpty()) parts.cpar = "1p";
+    if (parts.ic.isEmpty()) parts.ic = "0";
+    return parts;
 }
 }
 
@@ -33,13 +80,16 @@ PassiveModelPropertiesDialog::PassiveModelPropertiesDialog(SchematicItem* item, 
     m_referenceEdit = new QLineEdit(item ? item->reference() : QString());
     form->addRow("Reference:", m_referenceEdit);
 
-    m_valueEdit = new QLineEdit(item ? item->value() : QString());
+    const QString itemValue = item ? item->value() : QString();
+    const InductorValueParts inductorParts = parseInductorValue(itemValue);
+
+    m_valueEdit = new QLineEdit(kind == Kind::Inductor ? inductorParts.inductance : itemValue);
     if (kind == Kind::Resistor) {
         m_valueEdit->setPlaceholderText("e.g. 10k");
     } else if (kind == Kind::Capacitor) {
         m_valueEdit->setPlaceholderText("e.g. 100n");
     } else {
-    m_valueEdit->setPlaceholderText("e.g. 10u");
+        m_valueEdit->setPlaceholderText("e.g. 10u");
     }
     form->addRow("Value:", m_valueEdit);
 
@@ -67,6 +117,30 @@ PassiveModelPropertiesDialog::PassiveModelPropertiesDialog(SchematicItem* item, 
     form->addRow("", m_excludePcbCheck);
 
     mainLayout->addLayout(form);
+
+    if (kind == Kind::Inductor) {
+        m_inductorModelGroup = new QGroupBox("Inductor Model Defaults", this);
+        auto* inductorLayout = new QFormLayout(m_inductorModelGroup);
+        inductorLayout->setLabelAlignment(Qt::AlignRight);
+
+        m_seriesResistanceEdit = new QLineEdit(inductorParts.rser, m_inductorModelGroup);
+        m_seriesResistanceEdit->setPlaceholderText("e.g. 50m");
+        inductorLayout->addRow("Series Resistance:", m_seriesResistanceEdit);
+
+        m_parallelResistanceEdit = new QLineEdit(inductorParts.rpar, m_inductorModelGroup);
+        m_parallelResistanceEdit->setPlaceholderText("e.g. 100Meg");
+        inductorLayout->addRow("Parallel Resistance:", m_parallelResistanceEdit);
+
+        m_parallelCapacitanceEdit = new QLineEdit(inductorParts.cpar, m_inductorModelGroup);
+        m_parallelCapacitanceEdit->setPlaceholderText("e.g. 1p");
+        inductorLayout->addRow("Parallel Capacitance:", m_parallelCapacitanceEdit);
+
+        m_initialCurrentEdit = new QLineEdit(inductorParts.ic, m_inductorModelGroup);
+        m_initialCurrentEdit->setPlaceholderText("e.g. 0");
+        inductorLayout->addRow("Initial Current:", m_initialCurrentEdit);
+
+        mainLayout->addWidget(m_inductorModelGroup);
+    }
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -106,7 +180,25 @@ QString PassiveModelPropertiesDialog::reference() const {
 }
 
 QString PassiveModelPropertiesDialog::valueText() const {
-    return m_valueEdit ? m_valueEdit->text().trimmed() : QString();
+    if (!m_valueEdit) return QString();
+
+    const QString baseValue = m_valueEdit->text().trimmed();
+    if (m_kind != Kind::Inductor) return baseValue;
+
+    QStringList tokens;
+    if (!baseValue.isEmpty()) tokens << baseValue;
+
+    const auto appendParam = [&](const char* key, QLineEdit* edit) {
+        if (!edit) return;
+        const QString value = edit->text().trimmed();
+        if (!value.isEmpty()) tokens << QString("%1=%2").arg(QString::fromLatin1(key), value);
+    };
+
+    appendParam("Rser", m_seriesResistanceEdit);
+    appendParam("Rpar", m_parallelResistanceEdit);
+    appendParam("Cpar", m_parallelCapacitanceEdit);
+    appendParam("ic", m_initialCurrentEdit);
+    return tokens.join(' ');
 }
 
 QString PassiveModelPropertiesDialog::spiceModel() const {

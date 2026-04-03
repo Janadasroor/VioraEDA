@@ -68,13 +68,24 @@ class SimulationDatasetServiceTest(unittest.TestCase):
                 "measures": ["avg V(out)"],
                 "labels": {"target_gain": 12.0},
                 "tags": {"family": "amplifier"},
-                "metadata": {"split": "train"},
+                "metadata": {"split": "train", "sweep_values": {"vin_dc": "5.0"}},
                 "stop": "10m",
                 "step": "10u",
                 "max_points": 512,
                 "base_signal": "V(out)",
                 "range": "0:1m",
                 "compat": True,
+                "derived_labels": [
+                    {"name": "avg_out_copy", "expression": {"measure": "avg V(out)"}},
+                    {
+                        "name": "gain_ratio",
+                        "expression": {
+                            "op": "div",
+                            "left": {"measure": "avg V(out)"},
+                            "right": {"param": "vin_dc"},
+                        },
+                    },
+                ],
             }
         )
         self.assertTrue(result["ok"])
@@ -85,6 +96,8 @@ class SimulationDatasetServiceTest(unittest.TestCase):
         self.assertEqual(len(result["artifacts"]["waveforms"][0]["x"]), 1)
         self.assertEqual(result["artifacts"]["stats"][0]["avg"], 1.0)
         self.assertEqual(result["artifacts"]["measures"][0]["expr"], "avg V(out)")
+        self.assertEqual(result["labels"]["avg_out_copy"], 1.0)
+        self.assertAlmostEqual(result["labels"]["gain_ratio"], 0.2)
 
     def test_run_batch_writes_jsonl(self):
         output_path = Path(self.temp_dir.name) / "dataset.jsonl"
@@ -279,6 +292,125 @@ class SimulationDatasetServiceTest(unittest.TestCase):
             }
         )
         self.assertEqual(values, ["1k", "2k", "3k"])
+
+    def test_expand_sweep_jobs_filters_invalid_combinations_with_constraints(self):
+        expanded = self.service.expand_sweep_jobs(
+            template_schematic_path=str(self.schematic_path),
+            job_template={"analysis": "tran"},
+            parameters=[
+                {
+                    "name": "r1_value",
+                    "target": {"reference": "R1", "field": "value"},
+                    "values": ["1k", "2k", "3k"],
+                },
+                {
+                    "name": "vin_dc",
+                    "target": {"reference": "V1", "field": "dcVoltage"},
+                    "values": ["1.8", "3.3", "5.0"],
+                },
+            ],
+            constraints=[
+                {"param": "vin_dc", "op": "<=", "value": "3.3"},
+                {"param": "r1_value", "op": "!=", "value": "2k"},
+            ],
+        )
+        self.assertEqual(expanded["constraints"]["rule_count"], 2)
+        self.assertEqual(expanded["constraints"]["filtered_count"], 5)
+        self.assertEqual(expanded["job_count"], 4)
+        remaining = [manifest["sweep_values"] for manifest in expanded["manifests"]]
+        self.assertTrue(all(item["vin_dc"] in {"1.8", "3.3"} for item in remaining))
+        self.assertTrue(all(item["r1_value"] in {"1k", "3k"} for item in remaining))
+
+    def test_expand_sweep_jobs_supports_param_to_param_constraint(self):
+        expanded = self.service.expand_sweep_jobs(
+            template_schematic_path=str(self.schematic_path),
+            job_template={"analysis": "tran"},
+            parameters=[
+                {"name": "r1_value", "target": {"reference": "R1", "field": "value"}, "values": ["1k", "2k", "3k"]},
+                {"name": "r2_value", "target": {"reference": "R2", "field": "value"}, "values": ["1k", "2k", "3k"]},
+            ],
+            constraints=[
+                {"param": "r2_value", "op": ">", "other_param": "r1_value"},
+            ],
+        )
+        remaining = [manifest["sweep_values"] for manifest in expanded["manifests"]]
+        self.assertEqual(expanded["job_count"], 3)
+        self.assertEqual(
+            remaining,
+            [
+                {"r1_value": "1k", "r2_value": "2k"},
+                {"r1_value": "1k", "r2_value": "3k"},
+                {"r1_value": "2k", "r2_value": "3k"},
+            ],
+        )
+
+    def test_run_sweep_applies_constraints_before_sampling(self):
+        output_path = Path(self.temp_dir.name) / "constrained_sweep.jsonl"
+        result = self.service.run_sweep(
+            {
+                "template_schematic_path": str(self.schematic_path),
+                "job_template": {"analysis": "tran", "signals": ["V(out)"]},
+                "parameters": [
+                    {"name": "r1_value", "target": {"reference": "R1", "field": "value"}, "values": ["1k", "2k", "3k"]},
+                    {"name": "vin_dc", "target": {"reference": "V1", "field": "dcVoltage"}, "values": ["1.8", "3.3", "5.0"]},
+                ],
+                "constraints": [
+                    {"param": "vin_dc", "op": "<", "value": "5.0"},
+                ],
+                "sampling": {"mode": "random", "sample_count": 4, "seed": 11},
+                "output_path": str(output_path),
+                "concurrency": 2,
+            }
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["constraints"]["filtered_count"], 3)
+        records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").strip().splitlines()]
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(record["metadata"]["sweep_values"]["vin_dc"] in {"1.8", "3.3"} for record in records))
+
+    def test_run_sweep_computes_derived_labels_from_params_and_measures(self):
+        output_path = Path(self.temp_dir.name) / "derived_labels.jsonl"
+        result = self.service.run_sweep(
+            {
+                "template_schematic_path": str(self.schematic_path),
+                "job_template": {
+                    "analysis": "tran",
+                    "signals": ["V(out)"],
+                    "measures": ["max V(out)"],
+                    "derived_labels": [
+                        {
+                            "name": "gain_ratio",
+                            "expression": {
+                                "op": "div",
+                                "left": {"measure": "max V(out)"},
+                                "right": {"param": "vin_dc"},
+                            },
+                        },
+                        {
+                            "name": "doubled_gain",
+                            "expression": {
+                                "op": "mul",
+                                "left": {"label": "gain_ratio"},
+                                "right": {"value": 2},
+                            },
+                        },
+                    ],
+                },
+                "parameters": [
+                    {"name": "vin_dc", "target": {"reference": "V1", "field": "dcVoltage"}, "values": ["2.0", "4.0"]},
+                ],
+                "output_path": str(output_path),
+                "concurrency": 2,
+            }
+        )
+        self.assertTrue(result["ok"])
+        records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").strip().splitlines()]
+        gains = {record["metadata"]["sweep_values"]["vin_dc"]: record["labels"]["gain_ratio"] for record in records}
+        doubled = {record["metadata"]["sweep_values"]["vin_dc"]: record["labels"]["doubled_gain"] for record in records}
+        self.assertEqual(gains["2.0"], 2.0)
+        self.assertEqual(gains["4.0"], 1.0)
+        self.assertEqual(doubled["2.0"], 4.0)
+        self.assertEqual(doubled["4.0"], 2.0)
 
 
 if __name__ == "__main__":

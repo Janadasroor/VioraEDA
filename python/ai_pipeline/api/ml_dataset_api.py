@@ -569,6 +569,235 @@ def _apply_target_value(document: Dict[str, Any], target: Dict[str, Any], value:
     return {"selector": selector, "field": field, "applied_value": rendered_value, "match_count": len(matches)}
 
 
+def _coerce_constraint_operand(operand: Any, sweep_values: Dict[str, Any]) -> Any:
+    if isinstance(operand, dict):
+        if "param" in operand:
+            param_name = str(operand["param"])
+            if param_name not in sweep_values:
+                raise ValueError(f"constraint references unknown parameter '{param_name}'")
+            return sweep_values[param_name]
+        if "value" in operand:
+            return operand["value"]
+        raise ValueError("constraint operand object must contain 'param' or 'value'")
+    return operand
+
+
+def _to_comparable_value(value: Any) -> Any:
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        parsed = _parse_spice_number(value)
+        if parsed is not None:
+            return parsed
+        return value
+    return value
+
+
+def _evaluate_constraint_rule(rule: Dict[str, Any], sweep_values: Dict[str, Any]) -> bool:
+    op = str(rule.get("op") or "").strip().lower()
+    left = _to_comparable_value(_coerce_constraint_operand(rule.get("left"), sweep_values))
+    right = _to_comparable_value(_coerce_constraint_operand(rule.get("right"), sweep_values))
+    if op in ("==", "eq"):
+        return left == right
+    if op in ("!=", "ne"):
+        return left != right
+    if op in (">", "gt"):
+        return left > right
+    if op in ("<", "lt"):
+        return left < right
+    if op in (">=", "ge"):
+        return left >= right
+    if op in ("<=", "le"):
+        return left <= right
+    if op == "in":
+        return left in right
+    if op == "not_in":
+        return left not in right
+    raise ValueError(f"Unsupported constraint operator: {op}")
+
+
+def _normalize_constraint_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(rule, dict):
+        raise ValueError("each constraint must be an object")
+    if "left" in rule and "right" in rule and "op" in rule:
+        return dict(rule)
+    if "param" in rule and "op" in rule and "value" in rule:
+        return {"left": {"param": rule["param"]}, "op": rule["op"], "right": {"value": rule["value"]}}
+    if "param" in rule and "op" in rule and "other_param" in rule:
+        return {"left": {"param": rule["param"]}, "op": rule["op"], "right": {"param": rule["other_param"]}}
+    raise ValueError("constraint must define either left/op/right or param/op/value|other_param")
+
+
+def _filter_combos_by_constraints(
+    normalized_params: List[Dict[str, Any]],
+    combos: List[tuple],
+    constraints: Optional[List[Dict[str, Any]]],
+) -> tuple[List[tuple], Dict[str, Any]]:
+    rules = [_normalize_constraint_rule(rule) for rule in list(constraints or [])]
+    if not rules:
+        return list(combos), {"rule_count": 0, "kept_count": len(combos), "filtered_count": 0}
+
+    kept = []
+    filtered = 0
+    param_names = [param["name"] for param in normalized_params]
+    for combo in combos:
+        sweep_values = {name: value for name, value in zip(param_names, combo)}
+        if all(_evaluate_constraint_rule(rule, sweep_values) for rule in rules):
+            kept.append(combo)
+        else:
+            filtered += 1
+    return kept, {
+        "rule_count": len(rules),
+        "kept_count": len(kept),
+        "filtered_count": filtered,
+    }
+
+
+def _lookup_measure_value(measures: List[Dict[str, Any]], expr: str) -> Any:
+    for measure in measures:
+        if str(measure.get("expr", "")).strip() == str(expr).strip():
+            if "value" in measure:
+                return measure["value"]
+            raise ValueError(f"measure '{expr}' did not produce a value")
+    raise ValueError(f"measure '{expr}' not found")
+
+
+def _lookup_stat_value(stats: List[Dict[str, Any]], signal: str, field: str) -> Any:
+    for stat in stats:
+        if str(stat.get("name", "")).strip() == str(signal).strip():
+            if field in stat:
+                return stat[field]
+            raise ValueError(f"stat field '{field}' not found for signal '{signal}'")
+    raise ValueError(f"stats for signal '{signal}' not found")
+
+
+def _resolve_derived_operand(
+    operand: Any,
+    *,
+    labels: Dict[str, Any],
+    metadata: Dict[str, Any],
+    measures: List[Dict[str, Any]],
+    stats: List[Dict[str, Any]],
+) -> Any:
+    if isinstance(operand, dict):
+        if "value" in operand:
+            return operand["value"]
+        if "param" in operand:
+            params = metadata.get("sweep_values") or {}
+            key = str(operand["param"])
+            if key not in params:
+                raise ValueError(f"derived label references unknown param '{key}'")
+            return _to_comparable_value(params[key])
+        if "label" in operand:
+            key = str(operand["label"])
+            if key not in labels:
+                raise ValueError(f"derived label references unknown label '{key}'")
+            return _to_comparable_value(labels[key])
+        if "measure" in operand:
+            return _to_comparable_value(_lookup_measure_value(measures, str(operand["measure"])))
+        if "stat" in operand:
+            stat_cfg = dict(operand["stat"] or {})
+            signal = str(stat_cfg.get("signal") or "")
+            field = str(stat_cfg.get("field") or "")
+            if not signal or not field:
+                raise ValueError("derived stat operand requires signal and field")
+            return _to_comparable_value(_lookup_stat_value(stats, signal, field))
+    return _to_comparable_value(operand)
+
+
+def _evaluate_derived_expression(
+    expression: Any,
+    *,
+    labels: Dict[str, Any],
+    metadata: Dict[str, Any],
+    measures: List[Dict[str, Any]],
+    stats: List[Dict[str, Any]],
+) -> Any:
+    if not isinstance(expression, dict):
+        return _to_comparable_value(expression)
+
+    if any(key in expression for key in ("value", "param", "label", "measure", "stat")):
+        return _resolve_derived_operand(
+            expression,
+            labels=labels,
+            metadata=metadata,
+            measures=measures,
+            stats=stats,
+        )
+
+    op = str(expression.get("op") or "").strip().lower()
+    if not op:
+        raise ValueError("derived expression requires op")
+
+    if op == "abs":
+        value = _evaluate_derived_expression(
+            expression.get("value"),
+            labels=labels,
+            metadata=metadata,
+            measures=measures,
+            stats=stats,
+        )
+        return abs(value)
+
+    if op in {"add", "sub", "mul", "div", "pow", "min", "max"}:
+        left = _evaluate_derived_expression(
+            expression.get("left"),
+            labels=labels,
+            metadata=metadata,
+            measures=measures,
+            stats=stats,
+        )
+        right = _evaluate_derived_expression(
+            expression.get("right"),
+            labels=labels,
+            metadata=metadata,
+            measures=measures,
+            stats=stats,
+        )
+        if op == "add":
+            return left + right
+        if op == "sub":
+            return left - right
+        if op == "mul":
+            return left * right
+        if op == "div":
+            return left / right
+        if op == "pow":
+            return left ** right
+        if op == "min":
+            return min(left, right)
+        if op == "max":
+            return max(left, right)
+
+    raise ValueError(f"Unsupported derived expression op: {op}")
+
+
+def _apply_derived_labels(
+    derived_labels: List[Dict[str, Any]],
+    *,
+    labels: Dict[str, Any],
+    metadata: Dict[str, Any],
+    measures: List[Dict[str, Any]],
+    stats: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    computed = dict(labels)
+    for rule in derived_labels:
+        if not isinstance(rule, dict):
+            raise ValueError("each derived label must be an object")
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            raise ValueError("derived label requires a name")
+        value = _evaluate_derived_expression(
+            rule.get("expression"),
+            labels=computed,
+            metadata=metadata,
+            measures=measures,
+            stats=stats,
+        )
+        computed[name] = value
+    return computed
+
+
 def _select_combos(
     combos: List[tuple],
     sampling: Optional[Dict[str, Any]],
@@ -668,6 +897,7 @@ class SimulationDatasetService:
         normalized["labels"] = dict(normalized.get("labels") or {})
         normalized["tags"] = dict(normalized.get("tags") or {})
         normalized["metadata"] = dict(normalized.get("metadata") or {})
+        normalized["derived_labels"] = list(normalized.get("derived_labels") or [])
         normalized["timeout_seconds"] = normalized.get("timeout_seconds")
         normalized["max_points"] = normalized.get("max_points")
         normalized["base_signal"] = normalized.get("base_signal")
@@ -712,6 +942,13 @@ class SimulationDatasetService:
 
         stats = [_waveform_stats(waveform["name"], waveform["y"]) for waveform in processed_waveforms] if normalized["include_stats"] else []
         measures = [_compute_measure(expr, processed_waveforms) for expr in normalized["measures"]]
+        computed_labels = _apply_derived_labels(
+            normalized["derived_labels"],
+            labels=normalized["labels"],
+            metadata=normalized["metadata"],
+            measures=measures,
+            stats=stats,
+        )
 
         completed_at = time.time()
         return {
@@ -731,7 +968,7 @@ class SimulationDatasetService:
                 "base_signal": normalized["base_signal"],
                 "compat": normalized["compat"],
             },
-            "labels": normalized["labels"],
+            "labels": computed_labels,
             "tags": normalized["tags"],
             "metadata": normalized["metadata"],
             "artifacts": {
@@ -826,6 +1063,7 @@ class SimulationDatasetService:
         variant_dir: Optional[str] = None,
         sampling: Optional[Dict[str, Any]] = None,
         split_ratios: Optional[Dict[str, Any]] = None,
+        constraints: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         template_path = Path(template_schematic_path)
         if not template_path.exists():
@@ -859,7 +1097,8 @@ class SimulationDatasetService:
 
         job_template = dict(job_template or {})
         all_combos = list(product(*[param["values"] for param in normalized_params]))
-        selected_combos, sampling_summary = _select_combos(all_combos, sampling)
+        valid_combos, constraint_summary = _filter_combos_by_constraints(normalized_params, all_combos, constraints)
+        selected_combos, sampling_summary = _select_combos(valid_combos, sampling)
         split_names = _assign_split_names(
             len(selected_combos),
             split_ratios=split_ratios,
@@ -922,6 +1161,7 @@ class SimulationDatasetService:
             "template_schematic_path": str(template_path.resolve()),
             "variant_dir": str(variants_root.resolve()),
             "job_count": len(jobs),
+            "constraints": constraint_summary,
             "sampling": sampling_summary,
             "split_ratios": dict(split_ratios or {"train": 0.8, "val": 0.1, "test": 0.1}),
             "jobs": jobs,
@@ -936,6 +1176,7 @@ class SimulationDatasetService:
             variant_dir=request.get("variant_dir"),
             sampling=dict(request.get("sampling") or {}),
             split_ratios=dict(request.get("split_ratios") or {}),
+            constraints=list(request.get("constraints") or []),
         )
         batch_result = self.run_batch(
             jobs=expanded["jobs"],
@@ -950,6 +1191,7 @@ class SimulationDatasetService:
             "template_schematic_path": expanded["template_schematic_path"],
             "variant_dir": expanded["variant_dir"],
             "generated_job_count": expanded["job_count"],
+            "constraints": expanded["constraints"],
             "sampling": expanded["sampling"],
             "split_ratios": expanded["split_ratios"],
             "batch": batch_result,
