@@ -23,6 +23,10 @@ class FastApiMlDatasetApiTest(unittest.TestCase):
         self.assertIn("/api/ml/simulate", paths)
         self.assertIn("/api/ml/batch", paths)
         self.assertIn("/api/ml/sweep", paths)
+        self.assertIn("/api/ml/jobs/simulate", paths)
+        self.assertIn("/api/ml/jobs/batch", paths)
+        self.assertIn("/api/ml/jobs/sweep", paths)
+        self.assertIn("/api/ml/jobs/{job_id}", paths)
 
 
 if __name__ == "__main__":
