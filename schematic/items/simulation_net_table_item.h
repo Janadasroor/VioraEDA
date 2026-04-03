@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <QGraphicsObject>
+#include <QRectF>
 #include <QVector>
 
 class SimulationNetTableItem : public QGraphicsObject {
@@ -31,9 +32,12 @@ Q_SIGNALS:
 
 protected:
     void contextMenuEvent(QGraphicsSceneContextMenuEvent* event) override;
+    void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
 
 private:
     QRectF tableRect() const;
+    QRectF closeButtonRect() const;
+    void requestDelete();
 
     QVector<Row> m_rows;
     qreal m_width = 540.0;

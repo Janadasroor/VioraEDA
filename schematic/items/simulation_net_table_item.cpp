@@ -4,6 +4,7 @@
 #include <QClipboard>
 #include <QGraphicsScene>
 #include <QGraphicsSceneContextMenuEvent>
+#include <QGraphicsSceneMouseEvent>
 #include <QStyleOptionGraphicsItem>
 #include <QMenu>
 #include <QPainter>
@@ -31,6 +32,11 @@ QRectF SimulationNetTableItem::tableRect() const {
 
 QRectF SimulationNetTableItem::boundingRect() const {
     return tableRect().adjusted(-4, -4, 4, 4);
+}
+
+QRectF SimulationNetTableItem::closeButtonRect() const {
+    const QRectF rect = tableRect();
+    return QRectF(rect.right() - 28.0, rect.top() + 8.0, 20.0, 20.0);
 }
 
 void SimulationNetTableItem::setRows(const QVector<Row>& rows) {
@@ -61,9 +67,17 @@ void SimulationNetTableItem::paint(QPainter* painter, const QStyleOptionGraphics
     QFont titleFont("Inter", 10, QFont::Bold);
     painter->setFont(titleFont);
     painter->setPen(QColor("#e5eefb"));
-    painter->drawText(QRectF(m_padding, m_padding - 2.0, rect.width() - 2 * m_padding, 18.0),
+    painter->drawText(QRectF(m_padding, m_padding - 2.0, rect.width() - 2 * m_padding - 32.0, 18.0),
                       Qt::AlignLeft | Qt::AlignVCenter,
                       "Transient Net Voltage Summary");
+
+    const QRectF closeRect = closeButtonRect();
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QColor(127, 29, 29, 220));
+    painter->drawRoundedRect(closeRect, 5.0, 5.0);
+    painter->setPen(QPen(QColor("#fee2e2"), 1.5));
+    painter->drawLine(closeRect.left() + 5.0, closeRect.top() + 5.0, closeRect.right() - 5.0, closeRect.bottom() - 5.0);
+    painter->drawLine(closeRect.right() - 5.0, closeRect.top() + 5.0, closeRect.left() + 5.0, closeRect.bottom() - 5.0);
 
     QFont headerFont("Inter", 8, QFont::Bold);
     QFont rowFont("Inter", 8);
@@ -135,10 +149,23 @@ void SimulationNetTableItem::contextMenuEvent(QGraphicsSceneContextMenuEvent* ev
         }
         QApplication::clipboard()->setText(lines.join('\n'));
     } else if (chosen == deleteAction) {
-        Q_EMIT deleteRequested();
-        if (scene()) {
-            scene()->removeItem(this);
-        }
-        deleteLater();
+        requestDelete();
     }
+}
+
+void SimulationNetTableItem::mousePressEvent(QGraphicsSceneMouseEvent* event) {
+    if (closeButtonRect().contains(event->pos())) {
+        requestDelete();
+        event->accept();
+        return;
+    }
+    QGraphicsObject::mousePressEvent(event);
+}
+
+void SimulationNetTableItem::requestDelete() {
+    Q_EMIT deleteRequested();
+    if (scene()) {
+        scene()->removeItem(this);
+    }
+    deleteLater();
 }

@@ -899,7 +899,7 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
     if (!tableItem) {
         tableItem = new SimulationNetTableItem();
         const QRectF bounds = m_scene->itemsBoundingRect();
-        tableItem->setPos(bounds.isValid() ? bounds.topLeft() + QPointF(40.0, 40.0) : QPointF(40.0, 40.0));
+        tableItem->setPos(bounds.isValid() ? bounds.topRight() + QPointF(24.0, 8.0) : QPointF(40.0, 40.0));
         m_scene->addItem(tableItem);
         connect(tableItem, &SimulationNetTableItem::deleteRequested, this, [this, scene = m_scene]() {
             clearTransientNetTableOverlay(scene);
