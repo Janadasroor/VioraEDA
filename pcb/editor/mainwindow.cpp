@@ -12,6 +12,7 @@
 #include "../dialogs/board_setup_dialog.h"
 #include "../dialogs/via_stitching_dialog.h"
 #include "../dialogs/gerber_export_dialog.h"
+#include "../dialogs/netlist_import_dialog.h"
 #include "../gerber/gerber_exporter.h"
 #include "../manufacturing/manufacturing_exporter.h"
 #include "../mcad/mcad_exporter.h"
@@ -242,7 +243,10 @@ void MainWindow::createMenuBar() {
     fileMenu->addAction("Open Gerber Viewer...", QKeySequence(), this, &MainWindow::onOpenGerberViewer);
     fileMenu->addAction("&Save", QKeySequence::Save, this, &MainWindow::onSaveProject);
     fileMenu->addAction("Save &As...", QKeySequence::SaveAs, this, &MainWindow::onSaveProjectAs);
-    
+
+    fileMenu->addSeparator();
+    fileMenu->addAction("📥 Import Netlist...", QKeySequence("Ctrl+I"), this, &MainWindow::onImportNetlist);
+
     fileMenu->addSeparator();
     QMenu* exportMenu = fileMenu->addMenu("Export");
     exportMenu->addAction("Export as Image...", this, &MainWindow::onExportImage);
@@ -3292,5 +3296,17 @@ void MainWindow::onSnippetGenerated(const QString& jsonSnippet) {
         m_api->executeBatch(doc.object()["commands"].toArray());
         m_undoStack->endMacro();
         statusBar()->showMessage("Executed AI generated PCB commands", 3000);
+    }
+}
+
+void MainWindow::onImportNetlist() {
+    NetlistImportDialog* importDialog = new NetlistImportDialog(this);
+    connect(importDialog, &NetlistImportDialog::importRequested, this, [this](const ECOPackage& pkg) {
+        // Apply the imported netlist to the PCB
+        applyECO(pkg);
+    });
+
+    if (importDialog->exec() == QDialog::Accepted) {
+        statusBar()->showMessage("Netlist import completed", 3000);
     }
 }
