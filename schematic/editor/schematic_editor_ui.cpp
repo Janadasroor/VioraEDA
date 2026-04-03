@@ -1591,7 +1591,7 @@ void SchematicEditor::createDockWidgets() {
         connect(m_simulationPanel, &SimulationPanel::clearOverlaysRequested,
                 this, &SchematicEditor::onClearSimulationOverlays, Qt::UniqueConnection);
 
-        m_oscilloscopeDock->setWidget(m_simulationPanel->getOscilloscopeContainer());
+        m_oscilloscopeDock->setWidget(m_simulationPanel);
     }
 }
 
@@ -2198,16 +2198,8 @@ void SchematicEditor::onRunSimulation() {
     // Netlist generation now happens in the SimulationPanel background worker.
     // Avoid blocking the UI with a full net rebuild here.
 
-    // Keep results in the oscilloscope dock only (no Simulation Results tab)
-    for (int i = 0; i < m_workspaceTabs->count(); ++i) {
-        if (auto* panel = qobject_cast<SimulationPanel*>(m_workspaceTabs->widget(i))) {
-            m_simulationPanel = panel;
-            m_workspaceTabs->removeTab(i);
-            break;
-        }
-    }
     if (m_oscilloscopeDock && m_simulationPanel) {
-        m_oscilloscopeDock->setWidget(m_simulationPanel->getOscilloscopeContainer());
+        m_oscilloscopeDock->setWidget(m_simulationPanel);
         m_oscilloscopeDock->setFloating(false);
         m_oscilloscopeDock->show();
     }
