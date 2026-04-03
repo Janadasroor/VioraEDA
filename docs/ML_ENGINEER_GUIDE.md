@@ -288,6 +288,12 @@ That script:
 - trains a small MLP regressor
 - prints train and validation loss per epoch
 
+Notebook version:
+
+```bash
+jupyter notebook examples/ml_api/train_regressor_notebook.ipynb
+```
+
 Typical fields to use in training:
 
 - inputs:
@@ -323,5 +329,6 @@ Typical fields to use in training:
 - API reference: [ML_DATASET_API.md](/home/jnd/qt_projects/viospice/docs/ML_DATASET_API.md)
 - ready-to-run examples: [examples/ml_api/README.md](/home/jnd/qt_projects/viospice/examples/ml_api/README.md)
 - PyTorch loader: [examples/ml_api/pytorch_dataset.py](/home/jnd/qt_projects/viospice/examples/ml_api/pytorch_dataset.py)
+- training notebook: [examples/ml_api/train_regressor_notebook.ipynb](/home/jnd/qt_projects/viospice/examples/ml_api/train_regressor_notebook.ipynb)
 - FastAPI docs: `/docs`
 - OpenAPI schema: `/openapi.json`
