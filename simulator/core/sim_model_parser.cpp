@@ -534,6 +534,13 @@ bool SimModelParser::parseLibrary(
             case 'R': inst.type = SimComponentType::Resistor; nodeCount = 2; break;
             case 'C': inst.type = SimComponentType::Capacitor; nodeCount = 2; break;
             case 'L': inst.type = SimComponentType::Inductor; nodeCount = 2; break;
+            case 'K': {
+                if (compTokens.size() < 4) {
+                    addDiag(diagnostics, Severity::Warning, ll.lineNo, options.sourceName,
+                            "invalid mutual inductor card (expected 'Kname L1 L2 coupling')", tLine);
+                }
+                continue;
+            }
             case 'D': inst.type = SimComponentType::Diode; nodeCount = 2; break;
             case 'Q': inst.type = SimComponentType::BJT_NPN; nodeCount = 3; break;
             case 'J': inst.type = SimComponentType::JFET_NJF; nodeCount = 3; break;

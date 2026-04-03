@@ -13,6 +13,8 @@
 #include "../dialogs/via_stitching_dialog.h"
 #include "../dialogs/gerber_export_dialog.h"
 #include "../dialogs/netlist_import_dialog.h"
+#include "../dialogs/pick_place_export_dialog.h"
+#include "../dialogs/auto_router_dialog.h"
 #include "../gerber/gerber_exporter.h"
 #include "../manufacturing/manufacturing_exporter.h"
 #include "../mcad/mcad_exporter.h"
@@ -257,6 +259,8 @@ void MainWindow::createMenuBar() {
     exportMenu->addAction("Export IPC-2581...", this, &MainWindow::onExportIPC2581);
     exportMenu->addAction("Export ODB++ Package...", this, &MainWindow::onExportODBpp);
     exportMenu->addSeparator();
+    exportMenu->addAction("Export Pick and Place...", this, &MainWindow::onExportPickPlace);
+    exportMenu->addSeparator();
     exportMenu->addAction("Export STEP (Wireframe)...", this, &MainWindow::onExportSTEP);
     exportMenu->addAction("Export IGES (Wireframe)...", this, &MainWindow::onExportIGES);
     
@@ -350,7 +354,11 @@ void MainWindow::createMenuBar() {
     toolsMenu->addAction("Measure Distance");
     toolsMenu->addAction("Board Setup", this, &MainWindow::onBoardSetup);
     toolsMenu->addAction("Via Stitching...", this, &MainWindow::onViaStitching);
-    
+    toolsMenu->addSeparator();
+    QAction* autoRouteAction = toolsMenu->addAction("🚀 Auto-Router...");
+    autoRouteAction->setShortcut(QKeySequence("Ctrl+Shift+R"));
+    connect(autoRouteAction, &QAction::triggered, this, &MainWindow::onAutoRoute);
+
     toolsMenu->addSeparator();
     QAction* paletteAction = toolsMenu->addAction("Command Palette...");
     paletteAction->setShortcut(QKeySequence("Ctrl+K"));
@@ -3309,4 +3317,35 @@ void MainWindow::onImportNetlist() {
     if (importDialog->exec() == QDialog::Accepted) {
         statusBar()->showMessage("Netlist import completed", 3000);
     }
+}
+
+void MainWindow::onExportPickPlace() {
+    PickPlaceExportDialog* dlg = new PickPlaceExportDialog(this);
+
+    // Wire up the export to use the actual scene
+    connect(dlg, &QDialog::accepted, this, [this, dlg]() {
+        QString path = dlg->outputPath();
+        if (path.isEmpty()) return;
+
+        auto opts = dlg->options();
+        QString err;
+        bool ok = ManufacturingExporter::exportPickPlace(m_scene, path, opts, &err);
+        if (!ok) {
+            QMessageBox::warning(this, "Export Failed", err.isEmpty() ? "Unknown error." : err);
+            return;
+        }
+        statusBar()->showMessage("Pick and Place exported to " + path, 4000);
+    });
+
+    dlg->exec();
+}
+
+void MainWindow::onAutoRoute() {
+    if (!m_scene) {
+        QMessageBox::warning(this, "No PCB Scene", "Open or create a PCB board first.");
+        return;
+    }
+
+    AutoRouterDialog* dlg = new AutoRouterDialog(m_scene, this);
+    dlg->exec();
 }

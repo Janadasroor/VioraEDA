@@ -74,6 +74,7 @@ private slots:
     void onExportAssemblyDrawing();
     void onExportIPC2581();
     void onExportODBpp();
+    void onExportPickPlace();
     void onExportSTEP();
     void onExportIGES();
     void onSettings();
@@ -81,6 +82,7 @@ private slots:
     void onPropertyChanged(const QString& name, const QVariant& value);
     void onFilterChanged();
     void onOpenCommandPalette();
+    void onAutoRoute();
     
     // Alignment slots
     void onAlignLeft();

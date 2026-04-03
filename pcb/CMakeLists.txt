@@ -82,6 +82,8 @@ set(PCB_SOURCES
     analysis/signal_integrity_engine.h
     analysis/pcb_ratsnest_manager.cpp
     analysis/pcb_ratsnest_manager.h
+    analysis/pcb_auto_router.cpp
+    analysis/pcb_auto_router.h
 
     # DRC
     drc/pcb_drc.cpp
@@ -118,6 +120,10 @@ set(PCB_SOURCES
     dialogs/via_stitching_dialog.h
     dialogs/netlist_import_dialog.cpp
     dialogs/netlist_import_dialog.h
+    dialogs/pick_place_export_dialog.cpp
+    dialogs/pick_place_export_dialog.h
+    dialogs/auto_router_dialog.cpp
+    dialogs/auto_router_dialog.h
 
     # Import
     import/netlist_importer.cpp
