@@ -1239,6 +1239,38 @@ void SchematicEditor::onOpenNetlistEditor() {
 #include "../items/net_label_item.h"
 #include "schematic_item.h"
 
+void SchematicEditor::onSendToPCB() {
+    // Generate ECOPackage from current schematic
+    const QString projectDir = m_projectDir.isEmpty()
+        ? QFileInfo(m_currentFilePath).absolutePath()
+        : m_projectDir;
+
+    ECOPackage pkg = NetlistGenerator::generateECOPackage(m_scene, projectDir, m_netManager);
+
+    if (pkg.components.isEmpty() && pkg.nets.isEmpty()) {
+        QMessageBox::information(this, "No Changes",
+            "The schematic contains no components or nets to push to the PCB.");
+        return;
+    }
+
+    // Push to SyncManager with PCB target
+    SyncManager::instance().pushECO(pkg, SyncManager::ECOTarget::PCB);
+
+    // Show confirmation
+    QMessageBox::information(this, "ECO Pushed to PCB",
+        QString("✅ Successfully generated and pushed ECO to the PCB editor.\n\n"
+                "Components: %1\n"
+                "Nets: %2\n\n"
+                "Switch to the PCB editor to review and apply the changes.")
+            .arg(pkg.components.size())
+            .arg(pkg.nets.size()));
+
+    statusBar()->showMessage(
+        QString("🔄 ECO pushed to PCB: %1 components, %2 nets")
+            .arg(pkg.components.size()).arg(pkg.nets.size()),
+        5000);
+}
+
 void SchematicEditor::handleIncomingECO() {
     if (!SyncManager::instance().hasPendingECO()) return;
     const SyncManager::ECOTarget target = SyncManager::instance().pendingECOTarget();

@@ -131,6 +131,7 @@ private Q_SLOTS:
     void onEditSimulationFromDirective(const QString& currentCommand);
     void onPauseSimulation();
     void onOpenNetlistEditor();
+    void onSendToPCB();
     void onOpenGeminiAI();
     void onShowHelp();
     void onShowDeveloperHelp();

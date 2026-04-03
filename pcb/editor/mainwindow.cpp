@@ -10,6 +10,7 @@
 #include "pcb_layer_panel.h"
 #include "pcb_drc_panel.h"
 #include "../dialogs/board_setup_dialog.h"
+#include "pcb_sync_dialog.h"
 #include "../dialogs/via_stitching_dialog.h"
 #include "../dialogs/gerber_export_dialog.h"
 #include "../dialogs/netlist_import_dialog.h"
@@ -370,6 +371,11 @@ void MainWindow::createMenuBar() {
     QAction* compareBoardAction = toolsMenu->addAction("🔍 Compare Board...");
     compareBoardAction->setShortcut(QKeySequence("Ctrl+Shift+D"));
     connect(compareBoardAction, &QAction::triggered, this, &MainWindow::onCompareBoard);
+
+    toolsMenu->addSeparator();
+    QAction* syncAction = toolsMenu->addAction("🔄 Check for Schematic Updates");
+    syncAction->setShortcut(QKeySequence("Ctrl+Shift+U"));
+    connect(syncAction, &QAction::triggered, this, &MainWindow::handleIncomingECO);
 
     toolsMenu->addSeparator();
     QAction* paletteAction = toolsMenu->addAction("Command Palette...");
@@ -2005,13 +2011,24 @@ void MainWindow::onOpenGeminiAI() {
 }
 
 void MainWindow::handleIncomingECO() {
-    if (SyncManager::instance().hasPendingECO()) {
-        const SyncManager::ECOTarget target = SyncManager::instance().pendingECOTarget();
-        if (target == SyncManager::ECOTarget::Schematic) return;
-        ECOPackage pkg = SyncManager::instance().pendingECO();
+    if (!SyncManager::instance().hasPendingECO()) return;
+    const SyncManager::ECOTarget target = SyncManager::instance().pendingECOTarget();
+    if (target == SyncManager::ECOTarget::Schematic) return;
+
+    ECOPackage pkg = SyncManager::instance().pendingECO();
+
+    // Show review dialog before applying
+    PCBSyncDialog* reviewDlg = new PCBSyncDialog(pkg, this);
+    if (reviewDlg->exec() == QDialog::Accepted) {
+        // User approved the changes
         applyECO(pkg);
         SyncManager::instance().clearPendingECO();
+    } else {
+        // User rejected — clear the pending ECO
+        SyncManager::instance().clearPendingECO();
+        statusBar()->showMessage("ECO review cancelled — no changes applied", 3000);
     }
+    reviewDlg->deleteLater();
 }
 
 void MainWindow::applyECO(const ECOPackage& package) {

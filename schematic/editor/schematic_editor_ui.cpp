@@ -530,7 +530,11 @@ void SchematicEditor::createToolBar() {
     toolsMenu->addAction("Clear ERC Exclusions", this, &SchematicEditor::onClearErcExclusions);
     toolsMenu->addAction("Bus Aliases...", this, &SchematicEditor::onOpenBusAliasesManager);
     toolsMenu->addAction(createComponentIcon("Netlist"), "Netlist Editor", this, &SchematicEditor::onOpenNetlistEditor);
-    
+    toolsMenu->addSeparator();
+
+    QAction* syncAction = toolsMenu->addAction(createComponentIcon("Sync"), "🔄 Update PCB from Schematic...", QKeySequence("Ctrl+Shift+U"), this, &SchematicEditor::onSendToPCB);
+    syncAction->setToolTip("Generate ECO and push changes to the PCB editor");
+
     QMenu* importSubcktToolsMenu = toolsMenu->addMenu(getThemeIcon(":/icons/tool_spice_directive.svg"), "Import SPICE Subcircuit");
     importSubcktToolsMenu->addAction("Import from Text/Paste...", this, &SchematicEditor::onImportSpiceSubcircuit);
     importSubcktToolsMenu->addAction("Import from File...", this, [this]() {
