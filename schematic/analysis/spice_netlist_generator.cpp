@@ -40,6 +40,14 @@ struct UserSpiceContentSummary {
     bool hasNetDirective = false;
 };
 
+struct PassiveCompanionParams {
+    QString baseValue;
+    QString rser;
+    QString rpar;
+    QString cpar;
+    QString ic;
+};
+
 bool isLikelyLogicInputPinName(const QString& rawPinName) {
     QString pin = rawPinName.trimmed().toLower();
     pin.remove(QRegularExpression("(\\[[0-9]+\\]|<[0-9]+>|[0-9]+)$"));
@@ -50,6 +58,29 @@ bool isLikelyLogicInputPinName(const QString& rawPinName) {
            pin == "e" || pin == "clk" || pin == "clock" || pin == "en" || pin == "enable" ||
            pin == "rst" || pin == "reset" || pin == "set" || pin == "s" || pin == "r" ||
            pin == "j" || pin == "k" || pin == "t";
+}
+
+PassiveCompanionParams parsePassiveCompanionParams(const QString& rawValue) {
+    PassiveCompanionParams out;
+    const QString text = rawValue.trimmed();
+    if (text.isEmpty()) return out;
+
+    const QStringList tokens = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    if (!tokens.isEmpty()) out.baseValue = tokens.first().trimmed();
+
+    auto extract = [&](const char* key, QString* target) {
+        const QRegularExpression re(
+            QString("\\b%1\\s*=\\s*([^\\s]+)").arg(QRegularExpression::escape(QString::fromLatin1(key))),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch match = re.match(text);
+        if (match.hasMatch()) *target = match.captured(1).trimmed();
+    };
+
+    extract("Rser", &out.rser);
+    extract("Rpar", &out.rpar);
+    extract("Cpar", &out.cpar);
+    extract("ic", &out.ic);
+    return out;
 }
 
 bool isLikelyLogicOutputPinName(const QString& rawPinName) {
@@ -4154,6 +4185,38 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                     netlist += modelLine + "\n";
                     switchModelsAdded.insert(modelName.toLower());
                 }
+            }
+        }
+
+        if ((line.startsWith("L", Qt::CaseInsensitive) || line.startsWith("C", Qt::CaseInsensitive)) &&
+            emittedNodes.size() >= 2) {
+            const PassiveCompanionParams passiveParams = parsePassiveCompanionParams(value);
+            const bool hasCompanions = !passiveParams.rser.isEmpty() || !passiveParams.rpar.isEmpty() || !passiveParams.cpar.isEmpty();
+            if (hasCompanions && !passiveParams.baseValue.isEmpty()) {
+                const QString node1 = emittedNodes.at(0);
+                const QString node2 = emittedNodes.at(1);
+                const QString deviceNode1 = passiveParams.rser.isEmpty() ? node1 : QString("%1__rser").arg(ref);
+                const QString elementRef = line.section(QRegularExpression("\\s+"), 0, 0).trimmed();
+
+                if (!passiveParams.rser.isEmpty()) {
+                    netlist += QString("R__RSER_%1 %2 %3 %4\n").arg(ref, node1, deviceNode1, passiveParams.rser);
+                }
+                if (!passiveParams.rpar.isEmpty()) {
+                    netlist += QString("R__RPAR_%1 %2 %3 %4\n").arg(ref, deviceNode1, node2, passiveParams.rpar);
+                }
+                if (!passiveParams.cpar.isEmpty()) {
+                    netlist += QString("C__CPAR_%1 %2 %3 %4\n").arg(ref, deviceNode1, node2, passiveParams.cpar);
+                }
+
+                QString mainLine = QString("%1 %2 %3 %4").arg(elementRef, deviceNode1, node2, passiveParams.baseValue);
+                if (line.startsWith("L", Qt::CaseInsensitive) && !passiveParams.ic.isEmpty()) {
+                    mainLine += " ic=" + passiveParams.ic;
+                }
+                mainLine += "\n";
+                netlist += mainLine;
+
+                runtimeWarnings.append(QString("Expanded inline parasitics on %1 into explicit companion elements for ngspice compatibility.").arg(ref));
+                continue;
             }
         }
 
