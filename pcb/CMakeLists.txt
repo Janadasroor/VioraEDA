@@ -148,6 +148,8 @@ set(PCB_SOURCES
     gerber/gerber_parser.h
     gerber/gerber_exporter.cpp
     gerber/gerber_exporter.h
+    gerber/nc_drill_exporter.cpp
+    gerber/nc_drill_exporter.h
     gerber/gerber_view.cpp
     gerber/gerber_view.h
     gerber/gerber_3d_view.cpp

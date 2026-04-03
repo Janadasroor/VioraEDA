@@ -1,5 +1,8 @@
 #include "gerber_exporter.h"
+#include "nc_drill_exporter.h"
 #include "../items/pcb_item.h"
+#include <QFileInfo>
+#include <QFile>
 #include "../items/trace_item.h"
 #include "../items/pad_item.h"
 #include "../items/via_item.h"
@@ -122,31 +125,21 @@ QString GerberExporter::formatCoord(double val, int decimals) {
 }
 
 bool GerberExporter::generateDrillFile(QGraphicsScene* scene, const QString& filePath) {
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-    QTextStream out(&file);
+    // Delegate to the proper NC Drill exporter
+    NCDrillExporter::DrillOptions opts;
+    opts.separatePTH = false; // Single file for backward compatibility
+    QString dir = QFileInfo(filePath).absolutePath();
+    auto result = NCDrillExporter::exportDrills(scene, dir, opts);
+    if (!result.success) return false;
 
-    out << "M48\n";
-    out << "METRIC,LZ\n";
-    out << "T1C0.3\n";
-    out << "%\n";
-    out << "G05\n";
-    out << "T1\n";
-
-    for (auto* gItem : scene->items()) {
-        PCBItem* item = dynamic_cast<PCBItem*>(gItem);
-        if (!item) continue;
-
-        double drill = 0;
-        if (auto* pad = dynamic_cast<PadItem*>(item)) drill = pad->drillSize();
-        else if (auto* via = dynamic_cast<ViaItem*>(item)) drill = via->drillSize();
-
-        if (drill > 0) {
-            out << "X" << QString::number(item->scenePos().x(), 'f', 3) 
-                << "Y" << QString::number(item->scenePos().y(), 'f', 3) << "\n";
-        }
-    }
-
-    out << "M30\n";
+    // Move the generated PTH file to the requested path
+    QFile::remove(filePath);
+    QFile::copy(result.pthFilePath, filePath);
     return true;
+}
+
+NCDrillExporter::DrillExportResult GerberExporter::exportDrills(QGraphicsScene* scene,
+                                                                 const QString& outputDirectory,
+                                                                 const NCDrillExporter::DrillOptions& options) {
+    return NCDrillExporter::exportDrills(scene, outputDirectory, options);
 }
