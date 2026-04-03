@@ -52,6 +52,7 @@ private Q_SLOTS:
     void warnsAboutIllFormedLtspicePwlRepeat();
     void rewritesLtspiceCurrentSourceSpecialForms();
     void preservesMutualInductorDirectives();
+    void expandsInductorParasiticsForNgspiceCompatibility();
     void loadsBoostConverterLtspiceDirectiveInNgspice();
     void emulatesLtspiceStepParamList();
     void emulatesLtspiceStepParamFileList();
@@ -883,6 +884,49 @@ void SpiceDirectiveNetlistTest::preservesMutualInductorDirectives() {
     QVERIFY2(netlist.contains("L2 "), qPrintable(netlist));
     QVERIFY2(netlist.contains("K1 L1 L2 0.99"), qPrintable(netlist));
     QCOMPARE(netlist.count(".tran "), 1);
+}
+
+void SpiceDirectiveNetlistTest::expandsInductorParasiticsForNgspiceCompatibility() {
+    QGraphicsScene scene;
+
+    auto* l1 = new InductorItem(QPointF(-100, 0), "10m Rser=50m Rpar=100Meg Cpar=1p ic=0");
+    l1->setReference("L1");
+    scene.addItem(l1);
+
+    auto* l2 = new InductorItem(QPointF(100, 0), "10m Rser=50m Rpar=100Meg Cpar=1p ic=0");
+    l2->setReference("L2");
+    scene.addItem(l2);
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "K1 L1 L2 1\n"
+        ".tran 1u 1m",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("K1 L1 L2 1"), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RSER_L1 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RPAR_L1 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("C__CPAR_L1 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RSER_L2 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("R__RPAR_L2 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("C__CPAR_L2 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("L1 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("L2 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains(" ic=0"), qPrintable(netlist));
+    QVERIFY2(!netlist.contains("Rser="), qPrintable(netlist));
+    QVERIFY2(!netlist.contains("Rpar="), qPrintable(netlist));
+    QVERIFY2(!netlist.contains("Cpar="), qPrintable(netlist));
+    QVERIFY2(netlist.contains("Expanded inline parasitics on L1 into explicit companion elements for ngspice compatibility."),
+             qPrintable(netlist));
+    QVERIFY2(netlist.contains("Expanded inline parasitics on L2 into explicit companion elements for ngspice compatibility."),
+             qPrintable(netlist));
 }
 
 void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {

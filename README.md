@@ -74,6 +74,7 @@ python3 python/scripts/ml_dataset_api.py --port 8787
 ```
 
 Documentation: [docs/ML_DATASET_API.md](docs/ML_DATASET_API.md)
+ML engineer guide: [docs/ML_ENGINEER_GUIDE.md](docs/ML_ENGINEER_GUIDE.md)
 
 ## License
 
