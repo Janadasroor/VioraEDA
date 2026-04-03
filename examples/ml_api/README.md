@@ -10,6 +10,7 @@ This folder contains runnable request templates and a minimal Python client for 
 - `python_client.py`: submits an async sweep job and polls until completion
 - `pytorch_dataset.py`: loads generated JSONL into a simple PyTorch-compatible dataset
 - `train_regressor.py`: end-to-end PyTorch regression example over generated JSONL
+- `train_regressor_notebook.ipynb`: notebook version of the regression example
 
 ## cURL examples
 
@@ -61,3 +62,17 @@ python3 examples/ml_api/train_regressor.py
 ```
 
 Edit the constants at the top of the script to point at your dataset and choose your feature and label names.
+
+## Notebook
+
+Open:
+
+```bash
+jupyter notebook examples/ml_api/train_regressor_notebook.ipynb
+```
+
+or
+
+```bash
+jupyter lab examples/ml_api/train_regressor_notebook.ipynb
+```
