@@ -132,7 +132,8 @@ Example request:
         "stop": 10000,
         "count": 4
       },
-      "value_format": "{value:.0f}"
+      "engineering_format": "spice",
+      "engineering_precision": 4
     },
     {
       "name": "vin_dc",
@@ -169,6 +170,12 @@ Supported parameter value definitions:
   - `{"logspace":{"start":1e3,"stop":1e6,"count":4},"value_format":"{value:.3e}"}`
 - integer range:
   - `{"range":{"start":1,"stop":8,"step":1,"inclusive":true}}`
+
+Engineering formatting:
+
+- `{"engineering_format":"spice"}` emits suffixes like `1k`, `10u`, `4.7n`
+- `engineering_precision` controls significant digits for the generated SPICE string
+- `value_format` still works for normal Python-style numeric formatting when engineering suffixes are not needed
 
 Each generated dataset record includes `metadata.sweep_values` and points to the generated variant schematic path used for that sample.
 

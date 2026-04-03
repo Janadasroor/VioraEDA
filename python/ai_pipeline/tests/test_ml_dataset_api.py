@@ -8,7 +8,7 @@ PYTHON_ROOT = Path(__file__).resolve().parents[2]
 if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
-from ai_pipeline.api.ml_dataset_api import SimulationDatasetService, _expand_parameter_values
+from ai_pipeline.api.ml_dataset_api import SimulationDatasetService, _expand_parameter_values, _format_spice_number
 
 
 class FakeRunner:
@@ -263,6 +263,22 @@ class SimulationDatasetServiceTest(unittest.TestCase):
             }
         )
         self.assertEqual(values, [1, 3, 5])
+
+    def test_format_spice_number_outputs_engineering_suffixes(self):
+        self.assertEqual(_format_spice_number(1000), "1k")
+        self.assertEqual(_format_spice_number(4.7e-9, precision=3), "4.7n")
+        self.assertEqual(_format_spice_number(10e-6), "10u")
+
+    def test_expand_parameter_values_supports_spice_engineering_format(self):
+        values = _expand_parameter_values(
+            {
+                "name": "res",
+                "linspace": {"start": 1000, "stop": 3000, "count": 3},
+                "engineering_format": "spice",
+                "engineering_precision": 3,
+            }
+        )
+        self.assertEqual(values, ["1k", "2k", "3k"])
 
 
 if __name__ == "__main__":

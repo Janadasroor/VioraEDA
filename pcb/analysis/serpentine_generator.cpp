@@ -8,6 +8,16 @@
 #include <QtMath>
 #include <QLineF>
 
+namespace {
+
+QPointF normalizeVector(const QPointF& vector) {
+    const double len = std::hypot(vector.x(), vector.y());
+    if (len <= 1e-12) return QPointF();
+    return QPointF(vector.x() / len, vector.y() / len);
+}
+
+} // namespace
+
 SerpentineGenerator::SerpentineGenerator(QGraphicsScene* scene, QObject* parent)
     : QObject(parent), m_scene(scene)
 {
@@ -89,7 +99,7 @@ SerpentineGenerator::SerpentineResult SerpentineGenerator::generateSerpentine(co
         double distToEnd = QLineF(longestSeg.end, receiverEnd).length();
         serpStart = (distToStart < distToEnd) ? longestSeg.start : longestSeg.end;
         // Back up a bit to leave room
-        QPointF dir = direction.normalized();
+        QPointF dir = normalizeVector(direction);
         if (QLineF(longestSeg.start, receiverEnd).length() > QLineF(longestSeg.end, receiverEnd).length()) {
             serpStart = longestSeg.end - dir * 2.0;
         } else {
@@ -219,7 +229,7 @@ QList<TraceItem*> SerpentineGenerator::createSerpentineChain(QPointF start, QPoi
     if (!m_scene) return traces;
 
     // Normalize direction
-    direction = direction.normalized();
+    direction = normalizeVector(direction);
     // Perpendicular direction (rotate 90 degrees)
     QPointF perp(-direction.y(), direction.x());
 

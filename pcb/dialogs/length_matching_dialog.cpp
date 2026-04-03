@@ -44,9 +44,9 @@ void LengthMatchingDialog::setupUI() {
     QHBoxLayout* groupBtns = new QHBoxLayout();
     m_createGroupBtn = new QPushButton("+ New Group");
     m_deleteGroupBtn = new QPushButton("Delete");
-    group_btns->addWidget(m_createGroupBtn);
-    group_btns->addWidget(m_deleteGroupBtn);
-    groupLayout->addLayout(group_btns);
+    groupBtns->addWidget(m_createGroupBtn);
+    groupBtns->addWidget(m_deleteGroupBtn);
+    groupLayout->addLayout(groupBtns);
 
     connect(m_createGroupBtn, &QPushButton::clicked, this, &LengthMatchingDialog::onCreateGroup);
     connect(m_deleteGroupBtn, &QPushButton::clicked, this, &LengthMatchingDialog::onDeleteGroup);
@@ -348,7 +348,11 @@ void LengthMatchingDialog::onAddNet() {
     QStringList allNets = LengthMeasurementEngine::getNetNames(m_scene);
     auto* group = LengthMatchManager::instance().getGroup(m_currentGroupId);
     if (group) {
-        allNets = allNets.toSet().subtract(group->netNames).values();
+        QSet<QString> availableNets;
+        for (const QString& net : allNets) availableNets.insert(net);
+        availableNets.subtract(group->netNames);
+        allNets = QStringList(availableNets.begin(), availableNets.end());
+        std::sort(allNets.begin(), allNets.end());
     }
 
     bool ok;

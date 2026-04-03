@@ -2,6 +2,7 @@
 #define LENGTH_MATCHING_DIALOG_H
 
 #include <QDialog>
+#include <QListWidget>
 #include <QTableWidget>
 #include <QLabel>
 #include <QPushButton>
