@@ -6,7 +6,6 @@ This API exposes VioSpice simulation runs as training-ready dataset records so M
 
 - source schematic path and simulation configuration
 - generated schematic netlist in JSON form
-- simulation result JSON from `vio-cmd netlist-run`
 - simulator-native result JSON from `vio-cmd simulate --json`
 - optional decimated raw waveforms extracted from the returned signals
 - optional signal statistics computed by the API
@@ -92,6 +91,98 @@ Example request:
 
 Each line in the output JSONL file is a self-contained training record.
 
+### `POST /api/ml/sweep`
+
+Expands a single template schematic into many variant schematics using a cartesian product of parameter values, then runs the generated jobs as a batch.
+
+Example request:
+
+```json
+{
+  "template_schematic_path": "/home/jnd/qt_projects/viospice/my_circuits/amp.sch",
+  "variant_dir": "/tmp/viospice-variants/amp-sweep",
+  "output_path": "/tmp/viospice-datasets/amp-sweep.jsonl",
+  "concurrency": 8,
+  "sampling": {
+    "mode": "random",
+    "sample_count": 1000,
+    "seed": 42
+  },
+  "split_ratios": {
+    "train": 0.8,
+    "val": 0.1,
+    "test": 0.1
+  },
+  "job_template": {
+    "analysis": "tran",
+    "stop": "10m",
+    "step": "10u",
+    "signals": ["V(out)"],
+    "measures": ["avg V(out)", "rms V(out)"]
+  },
+  "parameters": [
+    {
+      "name": "r_gain",
+      "target": {
+        "reference": "R1",
+        "field": "value"
+      },
+      "logspace": {
+        "start": 1000,
+        "stop": 10000,
+        "count": 4
+      },
+      "value_format": "{value:.0f}"
+    },
+    {
+      "name": "vin_dc",
+      "target": {
+        "reference": "V1",
+        "field": "dcVoltage"
+      },
+      "linspace": {
+        "start": 1.8,
+        "stop": 5.0,
+        "count": 5
+      },
+      "value_format": "{value:.2f}"
+    }
+  ]
+}
+```
+
+Supported target forms:
+
+- item selector plus field:
+  - `{"reference":"R1","field":"value"}`
+  - `{"reference":"V1","field":"sineFrequency"}`
+- direct JSON path:
+  - `{"json_path":"items[0].value"}`
+
+Supported parameter value definitions:
+
+- explicit list:
+  - `{"values":["1k","2k","5k"]}`
+- linear spacing:
+  - `{"linspace":{"start":1.8,"stop":5.0,"count":5},"value_format":"{value:.2f}"}`
+- logarithmic spacing:
+  - `{"logspace":{"start":1e3,"stop":1e6,"count":4},"value_format":"{value:.3e}"}`
+- integer range:
+  - `{"range":{"start":1,"stop":8,"step":1,"inclusive":true}}`
+
+Each generated dataset record includes `metadata.sweep_values` and points to the generated variant schematic path used for that sample.
+
+Sampling modes:
+
+- `{"mode":"exhaustive"}`: generate every combination
+- `{"mode":"random","sample_count":1000,"seed":42}`: generate a deterministic random subset
+
+Split handling:
+
+- `split_ratios` assigns `metadata.split` and `tags.split` for each generated sample
+- assignment is deterministic when a sampling `seed` is provided
+- default split ratios are `train=0.8`, `val=0.1`, `test=0.1`
+
 ## Notes
 
 - `analysis` supports `op`, `tran`, and `ac`
@@ -100,3 +191,5 @@ Each line in the output JSONL file is a self-contained training record.
 - `max_points` lets you decimate waveforms before exporting them into the dataset
 - `range` lets you crop the exported waveform window
 - `compat` enables the CLI compatibility layer for imported SPICE decks when needed
+- `sweep` generation currently materializes variant `.sch` files by patching JSON fields in the template schematic
+- `sampling.mode=random` samples combinations without replacement by default
