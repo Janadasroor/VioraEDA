@@ -261,6 +261,33 @@ print("first labels:", records[0]["labels"])
 print("first measures:", records[0]["artifacts"]["measures"])
 ```
 
+PyTorch-oriented helper:
+
+```bash
+python3 examples/ml_api/pytorch_dataset.py
+```
+
+That helper can:
+
+- load JSONL records
+- skip rejected samples
+- extract stat-based features
+- extract parameter features
+- return tensors through `VioSpiceJsonlDataset` when `torch` is installed
+
+End-to-end training example:
+
+```bash
+python3 examples/ml_api/train_regressor.py
+```
+
+That script:
+
+- loads JSONL into `VioSpiceJsonlDataset`
+- splits the data into train and validation sets
+- trains a small MLP regressor
+- prints train and validation loss per epoch
+
 Typical fields to use in training:
 
 - inputs:
@@ -295,5 +322,6 @@ Typical fields to use in training:
 
 - API reference: [ML_DATASET_API.md](/home/jnd/qt_projects/viospice/docs/ML_DATASET_API.md)
 - ready-to-run examples: [examples/ml_api/README.md](/home/jnd/qt_projects/viospice/examples/ml_api/README.md)
+- PyTorch loader: [examples/ml_api/pytorch_dataset.py](/home/jnd/qt_projects/viospice/examples/ml_api/pytorch_dataset.py)
 - FastAPI docs: `/docs`
 - OpenAPI schema: `/openapi.json`
