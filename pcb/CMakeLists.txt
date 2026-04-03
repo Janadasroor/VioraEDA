@@ -116,6 +116,12 @@ set(PCB_SOURCES
     dialogs/gerber_export_dialog.h
     dialogs/via_stitching_dialog.cpp
     dialogs/via_stitching_dialog.h
+    dialogs/netlist_import_dialog.cpp
+    dialogs/netlist_import_dialog.h
+
+    # Import
+    import/netlist_importer.cpp
+    import/netlist_importer.h
 
     # Gerber
     gerber/gerber_layer.h
@@ -150,7 +156,7 @@ set(PCB_SOURCES
 
 add_library(VioraPCBCore STATIC ${PCB_SOURCES})
 set_target_properties(VioraPCBCore PROPERTIES AUTOMOC ON)
-target_include_directories(VioraPCBCore PUBLIC 
+target_include_directories(VioraPCBCore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/editor
     ${CMAKE_CURRENT_SOURCE_DIR}/items
@@ -161,6 +167,7 @@ target_include_directories(VioraPCBCore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/layers
     ${CMAKE_CURRENT_SOURCE_DIR}/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/dialogs
+    ${CMAKE_CURRENT_SOURCE_DIR}/import
     ${CMAKE_CURRENT_SOURCE_DIR}/gerber
     ${CMAKE_CURRENT_SOURCE_DIR}/io
     ${CMAKE_CURRENT_SOURCE_DIR}/manufacturing

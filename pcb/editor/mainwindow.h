@@ -77,6 +77,7 @@ private slots:
     void onExportSTEP();
     void onExportIGES();
     void onSettings();
+    void onImportNetlist();
     void onPropertyChanged(const QString& name, const QVariant& value);
     void onFilterChanged();
     void onOpenCommandPalette();
