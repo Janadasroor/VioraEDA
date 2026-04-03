@@ -82,6 +82,12 @@ QJsonObject InductorItem::toJson() const {
     json["y"] = pos().y();
     json["reference"] = reference();
     json["footprint"] = footprint();
+    json["spiceModel"] = spiceModel();
+    json["manufacturer"] = manufacturer();
+    json["mpn"] = mpn();
+    json["description"] = description();
+    json["excludeFromSim"] = excludeFromSimulation();
+    json["excludeFromPcb"] = excludeFromPcb();
     json["rotation"] = rotation();
 
     if (m_refLabelItem) {
@@ -103,6 +109,12 @@ bool InductorItem::fromJson(const QJsonObject& json) {
     m_value = json["value"].toString();
     setReference(json["reference"].toString());
     setFootprint(json["footprint"].toString());
+    setSpiceModel(json["spiceModel"].toString());
+    setManufacturer(json["manufacturer"].toString());
+    setMpn(json["mpn"].toString());
+    setDescription(json["description"].toString());
+    setExcludeFromSimulation(json["excludeFromSim"].toBool(false));
+    setExcludeFromPcb(json["excludeFromPcb"].toBool(false));
     loadPinPadMappingFromJson(json);
     setPos(QPointF(json["x"].toDouble(), json["y"].toDouble()));
     if (json.contains("rotation")) setRotation(json["rotation"].toDouble());

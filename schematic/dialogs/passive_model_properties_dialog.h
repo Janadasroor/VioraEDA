@@ -5,6 +5,7 @@
 
 class QLineEdit;
 class QCheckBox;
+class QGroupBox;
 class SchematicItem;
 
 class PassiveModelPropertiesDialog : public QDialog {
@@ -38,6 +39,11 @@ private:
     QLineEdit* m_spiceModelEdit = nullptr;
     QLineEdit* m_manufacturerEdit = nullptr;
     QLineEdit* m_mpnEdit = nullptr;
+    QGroupBox* m_inductorModelGroup = nullptr;
+    QLineEdit* m_seriesResistanceEdit = nullptr;
+    QLineEdit* m_parallelResistanceEdit = nullptr;
+    QLineEdit* m_parallelCapacitanceEdit = nullptr;
+    QLineEdit* m_initialCurrentEdit = nullptr;
     QCheckBox* m_excludeSimCheck = nullptr;
     QCheckBox* m_excludePcbCheck = nullptr;
 };

@@ -113,12 +113,34 @@ Example request:
     "val": 0.1,
     "test": 0.1
   },
+  "constraints": [
+    {
+      "param": "vin_dc",
+      "op": "<=",
+      "value": "3.3"
+    },
+    {
+      "param": "r_feedback",
+      "op": ">",
+      "other_param": "r_input"
+    }
+  ],
   "job_template": {
     "analysis": "tran",
     "stop": "10m",
     "step": "10u",
     "signals": ["V(out)"],
-    "measures": ["avg V(out)", "rms V(out)"]
+    "measures": ["avg V(out)", "rms V(out)"],
+    "derived_labels": [
+      {
+        "name": "gain_ratio",
+        "expression": {
+          "op": "div",
+          "left": {"measure": "avg V(out)"},
+          "right": {"param": "vin_dc"}
+        }
+      }
+    ]
   },
   "parameters": [
     {
@@ -189,6 +211,29 @@ Split handling:
 - `split_ratios` assigns `metadata.split` and `tags.split` for each generated sample
 - assignment is deterministic when a sampling `seed` is provided
 - default split ratios are `train=0.8`, `val=0.1`, `test=0.1`
+
+Constraint handling:
+
+- constraints are applied before sampling and before split assignment
+- parameter-to-constant example:
+  - `{"param":"vin_dc","op":"<=","value":"3.3"}`
+- parameter-to-parameter example:
+  - `{"param":"r_feedback","op":">","other_param":"r_input"}`
+- supported operators:
+  - `==`, `!=`, `>`, `<`, `>=`, `<=`, `in`, `not_in`
+
+Derived labels:
+
+- derived labels are computed after measures and stats are available
+- they are merged into the record `labels` object
+- supported operand sources:
+  - `{"param":"vin_dc"}`
+  - `{"measure":"avg V(out)"}`
+  - `{"stat":{"signal":"V(out)","field":"rms"}}`
+  - `{"label":"existing_label_name"}`
+  - `{"value":2}`
+- supported expression operators:
+  - `add`, `sub`, `mul`, `div`, `pow`, `min`, `max`, `abs`
 
 ## Notes
 
