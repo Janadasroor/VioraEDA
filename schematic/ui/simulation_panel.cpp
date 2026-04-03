@@ -895,6 +895,20 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
 
     tableItem->setRows(rows);
     m_netTableItems[m_scene] = tableItem;
+
+    if (m_editor) {
+        m_editor->showNormal();
+        m_editor->raise();
+        m_editor->activateWindow();
+    }
+
+    const auto sceneViews = m_scene->views();
+    for (QGraphicsView* view : sceneViews) {
+        if (!view) continue;
+        view->centerOn(tableItem);
+        view->ensureVisible(tableItem->sceneBoundingRect(), 48, 48);
+        view->viewport()->update();
+    }
 }
 
 void SimulationPanel::addProbe(const QString& signalName) {
@@ -1904,6 +1918,11 @@ void SimulationPanel::setupUI() {
     connect(clearOverlaysBtn, &QPushButton::clicked, this, &SimulationPanel::clearOverlaysRequested);
     toolbar->addWidget(clearOverlaysBtn);
 
+    QCheckBox* topNetTableCheck = new QCheckBox("Net Table");
+    topNetTableCheck->setChecked(true);
+    topNetTableCheck->setStyleSheet("QCheckBox { color: #eee; font-weight: bold; }");
+    toolbar->addWidget(topNetTableCheck);
+
     toolbar->addSeparator();
 
     QPushButton* netlistBtn = new QPushButton("View Netlist");
@@ -1981,8 +2000,8 @@ void SimulationPanel::setupUI() {
     m_steadyTolEdit = new QLineEdit();
     m_steadyDelayEdit = new QLineEdit();
     m_autoNetTableCheck = new QCheckBox("Auto net table on transient run");
-    m_autoNetTableCheck->setChecked(
-        ConfigManager::instance().toolProperty("SimulationPanel", "showTransientNetTable", true).toBool());
+    m_autoNetTableCheck->setChecked(true);
+    ConfigManager::instance().setToolProperty("SimulationPanel", "showTransientNetTable", true);
     for(auto* l : {m_param1, m_param2, m_param3, m_param4, m_param5, m_param6}) l->setStyleSheet("QLineEdit { background: #121214; color: #fff; border: 1px solid #333; }");
     for (auto* l : {m_steadyTolEdit, m_steadyDelayEdit}) l->setStyleSheet("QLineEdit { background: #121214; color: #fff; border: 1px solid #333; }");
     m_steadyTolEdit->setPlaceholderText("0.01");
@@ -1997,7 +2016,6 @@ void SimulationPanel::setupUI() {
     configForm->addRow("P4/Src:", m_param4);
     configForm->addRow("P5/Node:", m_param5);
     configForm->addRow("Z0:", m_param6);
-    configForm->addRow("Overlay:", m_autoNetTableCheck);
     sidebarLayout->addWidget(configFrame);
 
     QLabel* generatorsLabel = new QLabel("SOURCE GENERATORS");
@@ -2199,6 +2217,30 @@ void SimulationPanel::setupUI() {
     plotLayout->addWidget(timelineWidget);
     connect(m_timelineSlider, &QSlider::valueChanged, this, &SimulationPanel::onTimelineValueChanged);
 
+    QWidget* netTableControls = new QWidget();
+    auto* netTableLayout = new QHBoxLayout(netTableControls);
+    netTableLayout->setContentsMargins(0, 0, 0, 0);
+    netTableLayout->setSpacing(8);
+    QLabel* netTableLabel = new QLabel("SCHEMATIC NET TABLE:");
+    netTableLabel->setStyleSheet("font-weight: bold; font-size: 10px; color: #569cd6;");
+    netTableLayout->addWidget(netTableLabel);
+    m_autoNetTableCheck->setStyleSheet("QCheckBox { color: #e5e7eb; font-weight: bold; }");
+    netTableLayout->addWidget(m_autoNetTableCheck);
+    netTableLayout->addStretch(1);
+    plotLayout->addWidget(netTableControls);
+
+    connect(topNetTableCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        if (!m_autoNetTableCheck || m_autoNetTableCheck->isChecked() == checked) return;
+        const QSignalBlocker blocker(m_autoNetTableCheck);
+        m_autoNetTableCheck->setChecked(checked);
+        Q_EMIT m_autoNetTableCheck->toggled(checked);
+    });
+    connect(m_autoNetTableCheck, &QCheckBox::toggled, this, [topNetTableCheck](bool checked) {
+        if (topNetTableCheck->isChecked() == checked) return;
+        const QSignalBlocker blocker(topNetTableCheck);
+        topNetTableCheck->setChecked(checked);
+    });
+
     m_chart = new QChart();
     m_chart->setTitle("Waveform Viewer");
     m_chart->setTitleBrush(QBrush(Qt::white));
@@ -2327,8 +2369,20 @@ void SimulationPanel::setupUI() {
     connect(m_steadyCheck, &QCheckBox::toggled, this, &SimulationPanel::updateSchematicDirective);
     connect(m_steadyTolEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
     connect(m_steadyDelayEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
-    connect(m_autoNetTableCheck, &QCheckBox::toggled, this, [](bool enabled) {
+    connect(m_autoNetTableCheck, &QCheckBox::toggled, this, [this](bool enabled) {
         ConfigManager::instance().setToolProperty("SimulationPanel", "showTransientNetTable", enabled);
+        if (!enabled) {
+            clearTransientNetTableOverlay();
+            if (m_scene) {
+                QPointer<SimulationNetTableItem> table = m_netTableItems.take(m_scene);
+                if (table) {
+                    if (table->scene()) table->scene()->removeItem(table);
+                    table->deleteLater();
+                }
+            }
+        } else if (enabled && m_hasLastResults && m_lastResults.analysisType == SimAnalysisType::Transient) {
+            updateTransientNetTableOverlay(m_lastResults);
+        }
     });
     connect(m_param1, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
     connect(m_param2, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
