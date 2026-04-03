@@ -12,6 +12,7 @@
 - **Gemini AI Co-Pilot**: Integrated AI assistant to help you debug ERC violations and generate FluxScript snippets.
 - **Hierarchical Design**: Full support for `.SUBCKT` expansion and complex hierarchical schematics.
 - **Virtual Instruments**: A full suite of virtual tools including Logic Analyzers, Voltmeters, Ammeters, and Wattmeters.
+- **ML Dataset API**: Local HTTP API for batch simulation and rich JSONL dataset export for AI training workflows.
 
 ## Tech Stack
 
@@ -63,6 +64,16 @@ sudo make install
 2. **Probing**: Place probes or simply hover over wires while simulating to see real-time waveforms.
 3. **Analyze**: Use the integrated oscilloscope and measurement tools to verify your design.
 4. **Automate**: Write FluxScripts to automate complex simulation tasks.
+
+## ML Dataset API
+
+VioSpice now includes a Python HTTP API for ML-oriented simulation pipelines. It can run single jobs or large concurrent batches and emit dataset records containing netlists, waveforms, stats, measures, and custom labels.
+
+```bash
+python3 python/scripts/ml_dataset_api.py --port 8787
+```
+
+Documentation: [docs/ML_DATASET_API.md](docs/ML_DATASET_API.md)
 
 ## License
 

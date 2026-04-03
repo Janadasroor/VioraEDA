@@ -21,6 +21,7 @@ public:
 private Q_SLOTS:
     void onAccepted();
     void applyCompatibilityFixes();
+    void openMutualCouplingBuilder();
 
 private:
     void setupUi();
@@ -37,6 +38,7 @@ private:
     QLabel* m_validationLabel;
     QTextBrowser* m_previewEdit;
     QPushButton* m_applyFixesButton;
+    QPushButton* m_mutualCouplingButton;
     QPushButton* m_okButton;
     QPushButton* m_cancelButton;
     SpiceHighlighter* m_highlighter;
