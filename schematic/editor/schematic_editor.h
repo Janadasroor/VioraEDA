@@ -269,7 +269,8 @@ private:
     SimulationSetupDialog::Config m_simConfig;
     bool m_mouseFollowPlacementActive = false;
     QList<SchematicItem*> m_mouseFollowItems;
-    QList<QPointF> m_mouseFollowOffsets;
+    QList<QPointF> m_mouseFollowOriginalPositions;
+    QPointF m_mouseFollowAnchor;
     QAction *m_toggleHeatmapAction = nullptr;
     QString m_mouseFollowActionLabel;
     QMap<QString, class LogicAnalyzerWindow*> m_laWindows;

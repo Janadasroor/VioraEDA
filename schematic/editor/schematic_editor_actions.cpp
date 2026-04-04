@@ -106,6 +106,39 @@
 using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 
+namespace {
+void offsetPointArray(QJsonArray& points, const QPointF& delta) {
+    for (int i = 0; i < points.size(); ++i) {
+        QJsonObject point = points[i].toObject();
+        point["x"] = point["x"].toDouble() + delta.x();
+        point["y"] = point["y"].toDouble() + delta.y();
+        points[i] = point;
+    }
+}
+
+void offsetItemJson(QJsonObject& itemJson, const QPointF& delta) {
+    if (itemJson.contains("x")) itemJson["x"] = itemJson["x"].toDouble() + delta.x();
+    if (itemJson.contains("y")) itemJson["y"] = itemJson["y"].toDouble() + delta.y();
+
+    if (itemJson.contains("points")) {
+        QJsonArray points = itemJson["points"].toArray();
+        offsetPointArray(points, delta);
+        itemJson["points"] = points;
+    }
+
+    if (itemJson.contains("junctions")) {
+        QJsonArray junctions = itemJson["junctions"].toArray();
+        offsetPointArray(junctions, delta);
+        itemJson["junctions"] = junctions;
+    }
+
+    if (itemJson.contains("start_x")) itemJson["start_x"] = itemJson["start_x"].toDouble() + delta.x();
+    if (itemJson.contains("start_y")) itemJson["start_y"] = itemJson["start_y"].toDouble() + delta.y();
+    if (itemJson.contains("end_x")) itemJson["end_x"] = itemJson["end_x"].toDouble() + delta.x();
+    if (itemJson.contains("end_y")) itemJson["end_y"] = itemJson["end_y"].toDouble() + delta.y();
+}
+}
+
 static QString defaultPowerNetFromType(int powerType) {
     switch (powerType) {
         case 0: return "GND";
@@ -571,8 +604,7 @@ void SchematicEditor::onPaste() {
 
     for (const QJsonValue& val : itemsArray) {
         QJsonObject itemJson = val.toObject();
-        itemJson["x"] = itemJson["x"].toDouble() + pasteOffset.x();
-        itemJson["y"] = itemJson["y"].toDouble() + pasteOffset.y();
+        offsetItemJson(itemJson, pasteOffset);
         itemJson["id"] = QUuid::createUuid().toString();
 
         SchematicItem* item = SchematicFileIO::createItemFromJson(itemJson);
@@ -634,8 +666,7 @@ void SchematicEditor::onDuplicate() {
 
     for (const QJsonValue& val : itemsArray) {
         QJsonObject itemJson = val.toObject();
-        itemJson["x"] = itemJson["x"].toDouble() + duplicateOffset.x();
-        itemJson["y"] = itemJson["y"].toDouble() + duplicateOffset.y();
+        offsetItemJson(itemJson, duplicateOffset);
         itemJson["id"] = QUuid::createUuid().toString();
 
         SchematicItem* item = SchematicFileIO::createItemFromJson(itemJson);
