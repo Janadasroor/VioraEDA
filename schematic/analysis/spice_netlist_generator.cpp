@@ -802,6 +802,94 @@ QString rewriteLtspiceBehavioralFunctions(const QString& line, QStringList* warn
     return out;
 }
 
+QStringList tokenizeLtspiceOtaLine(const QString& line) {
+    return line.simplified().split(' ', Qt::SkipEmptyParts);
+}
+
+QString buildNgspiceOtaTranslation(const QString& line) {
+    const QStringList tokens = tokenizeLtspiceOtaLine(line);
+    if (tokens.size() < 10) return QString();
+    if (tokens.at(9).compare("OTA", Qt::CaseInsensitive) != 0) return QString();
+    if (!tokens.at(0).startsWith('A', Qt::CaseInsensitive)) return QString();
+
+    const QString ref = tokens.at(0);
+    const QString n1 = tokens.at(1);
+    const QString n2 = tokens.at(2);
+    const QString n3 = tokens.at(3);
+    const QString n4 = tokens.at(4);
+    const QString rail = tokens.at(6);
+    const QString out = tokens.at(7);
+    const QString gnd = tokens.at(8);
+
+    QMap<QString, QString> params;
+    QSet<QString> flags;
+    for (int i = 10; i < tokens.size(); ++i) {
+        const QString token = tokens.at(i).trimmed();
+        if (token.isEmpty()) continue;
+        const int eq = token.indexOf('=');
+        if (eq >= 0) {
+            QString key = token.left(eq).trimmed().toLower();
+            QString value = token.mid(eq + 1).trimmed();
+            if (value.isEmpty() && i + 1 < tokens.size()) {
+                value = tokens.at(++i).trimmed();
+            }
+            if (!key.isEmpty()) params.insert(key, value);
+        } else {
+            flags.insert(token.toLower());
+        }
+    }
+
+    const QString gm = params.value("g", "1u");
+    const QString refExpr = params.value("ref", "0");
+    const QString upper = params.contains("iout") ? params.value("iout")
+                       : params.contains("isrc") ? params.value("isrc")
+                       : QStringLiteral("10u");
+    const QString lower = params.contains("isink") ? params.value("isink")
+                       : QStringLiteral("-(%1)").arg(upper);
+    const QString rout = params.value("rout").trimmed();
+    const QString cout = params.value("cout").trimmed();
+    const QString vhigh = params.value("vhigh").trimmed();
+    const QString vlow = params.value("vlow").trimmed();
+    const QString epsilon = params.value("epsilon", "1u").trimmed();
+
+    const QString diffExpr = QString("(((V(%1,%2))+(V(%3,%4)))-(%5))")
+        .arg(n1, n2, n3, n4, refExpr);
+    const QString rawExpr = QString("((%1)*(%2))").arg(gm, diffExpr);
+
+    QString currentExpr;
+    if (flags.contains("linear")) {
+        currentExpr = QString("min(max((%1),(%2)),(%3))").arg(rawExpr, lower, upper);
+    } else {
+        const QString posExpr = QString("(u(%1)*((%2)*tanh((%1)/(max(abs((%2)),1e-30)))))")
+            .arg(rawExpr, upper);
+        const QString negExpr = QString("(u(-(%1))*((abs((%2)))*tanh((-(%1))/(max(abs((%2)),1e-30)))))")
+            .arg(rawExpr, lower);
+        currentExpr = QString("((%1)-(%2))").arg(posExpr, negExpr);
+    }
+
+    if (!vhigh.isEmpty() || !vlow.isEmpty()) {
+        const QString highExpr = vhigh.isEmpty() ? QStringLiteral("1e308")
+                                                 : QString("((V(%1,%2))+(%3))").arg(rail, gnd, vhigh);
+        const QString lowExpr = vlow.isEmpty() ? QStringLiteral("-1e308")
+                                               : QString("((V(%1,%2))+(%3))").arg(gnd, gnd, vlow);
+        const QString voutExpr = QString("V(%1,%2)").arg(out, gnd);
+        const QString compliance = QString("(u((%1)-(%2)+(%3))*u((%2)-(%4)+(%3)))")
+            .arg(highExpr, voutExpr, epsilon, lowExpr);
+        currentExpr = QString("((%1)*(%2))").arg(currentExpr, compliance);
+    }
+
+    QStringList lines;
+    lines << QString("* OTA_TRANSLATED %1").arg(ref);
+    lines << QString("B__OTA_%1 %2 %3 I={%4}").arg(sanitizeMixedModeToken(ref), out, gnd, currentExpr);
+    if (!rout.isEmpty()) {
+        lines << QString("R__OTA_%1 %2 %3 %4").arg(sanitizeMixedModeToken(ref), out, gnd, rout);
+    }
+    if (!cout.isEmpty()) {
+        lines << QString("C__OTA_%1 %2 %3 %4").arg(sanitizeMixedModeToken(ref), out, gnd, cout);
+    }
+    return lines.join('\n');
+}
+
 QString rewriteUnsupportedLtspiceBehavioralTimeFunctions(const QString& line, QStringList* warnings = nullptr) {
     QString out = line;
     struct FuncSpec { QString name; int minArgs; int maxArgs; };
@@ -1711,6 +1799,12 @@ QString sanitizeModelIncludeForNgspice(const QString& path) {
         const QString trimmed = line.trimmed();
         if (trimmed.startsWith('*') || trimmed.startsWith(';') || trimmed.startsWith('$')) continue;
 
+        const QString otaTranslation = buildNgspiceOtaTranslation(line);
+        if (!otaTranslation.isEmpty()) {
+            outLines.append(otaTranslation);
+            continue;
+        }
+
         QString sanitizedLine = line;
         sanitizedLine = rewriteLtspiceBehavioralFunctions(sanitizedLine, nullptr);
         sanitizedLine.replace(QRegularExpression("\\bnoiseless\\b", QRegularExpression::CaseInsensitiveOption), QString());
@@ -1721,6 +1815,7 @@ QString sanitizeModelIncludeForNgspice(const QString& path) {
 
     const QString sanitized = outLines.join('\n');
     QByteArray key = fi.absoluteFilePath().toUtf8();
+    key += QByteArrayLiteral("|sanitize_v3|");
     key += QByteArray::number(fi.size());
     key += QByteArray::number(fi.lastModified().toMSecsSinceEpoch());
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex());
