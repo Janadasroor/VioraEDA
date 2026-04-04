@@ -107,6 +107,26 @@ using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 
 namespace {
+QList<SchematicItem*> uniqueTopLevelSchematicItems(const QList<QGraphicsItem*>& graphicsItems) {
+    QList<SchematicItem*> result;
+    QSet<SchematicItem*> seen;
+
+    for (QGraphicsItem* graphicsItem : graphicsItems) {
+        SchematicItem* schematicItem = nullptr;
+        QGraphicsItem* current = graphicsItem;
+        while (current) {
+            schematicItem = dynamic_cast<SchematicItem*>(current);
+            if (schematicItem && !schematicItem->isSubItem()) break;
+            current = current->parentItem();
+        }
+        if (!schematicItem || seen.contains(schematicItem)) continue;
+        seen.insert(schematicItem);
+        result.append(schematicItem);
+    }
+
+    return result;
+}
+
 void offsetPointArray(QJsonArray& points, const QPointF& delta) {
     for (int i = 0; i < points.size(); ++i) {
         QJsonObject point = points[i].toObject();
@@ -548,21 +568,18 @@ void SchematicEditor::onDelete() {
     }
 }
 void SchematicEditor::onCopy() {
-    QList<QGraphicsItem*> selectedItems = m_scene->selectedItems();
+    const QList<SchematicItem*> selectedItems = uniqueTopLevelSchematicItems(m_scene->selectedItems());
     if (selectedItems.isEmpty()) return;
 
     QJsonArray itemsArray;
     int count = 0;
-    for (QGraphicsItem* item : selectedItems) {
-        SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
-        if (sItem) {
-            QJsonObject itemJson = sItem->toJson();
-            itemJson["x"] = sItem->pos().x();
-            itemJson["y"] = sItem->pos().y();
-            itemJson["rotation"] = sItem->rotation();
-            itemsArray.append(itemJson);
-            count++;
-        }
+    for (SchematicItem* sItem : selectedItems) {
+        QJsonObject itemJson = sItem->toJson();
+        itemJson["x"] = sItem->pos().x();
+        itemJson["y"] = sItem->pos().y();
+        itemJson["rotation"] = sItem->rotation();
+        itemsArray.append(itemJson);
+        count++;
     }
     if (itemsArray.isEmpty()) return;
 
@@ -639,7 +656,7 @@ void SchematicEditor::onPaste() {
 }
 
 void SchematicEditor::onDuplicate() {
-    QList<QGraphicsItem*> selectedItems = m_scene->selectedItems();
+    const QList<SchematicItem*> selectedItems = uniqueTopLevelSchematicItems(m_scene->selectedItems());
     if (selectedItems.isEmpty()) {
         statusBar()->showMessage("No items selected to duplicate", 2000);
         return;
@@ -647,16 +664,13 @@ void SchematicEditor::onDuplicate() {
 
     QJsonArray itemsArray;
     int count = 0;
-    for (QGraphicsItem* item : selectedItems) {
-        SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
-        if (sItem) {
-            QJsonObject itemJson = sItem->toJson();
-            itemJson["x"] = sItem->pos().x();
-            itemJson["y"] = sItem->pos().y();
-            itemJson["rotation"] = sItem->rotation();
-            itemsArray.append(itemJson);
-            count++;
-        }
+    for (SchematicItem* sItem : selectedItems) {
+        QJsonObject itemJson = sItem->toJson();
+        itemJson["x"] = sItem->pos().x();
+        itemJson["y"] = sItem->pos().y();
+        itemJson["rotation"] = sItem->rotation();
+        itemsArray.append(itemJson);
+        count++;
     }
     if (itemsArray.isEmpty()) return;
 
