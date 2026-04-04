@@ -101,6 +101,7 @@
 #include <algorithm>
 #include <QTreeWidget>
 #include <QJsonDocument>
+#include <QVector>
 
 using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
@@ -132,6 +133,45 @@ static QString displayPath(const QString& absolutePath, const QString& projectDi
     QDir project(projectDir);
     const QString rel = project.relativeFilePath(absolutePath);
     return rel.startsWith("..") ? QFileInfo(absolutePath).fileName() : rel;
+}
+
+static QString decodeSpiceImportText(const QByteArray& raw) {
+    if (raw.isEmpty()) return QString();
+
+    auto decodeUtf16Le = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = static_cast<ushort>(static_cast<unsigned char>(bytes[i])) |
+                              (static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1])) << 8);
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    auto decodeUtf16Be = [](const QByteArray& bytes, int start) {
+        QVector<ushort> u16;
+        u16.reserve((bytes.size() - start) / 2);
+        for (int i = start; i + 1 < bytes.size(); i += 2) {
+            const ushort ch = (static_cast<ushort>(static_cast<unsigned char>(bytes[i])) << 8) |
+                              static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1]));
+            u16.push_back(ch);
+        }
+        return QString::fromUtf16(u16.constData(), u16.size());
+    };
+
+    if (raw.size() >= 2) {
+        const unsigned char b0 = static_cast<unsigned char>(raw[0]);
+        const unsigned char b1 = static_cast<unsigned char>(raw[1]);
+        if (b0 == 0xFF && b1 == 0xFE) return decodeUtf16Le(raw, 2);
+        if (b0 == 0xFE && b1 == 0xFF) return decodeUtf16Be(raw, 2);
+    }
+
+    QString decoded = QString::fromUtf8(raw);
+    if (decoded.contains(QChar::ReplacementCharacter)) {
+        decoded = QString::fromLatin1(raw);
+    }
+    return decoded;
 }
 
 static QSet<QString> collectHierarchicalSheets(const QString& rootFilePath) {
@@ -1959,13 +1999,14 @@ void SchematicEditor::onImportSpiceSubcircuit() {
 
 void SchematicEditor::onImportSpiceSubcircuitFile(const QString& filePath) {
     SpiceSubcircuitImportDialog dlg(m_projectDir, m_currentFilePath, this);
+    dlg.setSuggestedLibraryFileName(QFileInfo(filePath).fileName());
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         statusBar()->showMessage(QString("Failed to open subcircuit file: %1").arg(filePath), 5000);
         // Fall back to empty dialog
     } else {
-        const QString netlist = QString::fromUtf8(file.readAll());
+        const QString netlist = decodeSpiceImportText(file.readAll());
         file.close();
         dlg.setPreloadedNetlist(netlist);
     }

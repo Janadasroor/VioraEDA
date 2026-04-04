@@ -1699,6 +1699,9 @@ QString sanitizeModelIncludeForNgspice(const QString& path) {
     if (raw.isEmpty()) return path;
 
     QString content = QString::fromUtf8(raw);
+    if (content.contains(QChar::ReplacementCharacter)) {
+        content = QString::fromLatin1(raw);
+    }
     // Strip comment-only lines. This works around ngspice parsing noise seen
     // with some vendor libraries (e.g. LTspice-format comments in large .lib files).
     QStringList outLines;
@@ -1706,8 +1709,14 @@ QString sanitizeModelIncludeForNgspice(const QString& path) {
     const QStringList lines = content.split('\n');
     for (const QString& line : lines) {
         const QString trimmed = line.trimmed();
-        if (trimmed.startsWith('*') || trimmed.startsWith(';')) continue;
-        outLines.append(line);
+        if (trimmed.startsWith('*') || trimmed.startsWith(';') || trimmed.startsWith('$')) continue;
+
+        QString sanitizedLine = line;
+        sanitizedLine = rewriteLtspiceBehavioralFunctions(sanitizedLine, nullptr);
+        sanitizedLine.replace(QRegularExpression("\\bnoiseless\\b", QRegularExpression::CaseInsensitiveOption), QString());
+        sanitizedLine.replace(QRegularExpression("\\s+;.*$"), QString());
+        sanitizedLine.replace(QRegularExpression("\\s{2,}"), QStringLiteral(" "));
+        outLines.append(sanitizedLine.trimmed());
     }
 
     const QString sanitized = outLines.join('\n');
@@ -3107,13 +3116,18 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             if (emittedModelFiles.contains(resolvedPath)) return;
 
             QString emittedPath = resolvedPath;
+            QString emittedDirective = directive;
             if (QFileInfo::exists(resolvedPath)) {
                 emittedPath = sanitizeModelIncludeForNgspice(resolvedPath);
                 emittedPath = QDir::fromNativeSeparators(QDir::cleanPath(emittedPath));
+                // ngspice accepts plain model/subckt files via .include. Using
+                // .lib for standalone cached files causes parse failures because
+                // there is no section selector.
+                emittedDirective = "include";
                 if (emittedModelFiles.contains(emittedPath)) return;
             }
 
-            netlist += QString(".%1 \"%2\"\n").arg(directive, emittedPath);
+            netlist += QString(".%1 \"%2\"\n").arg(emittedDirective, emittedPath);
             emittedModelFiles.insert(resolvedPath);
             emittedModelFiles.insert(emittedPath);
         };

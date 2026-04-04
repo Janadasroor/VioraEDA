@@ -37,6 +37,46 @@ bool startsWithNoCase(const std::string& s, const std::string& prefix) {
     return true;
 }
 
+bool tokenEqualsNoCase(const std::string& token, const std::string& expected) {
+    if (token.size() != expected.size()) return false;
+    for (size_t i = 0; i < token.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(token[i])) !=
+            std::tolower(static_cast<unsigned char>(expected[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int parsePolyDimensionToken(const std::vector<std::string>& tokens, size_t polyIdx) {
+    if (polyIdx >= tokens.size()) return 0;
+
+    auto parsePositiveInt = [](const std::string& raw) -> int {
+        if (raw.empty()) return 0;
+        try {
+            const int value = std::stoi(raw);
+            return value > 0 ? value : 0;
+        } catch (...) {
+            return 0;
+        }
+    };
+
+    const std::string& token = tokens[polyIdx];
+    if (startsWithNoCase(token, "poly(")) {
+        const size_t open = token.find('(');
+        const size_t close = token.find(')', open == std::string::npos ? 0 : open + 1);
+        if (open != std::string::npos && close != std::string::npos && close > open + 1) {
+            return parsePositiveInt(token.substr(open + 1, close - open - 1));
+        }
+    }
+
+    if (tokenEqualsNoCase(token, "poly") && polyIdx + 1 < tokens.size()) {
+        return parsePositiveInt(tokens[polyIdx + 1]);
+    }
+
+    return 0;
+}
+
 std::string stripParensComma(std::string s) {
     s.erase(std::remove(s.begin(), s.end(), '('), s.end());
     s.erase(std::remove(s.begin(), s.end(), ')'), s.end());
@@ -550,28 +590,44 @@ bool SimModelParser::parseLibrary(
             case 'I': inst.type = SimComponentType::CurrentSource; nodeCount = 2; break;
             case 'E': {
                 bool isBehavioral = false;
-                for (const auto& t : compTokens) {
-                    std::string up = t; std::transform(up.begin(), up.end(), up.begin(), ::toupper);
-                    if (up.find("VALUE") != std::string::npos || up.find("POLY") != std::string::npos || 
+                int polyDimension = 0;
+                for (size_t i = 0; i < compTokens.size(); ++i) {
+                    std::string up = compTokens[i];
+                    std::transform(up.begin(), up.end(), up.begin(), ::toupper);
+                    if (up.find("POLY") != std::string::npos) {
+                        polyDimension = parsePolyDimensionToken(compTokens, i);
+                        continue;
+                    }
+                    if (up.find("VALUE") != std::string::npos ||
                         up.find("TABLE") != std::string::npos || up.find("{") != std::string::npos) {
-                        isBehavioral = true; break;
+                        isBehavioral = true;
+                        break;
                     }
                 }
                 inst.type = SimComponentType::VCVS;
-                nodeCount = isBehavioral ? 2 : 4;
+                nodeCount = (polyDimension > 0) ? (2 + static_cast<size_t>(polyDimension) * 2)
+                                                : (isBehavioral ? 2 : 4);
                 break;
             }
             case 'G': {
                 bool isBehavioral = false;
-                for (const auto& t : compTokens) {
-                    std::string up = t; std::transform(up.begin(), up.end(), up.begin(), ::toupper);
-                    if (up.find("VALUE") != std::string::npos || up.find("POLY") != std::string::npos || 
+                int polyDimension = 0;
+                for (size_t i = 0; i < compTokens.size(); ++i) {
+                    std::string up = compTokens[i];
+                    std::transform(up.begin(), up.end(), up.begin(), ::toupper);
+                    if (up.find("POLY") != std::string::npos) {
+                        polyDimension = parsePolyDimensionToken(compTokens, i);
+                        continue;
+                    }
+                    if (up.find("VALUE") != std::string::npos ||
                         up.find("TABLE") != std::string::npos || up.find("{") != std::string::npos) {
-                        isBehavioral = true; break;
+                        isBehavioral = true;
+                        break;
                     }
                 }
                 inst.type = SimComponentType::VCCS;
-                nodeCount = isBehavioral ? 2 : 4;
+                nodeCount = (polyDimension > 0) ? (2 + static_cast<size_t>(polyDimension) * 2)
+                                                : (isBehavioral ? 2 : 4);
                 break;
             }
             case 'F': inst.type = SimComponentType::CCCS; nodeCount = 2; break;

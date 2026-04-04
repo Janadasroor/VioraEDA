@@ -12,6 +12,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QComboBox>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -137,16 +138,22 @@ void SpiceSubcircuitImportDialog::setupUi() {
     m_nameEdit->setReadOnly(true);
     formLayout->addWidget(m_nameEdit, 0, 1);
 
-    formLayout->addWidget(new QLabel("Library File", this), 1, 0);
+    m_subcktPickerLabel = new QLabel("Selected Subckt", this);
+    m_subcktPicker = new QComboBox(this);
+    m_subcktPicker->setEnabled(false);
+    formLayout->addWidget(m_subcktPickerLabel, 1, 0);
+    formLayout->addWidget(m_subcktPicker, 1, 1);
+
+    formLayout->addWidget(new QLabel("Library File", this), 2, 0);
     m_fileNameEdit = new QLineEdit(this);
     m_fileNameEdit->setPlaceholderText("opamp.lib");
-    formLayout->addWidget(m_fileNameEdit, 1, 1);
+    formLayout->addWidget(m_fileNameEdit, 2, 1);
 
-    formLayout->addWidget(new QLabel("Save Path", this), 2, 0);
+    formLayout->addWidget(new QLabel("Save Path", this), 3, 0);
     m_pathPreviewLabel = new QLabel(this);
     m_pathPreviewLabel->setWordWrap(true);
     m_pathPreviewLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    formLayout->addWidget(m_pathPreviewLabel, 2, 1);
+    formLayout->addWidget(m_pathPreviewLabel, 3, 1);
     mainLayout->addLayout(formLayout);
 
     auto* pinsLabel = new QLabel("Pin Mapping Setup", this);
@@ -188,6 +195,7 @@ void SpiceSubcircuitImportDialog::setupUi() {
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_textEdit, &QPlainTextEdit::textChanged, this, &SpiceSubcircuitImportDialog::updateFromText);
     connect(m_fileNameEdit, &QLineEdit::textChanged, this, &SpiceSubcircuitImportDialog::refreshPathPreview);
+    connect(m_subcktPicker, &QComboBox::currentIndexChanged, this, &SpiceSubcircuitImportDialog::onSelectedSubcktChanged);
     connect(m_openSymbolEditorCheck, &QCheckBox::toggled, m_autoPlaceAfterSaveCheck, &QWidget::setEnabled);
     connect(m_aiGenerateBtn, &QPushButton::clicked, this, &SpiceSubcircuitImportDialog::onAiGenerateClicked);
 }
@@ -210,17 +218,12 @@ void SpiceSubcircuitImportDialog::refreshPathPreview() {
     m_pathPreviewLabel->setText(targetAbsolutePath());
 }
 
-void SpiceSubcircuitImportDialog::updateFromText() {
-    const QString text = m_textEdit->toPlainText();
+QList<SpiceSubcircuitImportDialog::ParsedSubckt> SpiceSubcircuitImportDialog::parseSubckts(const QString& text,
+                                                                                            QStringList* errors,
+                                                                                            QStringList* warnings) const {
     const QStringList lines = collapseContinuationLines(text);
-    const QString previousSubcktName = m_result.subcktName;
-
-    QStringList errors;
-    QStringList warnings;
-    QString subcktName;
-    QStringList pins;
+    QList<ParsedSubckt> parsed;
     QStringList subcktStack;
-    int subcktCount = 0;
 
     for (int i = 0; i < lines.size(); ++i) {
         const QString line = lines.at(i).trimmed();
@@ -233,43 +236,44 @@ void SpiceSubcircuitImportDialog::updateFromText() {
         const QString card = parts.first().toLower();
 
         if (card == ".subckt") {
-            ++subcktCount;
             if (parts.size() < 2) {
-                errors << QString("Line %1: .subckt is missing a subcircuit name.").arg(lineNo);
+                if (errors) errors->append(QString("Line %1: .subckt is missing a subcircuit name.").arg(lineNo));
                 continue;
             }
-            if (subcktName.isEmpty()) {
-                subcktName = parts.at(1);
-                for (int p = 2; p < parts.size(); ++p) pins.append(parts.at(p));
+
+            ParsedSubckt subckt;
+            subckt.name = parts.at(1);
+            for (int p = 2; p < parts.size(); ++p) {
+                if (parts.at(p).contains('=')) break;
+                subckt.pins.append(parts.at(p));
             }
+            parsed.append(subckt);
             subcktStack.append(parts.at(1));
         } else if (card == ".ends") {
             if (subcktStack.isEmpty()) {
-                errors << QString("Line %1: .ends has no matching .subckt.").arg(lineNo);
+                if (errors) errors->append(QString("Line %1: .ends has no matching .subckt.").arg(lineNo));
             } else {
                 const QString openName = subcktStack.takeLast();
                 if (parts.size() >= 2 && parts.at(1).compare(openName, Qt::CaseInsensitive) != 0) {
-                    errors << QString("Line %1: .ends %2 does not match open .subckt %3.").arg(lineNo).arg(parts.at(1), openName);
+                    if (errors) errors->append(QString("Line %1: .ends %2 does not match open .subckt %3.").arg(lineNo).arg(parts.at(1), openName));
                 }
             }
         }
     }
 
-    if (subcktCount == 0) {
-        errors << "No .subckt definition found.";
-    } else if (subcktCount > 1) {
-        warnings << "Multiple .subckt definitions found; only the first one will be used for metadata.";
+    if (parsed.isEmpty()) {
+        if (errors) errors->append("No .subckt definition found.");
+    } else if (parsed.size() > 1) {
+        if (warnings) warnings->append(QString("Library contains %1 .subckt definitions. The selected one will drive symbol metadata, while the entire library file will be preserved on disk.").arg(parsed.size()));
     }
-    if (!subcktStack.isEmpty()) {
-        errors << QString("Missing .ends for subcircuit %1.").arg(subcktStack.last());
+    if (!subcktStack.isEmpty() && errors) {
+        errors->append(QString("Missing .ends for subcircuit %1.").arg(subcktStack.last()));
     }
 
-    m_nameEdit->setText(subcktName);
-    if (!subcktName.isEmpty() && (m_fileNameEdit->text().trimmed().isEmpty() || m_fileNameEdit->text().trimmed() == suggestedFileName(previousSubcktName))) {
-        m_fileNameEdit->setText(suggestedFileName(subcktName));
-    }
-    refreshPathPreview();
+    return parsed;
+}
 
+void SpiceSubcircuitImportDialog::rebuildPinTable(const QStringList& pins) {
     const QList<Result::PinMapping> previousMappings = m_result.pinMappings;
 
     m_pinTable->setRowCount(pins.size());
@@ -278,11 +282,11 @@ void SpiceSubcircuitImportDialog::updateFromText() {
         QString symbolLabel = subcktPin;
         int symbolPinNumber = row + 1;
 
-        if (row < previousMappings.size()) {
-            const Result::PinMapping& prev = previousMappings.at(row);
+        for (const Result::PinMapping& prev : previousMappings) {
             if (prev.subcktPin.compare(subcktPin, Qt::CaseInsensitive) == 0) {
                 if (!prev.symbolPinName.trimmed().isEmpty()) symbolLabel = prev.symbolPinName.trimmed();
                 if (prev.symbolPinNumber > 0) symbolPinNumber = prev.symbolPinNumber;
+                break;
             }
         }
 
@@ -295,6 +299,55 @@ void SpiceSubcircuitImportDialog::updateFromText() {
         m_pinTable->setItem(row, 1, symbolPinNumberItem);
         m_pinTable->setItem(row, 2, symbolLabelItem);
     }
+}
+
+void SpiceSubcircuitImportDialog::updateFromText() {
+    const QString text = m_textEdit->toPlainText();
+    const QString previousSubcktName = m_result.subcktName;
+
+    QStringList errors;
+    QStringList warnings;
+    m_parsedSubckts = parseSubckts(text, &errors, &warnings);
+
+    const QString oldSelection = m_subcktPicker->currentData().toString();
+    QSignalBlocker blocker(m_subcktPicker);
+    m_subcktPicker->clear();
+    for (const ParsedSubckt& parsed : m_parsedSubckts) {
+        m_subcktPicker->addItem(QString("%1  (%2 pin%3)").arg(parsed.name).arg(parsed.pins.size()).arg(parsed.pins.size() == 1 ? "" : "s"),
+                                parsed.name);
+    }
+    m_subcktPicker->setEnabled(m_parsedSubckts.size() > 1);
+    m_subcktPickerLabel->setVisible(m_parsedSubckts.size() > 1);
+    m_subcktPicker->setVisible(m_parsedSubckts.size() > 1);
+
+    int selectedIndex = 0;
+    if (!oldSelection.isEmpty()) {
+        const int idx = m_subcktPicker->findData(oldSelection);
+        if (idx >= 0) selectedIndex = idx;
+    } else if (!previousSubcktName.isEmpty()) {
+        const int idx = m_subcktPicker->findData(previousSubcktName);
+        if (idx >= 0) selectedIndex = idx;
+    }
+    if (m_subcktPicker->count() > 0) m_subcktPicker->setCurrentIndex(selectedIndex);
+
+    QString subcktName;
+    QStringList pins;
+    if (selectedIndex >= 0 && selectedIndex < m_parsedSubckts.size()) {
+        subcktName = m_parsedSubckts.at(selectedIndex).name;
+        pins = m_parsedSubckts.at(selectedIndex).pins;
+    }
+
+    m_nameEdit->setText(subcktName);
+    const QString currentFileName = m_fileNameEdit->text().trimmed();
+    if (!m_preferredLibraryFileName.trimmed().isEmpty()) {
+        if (currentFileName.isEmpty() || currentFileName == suggestedFileName(previousSubcktName) || currentFileName == previousSubcktName + ".lib") {
+            m_fileNameEdit->setText(m_preferredLibraryFileName);
+        }
+    } else if (!subcktName.isEmpty() && (currentFileName.isEmpty() || currentFileName == suggestedFileName(previousSubcktName))) {
+        m_fileNameEdit->setText(suggestedFileName(subcktName));
+    }
+    refreshPathPreview();
+    rebuildPinTable(pins);
 
     QStringList messages;
     if (!errors.isEmpty()) {
@@ -309,7 +362,13 @@ void SpiceSubcircuitImportDialog::updateFromText() {
 
     if (messages.isEmpty()) {
         m_statusLabel->setStyleSheet("color: #15803d;");
-        m_statusLabel->setText(QString("Ready to save %1 with %2 pin(s).").arg(subcktName.isEmpty() ? QString("subcircuit") : subcktName).arg(pins.size()));
+        const QString summary = (m_parsedSubckts.size() > 1)
+            ? QString("Ready to save library with %1 subcircuits. Symbol metadata is mapped to %2 (%3 pin(s)).")
+                  .arg(m_parsedSubckts.size())
+                  .arg(subcktName.isEmpty() ? QString("the selected subcircuit") : subcktName)
+                  .arg(pins.size())
+            : QString("Ready to save %1 with %2 pin(s).").arg(subcktName.isEmpty() ? QString("subcircuit") : subcktName).arg(pins.size());
+        m_statusLabel->setText(summary);
     } else if (!errors.isEmpty()) {
         m_statusLabel->setStyleSheet("color: #b91c1c;");
         m_statusLabel->setText(messages.join('\n'));
@@ -400,6 +459,19 @@ void SpiceSubcircuitImportDialog::setPreloadedNetlist(const QString& netlist) {
     if (m_textEdit) {
         m_textEdit->setPlainText(netlist);
     }
+}
+
+void SpiceSubcircuitImportDialog::setSuggestedLibraryFileName(const QString& fileName) {
+    m_preferredLibraryFileName = QFileInfo(fileName).fileName().trimmed();
+    if (!m_preferredLibraryFileName.isEmpty() && m_fileNameEdit && m_fileNameEdit->text().trimmed().isEmpty()) {
+        m_fileNameEdit->setText(m_preferredLibraryFileName);
+    }
+    refreshPathPreview();
+}
+
+void SpiceSubcircuitImportDialog::onSelectedSubcktChanged() {
+    if (!m_textEdit) return;
+    updateFromText();
 }
 
 void SpiceSubcircuitImportDialog::onAiGenerateClicked() {
