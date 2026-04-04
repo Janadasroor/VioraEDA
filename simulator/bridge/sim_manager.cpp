@@ -18,6 +18,7 @@
 #include <QPointer>
 #include <QSharedPointer>
 #include <QRegularExpression>
+#include <QSet>
 
 namespace {
 
@@ -77,6 +78,76 @@ QString stripOuterQuotes(const QString& text) {
         return text.mid(1, text.size() - 2);
     }
     return text;
+}
+
+QString enrichNgspiceFailureMessage(const QString& baseMessage, const QStringList& tail) {
+    QString msg = baseMessage;
+    if (!tail.isEmpty()) {
+        msg += "\n" + tail.join("\n");
+    }
+
+    const QString joined = tail.join('\n');
+    QStringList hints;
+
+    const bool sawOtaFailure =
+        joined.contains("unable to find definition of model", Qt::CaseInsensitive) &&
+        joined.contains(QRegularExpression("\\bota\\b", QRegularExpression::CaseInsensitiveOption));
+    if (sawOtaFailure) {
+        hints << "This library uses LTspice's built-in OTA A-device syntax. Your ngspice build includes XSPICE code models, but the ngspice source tree does not provide an OTA code model, so these macromodels cannot run without translation.";
+    }
+
+    if (joined.contains("no such function 'uplim'", Qt::CaseInsensitive) ||
+        joined.contains("no such function 'dnlim'", Qt::CaseInsensitive) ||
+        joined.contains("can't find model 'noiseless'", Qt::CaseInsensitive)) {
+        hints << "The failing library still contains LTspice-specific syntax such as uplim/dnlim or noiseless. Import and run the model through VioSpice's sanitized include path rather than including the raw LTspice file directly.";
+    }
+
+    if (!hints.isEmpty()) {
+        msg += "\n\nCompatibility hints:\n- " + hints.join("\n- ");
+    }
+    return msg;
+}
+
+QString detectUnsupportedOtaModelUsage(const QString& netlistText) {
+    const QRegularExpression includeRe(
+        QStringLiteral("^\\s*\\.(?:include|lib)\\s+\"?([^\"\\r\\n]+)\"?"),
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption);
+    const QRegularExpression otaLineRe(
+        R"(^\s*A\S*.*\bOTA\b)",
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption);
+
+    auto hasUnsupportedOta = [&](const QString& text) {
+        return otaLineRe.match(text).hasMatch();
+    };
+
+    if (hasUnsupportedOta(netlistText)) {
+        return QStringLiteral("The generated netlist uses LTspice OTA A-device syntax, which this ngspice backend does not support directly.");
+    }
+
+    QSet<QString> scanned;
+    QRegularExpressionMatchIterator it = includeRe.globalMatch(netlistText);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        const QString includePath = QDir::cleanPath(match.captured(1).trimmed());
+        if (includePath.isEmpty() || scanned.contains(includePath)) continue;
+        scanned.insert(includePath);
+
+        QFile file(includePath);
+        if (!file.open(QIODevice::ReadOnly)) continue;
+        QString content = QString::fromUtf8(file.readAll());
+        if (content.contains(QChar::ReplacementCharacter)) {
+            file.seek(0);
+            content = QString::fromLatin1(file.readAll());
+        }
+        file.close();
+
+        if (hasUnsupportedOta(content)) {
+            return QString("The included model library %1 uses LTspice OTA A-device syntax, which this ngspice backend does not support directly. Import it through a translated model path or use a non-OTA variant.")
+                .arg(includePath);
+        }
+    }
+
+    return QString();
 }
 
 QStringList tokenizeStepFileLine(const QString& line) {
@@ -870,6 +941,15 @@ void SimManager::mergeStepSweepResults(const SimResults& runResults, const QStri
 }
 
 void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
+    const QString otaCompatibilityError = detectUnsupportedOtaModelUsage(netlistContent);
+    if (!otaCompatibilityError.isEmpty()) {
+        Q_EMIT logMessage(otaCompatibilityError);
+        Q_EMIT errorOccurred(otaCompatibilityError);
+        Q_EMIT simulationFinished(SimResults());
+        cleanupSimulation();
+        return;
+    }
+
     // Create a temporary file that auto-deletes when the object is destroyed.
     // However, we need it to persist until simulation load.
     // We'll manage it via a member or just use a transient one and pass path.
@@ -970,10 +1050,9 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
 
     connect(proc, &QProcess::errorOccurred, this, [this, safeTempFile, proc, processLogTail](QProcess::ProcessError error) {
         if (proc != m_ngspiceProcess) return;
-        QString msg = QString("Failed to start ngspice process (%1).").arg(static_cast<int>(error));
-        if (!processLogTail->isEmpty()) {
-            msg += "\n" + processLogTail->join("\n");
-        }
+        const QString msg = enrichNgspiceFailureMessage(
+            QString("Failed to start ngspice process (%1).").arg(static_cast<int>(error)),
+            *processLogTail);
         Q_EMIT logMessage(msg);
         Q_EMIT errorOccurred(msg);
         if (safeTempFile) safeTempFile->deleteLater();
@@ -995,10 +1074,9 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
             }
         }
         if (exitStatus != QProcess::NormalExit || exitCode != 0) {
-            QString msg = QString("Ngspice process failed (exit code %1).").arg(exitCode);
-            if (!processLogTail->isEmpty()) {
-                msg += "\n" + processLogTail->join("\n");
-            }
+            const QString msg = enrichNgspiceFailureMessage(
+                QString("Ngspice process failed (exit code %1).").arg(exitCode),
+                *processLogTail);
             Q_EMIT logMessage(msg);
             Q_EMIT errorOccurred(msg);
             if (safeTempFile) safeTempFile->deleteLater();

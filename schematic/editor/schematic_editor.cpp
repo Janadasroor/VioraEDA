@@ -844,10 +844,11 @@ void SchematicEditor::updateCoordinates(QPointF pos) {
 
     if (m_mouseFollowPlacementActive && m_view && m_scene && !m_mouseFollowItems.isEmpty()) {
         const QPointF target = m_view->snapToGridOrPin(pos).point;
+        const QPointF delta = target - m_mouseFollowAnchor;
         for (int i = 0; i < m_mouseFollowItems.size(); ++i) {
             SchematicItem* item = m_mouseFollowItems[i];
             if (!item || item->scene() != m_scene) continue;
-            item->setPos(target + m_mouseFollowOffsets.value(i));
+            item->setPos(m_mouseFollowOriginalPositions.value(i) + delta);
         }
     }
 }
@@ -868,11 +869,12 @@ void SchematicEditor::beginMouseFollowPlacement(const QList<SchematicItem*>& ite
 
     const QPointF anchor = bounds.center();
     m_mouseFollowItems.clear();
-    m_mouseFollowOffsets.clear();
+    m_mouseFollowOriginalPositions.clear();
+    m_mouseFollowAnchor = anchor;
     for (SchematicItem* item : items) {
         if (!item || item->scene() != m_scene) continue;
         m_mouseFollowItems.append(item);
-        m_mouseFollowOffsets.append(item->pos() - anchor);
+        m_mouseFollowOriginalPositions.append(item->pos());
     }
     if (m_mouseFollowItems.isEmpty()) return;
 
@@ -882,9 +884,10 @@ void SchematicEditor::beginMouseFollowPlacement(const QList<SchematicItem*>& ite
 
     const QPointF cursorScene = m_view->mapToScene(m_view->mapFromGlobal(QCursor::pos()));
     const QPointF target = m_view->snapToGridOrPin(cursorScene).point;
+    const QPointF delta = target - m_mouseFollowAnchor;
     for (int i = 0; i < m_mouseFollowItems.size(); ++i) {
         if (SchematicItem* item = m_mouseFollowItems[i]) {
-            item->setPos(target + m_mouseFollowOffsets[i]);
+            item->setPos(m_mouseFollowOriginalPositions[i] + delta);
         }
     }
 
@@ -900,7 +903,8 @@ void SchematicEditor::endMouseFollowPlacement(bool cancel) {
     }
     m_mouseFollowPlacementActive = false;
     m_mouseFollowItems.clear();
-    m_mouseFollowOffsets.clear();
+    m_mouseFollowOriginalPositions.clear();
+    m_mouseFollowAnchor = QPointF();
     m_mouseFollowActionLabel.clear();
 
     if (cancel && m_scene && m_undoStack && !activeItems.isEmpty()) {
