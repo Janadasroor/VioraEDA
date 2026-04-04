@@ -10,6 +10,7 @@ class QDialogButtonBox;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
+class QComboBox;
 class QTableWidget;
 class SpiceHighlighter;
 class QPushButton;
@@ -44,20 +45,29 @@ public:
 
     Result result() const { return m_result; }
     void setPreloadedNetlist(const QString& netlist);
+    void setSuggestedLibraryFileName(const QString& fileName);
 
 private Q_SLOTS:
     void onAccepted();
     void updateFromText();
+    void onSelectedSubcktChanged();
     void onAiGenerateClicked();
     void onAiProcessFinished(int exitCode);
     void onAiProcessReadyRead();
 
 private:
+    struct ParsedSubckt {
+        QString name;
+        QStringList pins;
+    };
+
     void setupUi();
     QString baseDirectory() const;
     QString suggestedFileName(const QString& subcktName) const;
     QString targetAbsolutePath() const;
     void refreshPathPreview();
+    QList<ParsedSubckt> parseSubckts(const QString& text, QStringList* errors, QStringList* warnings) const;
+    void rebuildPinTable(const QStringList& pins);
 
     QString m_projectDir;
     QString m_currentFilePath;
@@ -68,6 +78,8 @@ private:
     QLineEdit* m_fileNameEdit;
     QLabel* m_pathPreviewLabel;
     QLabel* m_statusLabel;
+    QLabel* m_subcktPickerLabel;
+    QComboBox* m_subcktPicker;
     QTableWidget* m_pinTable;
     QCheckBox* m_insertIncludeCheck;
     QCheckBox* m_openSymbolEditorCheck;
@@ -79,6 +91,8 @@ private:
     QProgressBar* m_progressBar;
     QProcess* m_aiProcess = nullptr;
     QString m_aiResponseBuffer;
+    QString m_preferredLibraryFileName;
+    QList<ParsedSubckt> m_parsedSubckts;
 };
 
 #endif

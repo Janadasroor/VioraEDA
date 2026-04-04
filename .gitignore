@@ -90,4 +90,5 @@ viospicelib/*
 test_netlist.json
 *.pcb
 TESTING.md
+/tmp/*
  

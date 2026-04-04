@@ -1719,11 +1719,13 @@ void SymbolLibraryManager::createDefaultBuiltInLibrary() {
         text.data["vAlign"] = "center";
         s.addPrimitive(text);
         
-        // Control pins (usually 1, 2) and output pins (3, 4)
-        s.addPrimitive(SymbolPrimitive::createPin(QPointF(-45, -15), 1, "C+"));
-        s.addPrimitive(SymbolPrimitive::createPin(QPointF(-45, 15), 2, "C-"));
-        s.addPrimitive(SymbolPrimitive::createPin(QPointF(45, -15), 3, "O+"));
-        s.addPrimitive(SymbolPrimitive::createPin(QPointF(45, 15), 4, "O-"));
+        // Keep control pins on the left and output pins on the right, but number
+        // them in SPICE order so the netlister emits:
+        // E/G ref O+ O- C+ C- gain
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(-45, -15), 3, "C+"));
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(-45, 15), 4, "C-"));
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(45, -15), 1, "O+"));
+        s.addPrimitive(SymbolPrimitive::createPin(QPointF(45, 15), 2, "O-"));
         
         addSym(s);
     };

@@ -1,6 +1,9 @@
 #include "../core/sim_model_parser.h"
 
+#include <QFile>
+
 #include <iostream>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -246,6 +249,68 @@ void testMutualInductorCardIsAccepted() {
     }
 }
 
+void testPolyControlledSourcesAreAccepted() {
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    const std::string content =
+        ".subckt ADI_POLY INP INN VP VN OUT\n"
+        "EREF 98 0 POLY(2) (VP,0) (VN,0) 0 0.5 0.5\n"
+        "G1 98 30 POLY(2) (INP,INN) (VP,VN) 0 4.574E-04 4.574E-04\n"
+        "H1 VP 10 POLY(1) VOUT 1.87 37.9\n"
+        ".ends ADI_POLY\n";
+
+    const bool ok = SimModelParser::parseLibrary(netlist, content, SimModelParseOptions(), &diags);
+    require(ok, "parseLibrary failed for POLY controlled-source case");
+
+    const SimSubcircuit* sub = netlist.findSubcircuit("ADI_POLY");
+    require(sub != nullptr, "ADI_POLY subcircuit missing");
+    require(sub->components.size() == 3, "unexpected component count for POLY controlled-source case");
+    require(sub->components[0].nodes.size() == 6, "POLY E source should keep output nodes plus two control pairs");
+    require(sub->components[1].nodes.size() == 6, "POLY G source should keep output nodes plus two control pairs");
+    require(sub->components[2].nodes.size() == 2, "POLY H source should preserve output nodes");
+
+    for (const auto& d : diags) {
+        if (d.severity == SimParseDiagnosticSeverity::Warning &&
+            d.message.find("insufficient node tokens") != std::string::npos) {
+            throw std::runtime_error("POLY controlled source incorrectly reported as malformed: " + d.text);
+        }
+    }
+}
+
+void testAdiLibraryParsesAllSubckts() {
+    QFile file(QStringLiteral("/home/jnd/qt_projects/viospice/tmp/ADI.lib"));
+    require(file.open(QIODevice::ReadOnly), "failed to open tmp/ADI.lib");
+    const std::string content = QString::fromLatin1(file.readAll()).toStdString();
+    file.close();
+
+    const std::regex subcktRe("^\\.subckt\\s+(\\S+)", std::regex::icase | std::regex::multiline);
+    const std::ptrdiff_t expectedCount = std::distance(
+        std::sregex_iterator(content.begin(), content.end(), subcktRe),
+        std::sregex_iterator());
+    require(expectedCount > 0, "tmp/ADI.lib did not contain any .subckt cards");
+
+    SimNetlist netlist;
+    std::vector<SimParseDiagnostic> diags;
+    SimModelParseOptions options;
+    options.sourceName = "tmp/ADI.lib";
+    const bool ok = SimModelParser::parseLibrary(netlist, content, options, &diags);
+    require(ok, "parseLibrary failed for tmp/ADI.lib");
+
+    const auto& subs = netlist.subcircuits();
+    require(static_cast<std::ptrdiff_t>(subs.size()) == expectedCount, "subckt count mismatch while parsing tmp/ADI.lib");
+    require(netlist.findSubcircuit("AD8047") != nullptr, "AD8047 subckt missing from tmp/ADI.lib");
+    require(netlist.findSubcircuit("AD8515") != nullptr, "AD8515 subckt missing from tmp/ADI.lib");
+    require(netlist.findSubcircuit("OP727") != nullptr, "OP727 subckt missing from tmp/ADI.lib");
+    require(netlist.findSubcircuit("AD8479") != nullptr, "AD8479 subckt missing from tmp/ADI.lib");
+
+    for (const auto& d : diags) {
+        if (d.severity == SimParseDiagnosticSeverity::Error) {
+            throw std::runtime_error("unexpected parse error in tmp/ADI.lib at line " +
+                                     std::to_string(d.line) + ": " + d.message + " :: " + d.text);
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -260,6 +325,8 @@ int main() {
         testNonAsciiAndXSpiceParsing();
         testBsim4MultilineModelParsing();
         testMutualInductorCardIsAccepted();
+        testPolyControlledSourcesAreAccepted();
+        testAdiLibraryParsesAllSubckts();
         std::cout << "[PASS] model parser compatibility checks passed." << std::endl;
         return 0;
     } catch (const std::exception& ex) {
