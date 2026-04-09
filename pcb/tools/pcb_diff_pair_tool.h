@@ -28,7 +28,11 @@ public:
 
 private:
     bool detectPairNetsAtPoint(const QPointF& scenePos, QString& pNet, QString& nNet, QString& pairBase) const;
-    QPointF pairOffsetForTarget(const QPointF& pFrom, const QPointF& pTo, const QPointF& nFrom) const;
+    QVector<QPointF> primaryRoutePolyline(const QPointF& from, const QPointF& to);
+    double choosePairSideSign(const QVector<QPointF>& primaryPolyline, const QPointF& mateStart) const;
+    QVector<QPointF> pairedRoutePolyline(const QVector<QPointF>& primaryPolyline, double offsetDistance, double sideSign) const;
+    bool polylineBlockedForNet(const QVector<QPointF>& polyline, const QString& netName) const;
+    QVector<QPointF> adaptivePairedRoutePolyline(const QVector<QPointF>& primaryPolyline, const QPointF& mateStart, const QString& netName) const;
     void startDiffPair(QPointF p_pos, QPointF n_pos);
     void updateDiffPreview(QPointF p_pos);
     void addDiffSegment(QPointF p_pos);

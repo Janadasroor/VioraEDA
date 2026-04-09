@@ -378,7 +378,11 @@ void MainWindow::createMenuBar() {
     QAction* panelizeAction = toolsMenu->addAction("Panelize Board...");
     panelizeAction->setShortcut(QKeySequence("Ctrl+Shift+P"));
     connect(panelizeAction, &QAction::triggered, this, &MainWindow::onPanelizeBoard);
-    toolsMenu->addAction("Measure Distance");
+    QAction* measureAction = toolsMenu->addAction("Measure Distance");
+    measureAction->setShortcut(QKeySequence("M"));
+    connect(measureAction, &QAction::triggered, this, [this]() {
+        if (m_view) m_view->setCurrentTool("Measure");
+    });
     toolsMenu->addAction("Board Setup", this, &MainWindow::onBoardSetup);
     toolsMenu->addAction("Via Stitching...", this, &MainWindow::onViaStitching);
     toolsMenu->addSeparator();

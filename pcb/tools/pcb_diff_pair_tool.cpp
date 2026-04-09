@@ -11,6 +11,8 @@
 #include <algorithm>
 
 namespace {
+constexpr double kPairSpacingEps = 1e-6;
+
 bool parseDiffNet(const QString& net, QString& base, bool& isP) {
     if (net.isEmpty() || net == "No Net") return false;
     const QString upper = net.toUpper();
@@ -35,6 +37,55 @@ bool parseDiffNet(const QString& net, QString& base, bool& isP) {
 
 QString makeDiffNet(const QString& base, bool pSide) {
     return base + (pSide ? "_P" : "_N");
+}
+
+bool pointsNearPair(const QPointF& a, const QPointF& b, double eps = 1e-3) {
+    return QLineF(a, b).length() <= eps;
+}
+
+QPointF unitLeftNormal(const QPointF& from, const QPointF& to) {
+    const QPointF d = to - from;
+    const double len = std::hypot(d.x(), d.y());
+    if (len < kPairSpacingEps) return QPointF(0.0, 0.0);
+    return QPointF(-d.y() / len, d.x() / len);
+}
+
+bool intersectInfiniteLines(const QPointF& a1, const QPointF& a2,
+                            const QPointF& b1, const QPointF& b2,
+                            QPointF& out) {
+    const QPointF r = a2 - a1;
+    const QPointF s = b2 - b1;
+    const double det = r.x() * s.y() - r.y() * s.x();
+    if (std::abs(det) < kPairSpacingEps) return false;
+
+    const QPointF qp = b1 - a1;
+    const double t = (qp.x() * s.y() - qp.y() * s.x()) / det;
+    out = a1 + r * t;
+    return true;
+}
+
+QVector<QPointF> dedupePolyline(const QVector<QPointF>& points) {
+    QVector<QPointF> out;
+    for (const QPointF& p : points) {
+        if (out.isEmpty() || !pointsNearPair(out.last(), p)) out.append(p);
+    }
+    return out;
+}
+
+void setLinePreviewSegment(QGraphicsLineItem* item, const QPointF& a, const QPointF& b) {
+    if (!item) return;
+    if (QLineF(a, b).length() < 0.01) {
+        item->hide();
+        return;
+    }
+    item->setLine(QLineF(a, b));
+    item->show();
+}
+
+void setPathPreviewSegment(QGraphicsPathItem* item, const QPainterPath& path) {
+    if (!item) return;
+    item->setPath(path);
+    item->setVisible(!path.isEmpty());
 }
 }
 
@@ -164,19 +215,148 @@ bool PCBDiffPairTool::detectPairNetsAtPoint(const QPointF& scenePos, QString& pN
     return true;
 }
 
-QPointF PCBDiffPairTool::pairOffsetForTarget(const QPointF& pFrom, const QPointF& pTo, const QPointF& nFrom) const {
-    QPointF d = pTo - pFrom;
-    const double len = std::hypot(d.x(), d.y());
-    if (len < 1e-9) {
-        return nFrom - pFrom;
+QVector<QPointF> PCBDiffPairTool::primaryRoutePolyline(const QPointF& from, const QPointF& to) {
+    QVector<QPointF> polyline;
+    polyline.append(from);
+
+    if (m_routingMode == Hugging) {
+        const QPainterPath path = calculateHuggingPath(from, to);
+        for (int i = 1; i < path.elementCount(); ++i) {
+            polyline.append(QPointF(path.elementAt(i).x, path.elementAt(i).y));
+        }
+        if (polyline.size() == 1) polyline.append(to);
+        return dedupePolyline(polyline);
     }
 
-    QPointF normal(-d.y() / len, d.x() / len);
-    QPointF a = normal * (m_pairGap + m_traceWidth);
-    QPointF b = -a;
-    const double da = QLineF((pFrom + a), nFrom).length();
-    const double db = QLineF((pFrom + b), nFrom).length();
-    return (da <= db) ? a : b;
+    QPointF elbow;
+    if (m_routingMode == WalkAround) {
+        elbow = chooseWalkAroundElbow(from, to);
+    } else {
+        const double dx = to.x() - from.x();
+        const double dy = to.y() - from.y();
+        if (std::abs(dx) > std::abs(dy)) {
+            elbow = QPointF(from.x() + std::copysign(std::abs(dy), dx), to.y());
+        } else {
+            elbow = QPointF(to.x(), from.y() + std::copysign(std::abs(dx), dy));
+        }
+    }
+
+    if (!pointsNearPair(from, elbow)) polyline.append(elbow);
+    if (!pointsNearPair(polyline.last(), to)) polyline.append(to);
+    return dedupePolyline(polyline);
+}
+
+double PCBDiffPairTool::choosePairSideSign(const QVector<QPointF>& primaryPolyline, const QPointF& mateStart) const {
+    const QVector<QPointF> primary = dedupePolyline(primaryPolyline);
+    if (primary.size() < 2) return 1.0;
+
+    int firstSeg = -1;
+    for (int i = 0; i + 1 < primary.size(); ++i) {
+        if (!pointsNearPair(primary[i], primary[i + 1])) {
+            firstSeg = i;
+            break;
+        }
+    }
+    if (firstSeg < 0) return 1.0;
+
+    const QPointF firstNormal = unitLeftNormal(primary[firstSeg], primary[firstSeg + 1]);
+    if (std::abs(firstNormal.x()) < kPairSpacingEps && std::abs(firstNormal.y()) < kPairSpacingEps) {
+        return 1.0;
+    }
+
+    const double offsetDistance = m_pairGap + m_traceWidth;
+    const QPointF shiftedA = primary.first() + firstNormal * offsetDistance;
+    const QPointF shiftedB = primary.first() - firstNormal * offsetDistance;
+    return (QLineF(shiftedA, mateStart).length() <= QLineF(shiftedB, mateStart).length()) ? 1.0 : -1.0;
+}
+
+QVector<QPointF> PCBDiffPairTool::pairedRoutePolyline(const QVector<QPointF>& primaryPolyline, double offsetDistance, double sideSign) const {
+    const QVector<QPointF> primary = dedupePolyline(primaryPolyline);
+    QVector<QPointF> secondary;
+    if (primary.size() < 2) return secondary;
+    if (offsetDistance < kPairSpacingEps) return secondary;
+
+    int firstSeg = -1;
+    for (int i = 0; i + 1 < primary.size(); ++i) {
+        if (!pointsNearPair(primary[i], primary[i + 1])) {
+            firstSeg = i;
+            break;
+        }
+    }
+    if (firstSeg < 0) return secondary;
+
+    const QPointF firstNormal = unitLeftNormal(primary[firstSeg], primary[firstSeg + 1]);
+    if (std::abs(firstNormal.x()) < kPairSpacingEps && std::abs(firstNormal.y()) < kPairSpacingEps) {
+        return secondary;
+    }
+
+    secondary.append(primary.first() + firstNormal * (offsetDistance * sideSign));
+
+    for (int i = 1; i + 1 < primary.size(); ++i) {
+        const QPointF prevNormal = unitLeftNormal(primary[i - 1], primary[i]);
+        const QPointF nextNormal = unitLeftNormal(primary[i], primary[i + 1]);
+
+        const QPointF prevA = primary[i - 1] + prevNormal * (offsetDistance * sideSign);
+        const QPointF prevB = primary[i] + prevNormal * (offsetDistance * sideSign);
+        const QPointF nextA = primary[i] + nextNormal * (offsetDistance * sideSign);
+        const QPointF nextB = primary[i + 1] + nextNormal * (offsetDistance * sideSign);
+
+        QPointF corner;
+        const bool hasIntersection = intersectInfiniteLines(prevA, prevB, nextA, nextB, corner);
+        if (!hasIntersection || QLineF(corner, (prevB + nextA) * 0.5).length() > offsetDistance * 4.0) {
+            corner = (prevB + nextA) * 0.5;
+        }
+
+        if (secondary.isEmpty() || !pointsNearPair(secondary.last(), corner)) {
+            secondary.append(corner);
+        }
+    }
+
+    const QPointF lastNormal = unitLeftNormal(primary[primary.size() - 2], primary.last());
+    const QPointF lastPoint = primary.last() + lastNormal * (offsetDistance * sideSign);
+    if (secondary.isEmpty() || !pointsNearPair(secondary.last(), lastPoint)) {
+        secondary.append(lastPoint);
+    }
+
+    return dedupePolyline(secondary);
+}
+
+bool PCBDiffPairTool::polylineBlockedForNet(const QVector<QPointF>& polyline, const QString& netName) const {
+    if (polyline.size() < 2) return true;
+
+    for (int i = 0; i + 1 < polyline.size(); ++i) {
+        if (QLineF(polyline[i], polyline[i + 1]).length() < 0.01) continue;
+        TraceItem probe(polyline[i], polyline[i + 1], m_traceWidth);
+        probe.setLayer(m_currentLayer);
+        probe.setNetName(netName);
+        if (!collectLiveClearanceViolations(probe).isEmpty()) return true;
+    }
+
+    return false;
+}
+
+QVector<QPointF> PCBDiffPairTool::adaptivePairedRoutePolyline(const QVector<QPointF>& primaryPolyline, const QPointF& mateStart, const QString& netName) const {
+    const QVector<QPointF> primary = dedupePolyline(primaryPolyline);
+    if (primary.size() < 2) return {};
+
+    const double sideSign = choosePairSideSign(primary, mateStart);
+    const double preferredOffset = m_pairGap + m_traceWidth;
+    const double step = 0.05;
+    const double maxExtra = 2.0;
+
+    QVector<QPointF> fallback = pairedRoutePolyline(primary, preferredOffset, sideSign);
+    if (!fallback.isEmpty() && !polylineBlockedForNet(fallback, netName)) {
+        return fallback;
+    }
+
+    for (double extra = step; extra <= maxExtra + 1e-9; extra += step) {
+        QVector<QPointF> candidate = pairedRoutePolyline(primary, preferredOffset + extra, sideSign);
+        if (!candidate.isEmpty() && !polylineBlockedForNet(candidate, netName)) {
+            return candidate;
+        }
+    }
+
+    return fallback;
 }
 
 void PCBDiffPairTool::startDiffPair(QPointF p_pos, QPointF n_pos) {
@@ -220,24 +400,18 @@ void PCBDiffPairTool::updateDiffPreview(QPointF p_pos) {
     // Update P preview using base class
     updatePreview(p_pos);
     
-    // N preview follows P with perpendicular offset to routing direction.
-    const QPointF offsetDir = pairOffsetForTarget(m_lastP, p_pos, m_lastN);
-    
-    // Recalculate P segments (using same logic as base class)
-    double dx = p_pos.x() - m_lastP.x();
-    double dy = p_pos.y() - m_lastP.y();
-    QPointF p_elbow;
-    if (std::abs(dx) > std::abs(dy)) {
-        p_elbow = QPointF(m_lastP.x() + std::copysign(std::abs(dy), dx), p_pos.y());
-    } else {
-        p_elbow = QPointF(p_pos.x(), m_lastP.y() + std::copysign(std::abs(dx), dy));
-    }
-    
-    QPointF n_elbow = p_elbow + offsetDir;
-    QPointF n_end = p_pos + offsetDir;
-    
-    m_previewN1->setLine(m_lastN.x(), m_lastN.y(), n_elbow.x(), n_elbow.y());
-    m_previewN2->setLine(n_elbow.x(), n_elbow.y(), n_end.x(), n_end.y());
+    const QVector<QPointF> pPolyline = primaryRoutePolyline(m_lastP, p_pos);
+    const QString pairBase = m_currentNet.isEmpty() ? "DIFF" : m_currentNet;
+    const QString nNet = makeDiffNet(pairBase, false);
+    const QVector<QPointF> nPolyline = adaptivePairedRoutePolyline(pPolyline, m_lastN, nNet);
+
+    const QPointF n1Start = nPolyline.size() > 0 ? nPolyline[0] : m_lastN;
+    const QPointF n1End = nPolyline.size() > 1 ? nPolyline[1] : n1Start;
+    const QPointF n2Start = nPolyline.size() > 1 ? nPolyline[1] : n1End;
+    const QPointF n2End = nPolyline.size() > 2 ? nPolyline[2] : n2Start;
+
+    setLinePreviewSegment(m_previewN1, n1Start, n1End);
+    setLinePreviewSegment(m_previewN2, n2Start, n2End);
     
     // Theme and Clearance Halos for N
     PCBTheme* theme = ThemeManager::theme();
@@ -261,13 +435,13 @@ void PCBDiffPairTool::updateDiffPreview(QPointF p_pos) {
         return st.createStroke(lp);
     };
 
-    QPainterPath h1 = createHalo(m_lastN, n_elbow);
-    QPainterPath h2 = createHalo(n_elbow, n_end);
-    m_clearanceHaloN1->setPath(h1);
-    m_clearanceHaloN2->setPath(h2);
+    QPainterPath h1 = createHalo(n1Start, n1End);
+    QPainterPath h2 = createHalo(n2Start, n2End);
+    setPathPreviewSegment(m_clearanceHaloN1, h1);
+    setPathPreviewSegment(m_clearanceHaloN2, h2);
 
-    bool coll1 = checkClearance(h1);
-    bool coll2 = checkClearance(h2);
+    bool coll1 = polylineBlockedForNet({n1Start, n1End}, nNet);
+    bool coll2 = polylineBlockedForNet({n2Start, n2End}, nNet);
     
     QColor safeColor(0, 240, 255, 30);
     QColor errorColor(255, 50, 50, 90);
@@ -280,21 +454,10 @@ void PCBDiffPairTool::updateDiffPreview(QPointF p_pos) {
 
 void PCBDiffPairTool::addDiffSegment(QPointF p_pos) {
     if (!m_isDiffRouting) return;
-    
-    const QPointF offsetDir = pairOffsetForTarget(m_lastP, p_pos, m_lastN);
-    
-    double dx = p_pos.x() - m_lastP.x();
-    double dy = p_pos.y() - m_lastP.y();
-    QPointF p_elbow;
-    if (std::abs(dx) > std::abs(dy)) {
-        p_elbow = QPointF(m_lastP.x() + std::copysign(std::abs(dy), dx), p_pos.y());
-    } else {
-        p_elbow = QPointF(p_pos.x(), m_lastP.y() + std::copysign(std::abs(dx), dy));
-    }
-    
-    QPointF n_elbow = p_elbow + offsetDir;
-    QPointF n_end = p_pos + offsetDir;
-    
+
+    const QVector<QPointF> pPolyline = primaryRoutePolyline(m_lastP, p_pos);
+    if (pPolyline.size() < 2) return;
+
     auto addSeg = [&](QPointF s, QPointF e, const QString& net) {
         if (QLineF(s,e).length() < 0.01) return;
         TraceItem* t = new TraceItem(s, e, m_traceWidth);
@@ -307,16 +470,18 @@ void PCBDiffPairTool::addDiffSegment(QPointF p_pos) {
     const QString pairBase = m_currentNet.isEmpty() ? "DIFF" : m_currentNet;
     const QString pNet = makeDiffNet(pairBase, true);
     const QString nNet = makeDiffNet(pairBase, false);
-    addSeg(m_lastP, p_elbow, pNet);
-    addSeg(p_elbow, p_pos, pNet);
-    addSeg(m_lastN, n_elbow, nNet);
-    addSeg(n_elbow, n_end, nNet);
-    
-    m_lastP = p_pos;
-    m_lastN = n_end;
+    const QVector<QPointF> nPolyline = adaptivePairedRoutePolyline(pPolyline, m_lastN, nNet);
+    if (nPolyline.size() < 2) return;
+    if (polylineBlockedForNet(pPolyline, pNet) || polylineBlockedForNet(nPolyline, nNet)) return;
+
+    for (int i = 0; i + 1 < pPolyline.size(); ++i) addSeg(pPolyline[i], pPolyline[i + 1], pNet);
+    for (int i = 0; i + 1 < nPolyline.size(); ++i) addSeg(nPolyline[i], nPolyline[i + 1], nNet);
+
+    m_lastP = pPolyline.last();
+    m_lastN = nPolyline.last();
     
     // Update base class points so guidelines/snapping work
-    m_lastPoint = p_pos;
+    m_lastPoint = m_lastP;
 }
 
 void PCBDiffPairTool::finishDiffPair() {
