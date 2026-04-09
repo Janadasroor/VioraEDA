@@ -17,12 +17,14 @@ public:
     explicit MosPropertiesDialog(SchematicItem* item, QWidget* parent = nullptr);
 
     QString modelName() const;
+    QString footprint() const;
     QMap<QString, QString> paramExpressions() const;
     QString newSymbolName() const;
 
 private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
+    void pickFootprint();
 
 private:
     void setupUI();
@@ -43,6 +45,7 @@ private:
     QLineEdit* m_rsEdit = nullptr;
     QLineEdit* m_cgsoEdit = nullptr;
     QLineEdit* m_cgdoEdit = nullptr;
+    QLineEdit* m_footprintEdit = nullptr;
     QLineEdit* m_commandPreview = nullptr;
 };
 

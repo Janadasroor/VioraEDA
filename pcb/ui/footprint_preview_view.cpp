@@ -122,8 +122,9 @@ void FootprintPreviewView::setFootprint(const FootprintDefinition& def) {
         }
     }
     
-    // Zoom to fit
+    // Zoom to fit - use safe pointer guard to prevent crash on dialog close
     QTimer::singleShot(20, this, [this]() {
+        if (!m_scene) return;
         QRectF br = m_scene->itemsBoundingRect();
         if (!br.isNull() && br.isValid() && br.width() > 0) {
             fitInView(br.adjusted(-1, -1, 1, 1), Qt::KeepAspectRatio);

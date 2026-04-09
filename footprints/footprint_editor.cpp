@@ -1609,6 +1609,7 @@ void FootprintEditor::onToolSelected() {
         }
         m_currentTool = static_cast<Tool>(action->data().toInt());
         m_view->setCurrentTool(m_currentTool);
+        updateResizeHandles();
     }
 }
 
@@ -1972,7 +1973,7 @@ void FootprintEditor::onMoveExactly() {
 }
 
 void FootprintEditor::clearResizeHandles() {
-    for (QGraphicsRectItem* handle : m_resizeHandles) {
+    for (QGraphicsItem* handle : m_resizeHandles) {
         if (!handle) continue;
         if (m_scene) m_scene->removeItem(handle);
         delete handle;
@@ -1982,7 +1983,7 @@ void FootprintEditor::clearResizeHandles() {
 
 void FootprintEditor::updateResizeHandles() {
     clearResizeHandles();
-    if (!m_scene || m_currentTool != Select) return;
+    if (!m_scene) return;
 
     const QList<QGraphicsItem*> selected = m_scene->selectedItems();
     if (selected.size() != 1) return;
@@ -1992,7 +1993,10 @@ void FootprintEditor::updateResizeHandles() {
 
     const FootprintPrimitive& prim = m_footprint.primitives().at(idx);
     QList<QPair<QString, QPointF>> handles;
-    qreal handleSize = 6.0;
+    const qreal viewScale = (m_view && !qFuzzyIsNull(m_view->transform().m11()))
+        ? qAbs(m_view->transform().m11()) : 1.0;
+    const qreal minSceneHandle = qBound<qreal>(0.8, 8.0 / viewScale, 2.4);
+    qreal handleSize = minSceneHandle;
 
     if (prim.type == FootprintPrimitive::Rect) {
         QRectF rect(prim.data.value("x").toDouble(), prim.data.value("y").toDouble(),
@@ -2000,8 +2004,8 @@ void FootprintEditor::updateResizeHandles() {
         rect = rect.normalized();
         if (rect.isNull()) return;
         const qreal minDim = qMin(rect.width(), rect.height());
-        handleSize = qBound<qreal>(2.0, minDim * 0.16, 6.0);
-        const qreal edgeOffset = (minDim < 16.0) ? qBound<qreal>(0.5, handleSize * 0.55, 2.0) : 0.0;
+        handleSize = qMax(minSceneHandle, qBound<qreal>(0.8, minDim * 0.10, 2.4));
+        const qreal edgeOffset = (minDim < 16.0) ? qBound<qreal>(0.2, handleSize * 0.35, 0.9) : 0.0;
         handles = {
             {"tl", rect.topLeft() + QPointF(-edgeOffset, -edgeOffset)},
             {"tr", rect.topRight() + QPointF(edgeOffset, -edgeOffset)},
@@ -2012,7 +2016,7 @@ void FootprintEditor::updateResizeHandles() {
         const QPointF p1(prim.data.value("x1").toDouble(), prim.data.value("y1").toDouble());
         const QPointF p2(prim.data.value("x2").toDouble(), prim.data.value("y2").toDouble());
         const qreal len = QLineF(p1, p2).length();
-        handleSize = qBound<qreal>(2.0, len * 0.09, 5.5);
+        handleSize = qMax(minSceneHandle, qBound<qreal>(0.8, len * 0.05, 2.2));
         handles = {{"p1", p1}, {"p2", p2}};
     } else if (prim.type == FootprintPrimitive::Circle) {
         const qreal cx = prim.data.value("cx").toDouble();
@@ -2020,8 +2024,8 @@ void FootprintEditor::updateResizeHandles() {
         const qreal r = prim.data.value("radius").toDouble();
         if (r <= 0.0) return;
         const qreal diameter = r * 2.0;
-        handleSize = qBound<qreal>(2.0, diameter * 0.16, 5.5);
-        const qreal radialOffset = (r < 10.0) ? qBound<qreal>(0.75, handleSize * 0.65, 2.0) : 0.0;
+        handleSize = qMax(minSceneHandle, qBound<qreal>(0.8, diameter * 0.10, 2.2));
+        const qreal radialOffset = (r < 10.0) ? qBound<qreal>(0.2, handleSize * 0.35, 0.9) : 0.0;
         const qreal rr = r + radialOffset;
         handles = {
             {"east", QPointF(cx + rr, cy)},
@@ -2034,11 +2038,11 @@ void FootprintEditor::updateResizeHandles() {
     }
 
     for (const auto& handleData : handles) {
-        auto* handle = new QGraphicsRectItem(handleData.second.x() - handleSize / 2.0,
-                                             handleData.second.y() - handleSize / 2.0,
-                                             handleSize, handleSize);
-        handle->setBrush(QColor(96, 165, 250, 220));
-        handle->setPen(QPen(QColor(255, 255, 255, 200), 0.0));
+        auto* handle = new QGraphicsEllipseItem(handleData.second.x() - handleSize / 2.0,
+                                                handleData.second.y() - handleSize / 2.0,
+                                                handleSize, handleSize);
+        handle->setBrush(QColor(56, 189, 248, 240));
+        handle->setPen(QPen(QColor(255, 255, 255, 230), 0.0));
         handle->setZValue(3000);
         handle->setData(0, "resize_handle");
         handle->setData(1, handleData.first);
@@ -2048,6 +2052,8 @@ void FootprintEditor::updateResizeHandles() {
         m_scene->addItem(handle);
         m_resizeHandles.append(handle);
     }
+    m_scene->update();
+    if (m_view) m_view->viewport()->update();
 }
 
 void FootprintEditor::onRectResizeStarted(const QString& corner, QPointF scenePos) {
@@ -2725,14 +2731,11 @@ void FootprintEditor::dropEvent(QDropEvent* event) {
 }
 
 void FootprintEditor::closeEvent(QCloseEvent* event) {
-    QDialog::closeEvent(event);
-    if (!event->isAccepted()) return;
-
     QJsonObject state;
-    state["leftToolbarVisible"] = m_leftToolbar && m_leftToolbar->isVisible();
-    state["leftNavigatorVisible"] = m_leftNavigatorPanel && m_leftNavigatorPanel->isVisible();
-    state["bottomPanelVisible"] = m_bottomPanel && m_bottomPanel->isVisible();
-    state["rightPanelVisible"] = m_rightPanel && m_rightPanel->isVisible();
+    state["leftToolbarVisible"] = m_leftToolbar && !m_leftToolbar->isHidden();
+    state["leftNavigatorVisible"] = m_leftNavigatorPanel && !m_leftNavigatorPanel->isHidden();
+    state["bottomPanelVisible"] = m_bottomPanel && !m_bottomPanel->isHidden();
+    state["rightPanelVisible"] = m_rightPanel && !m_rightPanel->isHidden();
     state["leftTabIndex"] = m_leftTabWidget ? m_leftTabWidget->currentIndex() : 0;
     state["rightTabIndex"] = m_rightTabWidget ? m_rightTabWidget->currentIndex() : 0;
     state["bottomTabIndex"] = m_bottomTabWidget ? m_bottomTabWidget->currentIndex() : 0;
@@ -2743,6 +2746,8 @@ void FootprintEditor::closeEvent(QCloseEvent* event) {
         kFootprintEditorStateKey,
         saveGeometry(),
         QJsonDocument(state).toJson(QJsonDocument::Compact));
+
+    QDialog::closeEvent(event);
 }
 
 void FootprintEditor::showEvent(QShowEvent* event) {

@@ -5,6 +5,7 @@
 #include <QJsonObject>
 
 OscilloscopeItem::OscilloscopeItem(QPointF pos, QGraphicsItem *parent) : SchematicItem(parent) {
+    setExcludeFromPcb(true); // Instruments are excluded from PCB by default
     setPos(pos);
     setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
     setReference("OSC1");

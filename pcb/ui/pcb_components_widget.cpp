@@ -309,8 +309,10 @@ void PCBComponentsWidget::onCreateFootprint() {
 
 void PCBComponentsWidget::onOpenLibraryBrowser() {
     FootprintBrowserDialog dialog(this);
-    connect(&dialog, &FootprintBrowserDialog::footprintSelected, this, [this](const FootprintDefinition& fp) {
-        emit footprintSelected(fp.name());
-    });
-    dialog.exec();
+    if (dialog.exec() == QDialog::Accepted) {
+        FootprintDefinition fp = dialog.selectedFootprint();
+        if (!fp.name().isEmpty()) {
+            emit footprintSelected(fp.name());
+        }
+    }
 }
