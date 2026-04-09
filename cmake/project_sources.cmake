@@ -19,6 +19,10 @@ set(CORE_SOURCES
     core/sync_manager.h
     core/pcb_sync_dialog.cpp
     core/pcb_sync_dialog.h
+    core/semantic_merge_engine.cpp
+    core/semantic_merge_engine.h
+    core/merge_conflict_dialog.cpp
+    core/merge_conflict_dialog.h
     core/eco_types.h
     core/library_index.cpp
     core/library_index.h
@@ -223,6 +227,8 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/power_nets_manager_dialog.h
     schematic/dialogs/visual_pin_pad_mapper_dialog.cpp
     schematic/dialogs/visual_pin_pad_mapper_dialog.h
+    schematic/dialogs/circuit_template_gallery.cpp
+    schematic/dialogs/circuit_template_gallery.h
     schematic/editor/schematic_view.cpp
     schematic/editor/schematic_view.h
     schematic/editor/schematic_commands.cpp

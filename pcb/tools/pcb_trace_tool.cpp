@@ -20,10 +20,42 @@
 #include <cmath>
 #include <algorithm>
 #include <QMap>
+#include <QHash>
+#include <QSet>
+#include <QMainWindow>
+#include <QStatusBar>
 
 namespace {
 bool pointsNear(const QPointF& a, const QPointF& b, double eps = 1e-3) {
     return QLineF(a, b).length() <= eps;
+}
+
+bool pcbItemConnectableOnLayer(const PCBItem* item, int layerId) {
+    if (!item) return false;
+    if (item->layer() == layerId) return true;
+
+    if (const auto* via = dynamic_cast<const ViaItem*>(item)) {
+        return via->spansLayer(layerId);
+    }
+    if (const auto* pad = dynamic_cast<const PadItem*>(item)) {
+        return pad->drillSize() > 0.001;
+    }
+    return false;
+}
+
+bool traceEndpointTouchesAnchor(const TraceItem& trace, const PCBItem* anchor, double tol = 0.05) {
+    if (!anchor) return false;
+
+    const QPointF startScene = trace.mapToScene(trace.startPoint());
+    const QPointF endScene = trace.mapToScene(trace.endPoint());
+    const QPainterPath anchorShape = anchor->sceneTransform().map(anchor->shape());
+
+    auto touches = [&](const QPointF& p) {
+        if (anchorShape.contains(p)) return true;
+        return QLineF(p, anchor->scenePos()).length() <= tol;
+    };
+
+    return touches(startScene) || touches(endScene);
 }
 
 QString pointKey(const QPointF& p, double grid = 1e-3) {
@@ -96,6 +128,12 @@ QList<TraceItem*> collectSceneTraces(QGraphicsScene* scene) {
 }
 
 constexpr int kJunctionDotTagKey = 0x534A44; // "SJD"
+
+QString routeNodeKey(const QPointF& p, double grid) {
+    const qint64 x = static_cast<qint64>(std::llround(p.x() / grid));
+    const qint64 y = static_cast<qint64>(std::llround(p.y() / grid));
+    return QString::number(x) + ":" + QString::number(y);
+}
 }
 
 PCBTraceTool::PCBTraceTool(QObject* parent)
@@ -148,7 +186,12 @@ void PCBTraceTool::deactivate() {
 }
 
 void PCBTraceTool::mousePressEvent(QMouseEvent* event) {
-    if (!view() || event->button() != Qt::LeftButton) return;
+    if (!view()) return;
+    
+    if (event->button() != Qt::LeftButton) {
+        event->ignore(); // Let PCBView handle right-click tool switching
+        return;
+    }
 
     QPointF scenePos = view()->mapToScene(event->pos());
     QPointF snappedPos = view()->snapToGrid(scenePos);
@@ -248,17 +291,20 @@ void PCBTraceTool::startTrace(QPointF pos) {
     m_guideTargets.clear();
     QList<QGraphicsItem*> startItems = view()->scene()->items(pos);
     for (auto* item : startItems) {
-        if (PCBItem* pcbItem = dynamic_cast<PCBItem*>(item)) {
-            if (pcbItem->itemType() == PCBItem::PadType || pcbItem->itemType() == PCBItem::ViaType) {
+        PCBItem* pcbItem = nullptr;
+        QGraphicsItem* current = item;
+        while (current) {
+            pcbItem = dynamic_cast<PCBItem*>(current);
+            if (pcbItem) break;
+            current = current->parentItem();
+        }
+
+        if (pcbItem) {
+            const bool onLayer = pcbItemConnectableOnLayer(pcbItem, m_currentLayer);
+
+            if (onLayer && (pcbItem->itemType() == PCBItem::PadType || pcbItem->itemType() == PCBItem::ViaType)) {
                 m_targetNet = pcbItem->netName();
                 break;
-            }
-        } else if (item->parentItem()) {
-            if (PCBItem* parentPcb = dynamic_cast<PCBItem*>(item->parentItem())) {
-                 if (parentPcb->itemType() == PCBItem::PadType || parentPcb->itemType() == PCBItem::ViaType) {
-                    m_targetNet = parentPcb->netName();
-                    break;
-                }
             }
         }
     }
@@ -329,12 +375,17 @@ void PCBTraceTool::startTrace(QPointF pos) {
 
 void PCBTraceTool::addSegment(QPointF pos) {
     if (!view() || !view()->scene()) return;
+    bool routeBlocked = false;
 
     if (m_routingMode == Hugging) {
         QPainterPath path = calculateHuggingPath(m_lastPoint, pos);
         for (int i = 0; i < path.elementCount(); ++i) {
             QPointF p(path.elementAt(i).x, path.elementAt(i).y);
             if (pointsNear(p, m_lastPoint)) continue;
+            if (segmentBlockedForRouting(m_lastPoint, p)) {
+                routeBlocked = true;
+                break;
+            }
             
             TraceItem* seg = new TraceItem(m_lastPoint, p, m_traceWidth);
             seg->setLayer(m_currentLayer);
@@ -350,8 +401,13 @@ void PCBTraceTool::addSegment(QPointF pos) {
         } else {
             m_currentLevelPoint = QPointF(pos.x(), m_lastPoint.y());
         }
+
+        if (m_currentLevelPoint != m_lastPoint &&
+            segmentBlockedForRouting(m_lastPoint, m_currentLevelPoint)) {
+            routeBlocked = true;
+        }
         
-        if (m_currentLevelPoint != m_lastPoint) {
+        if (!routeBlocked && m_currentLevelPoint != m_lastPoint) {
             TraceItem* seg1 = new TraceItem(m_lastPoint, m_currentLevelPoint, m_traceWidth);
             seg1->setLayer(m_currentLayer);
             seg1->setNetName(m_targetNet);
@@ -361,7 +417,12 @@ void PCBTraceTool::addSegment(QPointF pos) {
             m_lastPoint = m_currentLevelPoint;
         }
 
-        if (pos != m_lastPoint) {
+        if (!routeBlocked && pos != m_lastPoint &&
+            segmentBlockedForRouting(m_lastPoint, pos)) {
+            routeBlocked = true;
+        }
+
+        if (!routeBlocked && pos != m_lastPoint) {
             TraceItem* seg2 = new TraceItem(m_lastPoint, pos, m_traceWidth);
             seg2->setLayer(m_currentLayer);
             seg2->setNetName(m_targetNet);
@@ -370,6 +431,19 @@ void PCBTraceTool::addSegment(QPointF pos) {
             m_currentTraceItems.append(seg2);
             m_lastPoint = pos;
         }
+    }
+
+    if (routeBlocked) {
+        revertShovedItems();
+        if (view() && view()->window()) {
+            if (QMainWindow* mainWindow = qobject_cast<QMainWindow*>(view()->window())) {
+                if (mainWindow->statusBar()) {
+                    mainWindow->statusBar()->showMessage("Route blocked: no free path to cursor destination.", 2500);
+                }
+            }
+        }
+        updatePreview(pos);
+        return;
     }
 
     commitShovedItems();
@@ -388,6 +462,14 @@ QPainterPath PCBTraceTool::calculateHuggingPath(const QPointF& from, const QPoin
     stroker.setWidth(m_traceWidth + drc.rules().minClearance() * 2.0);
     if (!checkClearance(stroker.createStroke(direct))) {
         path.lineTo(to);
+        return path;
+    }
+
+    const QVector<QPointF> autoRoute = findAutoRoutePoints(from, to);
+    if (autoRoute.size() >= 2) {
+        for (int i = 1; i < autoRoute.size(); ++i) {
+            path.lineTo(autoRoute[i]);
+        }
         return path;
     }
 
@@ -429,6 +511,184 @@ QPainterPath PCBTraceTool::calculateHuggingPath(const QPointF& from, const QPoin
         path.lineTo(points[i]);
     }
     return path;
+}
+
+QVector<QPointF> PCBTraceTool::findAutoRoutePoints(const QPointF& from, const QPointF& to) {
+    QVector<QPointF> failed;
+    if (!view() || !view()->scene()) return failed;
+
+    const double grid = 0.25;
+    const QPointF start = view()->snapToGrid(from);
+    const QPointF goal = view()->snapToGrid(to);
+    if (QLineF(start, goal).length() < 1e-6) return {start, goal};
+
+    struct NodeState {
+        QPointF point;
+        double g = 0.0;
+        double f = 0.0;
+        int dir = -1;
+    };
+
+    const QVector<QPointF> dirs = {
+        QPointF(grid, 0.0), QPointF(-grid, 0.0), QPointF(0.0, grid), QPointF(0.0, -grid)
+    };
+
+    auto heuristic = [&](const QPointF& p) {
+        return QLineF(p, goal).length();
+    };
+
+    QRectF bounds(start, goal);
+    bounds = bounds.normalized().adjusted(-20.0, -20.0, 20.0, 20.0);
+    if (bounds.width() < 10.0) bounds.adjust(-5.0, 0.0, 5.0, 0.0);
+    if (bounds.height() < 10.0) bounds.adjust(0.0, -5.0, 0.0, 5.0);
+
+    QVector<NodeState> open;
+    QHash<QString, int> openIndexByKey;
+    QHash<QString, double> bestCost;
+    QHash<QString, QString> cameFrom;
+    QHash<QString, QPointF> keyToPoint;
+    QHash<QString, int> keyToDir;
+    QSet<QString> closed;
+
+    const QString startKey = routeNodeKey(start, grid);
+    const QString goalKey = routeNodeKey(goal, grid);
+    open.append({start, 0.0, heuristic(start), -1});
+    openIndexByKey.insert(startKey, 0);
+    bestCost.insert(startKey, 0.0);
+    keyToPoint.insert(startKey, start);
+    keyToDir.insert(startKey, -1);
+
+    int expanded = 0;
+    const int maxExpanded = 6000;
+
+    auto pushOrRelax = [&](const QString& parentKey, const QPointF& nextPoint, int dirIndex, double tentativeG) {
+        if (!bounds.contains(nextPoint)) return;
+        const QString nextKey = routeNodeKey(nextPoint, grid);
+        if (closed.contains(nextKey)) return;
+
+        auto oldIt = bestCost.constFind(nextKey);
+        if (oldIt != bestCost.constEnd() && tentativeG >= oldIt.value() - 1e-9) return;
+
+        bestCost[nextKey] = tentativeG;
+        cameFrom[nextKey] = parentKey;
+        keyToPoint[nextKey] = nextPoint;
+        keyToDir[nextKey] = dirIndex;
+
+        const double f = tentativeG + heuristic(nextPoint);
+        if (openIndexByKey.contains(nextKey)) {
+            const int idx = openIndexByKey.value(nextKey);
+            open[idx].g = tentativeG;
+            open[idx].f = f;
+            open[idx].dir = dirIndex;
+            open[idx].point = nextPoint;
+        } else {
+            open.append({nextPoint, tentativeG, f, dirIndex});
+            openIndexByKey[nextKey] = open.size() - 1;
+        }
+    };
+
+    while (!open.isEmpty() && expanded < maxExpanded) {
+        int bestIndex = 0;
+        for (int i = 1; i < open.size(); ++i) {
+            if (open[i].f < open[bestIndex].f) bestIndex = i;
+        }
+
+        const NodeState current = open.takeAt(bestIndex);
+        openIndexByKey.clear();
+        for (int i = 0; i < open.size(); ++i) {
+            openIndexByKey[routeNodeKey(open[i].point, grid)] = i;
+        }
+
+        const QString currentKey = routeNodeKey(current.point, grid);
+        if (closed.contains(currentKey)) continue;
+        closed.insert(currentKey);
+        ++expanded;
+
+        if (currentKey == goalKey || QLineF(current.point, goal).length() <= grid * 0.6) {
+            QVector<QPointF> result;
+            QString walkKey = currentKey;
+            result.prepend(goal);
+            while (true) {
+                result.prepend(keyToPoint.value(walkKey, start));
+                if (walkKey == startKey) break;
+                walkKey = cameFrom.value(walkKey);
+                if (walkKey.isEmpty()) break;
+            }
+
+            QVector<QPointF> simplified;
+            for (const QPointF& p : result) {
+                if (simplified.isEmpty() || QLineF(simplified.last(), p).length() > 1e-6) {
+                    simplified.append(p);
+                }
+            }
+
+            QVector<QPointF> merged;
+            for (const QPointF& p : simplified) {
+                if (merged.size() < 2) {
+                    merged.append(p);
+                    continue;
+                }
+                const QPointF a = merged[merged.size() - 2];
+                const QPointF b = merged[merged.size() - 1];
+                const QPointF ab = b - a;
+                const QPointF bc = p - b;
+                if (std::abs(cross2d(ab, bc)) <= 1e-6) {
+                    merged.last() = p;
+                } else {
+                    merged.append(p);
+                }
+            }
+            QVector<QPointF> tightened;
+            for (int i = 0; i < merged.size(); ) {
+                tightened.append(merged[i]);
+                if (i == merged.size() - 1) break;
+
+                int furthest = i + 1;
+                for (int j = merged.size() - 1; j > i + 1; --j) {
+                    if (!segmentBlockedForRouting(merged[i], merged[j])) {
+                        furthest = j;
+                        break;
+                    }
+                }
+                i = furthest;
+            }
+            return tightened;
+        }
+
+        const int prevDir = keyToDir.value(currentKey, -1);
+        for (int dirIndex = 0; dirIndex < dirs.size(); ++dirIndex) {
+            const QPointF nextPoint = view()->snapToGrid(current.point + dirs[dirIndex]);
+            if (nextPoint == current.point) continue;
+            if (segmentBlockedForRouting(current.point, nextPoint)) continue;
+
+            const double stepCost = QLineF(current.point, nextPoint).length();
+            const double bendPenalty = (prevDir >= 0 && prevDir != dirIndex) ? 0.35 : 0.0;
+            const double tentativeG = bestCost.value(currentKey, 0.0) + stepCost + bendPenalty;
+            pushOrRelax(currentKey, nextPoint, dirIndex, tentativeG);
+        }
+    }
+
+    return failed;
+}
+
+bool PCBTraceTool::segmentBlockedForRouting(const QPointF& a, const QPointF& b) const {
+    if (!view() || !view()->scene()) return true;
+    if (QLineF(a, b).length() < 1e-6) return false;
+
+    TraceItem probe(a, b, m_traceWidth);
+    probe.setLayer(m_currentLayer);
+    probe.setNetName(m_targetNet);
+    const QList<LiveViolation> violations = collectLiveClearanceViolations(probe);
+
+    const bool freeMode = standaloneFreeRoutingMode() && isUnassignedNet(m_targetNet);
+    if (freeMode) {
+        for (const LiveViolation& violation : violations) {
+            if (violation.hard) return true;
+        }
+        return false;
+    }
+
+    return !violations.isEmpty();
 }
 
 void PCBTraceTool::updatePreview(QPointF pos) {
@@ -768,7 +1028,7 @@ CopperPourItem* PCBTraceTool::buildTeardropAtEndpoint(TraceItem* trace, const QP
             PCBItem* item = dynamic_cast<PCBItem*>(cur);
             if (item && (item->itemType() == PCBItem::PadType || item->itemType() == PCBItem::ViaType)) {
                 if (!trace->netName().isEmpty() && item->netName() != trace->netName()) break;
-                if (item->itemType() == PCBItem::PadType && item->layer() != trace->layer()) break;
+                if (!pcbItemConnectableOnLayer(item, trace->layer())) break;
                 anchor = item;
                 break;
             }
@@ -986,7 +1246,7 @@ QList<PCBTraceTool::LiveViolation> PCBTraceTool::collectLiveClearanceViolations(
 
     const QString probeNet = probe.netName();
     double probeClearance = globalMin;
-    if (!probeNet.isEmpty()) {
+    if (!isUnassignedNet(probeNet)) {
         probeClearance = NetClassManager::instance().getClassForNet(probeNet).clearance;
     }
 
@@ -999,24 +1259,33 @@ QList<PCBTraceTool::LiveViolation> PCBTraceTool::collectLiveClearanceViolations(
             cur = cur->parentItem();
         }
         if (!other) continue;
-        if (other->layer() != probe.layer()) continue;
+        
+        const bool onLayer = pcbItemConnectableOnLayer(other, probe.layer());
+        if (!onLayer) continue;
 
         const PCBItem::ItemType type = other->itemType();
         if (type != PCBItem::PadType && type != PCBItem::ViaType &&
             type != PCBItem::TraceType && type != PCBItem::CopperPourType) {
             continue;
         }
+
+        // PERMISSIVE CONNECTION LOGIC:
+        // If we are touching a Pad or Via at its exact center, it's a connection intent, not a collision.
+        if ((type == PCBItem::PadType || type == PCBItem::ViaType) &&
+            traceEndpointTouchesAnchor(probe, other)) {
+            continue;
+        }
+
         if (m_currentTraceItems.contains(other)) continue;
         if (!probeNet.isEmpty() && probeNet == other->netName()) continue;
-
         double otherClearance = globalMin;
-        if (!other->netName().isEmpty()) {
+        if (!isUnassignedNet(other->netName())) {
             otherClearance = NetClassManager::instance().getClassForNet(other->netName()).clearance;
         }
         double required = std::max(probeClearance, otherClearance);
 
         bool customMatched = false;
-        if (!probeNet.isEmpty() && !other->netName().isEmpty()) {
+        if (!isUnassignedNet(probeNet) && !isUnassignedNet(other->netName())) {
             const double custom = NetClassManager::instance().getCustomClearanceForNets(
                 probeNet, other->netName(), &customMatched);
             if (customMatched) required = custom;
@@ -1067,7 +1336,10 @@ bool PCBTraceTool::shoveTraceItemRecursive(TraceItem* obstacle, const QPainterPa
                 for (auto* other : newCollisions) {
                     PCBItem* otherPCB = dynamic_cast<PCBItem*>(other);
                     if (!otherPCB || otherPCB == obstacle || m_currentTraceItems.contains(otherPCB)) continue;
-                    if (otherPCB->layer() != m_currentLayer) continue;
+                    
+                    const bool onLayer = pcbItemConnectableOnLayer(otherPCB, m_currentLayer);
+                    if (!onLayer) continue;
+
                     if (otherPCB->netName() == obstacle->netName() && !obstacle->netName().isEmpty()) continue;
                     if (TraceItem* nextObs = dynamic_cast<TraceItem*>(otherPCB)) {
                         if (!shoveTraceItemRecursive(nextObs, collisionTest, depth + 1)) { secondaryCollision = true; break; }
@@ -1114,8 +1386,12 @@ bool PCBTraceTool::shoveViaItemRecursive(ViaItem* obstacle, const QPainterPath& 
             for (QGraphicsItem* other : newCollisions) {
                 PCBItem* otherPCB = dynamic_cast<PCBItem*>(other);
                 if (!otherPCB || otherPCB == obstacle || m_currentTraceItems.contains(otherPCB)) continue;
-                if (otherPCB->layer() != m_currentLayer) continue;
+
+                const bool onLayer = pcbItemConnectableOnLayer(otherPCB, m_currentLayer);
+                if (!onLayer) continue;
+
                 if (otherPCB->netName() == obstacle->netName() && !obstacle->netName().isEmpty()) continue;
+
                 if (TraceItem* t = dynamic_cast<TraceItem*>(otherPCB)) {
                     if (!shoveTraceItemRecursive(t, collisionTest, depth + 1)) { secondaryCollision = true; break; }
                 } else if (ViaItem* v = dynamic_cast<ViaItem*>(otherPCB)) {
@@ -1177,39 +1453,76 @@ bool PCBTraceTool::shoveObstacles(const QPainterPath& routingPath) {
             if (item->parentItem()) pcbItem = dynamic_cast<PCBItem*>(item->parentItem());
         }
 
-        if (pcbItem && pcbItem->layer() == m_currentLayer) {
-            if (pcbItem->netName() == m_targetNet && !m_targetNet.isEmpty()) continue;
-            if (m_currentTraceItems.contains(pcbItem)) continue;
-            
-            if (TraceItem* obstacle = dynamic_cast<TraceItem*>(pcbItem)) {
-                if (shoveTraceItemRecursive(obstacle, routingPath, 0)) {
-                    anyShoved = true;
-                }
-            } else if (ViaItem* obstacleVia = dynamic_cast<ViaItem*>(pcbItem)) {
-                if (shoveViaItemRecursive(obstacleVia, routingPath, 0)) {
-                    anyShoved = true;
+        if (pcbItem) {
+            const bool onLayer = pcbItemConnectableOnLayer(pcbItem, m_currentLayer);
+
+            if (onLayer) {
+                if (pcbItem->netName() == m_targetNet && !m_targetNet.isEmpty()) continue;
+                if (m_currentTraceItems.contains(pcbItem)) continue;
+
+                if (TraceItem* obstacle = dynamic_cast<TraceItem*>(pcbItem)) {
+                    if (shoveTraceItemRecursive(obstacle, routingPath, 0)) {
+                        anyShoved = true;
+                    }
+                } else if (ViaItem* obstacleVia = dynamic_cast<ViaItem*>(pcbItem)) {
+                    if (shoveViaItemRecursive(obstacleVia, routingPath, 0)) {
+                        anyShoved = true;
+                    }
                 }
             }
         }
+
     }
     return anyShoved;
+}
+
+bool PCBTraceTool::isUnassignedNet(const QString& netName) const {
+    const QString trimmed = netName.trimmed();
+    return trimmed.isEmpty() || trimmed.compare("No Net", Qt::CaseInsensitive) == 0;
+}
+
+bool PCBTraceTool::standaloneFreeRoutingMode() const {
+    if (!view() || !view()->scene()) return false;
+
+    for (QGraphicsItem* item : view()->scene()->items()) {
+        PCBItem* pcbItem = nullptr;
+        QGraphicsItem* current = item;
+        while (current) {
+            pcbItem = dynamic_cast<PCBItem*>(current);
+            if (pcbItem) break;
+            current = current->parentItem();
+        }
+        if (!pcbItem) continue;
+
+        const PCBItem::ItemType type = pcbItem->itemType();
+        if (type != PCBItem::PadType && type != PCBItem::ViaType &&
+            type != PCBItem::TraceType && type != PCBItem::CopperPourType) {
+            continue;
+        }
+
+        if (!isUnassignedNet(pcbItem->netName())) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 double PCBTraceTool::requiredClearanceTo(const PCBItem* other) const {
     PCBDRC drc;
     const double globalMin = drc.rules().minClearance();
     double mine = globalMin;
-    if (!m_targetNet.isEmpty()) {
+    if (!isUnassignedNet(m_targetNet)) {
         mine = NetClassManager::instance().getClassForNet(m_targetNet).clearance;
     }
 
     double theirs = globalMin;
-    if (other && !other->netName().isEmpty()) {
+    if (other && !isUnassignedNet(other->netName())) {
         theirs = NetClassManager::instance().getClassForNet(other->netName()).clearance;
     }
 
     double required = std::max(mine, theirs);
-    if (other && !m_targetNet.isEmpty() && !other->netName().isEmpty()) {
+    if (other && !isUnassignedNet(m_targetNet) && !isUnassignedNet(other->netName())) {
         bool customMatched = false;
         const double custom = NetClassManager::instance().getCustomClearanceForNets(
             m_targetNet, other->netName(), &customMatched);
@@ -1259,7 +1572,18 @@ bool PCBTraceTool::checkClearance(const QPainterPath& path) {
         if (pcbItem) {
             if (pcbItem->netName() == m_targetNet && !m_targetNet.isEmpty()) continue;
             if (m_currentTraceItems.contains(pcbItem)) continue;
-            if (pcbItem->layer() == m_currentLayer) {
+            
+            const bool collidesOnLayer = pcbItemConnectableOnLayer(pcbItem, m_currentLayer);
+
+            if (collidesOnLayer) {
+                // PERMISSIVE CONNECTION LOGIC:
+                // If the collision is with a Pad or Via at the current route endpoints, it's a valid connection.
+                if (pcbItem->itemType() == PCBItem::PadType || pcbItem->itemType() == PCBItem::ViaType) {
+                    TraceItem probe(m_lastPoint, view()->mapToScene(view()->mapFromGlobal(QCursor::pos())), m_traceWidth);
+                    probe.setLayer(m_currentLayer);
+                    if (traceEndpointTouchesAnchor(probe, pcbItem, 0.5)) continue;
+                }
+
                 if (pcbItem->itemType() == PCBItem::PadType || pcbItem->itemType() == PCBItem::ViaType || pcbItem->itemType() == PCBItem::TraceType) return true;
             }
         }
@@ -1308,10 +1632,8 @@ QPainterPath PCBTraceTool::buildClearanceHaloPath(const QPointF& a, const QPoint
 
 int PCBTraceTool::routeCollisionScore(const QPointF& a, const QPointF& elbow, const QPointF& b) {
     int score = 0;
-    const QPainterPath h1 = buildClearanceHaloPath(a, elbow);
-    const QPainterPath h2 = buildClearanceHaloPath(elbow, b);
-    if (!h1.isEmpty() && checkClearance(h1)) score++;
-    if (!h2.isEmpty() && checkClearance(h2)) score++;
+    if (segmentBlockedForRouting(a, elbow)) score++;
+    if (segmentBlockedForRouting(elbow, b)) score++;
     return score;
 }
 
@@ -1327,4 +1649,3 @@ QPointF PCBTraceTool::chooseWalkAroundElbow(const QPointF& from, const QPointF& 
     if (std::abs(dx) > std::abs(dy)) return QPointF(from.x() + std::copysign(std::abs(dy), dx), to.y());
     return QPointF(to.x(), from.y() + std::copysign(std::abs(dx), dy));
 }
-

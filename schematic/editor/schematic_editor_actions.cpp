@@ -192,22 +192,22 @@ static QString decodeSpiceImportText(const QByteArray& raw) {
     if (raw.isEmpty()) return QString();
 
     auto decodeUtf16Le = [](const QByteArray& bytes, int start) {
-        QVector<ushort> u16;
+        QVector<char16_t> u16;
         u16.reserve((bytes.size() - start) / 2);
         for (int i = start; i + 1 < bytes.size(); i += 2) {
-            const ushort ch = static_cast<ushort>(static_cast<unsigned char>(bytes[i])) |
-                              (static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1])) << 8);
+            const char16_t ch = static_cast<char16_t>(static_cast<unsigned char>(bytes[i])) |
+                                (static_cast<char16_t>(static_cast<unsigned char>(bytes[i + 1])) << 8);
             u16.push_back(ch);
         }
         return QString::fromUtf16(u16.constData(), u16.size());
     };
 
     auto decodeUtf16Be = [](const QByteArray& bytes, int start) {
-        QVector<ushort> u16;
+        QVector<char16_t> u16;
         u16.reserve((bytes.size() - start) / 2);
         for (int i = start; i + 1 < bytes.size(); i += 2) {
-            const ushort ch = (static_cast<ushort>(static_cast<unsigned char>(bytes[i])) << 8) |
-                              static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1]));
+            const char16_t ch = (static_cast<char16_t>(static_cast<unsigned char>(bytes[i])) << 8) |
+                                static_cast<char16_t>(static_cast<unsigned char>(bytes[i + 1]));
             u16.push_back(ch);
         }
         return QString::fromUtf16(u16.constData(), u16.size());
@@ -321,10 +321,12 @@ static SymbolDefinition buildImportedSubcktSymbol(const SpiceSubcircuitImportDia
 
     const int pinCount = pinMappings.size();
     const int leftCount = (pinCount + 1) / 2;
+    const int rightCount = pinCount - leftCount;
+    const int pinsPerSide = qMax(leftCount, rightCount);
     const qreal bodyWidth = 120.0;
-    const qreal bodyHalfHeight = qMax<qreal>(40.0, pinCount * 12.0);
     const qreal pinSpacing = 25.0;
     const qreal pinLength = 20.0;
+    const qreal bodyHalfHeight = qMax<qreal>(40.0, pinsPerSide * pinSpacing * 0.5);
 
     def.addPrimitive(SymbolPrimitive::createRect(QRectF(-bodyWidth / 2.0, -bodyHalfHeight, bodyWidth, bodyHalfHeight * 2.0), false));
     def.addPrimitive(SymbolPrimitive::createText(res.subcktName, QPointF(-30.0, -bodyHalfHeight - 18.0), 10));
@@ -334,7 +336,8 @@ static SymbolDefinition buildImportedSubcktSymbol(const SpiceSubcircuitImportDia
         const bool leftSide = (i < leftCount);
         const int sideIndex = leftSide ? i : (i - leftCount);
         const int countOnSide = leftSide ? leftCount : (pinCount - leftCount);
-        const qreal y = ((countOnSide - 1) * pinSpacing * -0.5) + (sideIndex * pinSpacing);
+        const int displayIndex = leftSide ? sideIndex : (countOnSide - 1 - sideIndex);
+        const qreal y = ((countOnSide - 1) * pinSpacing * -0.5) + (displayIndex * pinSpacing);
         const QPointF pos(leftSide ? (-bodyWidth / 2.0 - pinLength) : (bodyWidth / 2.0 + pinLength), y);
         const QString orientation = leftSide ? "Right" : "Left";
         const int symbolPinNumber = pinMapping.symbolPinNumber;

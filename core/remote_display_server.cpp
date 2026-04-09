@@ -50,7 +50,9 @@ void RemoteDisplayServer::onNewConnection() {
     connect(socket, &QWebSocket::disconnected, this, &RemoteDisplayServer::socketDisconnected);
 
     m_clients << socket;
-    qDebug() << "Remote display client connected:" << socket->peerAddress().toString();
+    const QString addr = socket->peerAddress().toString();
+    qDebug() << "Remote display client connected:" << addr;
+    emit clientConnected(addr);
     
     // Send welcome info
     QJsonObject welcome;
@@ -67,7 +69,9 @@ void RemoteDisplayServer::socketDisconnected() {
     QWebSocket *socket = qobject_cast<QWebSocket *>(sender());
     if (socket) {
         m_clients.removeAll(socket);
-        qDebug() << "Remote display client disconnected:" << socket->peerAddress().toString();
+        const QString addr = socket->peerAddress().toString();
+        qDebug() << "Remote display client disconnected:" << addr;
+        emit clientDisconnected(addr);
         socket->deleteLater();
     }
 }

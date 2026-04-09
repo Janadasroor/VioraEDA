@@ -17,6 +17,10 @@
 
 using namespace Flux::Model;
 
+namespace {
+constexpr int kFootprintPrimitiveLayerKey = 0x46504C59; // "FPLY"
+}
+
 ComponentItem::ComponentItem(QPointF pos, QString type, QGraphicsItem *parent)
     : PCBItem(parent)
     , m_model(new ComponentModel())
@@ -277,6 +281,7 @@ void ComponentItem::createPads() {
             
             if (item) {
                 item->setZValue(0.1);
+                item->setData(kFootprintPrimitiveLayerKey, static_cast<int>(prim.layer));
                 m_footprintItems.append(item);
             }
         }

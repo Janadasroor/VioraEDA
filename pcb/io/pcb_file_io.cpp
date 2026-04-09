@@ -7,6 +7,9 @@
 #include "../items/pad_item.h"
 #include "../items/component_item.h"
 #include "../items/copper_pour_item.h"
+#include "../items/shape_item.h"
+#include "../items/image_item.h"
+#include "../factories/pcb_item_factory.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -108,6 +111,14 @@ BoardModel* PCBFileIO::sceneToModel(QGraphicsScene* scene) {
             CopperPourModel* cpm = new CopperPourModel();
             cpm->fromJson(item->toJson());
             board->addCopperPour(cpm);
+        } else if (PCBShapeItem* item = dynamic_cast<PCBShapeItem*>(qItem)) {
+            QJsonObject json = item->toJson();
+            json["type"] = "Shape";
+            board->addExtraItem(json);
+        } else if (PCBImageItem* item = dynamic_cast<PCBImageItem*>(qItem)) {
+            QJsonObject json = item->toJson();
+            json["type"] = "Image";
+            board->addExtraItem(json);
         }
     }
     return board;
@@ -155,6 +166,14 @@ void PCBFileIO::modelToScene(const BoardModel* board, QGraphicsScene* scene) {
         clone->fromJson(cpm->toJson());
         CopperPourItem* item = new CopperPourItem(clone);
         item->setOwned(true);
+        scene->addItem(item);
+    }
+    for (const QJsonObject& extra : board->extraItems()) {
+        const QString type = extra.value("type").toString();
+        if (type.isEmpty()) continue;
+        PCBItem* item = PCBItemFactory::instance().createItem(type, QPointF(), extra, nullptr);
+        if (!item) continue;
+        item->fromJson(extra);
         scene->addItem(item);
     }
     

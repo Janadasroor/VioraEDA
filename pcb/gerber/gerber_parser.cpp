@@ -55,11 +55,14 @@ void GerberParser::parseContent(const QString& content, GerberLayer* layer) {
             
             if (extended.startsWith("MOIN")) m_state.unitFactor = 25.4;
             else if (extended.startsWith("MOMM")) m_state.unitFactor = 1.0;
-            else if (extended.startsWith("FSLAX")) {
+            else if (extended.startsWith("LP")) {
+                if (extended.mid(2, 1) == "C") m_state.currentPolarity = GerberPrimitive::Clear;
+                else m_state.currentPolarity = GerberPrimitive::Dark;
+            } else if (extended.startsWith("FSLAX")) {
                 m_state.formatInt = extended.mid(5, 1).toInt();
                 m_state.formatDec = extended.mid(6, 1).toInt();
             } else if (extended.startsWith("AD")) {
-                QRegularExpression re("ADD(\\d+)([CRPO]),?([\\d\\.]*)X?([\\d\\.]*)");
+                QRegularExpression re("ADD(\\d+)([CRPOM]),?([\\d\\.]*)X?([\\d\\.]*)");
                 QRegularExpressionMatch match = re.match(extended);
                 if (match.hasMatch()) {
                     int id = match.captured(1).toInt();
@@ -68,6 +71,8 @@ void GerberParser::parseContent(const QString& content, GerberLayer* layer) {
                     if (type == "C") ap.type = GerberAperture::Circle;
                     else if (type == "R") ap.type = GerberAperture::Rectangle;
                     else if (type == "O") ap.type = GerberAperture::Obround;
+                    else if (type == "P") ap.type = GerberAperture::Polygon;
+                    else if (type == "M") ap.type = GerberAperture::Macro;
                     else ap.type = GerberAperture::Circle;
                     
                     ap.params << match.captured(3).toDouble() * m_state.unitFactor;
@@ -129,6 +134,7 @@ void GerberParser::parseLine(const QString& line, GerberLayer* layer) {
                 
                 GerberPrimitive prim;
                 prim.type = GerberPrimitive::Flash;
+                prim.polarity = GerberPrimitive::Dark;
                 prim.apertureId = m_state.currentAperture;
                 prim.center = QPointF(x, y);
                 layer->addPrimitive(prim);
@@ -138,6 +144,27 @@ void GerberParser::parseLine(const QString& line, GerberLayer* layer) {
     }
 
     // Standard Gerber Parsing (D-codes etc)
+    if (line == "G36") {
+        m_state.inRegion = true;
+        m_state.regionPath = QPainterPath();
+        return;
+    }
+
+    if (line == "G37") {
+        if (m_state.inRegion && !m_state.regionPath.isEmpty()) {
+            m_state.regionPath.closeSubpath();
+            GerberPrimitive prim;
+            prim.type = GerberPrimitive::Region;
+            prim.polarity = m_state.currentPolarity;
+            prim.apertureId = m_state.currentAperture;
+            prim.path = m_state.regionPath;
+            layer->addPrimitive(prim);
+        }
+        m_state.inRegion = false;
+        m_state.regionPath = QPainterPath();
+        return;
+    }
+
     if (line.startsWith("D") && line.length() > 2) {
         int d = line.mid(1).toInt();
         if (d >= 10) m_state.currentAperture = d;
@@ -174,9 +201,26 @@ void GerberParser::parseLine(const QString& line, GerberLayer* layer) {
 
         QPointF nextPoint(newX, newY);
 
+        if (m_state.inRegion) {
+            if (dNum == 2) {
+                if (!m_state.regionPath.isEmpty()) {
+                    m_state.regionPath.closeSubpath();
+                }
+                m_state.regionPath.moveTo(nextPoint);
+            } else if (dNum == 1) {
+                if (m_state.regionPath.isEmpty()) {
+                    m_state.regionPath.moveTo(m_state.currentPos);
+                }
+                m_state.regionPath.lineTo(nextPoint);
+            }
+            m_state.currentPos = nextPoint;
+            return;
+        }
+
         if (dNum == 1) { // Line
             GerberPrimitive prim;
             prim.type = GerberPrimitive::Line;
+            prim.polarity = m_state.currentPolarity;
             prim.apertureId = m_state.currentAperture;
             QPainterPath path;
             path.moveTo(m_state.currentPos);
@@ -186,6 +230,7 @@ void GerberParser::parseLine(const QString& line, GerberLayer* layer) {
         } else if (dNum == 3) { // Flash
             GerberPrimitive prim;
             prim.type = GerberPrimitive::Flash;
+            prim.polarity = m_state.currentPolarity;
             prim.apertureId = m_state.currentAperture;
             prim.center = nextPoint;
             layer->addPrimitive(prim);

@@ -418,6 +418,7 @@ QJsonObject SymbolDefinition::toJson() const {
 
 SymbolDefinition SymbolDefinition::fromJson(const QJsonObject& json) {
     SymbolDefinition def;
+    bool needsLegacyPinOrientationNormalization = false;
     def.m_name = json["name"].toString();
     def.m_description = json["description"].toString();
     def.m_category = json["category"].toString();
@@ -471,10 +472,20 @@ SymbolDefinition SymbolDefinition::fromJson(const QJsonObject& json) {
     
     QJsonArray primArray = json["primitives"].toArray();
     for (const QJsonValue& val : primArray) {
-        def.m_primitives.append(SymbolPrimitive::fromJson(val.toObject()));
+        const QJsonObject primObj = val.toObject();
+        const QString typeName = primObj.value("type").toString().trimmed().toLower();
+        if (typeName == "pin") {
+            const QString orientation = primObj.value("orientation").toString().trimmed();
+            if (!isCardinalOrientation(orientation)) {
+                needsLegacyPinOrientationNormalization = true;
+            }
+        }
+        def.m_primitives.append(SymbolPrimitive::fromJson(primObj));
     }
 
-    normalizeLegacyPinOrientations(def.m_primitives);
+    if (needsLegacyPinOrientationNormalization) {
+        normalizeLegacyPinOrientations(def.m_primitives);
+    }
     
     return def;
 }

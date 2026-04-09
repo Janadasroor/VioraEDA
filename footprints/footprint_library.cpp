@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QPainterPath>
 
 using Flux::Model::FootprintDefinition;
 
@@ -145,7 +146,7 @@ void FootprintLibraryManager::initialize() {
     indexLibraryFootprints(builtin);
     
     // 2. Ensure root directory exists for user libs
-    QString baseDir = QDir::homePath() + "/.viora_eda/footprints";
+    QString baseDir = QDir::homePath() + "/ViospiceLib/footprints";
     QDir().mkpath(baseDir);
 
     // Seed a richer default library set in user space on first run.
@@ -170,7 +171,7 @@ void FootprintLibraryManager::loadBuiltInLibrary() {
 }
 
 void FootprintLibraryManager::createDefaultBuiltInLibrary() {
-    QString baseDir = QDir::homePath() + "/.viora_eda/footprints";
+    QString baseDir = QDir::homePath() + "/ViospiceLib/footprints";
     QMap<QString, FootprintLibrary*> catLibs;
 
     auto addFootprintToCat = [&](const FootprintDefinition& fpt) {
@@ -196,36 +197,99 @@ void FootprintLibraryManager::createDefaultBuiltInLibrary() {
         addFootprintToCat(def);
     };
 
+    // === Through-Hole Passives ===
+    auto addTHResistor = [&](const QString& name, qreal pitch, qreal bodyL, qreal bodyD) {
+        FootprintDefinition def(name);
+        def.setCategory("Passives");
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(-pitch/2, 0), "1", "Round", QSizeF(1.6, 1.6)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(pitch/2, 0), "2", "Round", QSizeF(1.6, 1.6)));
+        def.primitives()[0].data["drill_size"] = 0.8;
+        def.primitives()[1].data["drill_size"] = 0.8;
+        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-bodyL/2, -bodyD/2, bodyL, bodyD)));
+        addFootprintToCat(def);
+    };
+    addTHResistor("Resistor_THT_P7.62mm_Horizontal", 7.62, 6.3, 2.5);
+    addTHResistor("Resistor_THT_P10.16mm_Horizontal", 10.16, 6.3, 2.5);
+
+    auto addTHCapRadial = [&](const QString& name, qreal pitch, qreal bodyD) {
+        FootprintDefinition def(name);
+        def.setCategory("Passives");
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(-pitch/2, 0), "1", "Round", QSizeF(1.6, 1.6)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(pitch/2, 0), "2", "Round", QSizeF(1.6, 1.6)));
+        def.primitives()[0].data["drill_size"] = 0.8;
+        def.primitives()[1].data["drill_size"] = 0.8;
+        def.addPrimitive(FootprintPrimitive::createCircle(QPointF(0, 0), bodyD/2));
+        addFootprintToCat(def);
+    };
+    addTHCapRadial("C_Radial_D5.0mm_P2.00mm", 2.0, 5.0);
+    addTHCapRadial("C_Radial_D6.3mm_P2.50mm", 2.5, 6.3);
+    addTHCapRadial("C_Radial_D8.0mm_P3.50mm", 3.5, 8.0);
+
+    auto addTHDiode = [&](const QString& name, qreal pitch, qreal bodyL, qreal bodyD) {
+        FootprintDefinition def(name);
+        def.setCategory("Passives");
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(-pitch/2, 0), "1", "Round", QSizeF(1.8, 1.8)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(pitch/2, 0), "2", "Round", QSizeF(1.8, 1.8)));
+        def.primitives()[0].data["drill_size"] = 0.9;
+        def.primitives()[1].data["drill_size"] = 0.9;
+        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-bodyL/2, -bodyD/2, bodyL, bodyD)));
+        def.addPrimitive(FootprintPrimitive::createLine(QPointF(-bodyL/2 + 0.5, -bodyD/2), QPointF(-bodyL/2 + 0.5, bodyD/2)));
+        addFootprintToCat(def);
+    };
+    addTHDiode("D_THT_P7.62mm_Horizontal", 7.62, 3.2, 2.0); 
+    addTHDiode("D_THT_P10.16mm_Horizontal", 10.16, 5.0, 3.3);
+
+    // === Crystals ===
+    auto addTHCrystal = [&](const QString& name, qreal pitch, qreal bodyW, qreal bodyH) {
+        FootprintDefinition def(name);
+        def.setCategory("Crystals");
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(-pitch/2, 0), "1", "Round", QSizeF(1.2, 1.2)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(pitch/2, 0), "2", "Round", QSizeF(1.2, 1.2)));
+        def.primitives()[0].data["drill_size"] = 0.6;
+        def.primitives()[1].data["drill_size"] = 0.6;
+        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-bodyW/2, -bodyH/2, bodyW, bodyH)));
+        addFootprintToCat(def);
+    };
+    addTHCrystal("Crystal_HC49-U_Vertical", 4.88, 10.5, 4.5);
+
+    // === Connectors / Headers ===
+    auto addHeader = [&](int pins) {
+        FootprintDefinition def(QString("Header_1x%1_P2.54mm").arg(pins));
+        def.setCategory("Connectors");
+        qreal startX = -((pins - 1) * 2.54) / 2.0;
+        for (int i = 0; i < pins; ++i) {
+            def.addPrimitive(FootprintPrimitive::createPad(QPointF(startX + i*2.54, 0), QString::number(i+1), 
+                             (i == 0 ? "Rect" : "Round"), QSizeF(1.7, 1.7)));
+            def.primitives().last().data["drill_size"] = 1.0;
+        }
+        def.addPrimitive(FootprintPrimitive::createRect(QRectF(startX - 1.27, -1.27, pins * 2.54, 2.54)));
+        addFootprintToCat(def);
+    };
+    for (int p : {2, 3, 4, 6, 8, 10}) addHeader(p);
+
+    // === Potentiometers ===
+    auto addPot = [&]() {
+        FootprintDefinition def("Potentiometer_Bourns_3296W_Vertical");
+        def.setCategory("Passives");
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(-2.54, 0), "1", "Round", QSizeF(1.5, 1.5)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(0, 0), "2", "Round", QSizeF(1.5, 1.5)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(2.54, 0), "3", "Round", QSizeF(1.5, 1.5)));
+        for(int i=0; i<3; i++) def.primitives()[i].data["drill_size"] = 0.7;
+        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-4.8, -2.4, 9.6, 4.8)));
+        addFootprintToCat(def);
+    };
+    addPot();
+
     // === SMD Passives ===
     addSMDResCap("R_0402", 1.0, 0.5, 0.5, 0.6);
     addSMDResCap("R_0603", 1.6, 0.8, 0.8, 0.9);
     addSMDResCap("R_0805", 2.0, 1.25, 1.0, 1.3);
     addSMDResCap("R_1206", 3.2, 1.6, 1.2, 1.8);
-    
+
     addSMDResCap("C_0402", 1.0, 0.5, 0.5, 0.6);
     addSMDResCap("C_0603", 1.6, 0.8, 0.8, 0.9);
     addSMDResCap("C_0805", 2.0, 1.25, 1.0, 1.3);
     addSMDResCap("C_1206", 3.2, 1.6, 1.2, 1.8);
-
-    // === Through-Hole Passives ===
-    FootprintDefinition resAxial("R_Axial_DIN0207_Horizontal");
-    resAxial.setCategory("Passives");
-    resAxial.addPrimitive(FootprintPrimitive::createPad(QPointF(-3.81, 0), "1", "Round", QSizeF(1.6, 1.6)));
-    resAxial.addPrimitive(FootprintPrimitive::createPad(QPointF(3.81, 0), "2", "Round", QSizeF(1.6, 1.6)));
-    // Axial resistors are TH
-    resAxial.primitives()[0].data["drill_size"] = 0.8;
-    resAxial.primitives()[1].data["drill_size"] = 0.8;
-    resAxial.addPrimitive(FootprintPrimitive::createRect(QRectF(-3.15, -1.25, 6.3, 2.5)));
-    addFootprintToCat(resAxial);
-
-    // === Diodes ===
-    FootprintDefinition sod123("D_SOD-123");
-    sod123.setCategory("Diodes");
-    sod123.addPrimitive(FootprintPrimitive::createPad(QPointF(-1.65, 0), "1", "Rect", QSizeF(0.9, 1.2)));
-    sod123.addPrimitive(FootprintPrimitive::createPad(QPointF(1.65, 0), "2", "Rect", QSizeF(0.9, 1.2)));
-    sod123.addPrimitive(FootprintPrimitive::createRect(QRectF(-1.4, -0.8, 2.8, 1.6)));
-    sod123.addPrimitive(FootprintPrimitive::createLine(QPointF(-0.5, -0.8), QPointF(-0.5, 0.8))); // Cathode mark
-    addFootprintToCat(sod123);
 
     // === Transistors ===
     FootprintDefinition sot23("SOT-23");
@@ -233,17 +297,8 @@ void FootprintLibraryManager::createDefaultBuiltInLibrary() {
     sot23.addPrimitive(FootprintPrimitive::createPad(QPointF(-0.95, 1.0), "1", "Rect", QSizeF(0.8, 0.9)));
     sot23.addPrimitive(FootprintPrimitive::createPad(QPointF(0.95, 1.0), "2", "Rect", QSizeF(0.8, 0.9)));
     sot23.addPrimitive(FootprintPrimitive::createPad(QPointF(0, -1.0), "3", "Rect", QSizeF(0.8, 0.9)));
-    sot23.addPrimitive(FootprintPrimitive::createRect(QRectF(-1.45, -0.65, 2.9, 1.3)));
+    sot23.addPrimitive(FootprintPrimitive::createRect(QRectF(-1.5, -0.7, 3.0, 1.4)));
     addFootprintToCat(sot23);
-
-    FootprintDefinition to92("TO-92_Inline");
-    to92.setCategory("Transistors");
-    to92.addPrimitive(FootprintPrimitive::createPad(QPointF(-1.27, 0), "1", "Round", QSizeF(1.2, 1.2)));
-    to92.addPrimitive(FootprintPrimitive::createPad(QPointF(0, 0), "2", "Round", QSizeF(1.2, 1.2)));
-    to92.addPrimitive(FootprintPrimitive::createPad(QPointF(1.27, 0), "3", "Round", QSizeF(1.2, 1.2)));
-    to92.addPrimitive(FootprintPrimitive::createArc(QPointF(0, 0), 2.5, 0, 180));
-    to92.addPrimitive(FootprintPrimitive::createLine(QPointF(-2.5, 0), QPointF(2.5, 0)));
-    addFootprintToCat(to92);
 
     // === ICs ===
     auto addDIP = [&](int pins, qreal length) {
@@ -255,7 +310,6 @@ void FootprintLibraryManager::createDefaultBuiltInLibrary() {
         for (int i = 0; i < pinsPerSide; ++i) {
             def.addPrimitive(FootprintPrimitive::createPad(QPointF(-3.81, startY + i*2.54), QString::number(i+1), "Oblong", QSizeF(1.6, 1.1)));
             def.addPrimitive(FootprintPrimitive::createPad(QPointF(3.81, startY + (pinsPerSide-1-i)*2.54), QString::number(pinsPerSide+i+1), "Oblong", QSizeF(1.6, 1.1)));
-            // DIP are TH
             def.primitives().last().data["drill_size"] = 0.8;
             def.primitives()[def.primitives().size()-2].data["drill_size"] = 0.8;
         }
@@ -267,163 +321,20 @@ void FootprintLibraryManager::createDefaultBuiltInLibrary() {
     addDIP(14, 17.78);
     addDIP(16, 20.32);
 
-    auto addSOIC = [&](int pins, qreal length) {
-        QString name = QString("SOIC-%1_3.9x%2mm_P1.27mm").arg(pins).arg(length);
-        FootprintDefinition def(name);
-        def.setCategory("ICs");
-        int pinsPerSide = pins / 2;
-        qreal startY = -((pinsPerSide - 1) * 1.27) / 2.0;
-        for (int i = 0; i < pinsPerSide; ++i) {
-            def.addPrimitive(FootprintPrimitive::createPad(QPointF(-2.6, startY + i*1.27), QString::number(i+1), "Rect", QSizeF(1.5, 0.6)));
-            def.addPrimitive(FootprintPrimitive::createPad(QPointF(2.6, startY + (pinsPerSide-1-i)*1.27), QString::number(pinsPerSide+i+1), "Rect", QSizeF(1.5, 0.6)));
-        }
-        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-1.95, -length/2, 3.9, length)));
-        def.addPrimitive(FootprintPrimitive::createCircle(QPointF(-1.2, -length/2 + 0.8), 0.2)); // Pin 1 mark
+    auto addTO92 = [&]() {
+        FootprintDefinition def("TO-92_Inline");
+        def.setCategory("Transistors");
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(-1.27, 0), "1", "Round", QSizeF(1.2, 1.2)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(0, 0), "2", "Round", QSizeF(1.2, 1.2)));
+        def.addPrimitive(FootprintPrimitive::createPad(QPointF(1.27, 0), "3", "Round", QSizeF(1.2, 1.2)));
+        for(int i=0; i<3; ++i) def.primitives()[i].data["drill_size"] = 0.6;
+        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-2.5, -1.5, 5.0, 3.0)));
         addFootprintToCat(def);
     };
-    addSOIC(8, 4.9);
-    addSOIC(14, 8.65);
-    addSOIC(16, 9.9);
+    addTO92();
 
-    // === Modern Footprints ===
-    FootprintDefinition sot223("SOT-223");
-    sot223.setCategory("Transistors");
-    sot223.setDescription("Small Outline Transistor, 4 pins, 2.3mm pitch");
-    sot223.addPrimitive(FootprintPrimitive::createPad(QPointF(-2.3, 3.1), "1", "Rect", QSizeF(1.0, 1.4)));
-    sot223.addPrimitive(FootprintPrimitive::createPad(QPointF(0, 3.1), "2", "Rect", QSizeF(1.0, 1.4)));
-    sot223.addPrimitive(FootprintPrimitive::createPad(QPointF(2.3, 3.1), "3", "Rect", QSizeF(1.0, 1.4)));
-    sot223.addPrimitive(FootprintPrimitive::createPad(QPointF(0, -3.1), "4", "Rect", QSizeF(3.3, 1.4)));
-    sot223.addPrimitive(FootprintPrimitive::createRect(QRectF(-3.25, -1.75, 6.5, 3.5)));
-    addFootprintToCat(sot223);
-
-    FootprintDefinition to220("TO-220-3_Vertical");
-    to220.setCategory("Transistors");
-    to220.setDescription("Transistor Outline, 3 pins, Vertical, 2.54mm pitch");
-    to220.addPrimitive(FootprintPrimitive::createPad(QPointF(-2.54, 0), "1", "Round", QSizeF(1.8, 1.8)));
-    to220.addPrimitive(FootprintPrimitive::createPad(QPointF(0, 0), "2", "Round", QSizeF(1.8, 1.8)));
-    to220.addPrimitive(FootprintPrimitive::createPad(QPointF(2.54, 0), "3", "Round", QSizeF(1.8, 1.8)));
-    // TO-220 is TH
-    to220.primitives()[0].data["drill_size"] = 1.0;
-    to220.primitives()[1].data["drill_size"] = 1.0;
-    to220.primitives()[2].data["drill_size"] = 1.0;
-    to220.addPrimitive(FootprintPrimitive::createRect(QRectF(-5.0, -1.2, 10.0, 4.5)));
-    addFootprintToCat(to220);
-
-    auto addTSSOP = [&](int pins, qreal bodyW, qreal bodyH) {
-        FootprintDefinition def(QString("TSSOP-%1").arg(pins));
-        def.setCategory("ICs");
-        def.setDescription(QString("Thin Shrink Small Outline Package, %1 pins, 0.65mm pitch").arg(pins));
-        qreal pitch = 0.65;
-        int pinsPerSide = pins / 2;
-        qreal startY = -((pinsPerSide - 1) * pitch) / 2.0;
-        for (int i = 0; i < pinsPerSide; i++) {
-            def.addPrimitive(FootprintPrimitive::createPad(QPointF(-2.8, startY + i*pitch), QString::number(i+1), "Rect", QSizeF(1.2, 0.4)));
-            def.addPrimitive(FootprintPrimitive::createPad(QPointF(2.8, startY + (pinsPerSide-1-i)*pitch), QString::number(pinsPerSide+i+1), "Rect", QSizeF(1.2, 0.4)));
-        }
-        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-bodyW/2, -bodyH/2, bodyW, bodyH)));
-        addFootprintToCat(def);
-    };
-    addTSSOP(20, 4.4, 6.5);
-
-    FootprintDefinition qfp48("QFP-48_7x7mm_P0.5mm");
-    qfp48.setCategory("ICs");
-    qreal qfpPitch = 0.5;
-    for (int i = 0; i < 12; i++) {
-        qreal pos = -((12-1)*qfpPitch)/2.0 + i*qfpPitch;
-        qfp48.addPrimitive(FootprintPrimitive::createPad(QPointF(-4.2, pos), QString::number(i+1), "Rect", QSizeF(1.2, 0.3)));
-        qfp48.addPrimitive(FootprintPrimitive::createPad(QPointF(pos, 4.2), QString::number(i+13), "Rect", QSizeF(0.3, 1.2)));
-        qfp48.addPrimitive(FootprintPrimitive::createPad(QPointF(4.2, -pos), QString::number(i+25), "Rect", QSizeF(1.2, 0.3)));
-        qfp48.addPrimitive(FootprintPrimitive::createPad(QPointF(-pos, -4.2), QString::number(i+37), "Rect", QSizeF(0.3, 1.2)));
-    }
-    qfp48.addPrimitive(FootprintPrimitive::createRect(QRectF(-3.5, -3.5, 7.0, 7.0)));
-    addFootprintToCat(qfp48);
-
-    // === Connectors ===
-    FootprintDefinition usbc("USB-C_6Pin_PowerOnly");
-    usbc.setCategory("Connectors");
-    usbc.addPrimitive(FootprintPrimitive::createPad(QPointF(-3.2, 0), "1", "Rect", QSizeF(0.6, 1.2)));
-    usbc.addPrimitive(FootprintPrimitive::createPad(QPointF(-1.2, 0), "2", "Rect", QSizeF(0.6, 1.2)));
-    usbc.addPrimitive(FootprintPrimitive::createPad(QPointF(1.2, 0), "3", "Rect", QSizeF(0.6, 1.2)));
-    usbc.addPrimitive(FootprintPrimitive::createPad(QPointF(3.2, 0), "4", "Rect", QSizeF(0.6, 1.2)));
-    usbc.addPrimitive(FootprintPrimitive::createRect(QRectF(-4.5, -2, 9, 4)));
-    addFootprintToCat(usbc);
-
-    FootprintDefinition rj45("RJ45_Jack");
-    rj45.setCategory("Connectors");
-    for (int i=0; i<8; i++) {
-        rj45.addPrimitive(FootprintPrimitive::createPad(QPointF(-3.5 + i*1.02, 0), QString::number(i+1), "Round", QSizeF(0.9, 0.9)));
-    }
-    rj45.addPrimitive(FootprintPrimitive::createRect(QRectF(-7.5, -5, 15, 10)));
-    addFootprintToCat(rj45);
-
-    auto addHeader = [&](int pins) {
-        QString name = QString("PinHeader_1x%1_P2.54mm").arg(pins);
-        FootprintDefinition def(name);
-        def.setCategory("Connectors");
-        qreal startY = -((pins - 1) * 2.54) / 2.0;
-        for (int i = 0; i < pins; ++i) {
-            QString shape = (i == 0) ? "Rect" : "Round";
-            def.addPrimitive(FootprintPrimitive::createPad(QPointF(0, startY + i*2.54), QString::number(i+1), shape, QSizeF(1.7, 1.7)));
-        }
-        def.addPrimitive(FootprintPrimitive::createRect(QRectF(-1.27, -pins*2.54/2, 2.54, pins*2.54)));
-        addFootprintToCat(def);
-        
-        // Add "mock" name alias
-        FootprintDefinition alias = def;
-        alias.setName(QString("PinHeader_1x%1").arg(pins < 10 ? QString("0%1").arg(pins) : QString::number(pins)));
-        addFootprintToCat(alias);
-    };
-    addHeader(2);
-    addHeader(3);
-    addHeader(4);
-    addHeader(6);
-    addHeader(8);
-    addHeader(10);
-
-    // === Generic / Alias Footprints (Matches common naming) ===
-    auto addAlias = [&](const QString& original, const QString& aliasName) {
-        for (auto* lib : catLibs.values()) {
-            if (lib->hasFootprint(original)) {
-                FootprintDefinition alias = lib->getFootprint(original);
-                alias.setName(aliasName);
-                addFootprintToCat(alias);
-                break;
-            }
-        }
-    };
-    addAlias("R_0402", "R0402"); addAlias("R_0603", "R0603"); addAlias("R_0805", "R0805"); addAlias("R_1206", "R1206");
-    addAlias("C_0402", "C0402"); addAlias("C_0603", "C0603"); addAlias("C_0805", "C0805"); addAlias("C_1206", "C1206");
-    addAlias("SOT-23", "SOT23");
-    addAlias("SOT-23", "sot23");
-    addAlias("SOT-23", "sot-23");
-    addAlias("SOT-223", "SOT223");
-    addAlias("SOT-223", "sot223");
-    addAlias("SOT-223", "sot-223");
-    addAlias("TO-220-3_Vertical", "TO220");
-    addAlias("TO-92_Inline", "TO92");
-    addAlias("TSSOP-20", "TSSOP20");
-    addAlias("QFP-48_7x7mm_P0.5mm", "QFP48");
-    addAlias("DIP-8_W7.62mm", "DIP-8");
-    addAlias("DIP-14_W7.62mm", "DIP-14");
-    addAlias("SOIC-8_3.9x4.9mm_P1.27mm", "SOIC-8");
-    addAlias("SOIC-14_3.9x8.65mm_P1.27mm", "SOIC-14");
-    addAlias("SOIC-16_3.9x9.9mm_P1.27mm", "SOIC-16");
-    addAlias("USB-C_6Pin_PowerOnly", "USB-C_Female");
-    addAlias("USB-C_6Pin_PowerOnly", "USB_C_Female");
-    
-    // Base generic defaults (already added in previous turn but for completeness)
-    {
-        FootprintDefinition genRes("Resistor");
-        genRes.setCategory("Passives");
-        genRes.addPrimitive(FootprintPrimitive::createPad(QPointF(-1.8, 0), "1", "Rect", QSizeF(1.2, 1.6)));
-        genRes.addPrimitive(FootprintPrimitive::createPad(QPointF(1.8, 0), "2", "Rect", QSizeF(1.2, 1.6)));
-        genRes.addPrimitive(FootprintPrimitive::createRect(QRectF(-2.0, -1.0, 4.0, 2.0)));
-        addFootprintToCat(genRes);
-    }
-    
-    for (FootprintLibrary* lib : catLibs.values()) {
-        delete lib;
-    }
+    // Clean up
+    qDeleteAll(catLibs);
 }
 
 void FootprintLibraryManager::addLibrary(const QString& path) {
@@ -540,7 +451,7 @@ void FootprintLibraryManager::reloadUserLibraries() {
     }
 
     // Reload from default location
-    QString baseDir = QDir::homePath() + "/.viora_eda/footprints";
+    QString baseDir = QDir::homePath() + "/ViospiceLib/footprints";
     QDir userDir(baseDir);
     if (userDir.exists()) {
         QFileInfoList subdirs = userDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);

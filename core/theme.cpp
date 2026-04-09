@@ -39,6 +39,7 @@ void PCBTheme::setupDarkTheme() {
     m_bottomSoldermask = QColor(20, 40, 100, 200);// Transparent Blue
     m_edgeCuts = QColor(255, 200, 0);           // High-viz Yellow
     m_drillHoles = QColor(120, 120, 130);
+    m_multiLayer = QColor(255, 255, 100);       // Professional Gold/Yellow for TH
 
     // PCB Item colors
     m_padFill = QColor(217, 119, 6);            // Rich Amber
@@ -94,6 +95,7 @@ void PCBTheme::setupLightTheme() {
     m_bottomSoldermask = QColor(30, 60, 150, 180);
     m_edgeCuts = QColor(255, 120, 0);             // Bright Orange
     m_drillHoles = QColor(100, 100, 100);
+    m_multiLayer = QColor(220, 200, 50);         // Muted Gold for TH
 
     // PCB Item colors
     m_padFill = QColor(220, 140, 60);
@@ -148,6 +150,7 @@ void PCBTheme::setupEngineeringTheme() {
     m_topSilkscreen = QColor(255, 255, 255);
     m_bottomSilkscreen = QColor(200, 200, 200);
     m_topSoldermask = QColor(20, 80, 40);        // Dark green
+    m_multiLayer = QColor(200, 200, 50);        // Engineering Gold for TH
     m_bottomSoldermask = QColor(20, 40, 80);     // Dark blue
     m_edgeCuts = QColor(255, 255, 0);            // Yellow for visibility
     m_drillHoles = QColor(100, 100, 100);
@@ -195,6 +198,11 @@ QString PCBTheme::widgetStylesheet() const {
     QString btnBg = isDark ? "#27272a" : "#ffffff";
     QString btnHover = isDark ? "#3f3f46" : "#f8fafc";
     QString scrollHandle = isDark ? "#52525b" : "#cbd5e1";
+    QString indicatorBg = isDark ? "#18181b" : "#ffffff";
+    QString indicatorBorder = isDark ? m_panelBorder.name() : "#94a3b8";
+    QString indicatorHover = m_accentColor.name();
+    QString indicatorDisabledBg = isDark ? "#27272a" : "#e2e8f0";
+    QString indicatorDisabledBorder = isDark ? "#52525b" : "#cbd5e1";
 
     return QString(
         "QWidget {"
@@ -272,6 +280,32 @@ QString PCBTheme::widgetStylesheet() const {
         "   padding-top: 9px;"
         "   padding-bottom: 7px;"
         "}"
+        "QCheckBox, QRadioButton {"
+        "   spacing: 8px;"
+        "}"
+        "QCheckBox::indicator, QRadioButton::indicator {"
+        "   width: 14px;"
+        "   height: 14px;"
+        "   background-color: %17;"
+        "   border: 1px solid %18;"
+        "}"
+        "QCheckBox::indicator {"
+        "   border-radius: 3px;"
+        "}"
+        "QRadioButton::indicator {"
+        "   border-radius: 7px;"
+        "}"
+        "QCheckBox::indicator:hover, QRadioButton::indicator:hover {"
+        "   border-color: %19;"
+        "}"
+        "QCheckBox::indicator:checked, QRadioButton::indicator:checked {"
+        "   background-color: %5;"
+        "   border-color: %5;"
+        "}"
+        "QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {"
+        "   background-color: %20;"
+        "   border-color: %21;"
+        "}"
         "QTreeWidget, QListWidget, QTableWidget {"
         "   background-color: %3;"
         "   border: 1px solid %4;"
@@ -321,7 +355,12 @@ QString PCBTheme::widgetStylesheet() const {
      .arg(btnHover)                       // 13
      .arg(headerBg)                       // 14
      .arg(scrollHandle)                   // 15
-     .arg(inputText);                     // 16
+     .arg(inputText)                      // 16
+     .arg(indicatorBg)                    // 17
+     .arg(indicatorBorder)                // 18
+     .arg(indicatorHover)                 // 19
+     .arg(indicatorDisabledBg)            // 20
+     .arg(indicatorDisabledBorder);       // 21
 }
 
 QString PCBTheme::toolbarStylesheet() const {

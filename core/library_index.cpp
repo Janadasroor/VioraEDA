@@ -3,6 +3,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QDebug>
+#include <QThread>
 
 LibraryIndex& LibraryIndex::instance() {
     static LibraryIndex inst;
@@ -10,30 +11,34 @@ LibraryIndex& LibraryIndex::instance() {
 }
 
 LibraryIndex::LibraryIndex(QObject* parent) : QObject(parent) {
+    m_dbPath = QDir::homePath() + "/ViospiceLib/library_index.db";
+    QDir().mkpath(QDir::homePath() + "/ViospiceLib");
 }
 
 LibraryIndex::~LibraryIndex() {
-    if (m_db.isOpen()) m_db.close();
+    // Standard cleanup: Qt will handle closing individual connections
+}
+
+QSqlDatabase LibraryIndex::db() {
+    QString connectionName = QString("LibraryIndex_%1").arg((quintptr)QThread::currentThreadId());
+    if (QSqlDatabase::contains(connectionName)) {
+        QSqlDatabase d = QSqlDatabase::database(connectionName);
+        if (d.isOpen()) return d;
+    }
+    
+    QSqlDatabase d = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+    d.setDatabaseName(m_dbPath);
+    if (!d.open()) {
+        qWarning() << "LibraryIndex: Failed to open database connection" << connectionName << ":" << d.lastError().text();
+    }
+    return d;
 }
 
 bool LibraryIndex::initialize() {
-    QString dbPath = QDir::homePath() + "/.viora_eda/library_index.db";
-    QDir().mkpath(QDir::homePath() + "/.viora_eda");
+    QSqlDatabase database = db();
+    if (!database.isOpen()) return false;
 
-    if (QSqlDatabase::contains("qt_sql_default_connection")) {
-        m_db = QSqlDatabase::database("qt_sql_default_connection");
-    } else {
-        m_db = QSqlDatabase::addDatabase("QSQLITE");
-    }
-    
-    m_db.setDatabaseName(dbPath);
-
-    if (!m_db.isOpen() && !m_db.open()) {
-        qWarning() << "Failed to open library index database:" << m_db.lastError().text();
-        return false;
-    }
-
-    QSqlQuery q;
+    QSqlQuery q(database);
     // Create tables if they don't exist
     bool ok = q.exec("CREATE TABLE IF NOT EXISTS components ("
                      "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -54,7 +59,10 @@ bool LibraryIndex::initialize() {
 }
 
 void LibraryIndex::addFootprint(const QString& name, const QString& library, const QString& category, const QString& tags) {
-    QSqlQuery q;
+    QSqlDatabase database = db();
+    if (!database.isOpen()) return;
+
+    QSqlQuery q(database);
     q.prepare("INSERT OR REPLACE INTO components (name, library, category, type, tags) VALUES (?, ?, ?, 'Footprint', ?)");
     q.addBindValue(name);
     q.addBindValue(library);
@@ -64,7 +72,10 @@ void LibraryIndex::addFootprint(const QString& name, const QString& library, con
 }
 
 void LibraryIndex::addSymbol(const QString& name, const QString& library, const QString& category, const QString& tags) {
-    QSqlQuery q;
+    QSqlDatabase database = db();
+    if (!database.isOpen()) return;
+
+    QSqlQuery q(database);
     q.prepare("INSERT OR REPLACE INTO components (name, library, category, type, tags) VALUES (?, ?, ?, 'Symbol', ?)");
     q.addBindValue(name);
     q.addBindValue(library);
@@ -74,13 +85,19 @@ void LibraryIndex::addSymbol(const QString& name, const QString& library, const 
 }
 
 void LibraryIndex::clearIndex() {
-    QSqlQuery q;
+    QSqlDatabase database = db();
+    if (!database.isOpen()) return;
+
+    QSqlQuery q(database);
     q.exec("DELETE FROM components");
 }
 
 QList<SearchResult> LibraryIndex::search(const QString& query, const QString& typeFilter) {
     QList<SearchResult> results;
-    QSqlQuery q;
+    QSqlDatabase database = db();
+    if (!database.isOpen()) return results;
+
+    QSqlQuery q(database);
     
     QString sql = "SELECT name, library, category, type FROM components WHERE 1=1";
     if (!query.isEmpty()) {
@@ -117,7 +134,10 @@ QList<SearchResult> LibraryIndex::search(const QString& query, const QString& ty
 
 QStringList LibraryIndex::getCategories(const QString& type) {
     QStringList cats;
-    QSqlQuery q;
+    QSqlDatabase database = db();
+    if (!database.isOpen()) return cats;
+
+    QSqlQuery q(database);
     q.prepare("SELECT DISTINCT category FROM components WHERE type = ? ORDER BY category");
     q.addBindValue(type);
     if (q.exec()) {

@@ -1064,6 +1064,14 @@ void SymbolEditor::applyTheme() {
                         .arg(theme->type() == PCBTheme::Light ? textSec : fg);
     if (m_toolbar) m_toolbar->setStyleSheet(toolbarStyle);
     if (m_leftToolbar) m_leftToolbar->setStyleSheet(toolbarStyle);
+    if (m_leftToolbar) {
+        for (QAction* action : m_leftToolbar->actions()) {
+            const QString iconPath = action ? action->property("iconPath").toString() : QString();
+            if (!iconPath.isEmpty()) {
+                action->setIcon(getThemeIcon(iconPath));
+            }
+        }
+    }
     
     if (m_statusBar) m_statusBar->setStyleSheet(theme->statusBarStylesheet());
     
@@ -2922,13 +2930,13 @@ void SymbolEditor::createMenuBar() {
 
     // --- File Menu ---
     QMenu* fileMenu = mb->addMenu("&File");
-    fileMenu->addAction(getThemeIcon(":/icons/toolbar_new.png"), "&New Symbol", this, &SymbolEditor::onNewSymbol, QKeySequence::New);
+    fileMenu->addAction(getThemeIcon(":/icons/toolbar_new.png"), "&New Symbol", QKeySequence::New, this, &SymbolEditor::onNewSymbol);
     fileMenu->addAction(getThemeIcon(":/icons/check.svg"), "&Save to Library", QKeySequence::Save, this, &SymbolEditor::onSaveToLibrary);
-    fileMenu->addAction(getThemeIcon(":/icons/toolbar_file.png"), "Save As...", this, &SymbolEditor::onExportVioSym);
-    fileMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Save as Wizard Template...", this, &SymbolEditor::onWizardSaveTemplate);
+    fileMenu->addAction(getThemeIcon(":/icons/toolbar_file.png"), "Save As...", QKeySequence(), this, &SymbolEditor::onExportVioSym);
+    fileMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Save as Wizard Template...", QKeySequence(), this, &SymbolEditor::onWizardSaveTemplate);
     fileMenu->addAction(getThemeIcon(":/icons/toolbar_refresh.png"), "Refresh Libraries", QKeySequence::Refresh, this, &SymbolEditor::onRefreshLibraries);
     fileMenu->addSeparator();
-    fileMenu->addAction(getThemeIcon(":/icons/schematic_editor.png"), "&Place in Schematic", this, &SymbolEditor::onPlaceInSchematic);
+    fileMenu->addAction(getThemeIcon(":/icons/schematic_editor.png"), "&Place in Schematic", QKeySequence(), this, &SymbolEditor::onPlaceInSchematic);
     fileMenu->addSeparator();
     fileMenu->addAction("Close", QKeySequence::Close, this, &QWidget::close);
 
@@ -2938,13 +2946,15 @@ void SymbolEditor::createMenuBar() {
     editMenu->addAction(m_undoStack->createRedoAction(this, "&Redo"));
     editMenu->addSeparator();
     editMenu->addAction(getThemeIcon(":/icons/tool_delete.svg"), "&Delete", QKeySequence::Delete, this, &SymbolEditor::onDelete);
-    editMenu->addAction("Select &All", this, [this](){ 
-        for (auto* it : m_scene->items()) it->setSelected(true); 
-    }, QKeySequence::SelectAll);
+    QAction* selectAllAct = editMenu->addAction("Select &All");
+    selectAllAct->setShortcut(QKeySequence::SelectAll);
+    connect(selectAllAct, &QAction::triggered, this, [this]() {
+        for (auto* it : m_scene->items()) it->setSelected(true);
+    });
 
     // --- AI Menu ---
     QMenu* aiMenu = mb->addMenu("&AI");
-    aiMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Generate Pins from Datasheet Text...", this, &SymbolEditor::onAIDatasheetImport);
+    aiMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Generate Pins from Datasheet Text...", QKeySequence(), this, &SymbolEditor::onAIDatasheetImport);
 
     // --- View Menu (The core request) ---
     QMenu* viewMenu = mb->addMenu("&View");
@@ -2970,7 +2980,8 @@ void SymbolEditor::createMenuBar() {
     addDockToggle("Show Rule Checker", "SRCDock");
     
     viewMenu->addSeparator();
-    viewMenu->addAction("Reset Layout", this, [this]() {
+    QAction* resetLayoutAct = viewMenu->addAction("Reset Layout");
+    connect(resetLayoutAct, &QAction::triggered, this, [this]() {
         // Find and show all docks
         for (auto* dock : findChildren<QDockWidget*>()) {
             dock->show();
@@ -3012,7 +3023,9 @@ void SymbolEditor::createMenuBar() {
         }
     });
     viewMenu->addSeparator();
-    auto* toggleMaxAct = viewMenu->addAction("Toggle Maximize", QKeySequence("F11"), [this]() {
+    auto* toggleMaxAct = viewMenu->addAction("Toggle Maximize");
+    toggleMaxAct->setShortcut(QKeySequence("F11"));
+    connect(toggleMaxAct, &QAction::triggered, this, [this]() {
         if (this->isMaximized()) {
             this->showNormal();
             return;
@@ -3026,7 +3039,8 @@ void SymbolEditor::createMenuBar() {
     });
     
     viewMenu->addSeparator();
-    viewMenu->addAction("Reset Default Layout", [this]() {
+    QAction* resetDefaultLayoutAct = viewMenu->addAction("Reset Default Layout");
+    connect(resetDefaultLayoutAct, &QAction::triggered, this, [this]() {
         // Restore visibility of primary docks
         for (auto* dock : findChildren<QDockWidget*>()) {
             if (dock->objectName() != "CodeDock" && dock->objectName() != "SRCDock") {
@@ -3120,9 +3134,10 @@ void SymbolEditor::createToolBar() {
     // Helper: add a checkable drawing tool to the left toolbar
     auto addTool = [&](const QString& name, const QString& icon,
                        Tool tool, const QString& shortcut = "") -> QAction* {
-        QAction* act = m_leftToolbar->addAction(QIcon(icon), name);
+        QAction* act = m_leftToolbar->addAction(getThemeIcon(icon), name);
         act->setCheckable(true);
         act->setData(static_cast<int>(tool));
+        act->setProperty("iconPath", icon);
         if (tool == Select) m_selectAction = act;
         if (!shortcut.isEmpty()) {
             act->setShortcut(QKeySequence(shortcut));
@@ -3545,6 +3560,12 @@ QWidget* SymbolEditor::createSymbolMetadataWidget() {
 }
 
 void SymbolEditor::createLibraryBrowser() {
+    connect(&SymbolLibraryManager::instance(), &SymbolLibraryManager::librariesChanged,
+            this, &SymbolEditor::populateLibraryTree);
+    if (SymbolLibraryManager::instance().libraries().isEmpty()) {
+        SymbolLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym", true);
+    }
+
     m_libSearchEdit = new QLineEdit();
     m_libSearchEdit->setPlaceholderText("Search symbols…");
     m_libSearchEdit->setClearButtonEnabled(true);

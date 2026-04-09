@@ -41,6 +41,7 @@ public:
     QColor bottomSoldermask() const { return m_bottomSoldermask; }
     QColor edgeCuts() const { return m_edgeCuts; }
     QColor drillHoles() const { return m_drillHoles; }
+    QColor multiLayer() const { return m_multiLayer; }
 
     // PCB Item colors
     QColor padFill() const { return m_padFill; }
@@ -111,6 +112,7 @@ private:
     QColor m_bottomSoldermask;
     QColor m_edgeCuts;
     QColor m_drillHoles;
+    QColor m_multiLayer;
 
     // PCB Item colors
     QColor m_padFill;

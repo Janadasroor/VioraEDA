@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Janada Sroor
 
 #include "analysis_dialog.h"
+#include "../core/theme_manager.h"
 #include <QHBoxLayout>
 #include <cmath>
 
@@ -111,11 +112,9 @@ AnalysisDialog::AnalysisDialog(QWidget *parent) : QDialog(parent) {
     m_undershoot = createReadOnlyEdit();
     layout->addWidget(m_undershoot, 17, 1);
 
-    setStyleSheet(R"(
-        QDialog { background-color: #f0f0f0; border: 1px solid #ccc; color: black; min-width: 300px; }
-        QLabel { font-weight: bold; color: #333; }
-        QLineEdit { background-color: white; color: black; border: 1px solid #aaa; padding: 4px; font-family: 'Consolas', monospace; }
-    )");
+    if (ThemeManager::theme()) {
+        setStyleSheet(ThemeManager::theme()->widgetStylesheet());
+    }
 
     m_bwLabel->setVisible(false);
     m_bw->setVisible(false);

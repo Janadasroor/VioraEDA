@@ -32,6 +32,15 @@ private Q_SLOTS:
     void onPlaceClicked();
 
 private:
+    struct SearchResult {
+        QString name;
+        QString category;
+        QString description;
+        QString library;
+        QString libraryPath;
+        bool builtInTool = false;
+    };
+
     void setupUI();
     void performSymbolSearch(const QString& query);
 
@@ -47,7 +56,7 @@ private:
     QGraphicsScene* m_previewScene;
 
     SymbolDefinition m_selectedSymbol;
-    QList<SymbolDefinition> m_searchResults;
+    QList<SearchResult> m_searchResults;
 };
 
 #endif // LIBRARY_BROWSER_DIALOG_H

@@ -7,6 +7,9 @@
 #include <QFileInfo>
 #include <QDebug>
 #include <QColor>
+#include <QDateTime>
+#include <QSaveFile>
+#include <QtConcurrent/QtConcurrent>
 #include <cmath>
 
 using Flux::Model::SymbolDefinition;
@@ -118,6 +121,109 @@ QString normalizeLookupKey(const QString& raw) {
     return raw.trimmed().toLower();
 }
 
+class SymbolMetadataCache {
+public:
+    SymbolMetadataCache() {
+        const QString baseDir = QDir::homePath() + "/ViospiceLib";
+        QDir().mkpath(baseDir);
+        m_path = baseDir + "/symbol_metadata_cache.json";
+        load();
+    }
+
+    QList<SymbolLibrary::SymbolInfo> symbolInfosForFile(const QFileInfo& fileInfo) const {
+        if (!fileInfo.exists() || !fileInfo.isFile()) return {};
+
+        const QString key = normalizedKey(fileInfo);
+        const QJsonObject entry = m_entries.value(key).toObject();
+        if (entry.isEmpty()) return {};
+        if (entry.value("size").toVariant().toLongLong() != fileInfo.size()) return {};
+        if (entry.value("mtime_ms").toVariant().toLongLong() != fileInfo.lastModified().toMSecsSinceEpoch()) return {};
+
+        QList<SymbolLibrary::SymbolInfo> infos;
+        const QJsonArray arr = entry.value("symbols").toArray();
+        infos.reserve(arr.size());
+        for (const QJsonValue& value : arr) {
+            const QJsonObject obj = value.toObject();
+            const QString name = obj.value("name").toString().trimmed();
+            if (name.isEmpty()) continue;
+
+            SymbolLibrary::SymbolInfo info;
+            info.name = name;
+            info.description = obj.value("description").toString().trimmed();
+            info.tags = obj.value("tags").toString().trimmed();
+            infos.append(info);
+        }
+        return infos;
+    }
+
+    void storeSymbolInfos(const QFileInfo& fileInfo, const QList<SymbolLibrary::SymbolInfo>& symbolInfos) {
+        if (!fileInfo.exists() || !fileInfo.isFile()) return;
+
+        QJsonArray symbols;
+        for (const SymbolLibrary::SymbolInfo& info : symbolInfos) {
+            const QString trimmed = info.name.trimmed();
+            if (trimmed.isEmpty()) continue;
+
+            QJsonObject obj;
+            obj["name"] = trimmed;
+            if (!info.description.trimmed().isEmpty()) obj["description"] = info.description.trimmed();
+            if (!info.tags.trimmed().isEmpty()) obj["tags"] = info.tags.trimmed();
+            symbols.append(obj);
+        }
+
+        QJsonObject entry;
+        entry["path"] = QDir::cleanPath(QDir::fromNativeSeparators(fileInfo.absoluteFilePath()));
+        entry["size"] = QString::number(fileInfo.size());
+        entry["mtime_ms"] = QString::number(fileInfo.lastModified().toMSecsSinceEpoch());
+        entry["symbols"] = symbols;
+
+        m_entries.insert(normalizedKey(fileInfo), entry);
+        m_dirty = true;
+    }
+
+    void saveIfDirty() const {
+        if (!m_dirty) return;
+
+        QSaveFile file(m_path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            qWarning() << "Failed to write symbol metadata cache:" << m_path;
+            return;
+        }
+
+        QJsonObject root;
+        root["version"] = 1;
+        root["entries"] = m_entries;
+        file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+        if (!file.commit()) {
+            qWarning() << "Failed to commit symbol metadata cache:" << m_path;
+            return;
+        }
+
+        m_dirty = false;
+    }
+
+private:
+    void load() {
+        QFile file(m_path);
+        if (!file.exists()) return;
+        if (!file.open(QIODevice::ReadOnly)) return;
+
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        if (!doc.isObject()) return;
+
+        const QJsonObject root = doc.object();
+        m_entries = root.value("entries").toObject();
+    }
+
+    static QString normalizedKey(const QFileInfo& fileInfo) {
+        return QDir::cleanPath(QDir::fromNativeSeparators(fileInfo.absoluteFilePath()));
+    }
+
+    QString m_path;
+    mutable bool m_dirty = false;
+    QJsonObject m_entries;
+};
+
 bool symbolMatchesLookupKey(const SymbolDefinition& sym, const QString& query) {
     const QString q = normalizeLookupKey(query);
     if (q.isEmpty()) return false;
@@ -142,7 +248,10 @@ QString suggestedBuiltInFootprint(const SymbolDefinition& sym) {
         return QString();
     }
 
-    if (key.contains("capacitor")) return "C_0603";
+    if (key.contains("resistor")) return "Resistor_THT_P7.62mm_Horizontal";
+    if (key.contains("capacitor")) return "C_Radial_D5.0mm_P2.00mm";
+    if (key.contains("diode")) return "D_THT_P7.62mm_Horizontal";
+    if (key.contains("transistor")) return "TO-92_Inline";
 
     int pinCount = 0;
     for (const SymbolPrimitive& prim : sym.primitives()) {
@@ -151,10 +260,83 @@ QString suggestedBuiltInFootprint(const SymbolDefinition& sym) {
 
     if (pinCount <= 0) {
         if (cat == "simulation") return QString();
-        return "R_0805";
+        return "Resistor_THT_P7.62mm_Horizontal";
     }
-    if (pinCount <= 2) return "R_0805";
-    return "DIP-8";
+    if (pinCount == 2) return "Resistor_THT_P7.62mm_Horizontal";
+    if (pinCount == 3) return "TO-92_Inline";
+    if (pinCount == 8) return "DIP-8_W7.62mm";
+    if (pinCount == 14) return "DIP-14_W7.62mm";
+    if (pinCount == 16) return "DIP-16_W7.62mm";
+    
+    return QString("DIP-%1_W7.62mm").arg(pinCount);
+}
+
+SymbolDefinition buildDefaultMosfetSymbol(const QString& name, bool nChannel) {
+    SymbolDefinition mos(name);
+    mos.setCategory("Semiconductors");
+    mos.setReferencePrefix("M");
+    mos.setDescription(nChannel ? "N-channel MOSFET" : "P-channel MOSFET");
+    mos.setDefaultValue(nChannel ? "2N7000" : "BS250");
+    mos.setCustomField("generatedBy", "viospice");
+    mos.setCustomField("generatedVersion", "2");
+
+    mos.addPrimitive(SymbolPrimitive::createCircle(QPointF(0, 0), 20, false));
+    mos.addPrimitive(SymbolPrimitive::createLine(QPointF(-10, -15), QPointF(-10, 15))); // Gate
+    mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, -12), QPointF(0, -5))); // Drain segment
+    mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 12), QPointF(0, 5))); // Source segment
+    mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 0), QPointF(10, 0))); // Bulk
+    mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, -12), QPointF(10, -12)));
+    mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 12), QPointF(10, 12)));
+
+    if (nChannel) {
+        QList<QPointF> arrow = {QPointF(8, 0), QPointF(3.2, -2.4), QPointF(3.2, 2.4)};
+        mos.addPrimitive(SymbolPrimitive::createPolygon(arrow, true));
+    } else {
+        QList<QPointF> arrow = {QPointF(2, 0), QPointF(6.8, -2.4), QPointF(6.8, 2.4)};
+        mos.addPrimitive(SymbolPrimitive::createPolygon(arrow, true));
+    }
+
+    SymbolPrimitive gPin = SymbolPrimitive::createPin(QPointF(-30, 0), 1, "G");
+    gPin.data["length"] = 20.0;
+    gPin.data["orientation"] = "Right";
+    gPin.data["hideNum"] = true;
+    gPin.data["hideName"] = true;
+    mos.addPrimitive(gPin);
+
+    SymbolPrimitive dPin = SymbolPrimitive::createPin(QPointF(10, -30), 2, "D");
+    dPin.data["length"] = 18.0;
+    dPin.data["orientation"] = "Down";
+    dPin.data["hideNum"] = true;
+    dPin.data["hideName"] = true;
+    mos.addPrimitive(dPin);
+
+    SymbolPrimitive sPin = SymbolPrimitive::createPin(QPointF(10, 30), 3, "S");
+    sPin.data["length"] = 18.0;
+    sPin.data["orientation"] = "Up";
+    sPin.data["hideNum"] = true;
+    sPin.data["hideName"] = true;
+    mos.addPrimitive(sPin);
+
+    QMap<int, QString> mosMapping;
+    mosMapping[1] = "D";
+    mosMapping[2] = "G";
+    mosMapping[3] = "S";
+    mos.setSpiceNodeMapping(mosMapping);
+
+    return mos;
+}
+
+bool isLegacyBuiltInMosfetSymbol(const SymbolDefinition& sym) {
+    if (sym.name() != "Transistor_NMOS" && sym.name() != "Transistor_PMOS") return false;
+    const SymbolPrimitive* gatePin = sym.pinPrimitive("1");
+    const SymbolPrimitive* drainPin = sym.pinPrimitive("2");
+    const SymbolPrimitive* sourcePin = sym.pinPrimitive("3");
+    if (!gatePin || !drainPin || !sourcePin) return false;
+
+    return gatePin->data.value("orientation").toString() == "Right" &&
+           drainPin->data.value("orientation").toString() == "Right" &&
+           sourcePin->data.value("orientation").toString() == "Right" &&
+           sym.referencePrefix().trimmed() == "Q";
 }
 
 void ensureBuiltInDefaultFootprints(SymbolLibrary* lib) {
@@ -264,6 +446,25 @@ const SymbolDefinition* SymbolLibrary::findSymbol(const QString& name) const {
 QStringList SymbolLibrary::symbolNames() const {
     QReadLocker locker(&m_lock);
     return m_symbols.keys();
+}
+
+QList<SymbolLibrary::SymbolInfo> SymbolLibrary::symbolInfos() const {
+    QReadLocker locker(&m_lock);
+    QList<SymbolInfo> infos;
+    infos.reserve(m_symbols.size());
+    for (auto it = m_symbols.cbegin(); it != m_symbols.cend(); ++it) {
+        SymbolInfo info;
+        info.name = it.key();
+        info.category = it.value().category();
+        info.description = it.value().description();
+        info.tags = it.value().customField("__searchTags");
+        info.library = m_name;
+        info.libraryPath = m_path;
+        info.builtIn = m_builtIn;
+        info.stub = it.value().isStub();
+        infos.append(info);
+    }
+    return infos;
 }
 
 QList<SymbolDefinition> SymbolLibrary::allSymbols() const {
@@ -486,6 +687,27 @@ QList<SymbolDefinition*> SymbolLibraryManager::search(const QString& query) {
     return results;
 }
 
+QList<SymbolLibrary::SymbolInfo> SymbolLibraryManager::searchMetadata(const QString& query) const {
+    const QString q = query.trimmed().toLower();
+    QList<SymbolLibrary::SymbolInfo> results;
+    if (q.isEmpty()) return results;
+
+    QReadLocker locker(&m_lock);
+    for (SymbolLibrary* lib : m_libraries) {
+        if (!lib) continue;
+        const QList<SymbolLibrary::SymbolInfo> infos = lib->symbolInfos();
+        for (const SymbolLibrary::SymbolInfo& info : infos) {
+            if (info.name.toLower().contains(q) ||
+                info.description.toLower().contains(q) ||
+                info.category.toLower().contains(q) ||
+                info.tags.toLower().contains(q)) {
+                results.append(info);
+            }
+        }
+    }
+    return results;
+}
+
 void SymbolLibraryManager::loadBuiltInLibrary() {
     //LibraryIndex::instance().initialize();
     
@@ -510,8 +732,15 @@ void SymbolLibraryManager::loadBuiltInLibrary() {
 #include <QDirIterator>
 #include <QCoreApplication>
 
-void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
+void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath, bool asyncColdIndexing) {
     Q_UNUSED(userLibPath); // We now use ConfigManager paths + default path
+    SymbolMetadataCache metadataCache;
+    quint64 loadGeneration = 0;
+    {
+        QWriteLocker locker(&m_lock);
+        loadGeneration = ++m_loadGeneration;
+    }
+    bool didChangeLibraries = false;
 
     QStringList paths = ConfigManager::instance().symbolPaths();
     
@@ -912,6 +1141,22 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
     ensureDefaultPnp4Symbol(defaultPath);
 
     QMap<QString, SymbolLibrary*> looseLibs;
+    QStringList deferredKicadFiles;
+    auto shouldIncludeBasicsLibrary = [&](const QString& libName) {
+        if (!basicsOnly) return true;
+        static const QSet<QString> basics = {
+            "Device", "Connector", "Connector_Generic", "Connector_Audio",
+            "power", "Simulation_SPICE",
+            "Diode", "Diode_Bridge", "Rectifier",
+            "Transistor_BJT", "Transistor_FET", "Transistor_IGBT",
+            "Amplifier_Operational", "Amplifier_Audio", "Amplifier_Buffer",
+            "Amplifier_Instrumentation", "Amplifier_Difference", "Amplifier_Video",
+            "Reference_Voltage", "Regulator_Linear", "Regulator_Switching",
+            "Switch", "Jumper", "Logic_74xx", "Logic_4xxx", "analog_sw"
+        };
+        return basics.contains(libName);
+    };
+
     for (const QString& path : paths) {
         if (isBundledKicadPath(path)) {
             qDebug() << "Skipping bundled KiCad path:" << path;
@@ -938,6 +1183,7 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
                     if (sym) normalizeExternalSymbolPinGrid(*sym);
                 }
                 addLibrary(lib);
+                didChangeLibraries = true;
                 // Index symbols
                 for (const QString& name : lib->symbolNames()) {
                     SymbolDefinition* sym = lib->findSymbol(name);
@@ -982,6 +1228,7 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
                 lib = new SymbolLibrary(libName, false);
                 lib->setPath(libKey);
                 addLibrary(lib);
+                didChangeLibraries = true;
                 looseLibs.insert(libKey, lib);
             }
             lib->addSymbol(sym);
@@ -1003,21 +1250,7 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
                 
                 const QString libName = QFileInfo(filePath).completeBaseName();
 
-                if (basicsOnly) {
-                    static const QSet<QString> basics = {
-                        "Device", "Connector", "Connector_Generic", "Connector_Audio", 
-                        "power", "Simulation_SPICE",
-                        "Diode", "Diode_Bridge", "Rectifier",
-                        "Transistor_BJT", "Transistor_FET", "Transistor_IGBT",
-                        "Amplifier_Operational", "Amplifier_Audio", "Amplifier_Buffer", 
-                        "Amplifier_Instrumentation", "Amplifier_Difference", "Amplifier_Video",
-                        "Reference_Voltage", "Regulator_Linear", "Regulator_Switching",
-                        "Switch", "Jumper", "Logic_74xx", "Logic_4xxx", "analog_sw"
-                    };
-                    if (!basics.contains(libName)) {
-                        continue;
-                    }
-                }
+                if (!shouldIncludeBasicsLibrary(libName)) continue;
 
                 Q_EMIT progressUpdated(QString("Loading KiCad library: %1").arg(libName), currentKicad, totalKicad);
 
@@ -1031,15 +1264,39 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
                 SymbolLibrary* lib = new SymbolLibrary(libName, false);
                 lib->setPath(filePath);
 
-                QStringList symNames = KicadSymbolImporter::getSymbolNames(filePath);
-                for (const QString& name : symNames) {
-                    SymbolDefinition stub(name);
+                const QFileInfo fileInfo(filePath);
+                QList<SymbolLibrary::SymbolInfo> symbolInfos = metadataCache.symbolInfosForFile(fileInfo);
+                if (symbolInfos.isEmpty()) {
+                    if (asyncColdIndexing) {
+                        deferredKicadFiles.append(filePath);
+                        continue;
+                    }
+
+                    const QList<KicadSymbolImporter::SymbolMetadata> extracted =
+                        KicadSymbolImporter::getSymbolMetadata(filePath);
+                    symbolInfos.reserve(extracted.size());
+                    for (const KicadSymbolImporter::SymbolMetadata& meta : extracted) {
+                        SymbolLibrary::SymbolInfo info;
+                        info.name = meta.name;
+                        info.description = meta.description;
+                        info.tags = meta.keywords;
+                        symbolInfos.append(info);
+                    }
+                    if (!symbolInfos.isEmpty()) {
+                        metadataCache.storeSymbolInfos(fileInfo, symbolInfos);
+                    }
+                }
+                for (const SymbolLibrary::SymbolInfo& info : symbolInfos) {
+                    SymbolDefinition stub(info.name);
                     stub.setStub(true);
                     stub.setCategory(libName); // Default category is library name
+                    if (!info.description.isEmpty()) stub.setDescription(info.description);
+                    if (!info.tags.isEmpty()) stub.setCustomField("__searchTags", info.tags);
                     lib->addSymbol(stub);
                 }
                 if (lib->symbolCount() > 0) {
                     addLibrary(lib);
+                    didChangeLibraries = true;
                     qDebug() << "Loaded KiCad library:" << filePath << "with" << lib->symbolCount() << "symbols";
                 } else {
                     delete lib;
@@ -1047,25 +1304,115 @@ void SymbolLibraryManager::loadUserLibraries(const QString& userLibPath) {
             }
         }
     }
+
+    metadataCache.saveIfDirty();
+    if (didChangeLibraries) Q_EMIT librariesChanged();
+    if (deferredKicadFiles.isEmpty()) {
+        Q_EMIT loadingFinished();
+        return;
+    }
+
+    [[maybe_unused]] auto future = QtConcurrent::run([this, deferredKicadFiles, loadGeneration]() {
+        SymbolMetadataCache asyncCache;
+        QList<SymbolLibrary*> loadedLibraries;
+        loadedLibraries.reserve(deferredKicadFiles.size());
+
+        for (int i = 0; i < deferredKicadFiles.size(); ++i) {
+            if (!isLoadGenerationCurrent(loadGeneration)) {
+                qDeleteAll(loadedLibraries);
+                return;
+            }
+
+            const QString filePath = deferredKicadFiles.at(i);
+            const QString libName = QFileInfo(filePath).completeBaseName();
+            Q_EMIT progressUpdated(QString("Indexing KiCad library: %1").arg(libName), i + 1, deferredKicadFiles.size());
+
+            const QList<KicadSymbolImporter::SymbolMetadata> extracted =
+                KicadSymbolImporter::getSymbolMetadata(filePath);
+            QList<SymbolLibrary::SymbolInfo> symbolInfos;
+            symbolInfos.reserve(extracted.size());
+            for (const KicadSymbolImporter::SymbolMetadata& meta : extracted) {
+                SymbolLibrary::SymbolInfo info;
+                info.name = meta.name;
+                info.description = meta.description;
+                info.tags = meta.keywords;
+                symbolInfos.append(info);
+            }
+            if (symbolInfos.isEmpty()) continue;
+
+            asyncCache.storeSymbolInfos(QFileInfo(filePath), symbolInfos);
+
+            SymbolLibrary* lib = new SymbolLibrary(libName, false);
+            lib->setPath(filePath);
+            for (const SymbolLibrary::SymbolInfo& info : symbolInfos) {
+                SymbolDefinition stub(info.name);
+                stub.setStub(true);
+                stub.setCategory(libName);
+                if (!info.description.isEmpty()) stub.setDescription(info.description);
+                if (!info.tags.isEmpty()) stub.setCustomField("__searchTags", info.tags);
+                lib->addSymbol(stub);
+            }
+            if (lib->symbolCount() > 0) loadedLibraries.append(lib);
+            else delete lib;
+        }
+
+        asyncCache.saveIfDirty();
+
+        QMetaObject::invokeMethod(this, [this, loadGeneration, loadedLibraries]() mutable {
+            if (!isLoadGenerationCurrent(loadGeneration)) {
+                qDeleteAll(loadedLibraries);
+                return;
+            }
+
+            bool changed = false;
+            for (SymbolLibrary* lib : loadedLibraries) {
+                bool exists = false;
+                for (SymbolLibrary* existing : m_libraries) {
+                    if (existing && existing->path() == lib->path()) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (exists) {
+                    delete lib;
+                    continue;
+                }
+                addLibrary(lib);
+                changed = true;
+            }
+            if (changed) Q_EMIT this->librariesChanged();
+            Q_EMIT loadingFinished();
+        }, Qt::QueuedConnection);
+    });
 }
 
-void SymbolLibraryManager::reloadUserLibraries() {
+void SymbolLibraryManager::reloadUserLibraries(bool asyncColdIndexing) {
     QWriteLocker locker(&m_lock);
+    ++m_loadGeneration;
     for (int i = m_libraries.size() - 1; i >= 0; --i) {
         if (!m_libraries[i]->isBuiltIn()) {
             delete m_libraries.takeAt(i);
         }
     }
     locker.unlock();
-    loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym");
+    loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym", asyncColdIndexing);
+}
+
+bool SymbolLibraryManager::isLoadGenerationCurrent(quint64 generation) const {
+    QReadLocker locker(&m_lock);
+    return m_loadGeneration == generation;
 }
 
 QStringList SymbolLibraryManager::allCategories() const {
     QReadLocker locker(&m_lock);
     QSet<QString> cats;
     for (SymbolLibrary* lib : m_libraries) {
-        for (const QString& cat : lib->categories()) {
-            cats.insert(cat);
+        if (!lib) continue;
+        const QList<SymbolLibrary::SymbolInfo> infos = lib->symbolInfos();
+        for (const SymbolLibrary::SymbolInfo& info : infos) {
+            if (!info.category.isEmpty()) {
+                cats.insert(info.category);
+            }
         }
     }
     return cats.values();
@@ -1238,42 +1585,8 @@ void SymbolLibraryManager::createDefaultBuiltInLibrary() {
     addSym(pnp);
 
     // === MOSFETs ===
-    auto addMOSFET = [&](const QString& name, bool nChannel) {
-        SymbolDefinition mos(name);
-        mos.setCategory("Semiconductors");
-        mos.setReferencePrefix("Q");
-        mos.addPrimitive(SymbolPrimitive::createCircle(QPointF(0, 0), 20, false));
-        mos.addPrimitive(SymbolPrimitive::createLine(QPointF(-10, -15), QPointF(-10, 15))); // Gate
-        mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, -12), QPointF(0, -5))); // Drain segment
-        mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 12), QPointF(0, 5))); // Source segment
-        mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 0), QPointF(10, 0))); // Bulk
-        mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, -12), QPointF(10, -12)));
-        mos.addPrimitive(SymbolPrimitive::createLine(QPointF(0, 12), QPointF(10, 12)));
-        
-        // Arrow
-        if (nChannel) {
-            QList<QPointF> arrow = {QPointF(8, 0), QPointF(3.2, -2.4), QPointF(3.2, 2.4)};
-            mos.addPrimitive(SymbolPrimitive::createPolygon(arrow, true));
-        } else {
-            QList<QPointF> arrow = {QPointF(2, 0), QPointF(6.8, -2.4), QPointF(6.8, 2.4)};
-            mos.addPrimitive(SymbolPrimitive::createPolygon(arrow, true));
-        }
-
-        mos.addPrimitive(SymbolPrimitive::createPin(QPointF(-30, 0), 1, "G"));
-        mos.addPrimitive(SymbolPrimitive::createPin(QPointF(10, -30), 2, "D"));
-        mos.addPrimitive(SymbolPrimitive::createPin(QPointF(10, 30), 3, "S"));
-
-        // SPICE mapping: 1:D, 2:G, 3:S
-        QMap<int, QString> mosMapping;
-        mosMapping[1] = "D";
-        mosMapping[2] = "G";
-        mosMapping[3] = "S";
-        mos.setSpiceNodeMapping(mosMapping);
-
-        addSym(mos);
-    };
-    addMOSFET("Transistor_NMOS", true);
-    addMOSFET("Transistor_PMOS", false);
+    addSym(buildDefaultMosfetSymbol("Transistor_NMOS", true));
+    addSym(buildDefaultMosfetSymbol("Transistor_PMOS", false));
 
     // === Power Markers ===
     auto addPower = [&](const QString& name, bool isGnd) {
@@ -1770,7 +2083,14 @@ void SymbolLibraryManager::createDefaultBuiltInLibrary() {
                 bool addedMissingSymbol = false;
                 const QList<SymbolDefinition> defaults = lib->allSymbols();
                 for (const SymbolDefinition& symbol : defaults) {
-                    if (!existing.findSymbol(symbol.name())) {
+                    SymbolDefinition* current = existing.findSymbol(symbol.name());
+                    if (!current) {
+                        existing.addSymbol(symbol);
+                        addedMissingSymbol = true;
+                        continue;
+                    }
+
+                    if (isLegacyBuiltInMosfetSymbol(*current)) {
                         existing.addSymbol(symbol);
                         addedMissingSymbol = true;
                     }

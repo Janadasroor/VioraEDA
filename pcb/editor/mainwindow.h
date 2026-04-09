@@ -79,6 +79,7 @@ private slots:
     void onExportIGES();
     void onSettings();
     void onImportNetlist();
+    void onImportImage();
     void onPropertyChanged(const QString& name, const QVariant& value);
     void onFilterChanged();
     void onOpenCommandPalette();
@@ -86,6 +87,7 @@ private slots:
     void onLengthMatching();
     void onCompareBoard();
     void onGenerateDesignReport();
+    void onLaunchOpenCode();
     
     // Alignment slots
     void onAlignLeft();
@@ -122,6 +124,8 @@ private:
     void applyTheme();
     void updateGrid();
     void updateLayerLabel();
+    void updateSelectionQuickInfo(const QList<PCBItem*>& items);
+    QString selectionQuickInfoText(PCBItem* item) const;
     QWidget* createStatusSeparator();
     QIcon createPCBIcon(const QString& name);
     void ensureRightBottomDockTabs();
@@ -158,10 +162,14 @@ private:
     // Status bar
     QLabel *m_coordLabel;
     QComboBox *m_gridCombo;
+    QComboBox *m_layerCombo;
     QLabel *m_layerLabel;
+    QLabel *m_selectionInfoLabel = nullptr;
 
     // Undo Stack
     QUndoStack *m_undoStack;
+    QAction *m_undoAction;
+    QAction *m_redoAction;
     class PCBAPI *m_api;
 
     // File state

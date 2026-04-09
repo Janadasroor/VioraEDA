@@ -1,15 +1,56 @@
 #include "gerber_viewer_window.h"
 #include "gerber_parser.h"
+#include "../../core/config_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QToolBar>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QColorDialog>
 #include <QDockWidget>
+#include <QLabel>
 #include <QStatusBar>
 
+namespace {
+QColor gerberLayerColor(const QString& fileName) {
+    const QString name = fileName.toLower();
+    if (name.contains("drill") || name.endsWith(".drl")) {
+        return QColor(35, 35, 35);
+    }
+    if (name.contains("edge") || name.contains("outline") || name.endsWith(".gm1") || name.endsWith(".gko")) {
+        return QColor(255, 208, 92);
+    }
+    if (name.endsWith(".gtl") || (name.contains("top") && name.contains("copper"))) {
+        return QColor(232, 119, 34);
+    }
+    if (name.endsWith(".gbl") || (name.contains("bottom") && name.contains("copper"))) {
+        return QColor(59, 130, 246);
+    }
+    if (name.endsWith(".gts") || (name.contains("top") && name.contains("mask"))) {
+        return QColor(35, 111, 62, 150);
+    }
+    if (name.endsWith(".gbs") || (name.contains("bottom") && name.contains("mask"))) {
+        return QColor(27, 83, 49, 150);
+    }
+    if (name.endsWith(".gto") || name.endsWith(".gbo") || name.contains("silk") || name.contains("legend")) {
+        return QColor(238, 238, 232);
+    }
+    if (name.contains("paste")) {
+        return QColor(180, 180, 180, 180);
+    }
+    if (name.contains("courtyard")) {
+        return QColor(125, 180, 255);
+    }
+    if (name.contains("fabrication")) {
+        return QColor(150, 150, 180);
+    }
+    return QColor("#ffffff");
+}
+}
+
 GerberViewerWindow::GerberViewerWindow(QWidget* parent)
-    : QMainWindow(parent) {
+    : QMainWindow(parent),
+      m_backgroundColor(ConfigManager::instance().toolProperty("gerber_viewer", "background_color", QColor(Qt::black)).value<QColor>()) {
     setWindowTitle("Viora EDA - Gerber Viewer");
     resize(1100, 750);
     setupUI();
@@ -26,6 +67,9 @@ void GerberViewerWindow::setupUI() {
     
     QAction* openAct = toolbar->addAction("Open Gerber Files...");
     connect(openAct, &QAction::triggered, this, &GerberViewerWindow::onOpenFiles);
+
+    QAction* backgroundAct = toolbar->addAction("Background...");
+    connect(backgroundAct, &QAction::triggered, this, &GerberViewerWindow::onSelectBackgroundColor);
     
     toolbar->addSeparator();
     
@@ -56,10 +100,18 @@ void GerberViewerWindow::setupUI() {
     m_tabWidget->setStyleSheet("QTabWidget::pane { border: none; } QTabBar::tab { padding: 8px 20px; }");
     
     m_view = new GerberView(this);
-    m_3dView = new Gerber3DView(this);
+    m_3dView = nullptr;
+    m_3dPage = new QWidget(this);
+    QVBoxLayout* pageLayout = new QVBoxLayout(m_3dPage);
+    pageLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* hint = new QLabel("3D View loads on demand when this tab is opened.", m_3dPage);
+    hint->setAlignment(Qt::AlignCenter);
+    pageLayout->addWidget(hint);
+    applyBackgroundColor(m_backgroundColor);
     
     m_tabWidget->addTab(m_view, "2D View");
-    m_tabWidget->addTab(m_3dView, "3D View");
+    m_tabWidget->addTab(m_3dPage, "3D View");
+    connect(m_tabWidget, &QTabWidget::currentChanged, this, &GerberViewerWindow::onTabChanged);
     
     setCentralWidget(m_tabWidget);
 
@@ -80,11 +132,20 @@ void GerberViewerWindow::onOpenFiles() {
     
     if (paths.isEmpty()) return;
 
+    openFiles(paths);
+}
+
+void GerberViewerWindow::openFiles(const QStringList& paths) {
+    if (paths.isEmpty()) return;
+
+    m_isBulkLoading = true;
+    const QSignalBlocker blocker(m_layerList);
     for (const QString& path : paths) {
         addGerberFile(path);
     }
+    m_isBulkLoading = false;
     
-    m_3dView->setLayers(m_loadedLayers);
+    refreshViews();
     m_view->zoomFit();
 }
 
@@ -92,20 +153,10 @@ void GerberViewerWindow::addGerberFile(const QString& path) {
 GerberLayer* layer = GerberParser::parse(path);
     if (!layer) return;
 
-    // Assign a color based on filename/index
-    static QList<QColor> colors = {
-        QColor("#ef4444"), // Top Copper (Red)
-        QColor("#3b82f6"), // Bottom Copper (Blue)
-        QColor("#10b981"), // Silk (Greenish)
-        QColor("#f59e0b"), // Mask (Amber)
-        QColor("#8b5cf6"), // Edge (Violet)
-        QColor("#ffffff")  // Others
-    };
-    layer->setColor(colors[m_loadedLayers.size() % colors.size()]);
     layer->setName(QFileInfo(path).fileName());
+    layer->setColor(gerberLayerColor(layer->name()));
 
     m_loadedLayers.append(layer);
-    m_view->addLayer(layer);
 
     // Add to list widget
     QListWidgetItem* item = new QListWidgetItem(layer->name(), m_layerList);
@@ -119,19 +170,89 @@ GerberLayer* layer = GerberParser::parse(path);
 
 void GerberViewerWindow::onClearAll() {
     m_view->clear();
-    m_3dView->setLayers({});
+    if (m_3dView) {
+        m_3dView->setLayers({});
+    }
     m_layerList->clear();
     qDeleteAll(m_loadedLayers);
     m_loadedLayers.clear();
 }
 
 void GerberViewerWindow::onLayerToggled(QListWidgetItem* item) {
+    if (m_isBulkLoading) {
+        return;
+    }
+
     int idx = m_layerList->row(item);
     if (idx >= 0 && idx < m_loadedLayers.size()) {
         m_loadedLayers[idx]->setVisible(item->checkState() == Qt::Checked);
-        // Trigger full redraw
-        m_view->clear();
-        for (auto* l : m_loadedLayers) m_view->addLayer(l);
+        refreshViews();
+    }
+}
+
+void GerberViewerWindow::onSelectBackgroundColor() {
+    const QColor color = QColorDialog::getColor(
+        m_backgroundColor,
+        this,
+        "Gerber Viewer Background",
+        QColorDialog::ShowAlphaChannel);
+    if (!color.isValid()) {
+        return;
+    }
+
+    applyBackgroundColor(color);
+    ConfigManager::instance().setToolProperty("gerber_viewer", "background_color", color);
+}
+
+void GerberViewerWindow::applyBackgroundColor(const QColor& color) {
+    if (!color.isValid()) {
+        return;
+    }
+
+    m_backgroundColor = color;
+    if (m_view) {
+        m_view->setBackgroundColor(color);
+    }
+    if (m_3dView) {
+        m_3dView->setBackgroundColor(color);
+    }
+}
+
+void GerberViewerWindow::onTabChanged(int index) {
+    if (index == m_tabWidget->indexOf(m_3dPage)) {
+        ensure3DView();
+    }
+}
+
+void GerberViewerWindow::ensure3DView() {
+    if (m_3dView || !m_3dPage) {
+        return;
+    }
+
+    QVBoxLayout* layout = qobject_cast<QVBoxLayout*>(m_3dPage->layout());
+    if (!layout) {
+        layout = new QVBoxLayout(m_3dPage);
+        layout->setContentsMargins(0, 0, 0, 0);
+    }
+
+    while (QLayoutItem* child = layout->takeAt(0)) {
+        if (child->widget()) {
+            child->widget()->deleteLater();
+        }
+        delete child;
+    }
+
+    m_3dView = new Gerber3DView(m_3dPage);
+    m_3dView->setBackgroundColor(m_backgroundColor);
+    layout->addWidget(m_3dView);
+    m_3dView->setLayers(m_loadedLayers);
+}
+
+void GerberViewerWindow::refreshViews() {
+    if (m_view) {
+        m_view->setLayers(m_loadedLayers);
+    }
+    if (m_3dView) {
         m_3dView->setLayers(m_loadedLayers);
     }
 }

@@ -4,6 +4,7 @@
 #include "pcb_tool.h"
 #include <QPointF>
 #include <QGraphicsLineItem>
+#include <QVector>
 
 class TraceItem;
 class CopperPourItem;
@@ -74,6 +75,8 @@ protected:
     void rebuildJunctionDots();
     QPointF chooseWalkAroundElbow(const QPointF& from, const QPointF& to);
     QPainterPath calculateHuggingPath(const QPointF& from, const QPointF& to);
+    QVector<QPointF> findAutoRoutePoints(const QPointF& from, const QPointF& to);
+    bool segmentBlockedForRouting(const QPointF& a, const QPointF& b) const;
     int routeCollisionScore(const QPointF& a, const QPointF& elbow, const QPointF& b);
     QPainterPath buildClearanceHaloPath(const QPointF& a, const QPointF& b);
     void createAutoTeardropsForRoute();
@@ -90,6 +93,8 @@ protected:
     double requiredClearanceTo(const PCBItem* other) const;
     void revertShovedItems();
     void commitShovedItems();
+    bool standaloneFreeRoutingMode() const;
+    bool isUnassignedNet(const QString& netName) const;
 
     bool m_isRouting;           // Currently drawing a trace
     QString m_currentNet;       // Net being routed

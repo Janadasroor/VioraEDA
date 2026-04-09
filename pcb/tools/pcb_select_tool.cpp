@@ -3,6 +3,9 @@
 #include "pcb_item.h"
 #include "pad_item.h"
 #include "trace_item.h"
+#include "copper_pour_item.h"
+#include "image_item.h"
+#include "shape_item.h"
 #include "pcb_commands.h"
 #include "../analysis/pcb_ratsnest_manager.h"
 #include "theme_manager.h"
@@ -38,6 +41,42 @@ PCBItem* resolveSelectableTarget(QGraphicsItem* item) {
         current = current->parentItem();
     }
     return target;
+}
+
+PCBItem* hitSelectableTargetAt(PCBView* view, const QPointF& scenePos) {
+    if (!view || !view->scene()) return nullptr;
+
+    const QList<QGraphicsItem*> hits = view->scene()->items(
+        scenePos, Qt::IntersectsItemShape, Qt::DescendingOrder, view->transform());
+
+    for (QGraphicsItem* hit : hits) {
+        PCBItem* target = resolveSelectableTarget(hit);
+        if (!target) continue;
+
+        PCBItem* deepestItem = nullptr;
+        QGraphicsItem* current = hit;
+        while (current) {
+            if (PCBItem* candidate = dynamic_cast<PCBItem*>(current)) {
+                if ((candidate->flags() & QGraphicsItem::ItemIsSelectable) &&
+                    candidate->contains(candidate->mapFromScene(scenePos))) {
+                    if (!deepestItem) deepestItem = candidate;
+                }
+            }
+            current = current->parentItem();
+        }
+
+        if (deepestItem && deepestItem != target) {
+            if (target->isSelected() || deepestItem->isSelected()) {
+                return deepestItem;
+            }
+        }
+
+        if (target->contains(target->mapFromScene(scenePos))) {
+            return target;
+        }
+    }
+
+    return nullptr;
 }
 
 void selectItemsInRect(QGraphicsScene* scene, const QRectF& rect) {
@@ -76,6 +115,18 @@ QString tracePointKey(const QPointF& p, double grid = 1e-3) {
 }
 
 constexpr int kJunctionDotTagKey = 0x534A44; // "SJD"
+constexpr int kResizeHandleTagKey = 0x52485A; // "RHZ"
+
+PCBSelectTool::ResizeHandleCorner resizeCornerFromVariant(const QVariant& data) {
+    switch (data.toInt()) {
+    case 1: return PCBSelectTool::ResizeHandleCorner::TopLeft;
+    case 2: return PCBSelectTool::ResizeHandleCorner::TopRight;
+    case 3: return PCBSelectTool::ResizeHandleCorner::BottomLeft;
+    case 4: return PCBSelectTool::ResizeHandleCorner::BottomRight;
+    default: return PCBSelectTool::ResizeHandleCorner::None;
+    }
+}
+
 }
 
 TraceItem* PCBSelectTool::selectedSingleTrace() const {
@@ -83,6 +134,19 @@ TraceItem* PCBSelectTool::selectedSingleTrace() const {
     const QList<QGraphicsItem*> selected = view()->scene()->selectedItems();
     if (selected.size() != 1) return nullptr;
     return dynamic_cast<TraceItem*>(selected.first());
+}
+
+PCBItem* PCBSelectTool::selectedSingleResizableItem() const {
+    if (!view() || !view()->scene()) return nullptr;
+    const QList<QGraphicsItem*> selected = view()->scene()->selectedItems();
+    if (selected.size() != 1) return nullptr;
+    PCBItem* item = dynamic_cast<PCBItem*>(selected.first());
+    if (!item || item->isLocked()) return nullptr;
+    if (dynamic_cast<CopperPourItem*>(item) || dynamic_cast<PCBImageItem*>(item) ||
+        dynamic_cast<PCBShapeItem*>(item)) {
+        return item;
+    }
+    return nullptr;
 }
 
 void PCBSelectTool::cleanupTraceEditHandles() {
@@ -97,6 +161,16 @@ void PCBSelectTool::cleanupTraceEditHandles() {
         delete m_traceEndHandle;
         m_traceEndHandle = nullptr;
     }
+}
+
+void PCBSelectTool::cleanupResizeHandles() {
+    if (!view() || !view()->scene()) return;
+    for (QGraphicsRectItem* handle : std::as_const(m_resizeHandles)) {
+        if (!handle) continue;
+        view()->scene()->removeItem(handle);
+        delete handle;
+    }
+    m_resizeHandles.clear();
 }
 
 void PCBSelectTool::updateTraceEditHandles() {
@@ -130,6 +204,52 @@ void PCBSelectTool::updateTraceEditHandles() {
 
     m_traceStartHandle->setRect(QRectF(startScene.x() - r, startScene.y() - r, 2.0 * r, 2.0 * r));
     m_traceEndHandle->setRect(QRectF(endScene.x() - r, endScene.y() - r, 2.0 * r, 2.0 * r));
+}
+
+void PCBSelectTool::updateResizeHandles() {
+    if (!view() || !view()->scene()) return;
+
+    PCBItem* item = selectedSingleResizableItem();
+    if (!item || m_resizeCorner != ResizeHandleCorner::None) {
+        cleanupResizeHandles();
+        return;
+    }
+
+    const QRectF rect = item->sceneBoundingRect();
+    if (!rect.isValid() || rect.width() < 1e-6 || rect.height() < 1e-6) {
+        cleanupResizeHandles();
+        return;
+    }
+
+    if (m_resizeHandles.size() != 4) {
+        cleanupResizeHandles();
+        PCBTheme* theme = ThemeManager::theme();
+        const QColor edge = theme ? theme->selectionBox() : QColor(0, 200, 255);
+        QColor fill = edge;
+        fill.setAlpha(90);
+
+        for (int i = 0; i < 4; ++i) {
+            auto* handle = new QGraphicsRectItem();
+            handle->setPen(QPen(edge, 0));
+            handle->setBrush(QBrush(fill));
+            handle->setZValue(2100);
+            handle->setAcceptedMouseButtons(Qt::NoButton);
+            handle->setData(kResizeHandleTagKey, i + 1);
+            view()->scene()->addItem(handle);
+            m_resizeHandles.append(handle);
+        }
+    }
+
+    const qreal handleSize = 1.0;
+    const QPointF corners[4] = {
+        rect.topLeft(), rect.topRight(), rect.bottomLeft(), rect.bottomRight()
+    };
+
+    for (int i = 0; i < m_resizeHandles.size() && i < 4; ++i) {
+        m_resizeHandles[i]->setRect(QRectF(corners[i].x() - handleSize * 0.5,
+                                           corners[i].y() - handleSize * 0.5,
+                                           handleSize, handleSize));
+    }
 }
 
 void PCBSelectTool::rebuildTraceJunctionDots() {
@@ -192,8 +312,11 @@ void PCBSelectTool::deactivate() {
     cleanupClearanceVisuals();
     cleanupDragCollisionPreview();
     cleanupTraceEditHandles();
+    cleanupResizeHandles();
     m_traceDragItem = nullptr;
     m_traceDragMode = TraceDragMode::None;
+    m_resizeItem = nullptr;
+    m_resizeCorner = ResizeHandleCorner::None;
     PCBTool::deactivate();
 }
 
@@ -356,27 +479,18 @@ void PCBSelectTool::mousePressEvent(QMouseEvent* event) {
 
     QPointF scenePos = view()->mapToScene(event->pos());
     QGraphicsItem* item = view()->itemAt(event->pos());
-    
-    // Find the top-most selectable PCBItem by traversing up the parent chain
-    PCBItem* pcbItem = nullptr;
-    PCBItem* deepestItem = nullptr;
-    QGraphicsItem* current = item;
-    while (current) {
-        if (PCBItem* candidate = dynamic_cast<PCBItem*>(current)) {
-            if (candidate->flags() & QGraphicsItem::ItemIsSelectable) {
-                if (!deepestItem) deepestItem = candidate;
-                pcbItem = candidate; // Track the highest selectable PCBItem found so far
-            }
+
+    if (event->button() == Qt::LeftButton && item && item->data(kResizeHandleTagKey).isValid()) {
+        PCBItem* resizeItem = selectedSingleResizableItem();
+        const ResizeHandleCorner corner = resizeCornerFromVariant(item->data(kResizeHandleTagKey));
+        if (resizeItem && corner != ResizeHandleCorner::None) {
+            beginResize(resizeItem, corner);
+            event->accept();
+            return;
         }
-        current = current->parentItem();
     }
 
-    // Drill-down selection: If the parent is already selected, allow selecting the child pad.
-    if (pcbItem && deepestItem && deepestItem != pcbItem) {
-        if (pcbItem->isSelected() || deepestItem->isSelected()) {
-            pcbItem = deepestItem;
-        }
-    }
+    PCBItem* pcbItem = hitSelectableTargetAt(view(), scenePos);
 
     // Clear selection if clicking on empty space or non-pcb item
     if (event->button() == Qt::LeftButton) {
@@ -397,7 +511,7 @@ void PCBSelectTool::mousePressEvent(QMouseEvent* event) {
             QColor fillColor = selColor;
             fillColor.setAlpha(40);
             
-            m_rubberBandItem->setPen(QPen(selColor, 1, Qt::DashLine));
+            m_rubberBandItem->setPen(QPen(selColor, 0, Qt::DashLine));
             m_rubberBandItem->setBrush(QBrush(fillColor));
             m_rubberBandItem->setZValue(1000); // Always on top
             view()->scene()->addItem(m_rubberBandItem);
@@ -407,6 +521,7 @@ void PCBSelectTool::mousePressEvent(QMouseEvent* event) {
                 view()->scene()->clearSelection();
             }
             updateTraceEditHandles();
+            updateResizeHandles();
             event->accept();
             return;
         } else {
@@ -426,6 +541,7 @@ void PCBSelectTool::mousePressEvent(QMouseEvent* event) {
             }
 
             updateTraceEditHandles();
+            updateResizeHandles();
 
             // Single-trace edit mode: drag start/end handle or the segment itself.
             if (!isCtrlHeld && !isShiftHeld) {
@@ -498,6 +614,14 @@ void PCBSelectTool::mousePressEvent(QMouseEvent* event) {
 }
 
 void PCBSelectTool::mouseMoveEvent(QMouseEvent* event) {
+    if (m_resizeCorner != ResizeHandleCorner::None && m_resizeItem && view()) {
+        if (applyResizeFromScenePoint(view()->mapToScene(event->pos()))) {
+            updateResizeHandles();
+        }
+        event->accept();
+        return;
+    }
+
     if (m_traceDragMode != TraceDragMode::None && m_traceDragItem && view()) {
         QPointF scenePos = view()->mapToScene(event->pos());
         QPointF snappedPos = view()->snapToGrid(scenePos);
@@ -547,6 +671,7 @@ void PCBSelectTool::mouseMoveEvent(QMouseEvent* event) {
             
             selectItemsInRect(view()->scene(), rect);
             updateTraceEditHandles();
+            updateResizeHandles();
             lastRect = rect;
         }
         
@@ -592,6 +717,7 @@ void PCBSelectTool::mouseMoveEvent(QMouseEvent* event) {
         // updateClearanceVisuals(); // Temporarily disabled to fix crash
 
         m_lastMousePos = event->pos();
+        updateResizeHandles();
         event->accept();
         return;
     }
@@ -600,6 +726,28 @@ void PCBSelectTool::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void PCBSelectTool::mouseReleaseEvent(QMouseEvent* event) {
+    if (m_resizeCorner != ResizeHandleCorner::None && m_resizeItem && view()) {
+        const QJsonObject newState = m_resizeItem->toJson();
+        if (view()->undoStack() && newState != m_resizeOldState) {
+            view()->undoStack()->push(new PCBItemStateCommand(
+                view()->scene(), m_resizeItem, m_resizeOldState, newState, "Resize Item"));
+        }
+
+        if (!m_resizeItem->netName().isEmpty()) {
+            PCBRatsnestManager::instance().updateNet(m_resizeItem->netName());
+        } else {
+            PCBRatsnestManager::instance().update();
+        }
+
+        m_resizeItem = nullptr;
+        m_resizeCorner = ResizeHandleCorner::None;
+        m_resizeOldState = QJsonObject();
+        updateResizeHandles();
+        event->accept();
+        PCBTool::mouseReleaseEvent(event);
+        return;
+    }
+
     if (m_traceDragMode != TraceDragMode::None && m_traceDragItem && view()) {
         QPointF oldStart = m_traceDragStartInitialLocal;
         QPointF oldEnd = m_traceDragEndInitialLocal;
@@ -632,6 +780,7 @@ void PCBSelectTool::mouseReleaseEvent(QMouseEvent* event) {
         m_traceDragMode = TraceDragMode::None;
         m_traceDragItem = nullptr;
         updateTraceEditHandles();
+        updateResizeHandles();
         event->accept();
         PCBTool::mouseReleaseEvent(event);
         return;
@@ -642,6 +791,7 @@ void PCBSelectTool::mouseReleaseEvent(QMouseEvent* event) {
         
         selectItemsInRect(view()->scene(), rect);
         updateTraceEditHandles();
+        updateResizeHandles();
         
         view()->scene()->removeItem(m_rubberBandItem);
         delete m_rubberBandItem;
@@ -702,5 +852,82 @@ void PCBSelectTool::mouseReleaseEvent(QMouseEvent* event) {
     m_hasDragAnchor = false;
     m_initialPositions.clear();
     updateTraceEditHandles();
+    updateResizeHandles();
     PCBTool::mouseReleaseEvent(event);
+}
+
+void PCBSelectTool::beginResize(PCBItem* item, ResizeHandleCorner corner) {
+    if (!item) return;
+    m_resizeItem = item;
+    m_resizeCorner = corner;
+    m_resizeInitialSceneRect = item->sceneBoundingRect();
+    m_resizeInitialItemPos = item->pos();
+    m_resizeOldState = item->toJson();
+
+    switch (corner) {
+    case ResizeHandleCorner::TopLeft:
+        m_resizeAnchorScenePos = m_resizeInitialSceneRect.bottomRight();
+        break;
+    case ResizeHandleCorner::TopRight:
+        m_resizeAnchorScenePos = m_resizeInitialSceneRect.bottomLeft();
+        break;
+    case ResizeHandleCorner::BottomLeft:
+        m_resizeAnchorScenePos = m_resizeInitialSceneRect.topRight();
+        break;
+    case ResizeHandleCorner::BottomRight:
+        m_resizeAnchorScenePos = m_resizeInitialSceneRect.topLeft();
+        break;
+    default:
+        break;
+    }
+
+    if (CopperPourItem* pour = dynamic_cast<CopperPourItem*>(item)) {
+        m_resizeInitialPolygon = pour->polygon();
+    } else if (PCBImageItem* image = dynamic_cast<PCBImageItem*>(item)) {
+        m_resizeInitialImageSize = image->sizeMm();
+    }
+
+    cleanupResizeHandles();
+}
+
+bool PCBSelectTool::applyResizeFromScenePoint(const QPointF& scenePos) {
+    if (!m_resizeItem || !view()) return false;
+
+    const QPointF snappedPos = view()->snapToGrid(scenePos);
+    QRectF targetRect(m_resizeAnchorScenePos, snappedPos);
+    targetRect = targetRect.normalized();
+    targetRect.setWidth(std::max<qreal>(0.5, targetRect.width()));
+    targetRect.setHeight(std::max<qreal>(0.5, targetRect.height()));
+
+    if (CopperPourItem* pour = dynamic_cast<CopperPourItem*>(m_resizeItem)) {
+        const QRectF initialBounds = m_resizeInitialPolygon.boundingRect();
+        if (!initialBounds.isValid() || initialBounds.width() < 1e-9 || initialBounds.height() < 1e-9) return false;
+
+        QPolygonF scaled = m_resizeInitialPolygon;
+        for (QPointF& point : scaled) {
+            const qreal nx = (point.x() - initialBounds.left()) / initialBounds.width();
+            const qreal ny = (point.y() - initialBounds.top()) / initialBounds.height();
+            point.setX(targetRect.left() + nx * targetRect.width());
+            point.setY(targetRect.top() + ny * targetRect.height());
+        }
+        pour->setPolygon(scaled);
+        if (pour->scene()) {
+            pour->scene()->update();
+        }
+        return true;
+    }
+
+    if (PCBImageItem* image = dynamic_cast<PCBImageItem*>(m_resizeItem)) {
+        image->setPos(targetRect.center());
+        image->setSizeMm(targetRect.size());
+        return true;
+    }
+
+    if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(m_resizeItem)) {
+        shape->setPos(targetRect.center());
+        shape->setSizeMm(targetRect.size());
+        return true;
+    }
+
+    return false;
 }

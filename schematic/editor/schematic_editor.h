@@ -217,6 +217,7 @@ private:
     void connectSimulationSignals();
     void updateSimulationUiState(bool running, const QString& statusMessage = QString());
     void updateSimulationOverlays(const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& currents);
+    void refreshOscilloscopeDockContent();
     void runLiveERC(const QList<class SchematicItem*>& items);
     QStringList resolveConnectedInstrumentNets(class SchematicItem* instrument) const;
     void appendSimulationIssue(const QString& message);

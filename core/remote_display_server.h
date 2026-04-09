@@ -20,6 +20,8 @@ class QWebSocket;
  * @brief WebSocket server to stream real-time instrument data to mobile/web clients.
  */
 class RemoteDisplayServer : public QObject {
+    Q_OBJECT
+
 public:
     explicit RemoteDisplayServer(quint16 port = 8080, QObject *parent = nullptr);
     ~RemoteDisplayServer();
@@ -62,6 +64,10 @@ public:
     void onNewConnection();
     void processTextMessage(QString message);
     void socketDisconnected();
+
+signals:
+    void clientConnected(const QString& addr);
+    void clientDisconnected(const QString& addr);
 
 private:
     QWebSocketServer *m_server = nullptr;

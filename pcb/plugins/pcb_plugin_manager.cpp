@@ -11,7 +11,7 @@ PCBPluginManager::PCBPluginManager(QObject* parent)
     : QObject(parent) {
     // Add default plugin directories
     addPluginDirectory(QDir::currentPath() + "/plugins");
-    addPluginDirectory(QDir::homePath() + "/.viora_eda/plugins");
+    addPluginDirectory(QDir::homePath() + "/ViospiceLib/plugins");
 }
 
 PCBPluginManager::~PCBPluginManager() {

@@ -41,6 +41,9 @@ GenericComponentItem::GenericComponentItem(const SymbolDefinition& symbol, QGrap
     // Default value is usually the name or empty
     m_value = symbol.name();
     
+    // Set default footprint from symbol definition
+    setFootprint(symbol.defaultFootprint());
+    
     setFlags(ItemIsSelectable | ItemIsMovable | ItemSendsGeometryChanges);
     
     // Optimization: Cache complex vector graphics to speed up rendering

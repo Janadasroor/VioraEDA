@@ -1834,6 +1834,25 @@ QString sanitizeModelIncludeForNgspice(const QString& path) {
     return path;
 }
 
+struct SpiceTokenSplit {
+    QString head;
+    QString tail;
+};
+
+SpiceTokenSplit splitLeadingSpiceToken(const QString& raw) {
+    const QString text = raw.trimmed();
+    if (text.isEmpty()) return {};
+
+    const QRegularExpression ws("\\s+");
+    const QRegularExpressionMatch match = ws.match(text);
+    if (!match.hasMatch()) {
+        return {text, QString()};
+    }
+
+    const int start = match.capturedStart();
+    return {text.left(start).trimmed(), text.mid(start).trimmed()};
+}
+
 QString pickPowerNetName(const QMap<QString, QString>& pins, const QString& fallbackValue) {
     QString netName = pins.value("1").trimmed();
     if (!netName.isEmpty()) return netName;
@@ -3014,6 +3033,9 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                             typeLower == "npn" || typeLower == "npn2" || typeLower == "npn3" || typeLower == "npn4" ||
                             typeLower == "pnp" || typeLower == "pnp2" || typeLower == "pnp4" || typeLower == "lpnp") ||
                            comp.reference.startsWith("Q", Qt::CaseInsensitive);
+        if (isMos || isJfet || isBjt) {
+            modelName = splitLeadingSpiceToken(modelName).head;
+        }
         if (modelName.isEmpty() && isJfet) {
             modelName = (typeLower == "pjf" || comp.reference.startsWith("JP", Qt::CaseInsensitive)) ? "PJF" : "NJF";
         }
@@ -3459,6 +3481,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         if (!comp.spiceModel.isEmpty()) value = comp.spiceModel;
         value = inlinePwlFileIfNeeded(value, projectDir, nullptr);
         value = formatPwlValueForNetlist(value);
+        QString instanceSuffix;
         QStringList nodes;
         const SimSubcircuit* activeSub = nullptr;
 
@@ -4181,6 +4204,23 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             line += " " + emittedNodes.at(2);
         }
 
+        auto isGenericBuiltInDiodePlaceholder = [&](const QString& candidate) -> bool {
+            const QString normalized = candidate.trimmed().toLower();
+            if (normalized.isEmpty()) return false;
+            if (ModelLibraryManager::instance().findModel(candidate) ||
+                ModelLibraryManager::instance().findSubcircuit(candidate)) {
+                return false;
+            }
+            return normalized == "d" ||
+                   normalized == "diode" ||
+                   normalized == "diode_silicon" ||
+                   normalized == "silicon";
+        };
+
+        if (line.startsWith("D") && isGenericBuiltInDiodePlaceholder(value)) {
+            value.clear();
+        }
+
         // Add value
         if (value.isEmpty()) {
             if (isADevice) {
@@ -4243,6 +4283,14 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             value = (value.compare("PMOS", Qt::CaseInsensitive) == 0) ? "BS250" : "2N7000";
         } else if (line.startsWith("Q") && (value.compare("NPN", Qt::CaseInsensitive) == 0 || value.compare("PNP", Qt::CaseInsensitive) == 0)) {
             value = (value.compare("PNP", Qt::CaseInsensitive) == 0) ? "2N3906" : "2N2222";
+        }
+
+        if (line.startsWith("M", Qt::CaseInsensitive)) {
+            const SpiceTokenSplit split = splitLeadingSpiceToken(value);
+            if (!split.head.isEmpty()) {
+                value = split.head;
+                instanceSuffix = split.tail;
+            }
         }
 
         if (line.startsWith("M", Qt::CaseInsensitive) && !switchModelsAdded.contains(value.toLower()) && !ModelLibraryManager::instance().findModel(value)) {
@@ -4330,6 +4378,9 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         }
 
         line += " " + value;
+        if (!instanceSuffix.isEmpty()) {
+            line += " " + instanceSuffix;
+        }
         if (!value.endsWith("\n")) line += "\n";
         
         netlist += line;

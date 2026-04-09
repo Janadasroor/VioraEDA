@@ -16,6 +16,7 @@ public:
         Soldermask,
         Paste,
         Courtyard,
+        Fabrication,
         EdgeCuts,
         Drill,
         UserDefined
@@ -100,6 +101,10 @@ public:
     static const int BottomSoldermask = 21;
     static const int TopPaste = 30;
     static const int BottomPaste = 31;
+    static const int TopCourtyard = 40;
+    static const int BottomCourtyard = 41;
+    static const int TopFabrication = 45;
+    static const int BottomFabrication = 46;
     static const int EdgeCuts = 50;
     static const int Drills = 60;
 

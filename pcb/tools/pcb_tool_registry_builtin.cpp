@@ -5,6 +5,7 @@
 #include "pcb_via_tool.h"
 #include "pcb_pour_tool.h"
 #include "pcb_rect_tool.h"
+#include "pcb_shape_tool.h"
 #include "pcb_length_tuning_tool.h"
 #include "pcb_zoom_area_tool.h"
 #include "pcb_measure_tool.h"
@@ -30,8 +31,12 @@ void PCBToolRegistryBuiltIn::registerBuiltInTools() {
     registry.registerTool("Via", []() { return new PCBViaTool(); });
     
     // Fill/Zone tools
+    registry.registerTool("Filled Zone", []() { return new PCBPourTool(); });
     registry.registerTool("Polygon Pour", []() { return new PCBPourTool(); });
     registry.registerTool("Rectangle", []() { return new PCBRectTool(); });
+    registry.registerTool("Line", []() { return new PCBShapeTool("Line", PCBShapeTool::ShapeKind::Line); });
+    registry.registerTool("Circle", []() { return new PCBShapeTool("Circle", PCBShapeTool::ShapeKind::Circle); });
+    registry.registerTool("Arc", []() { return new PCBShapeTool("Arc", PCBShapeTool::ShapeKind::Arc); });
     registry.registerTool("Length Tuning", []() { return new PCBLengthTuningTool(); });
 
     // Measurement

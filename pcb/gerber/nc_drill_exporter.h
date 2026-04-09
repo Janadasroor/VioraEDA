@@ -109,6 +109,7 @@ private:
     struct DrillHole {
         QPointF pos;           // Position in scene coords (mm)
         double diameter = 0;   // Hole diameter in mm
+        double rotation = 0;   // Rotation in degrees
         bool isSlot = false;   // Oblong/slot hole
         double slotLength = 0; // For slots: total length (diameter + straight portion)
         QString netName;       // Associated net

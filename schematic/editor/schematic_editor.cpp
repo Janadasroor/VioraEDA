@@ -1549,6 +1549,7 @@ void SchematicEditor::addSimulationTab(const QString& name) {
     if (!m_scene || !m_netManager || !m_simulationPanel) return;
 
     if (m_oscilloscopeDock) {
+        refreshOscilloscopeDockContent();
         m_oscilloscopeDock->setFloating(false);
         m_oscilloscopeDock->show();
     }
@@ -1586,6 +1587,7 @@ void SchematicEditor::onToggleLeftSidebar() {
 
 void SchematicEditor::onToggleBottomPanel() {
     if (m_oscilloscopeDock) {
+        refreshOscilloscopeDockContent();
         m_oscilloscopeDock->setVisible(!m_oscilloscopeDock->isVisible());
     }
     ConfigManager::instance().saveWindowState("SchematicEditor", saveGeometry(), saveState());

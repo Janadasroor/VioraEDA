@@ -5,6 +5,8 @@
 #include "../items/pad_item.h"
 #include "../items/via_item.h"
 #include "../items/copper_pour_item.h"
+#include "../items/shape_item.h"
+#include "../items/image_item.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -15,8 +17,10 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
+#include <QGraphicsScene>
 #include <QPainter>
 #include <QStyleOption>
+#include <QSet>
 
 namespace Flux {
 
@@ -315,6 +319,49 @@ void PCBPropertyEditor::populateProperties() {
         return combo;
     };
 
+    auto createNetCombo = [&](const QString& current, const QString& propertyName = QString("Net")) {
+        auto* combo = new QComboBox();
+        combo->setEditable(true);
+        combo->setInsertPolicy(QComboBox::NoInsert);
+        combo->setStyleSheet(
+            "QComboBox {"
+            "   background: #18181b; color: #fff; border: 1px solid #27272a;"
+            "   border-radius: 4px; padding: 2px 8px; font-size: 12px;"
+            "}"
+        );
+
+        QSet<QString> netSet;
+        for (PCBItem* pcbItem : m_items) {
+            if (!pcbItem || !pcbItem->scene()) {
+                continue;
+            }
+            const QList<QGraphicsItem*> sceneItems = pcbItem->scene()->items();
+            for (QGraphicsItem* gItem : sceneItems) {
+                if (auto* other = dynamic_cast<PCBItem*>(gItem)) {
+                    const QString net = other->netName().trimmed();
+                    if (!net.isEmpty()) {
+                        netSet.insert(net);
+                    }
+                }
+            }
+        }
+
+        QStringList nets = netSet.values();
+        nets.sort(Qt::CaseInsensitive);
+        if (!nets.contains("No Net")) {
+            nets.prepend("No Net");
+        }
+        combo->addItems(nets);
+        combo->setCurrentText(current.isEmpty() ? "No Net" : current);
+
+        connect(combo, &QComboBox::currentTextChanged, [this, propertyName](const QString& v) {
+            if (!m_blockSignals) {
+                emit propertyChanged(propertyName, v == "No Net" ? QString() : v);
+            }
+        });
+        return combo;
+    };
+
     auto* item = m_items.first();
     m_previewWidget->setItem(item);
 
@@ -323,7 +370,6 @@ void PCBPropertyEditor::populateProperties() {
     // Identification
     auto* idSection = addSection("Identification");
     idSection->addRow(new PropertyRow("Name", createEdit(item->name(), "Name")));
-    idSection->addRow(new PropertyRow("Net", createEdit(item->netName(), "Net")));
     idSection->addRow(new PropertyRow("Layer", createDoubleSpin(item->layer(), "Layer"))); // Could be combo later
     idSection->addRow(new PropertyRow("Locked", createBoolCheckBox(item->isLocked(), "Locked")));
 
@@ -337,12 +383,16 @@ void PCBPropertyEditor::populateProperties() {
     if (m_items.size() == 1) {
         if (auto* trace = dynamic_cast<TraceItem*>(item)) {
             auto* traceSection = addSection("Trace Parameters");
+            traceSection->addRow(new PropertyRow("Net", createNetCombo(trace->netName())));
             traceSection->addRow(new PropertyRow("Width (mm)", createDoubleSpin(trace->width(), "Width (mm)")));
             traceSection->addRow(new PropertyRow("Start X", createDoubleSpin(trace->startPoint().x(), "Start X (mm)")));
             traceSection->addRow(new PropertyRow("Start Y", createDoubleSpin(trace->startPoint().y(), "Start Y (mm)")));
             traceSection->addRow(new PropertyRow("End X", createDoubleSpin(trace->endPoint().x(), "End X (mm)")));
             traceSection->addRow(new PropertyRow("End Y", createDoubleSpin(trace->endPoint().y(), "End Y (mm)")));
         } else if (auto* via = dynamic_cast<ViaItem*>(item)) {
+            auto* viaElectricalSection = addSection("Electrical Properties");
+            viaElectricalSection->addRow(new PropertyRow("Net", createNetCombo(via->netName())));
+
             auto* viaSection = addSection("Via Parameters");
             viaSection->addRow(new PropertyRow("Diameter (mm)", createDoubleSpin(via->diameter(), "Diameter (mm)")));
             viaSection->addRow(new PropertyRow("Drill (mm)", createDoubleSpin(via->drillSize(), "Drill Size (mm)")));
@@ -350,6 +400,9 @@ void PCBPropertyEditor::populateProperties() {
             viaSection->addRow(new PropertyRow("Start Layer", createDoubleSpin(via->startLayer(), "Via Start Layer")));
             viaSection->addRow(new PropertyRow("End Layer", createDoubleSpin(via->endLayer(), "Via End Layer")));
         } else if (auto* pad = dynamic_cast<PadItem*>(item)) {
+            auto* padElectricalSection = addSection("Electrical Properties");
+            padElectricalSection->addRow(new PropertyRow("Net", createNetCombo(pad->netName())));
+
             auto* padSection = addSection("Pad Parameters");
             padSection->addRow(new PropertyRow("Shape", createEnumCombo({"Round", "Rect", "Oblong"}, pad->padShape(), "Pad Shape")));
             padSection->addRow(new PropertyRow("Size X (mm)", createDoubleSpin(pad->size().width(), "Size X (mm)")));
@@ -360,13 +413,55 @@ void PCBPropertyEditor::populateProperties() {
             compSection->addRow(new PropertyRow("Height (mm)", createDoubleSpin(comp->height(), "Height (mm)")));
             compSection->addRow(new PropertyRow("3D Model", createEdit(comp->modelPath(), "3D Model Path")));
             compSection->addRow(new PropertyRow("3D Scale", createDoubleSpin(comp->modelScale(), "3D Model Scale")));
+
+            QList<PadItem*> pads;
+            for (QGraphicsItem* child : comp->childItems()) {
+                if (auto* pad = dynamic_cast<PadItem*>(child)) {
+                    pads.append(pad);
+                }
+            }
+            if (pads.size() == 1) {
+                auto* compElectricalSection = addSection("Electrical Properties");
+                compElectricalSection->addRow(new PropertyRow("Net", createNetCombo(pads.first()->netName(), "Component Net")));
+            }
+        } else if (auto* image = dynamic_cast<PCBImageItem*>(item)) {
+            auto* imageSection = addSection("Image");
+            imageSection->addRow(new PropertyRow("Width (mm)", createDoubleSpin(image->sizeMm().width(), "Image Width (mm)")));
+            imageSection->addRow(new PropertyRow("Height (mm)", createDoubleSpin(image->sizeMm().height(), "Image Height (mm)")));
+        } else if (auto* shape = dynamic_cast<PCBShapeItem*>(item)) {
+            auto* shapeSection = addSection("Shape");
+            shapeSection->addRow(new PropertyRow("Type", createEdit(shape->shapeKindName(), "Shape Type")));
+            shapeSection->addRow(new PropertyRow("Width (mm)", createDoubleSpin(shape->sizeMm().width(), "Shape Width (mm)")));
+            shapeSection->addRow(new PropertyRow("Height (mm)", createDoubleSpin(shape->sizeMm().height(), "Shape Height (mm)")));
+            shapeSection->addRow(new PropertyRow("Stroke (mm)", createDoubleSpin(shape->strokeWidth(), "Shape Stroke Width (mm)")));
+            if (shape->shapeKind() == PCBShapeItem::ShapeKind::Arc) {
+                shapeSection->addRow(new PropertyRow("Start Angle", createDoubleSpin(shape->startAngleDeg(), "Arc Start Angle (deg)")));
+                shapeSection->addRow(new PropertyRow("Span Angle", createDoubleSpin(shape->spanAngleDeg(), "Arc Span Angle (deg)")));
+            }
         } else if (auto* pour = dynamic_cast<CopperPourItem*>(item)) {
-            auto* pourSection = addSection("Pour Parameters");
-            pourSection->addRow(new PropertyRow("Filled", createBoolCheckBox(pour->filled(), "Filled")));
-            pourSection->addRow(new PropertyRow("Clearance (mm)", createDoubleSpin(pour->clearance(), "Clearance (mm)")));
-            pourSection->addRow(new PropertyRow("Priority", createDoubleSpin(pour->priority(), "Priority")));
-            pourSection->addRow(new PropertyRow("Remove Islands", createBoolCheckBox(pour->removeIslands(), "Remove Islands")));
-            pourSection->addRow(new PropertyRow("Use Thermals", createBoolCheckBox(pour->useThermalReliefs(), "Use Thermal Reliefs")));
+            const QRectF bounds = pour->polygon().boundingRect();
+            auto* zoneGeoSection = addSection("Zone Geometry");
+            zoneGeoSection->addRow(new PropertyRow("Width (mm)", createDoubleSpin(bounds.width(), "Shape Width (mm)")));
+            zoneGeoSection->addRow(new PropertyRow("Height (mm)", createDoubleSpin(bounds.height(), "Shape Height (mm)")));
+
+            auto* electricalSection = addSection("Electrical Properties");
+            electricalSection->addRow(new PropertyRow("Net", createNetCombo(pour->netName())));
+            electricalSection->addRow(new PropertyRow("Clearance (mm)", createDoubleSpin(pour->clearance(), "Clearance (mm)")));
+            electricalSection->addRow(new PropertyRow("Min Width (mm)", createDoubleSpin(pour->minWidth(), "Min Width (mm)")));
+            electricalSection->addRow(new PropertyRow("Priority", createDoubleSpin(pour->priority(), "Priority")));
+
+            auto* fillSection = addSection("Fill Properties");
+            fillSection->addRow(new PropertyRow("Filled", createBoolCheckBox(pour->filled(), "Filled")));
+            fillSection->addRow(new PropertyRow(
+                "Pour Type",
+                createEnumCombo({"Solid", "Hatch"}, pour->pourType() == CopperPourItem::PourType::SolidPour ? "Solid" : "Hatch", "Pour Type")));
+            fillSection->addRow(new PropertyRow("Remove Islands", createBoolCheckBox(pour->removeIslands(), "Remove Islands")));
+
+            auto* thermalSection = addSection("Thermal Relief");
+            thermalSection->addRow(new PropertyRow("Use Thermals", createBoolCheckBox(pour->useThermalReliefs(), "Use Thermal Reliefs")));
+            thermalSection->addRow(new PropertyRow("Spoke Width (mm)", createDoubleSpin(pour->thermalSpokeWidth(), "Thermal Spoke Width (mm)")));
+            thermalSection->addRow(new PropertyRow("Spoke Count", createDoubleSpin(pour->thermalSpokeCount(), "Thermal Spoke Count")));
+            thermalSection->addRow(new PropertyRow("Spoke Angle (deg)", createDoubleSpin(pour->thermalSpokeAngleDeg(), "Thermal Angle (deg)")));
         }
     }
 

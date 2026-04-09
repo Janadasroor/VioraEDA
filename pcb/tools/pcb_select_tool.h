@@ -2,9 +2,11 @@
 #define PCBSELECTTOOL_H
 
 #include "pcb_tool.h"
+#include <QJsonObject>
 #include <QList>
 #include <QMap>
 #include <QPointF>
+#include <QPolygonF>
 #include <QSet>
 
 class PCBSelectTool : public PCBTool {
@@ -23,7 +25,6 @@ public:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
 
-private:
     enum class TraceDragMode {
         None,
         StartPoint,
@@ -31,15 +32,29 @@ private:
         Segment
     };
 
+    enum class ResizeHandleCorner {
+        None,
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight
+    };
+
+private:
     class TraceItem* selectedSingleTrace() const;
+    class PCBItem* selectedSingleResizableItem() const;
     void updateTraceEditHandles();
     void cleanupTraceEditHandles();
+    void updateResizeHandles();
+    void cleanupResizeHandles();
     void rebuildTraceJunctionDots();
     QSet<class PCBItem*> collectDragComponentCollisions() const;
     void updateClearanceVisuals();
     void cleanupClearanceVisuals();
     void updateDragCollisionPreview();
     void cleanupDragCollisionPreview();
+    void beginResize(class PCBItem* item, ResizeHandleCorner corner);
+    bool applyResizeFromScenePoint(const QPointF& scenePos);
 
     bool m_isDragging = false;
     QPoint m_lastMousePos;
@@ -58,6 +73,15 @@ private:
     QPointF m_dragStartScenePos;
     QPointF m_dragAnchorInitialPos;
     bool m_hasDragAnchor = false;
+    QList<class QGraphicsRectItem*> m_resizeHandles;
+    class PCBItem* m_resizeItem = nullptr;
+    ResizeHandleCorner m_resizeCorner = ResizeHandleCorner::None;
+    QPointF m_resizeAnchorScenePos;
+    QRectF m_resizeInitialSceneRect;
+    QPointF m_resizeInitialItemPos;
+    QPolygonF m_resizeInitialPolygon;
+    QSizeF m_resizeInitialImageSize;
+    QJsonObject m_resizeOldState;
 
     bool m_rubberBandActive = false;
     QPointF m_rubberBandOrigin;

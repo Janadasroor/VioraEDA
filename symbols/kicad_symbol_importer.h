@@ -12,6 +12,12 @@ using Flux::Model::SymbolDefinition;
  */
 class KicadSymbolImporter {
 public:
+    struct SymbolMetadata {
+        QString name;
+        QString description;
+        QString keywords;
+    };
+
     struct ImportResult {
         SymbolDefinition symbol;
         QString detectedFootprint;
@@ -22,6 +28,7 @@ public:
      * @brief Parses a KiCad symbol library file and returns names of all symbols found.
      */
     static QStringList getSymbolNames(const QString& filePath);
+    static QList<SymbolMetadata> getSymbolMetadata(const QString& filePath);
 
     /**
      * @brief Imports a specific symbol from a KiCad library file.

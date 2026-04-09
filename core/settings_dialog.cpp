@@ -74,6 +74,7 @@ void SettingsDialog::setupUI() {
 
     addNavItem("General", ":/icons/tool_gear.svg");
     addNavItem("Simulator", ":/icons/tool_run.svg");
+    addNavItem("PCB", ":/icons/nav_pcb.svg");
     addNavItem("Libraries", ":/icons/folder_open.svg");
     addNavItem("AI Assistant", ":/icons/tool_search.svg");
     
@@ -160,6 +161,12 @@ void SettingsDialog::setupUI() {
     formSolver->addRow("Max NR Iterations:", m_maxIterSpin);
     laySim->addWidget(grpSolver);
 
+    QGroupBox* grpSimUi = new QGroupBox("Simulation UI");
+    QVBoxLayout* laySimUi = new QVBoxLayout(grpSimUi);
+    m_showFullSimulationPanelCheck = new QCheckBox("Show full simulation panel in the Analog Oscilloscope dock");
+    laySimUi->addWidget(m_showFullSimulationPanelCheck);
+    laySim->addWidget(grpSimUi);
+
     QGroupBox* grpTols = new QGroupBox("Tolerances & Accuracy");
     QFormLayout* formTols = new QFormLayout(grpTols);
     auto setupDoubleSpin = [](QDoubleSpinBox* s) {
@@ -179,7 +186,28 @@ void SettingsDialog::setupUI() {
     laySim->addStretch();
     m_pagesStack->addWidget(pageSim);
 
-    // Page 3: Libraries
+    // Page 3: PCB
+    QWidget* pagePcb = new QWidget();
+    QVBoxLayout* layPcb = new QVBoxLayout(pagePcb);
+    layPcb->setSpacing(15);
+
+    QGroupBox* grpPcbEditors = new QGroupBox("PCB Editors");
+    QVBoxLayout* layPcbEditors = new QVBoxLayout(grpPcbEditors);
+    m_enablePcbEditorsCheck = new QCheckBox("Enable PCB and Footprint editors");
+    layPcbEditors->addWidget(m_enablePcbEditorsCheck);
+
+    QLabel* pcbDesc = new QLabel(
+        "When enabled, the Project Manager shows PCB and Footprint editor launchers, "
+        "and the schematic editor exposes the Update PCB from Schematic command."
+    );
+    pcbDesc->setWordWrap(true);
+    pcbDesc->setStyleSheet(QString("color: %1;").arg(textSec));
+    layPcbEditors->addWidget(pcbDesc);
+    layPcb->addWidget(grpPcbEditors);
+    layPcb->addStretch();
+    m_pagesStack->addWidget(pagePcb);
+
+    // Page 4: Libraries
     QWidget* pageLibs = new QWidget();
     QVBoxLayout* layLibs = new QVBoxLayout(pageLibs);
     QGroupBox* grpSyms = new QGroupBox("Symbol Library Paths");
@@ -215,7 +243,7 @@ void SettingsDialog::setupUI() {
     layLibs->addStretch();
     m_pagesStack->addWidget(pageLibs);
 
-    // Page 4: AI Assistant
+    // Page 5: AI Assistant
     QWidget* pageAI = new QWidget();
     QVBoxLayout* layAI = new QVBoxLayout(pageAI);
     layAI->setSpacing(15);
@@ -314,6 +342,9 @@ void SettingsDialog::loadSettings() {
     m_vntolSpin->setValue(config.vntol());
     m_gminSpin->setValue(config.gmin());
     m_maxIterSpin->setValue(config.maxIterations());
+    m_showFullSimulationPanelCheck->setChecked(
+        config.toolProperty("SimulationPanel", "showFullPanelInDock", false).toBool());
+    m_enablePcbEditorsCheck->setChecked(config.isFeatureEnabled("pcb_tools", false));
 
     m_geminiKeyEdit->setText(config.geminiApiKey());
     
@@ -365,6 +396,9 @@ void SettingsDialog::onAccept() {
     config.setVntol(m_vntolSpin->value());
     config.setGmin(m_gminSpin->value());
     config.setMaxIterations(m_maxIterSpin->value());
+    config.setToolProperty("SimulationPanel", "showFullPanelInDock",
+                           m_showFullSimulationPanelCheck->isChecked());
+    config.setFeatureEnabled("pcb_tools", m_enablePcbEditorsCheck->isChecked());
 
     config.setGeminiApiKey(m_geminiKeyEdit->text());
     config.setGeminiOverlayModel(m_geminiOverlayModelCombo->currentText());

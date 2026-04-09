@@ -4,6 +4,8 @@
 #include "pad_item.h"
 #include "via_item.h"
 #include "copper_pour_item.h"
+#include "shape_item.h"
+#include "image_item.h"
 #include "../analysis/pcb_ratsnest_manager.h"
 #include <QDebug>
 #include <QVariant>
@@ -150,6 +152,35 @@ bool PCBMoveItemCommand::mergeWith(const QUndoCommand* other) {
     return true;
 }
 
+// === PCBItemStateCommand ===
+PCBItemStateCommand::PCBItemStateCommand(QGraphicsScene* scene, PCBItem* item,
+                                         const QJsonObject& oldState, const QJsonObject& newState,
+                                         const QString& text, QUndoCommand* parent)
+    : PCBCommand(scene, text, parent)
+    , m_item(item)
+    , m_oldState(oldState)
+    , m_newState(newState) {
+}
+
+void PCBItemStateCommand::undo() {
+    applyState(m_oldState);
+}
+
+void PCBItemStateCommand::redo() {
+    applyState(m_newState);
+}
+
+void PCBItemStateCommand::applyState(const QJsonObject& state) {
+    if (!m_item) return;
+    m_item->fromJson(state);
+    m_item->update();
+    if (!m_item->netName().isEmpty()) {
+        PCBRatsnestManager::instance().updateNet(m_item->netName());
+    } else {
+        PCBRatsnestManager::instance().update();
+    }
+}
+
 // === PCBRotateItemCommand ===
 PCBRotateItemCommand::PCBRotateItemCommand(QGraphicsScene* scene, QList<PCBItem*> items,
                                            qreal angleDelta, QUndoCommand* parent)
@@ -262,6 +293,53 @@ void PCBPropertyCommand::applyValue(const QVariant& value) {
     else if (m_propertyName == "Position X (mm)") m_item->setX(value.toDouble());
     else if (m_propertyName == "Position Y (mm)") m_item->setY(value.toDouble());
     else if (m_propertyName == "Rotation (deg)") m_item->setRotation(value.toDouble());
+    else if (m_propertyName == "Image Width (mm)" || m_propertyName == "Image Height (mm)") {
+        if (PCBImageItem* image = dynamic_cast<PCBImageItem*>(m_item)) {
+            QSizeF size = image->sizeMm();
+            if (m_propertyName == "Image Width (mm)") size.setWidth(value.toDouble());
+            else size.setHeight(value.toDouble());
+            image->setSizeMm(size);
+        }
+    }
+    else if (m_propertyName == "Shape Stroke Width (mm)") {
+        if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(m_item)) {
+            shape->setStrokeWidth(value.toDouble());
+        }
+    }
+    else if (m_propertyName == "Shape Width (mm)" || m_propertyName == "Shape Height (mm)") {
+        if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(m_item)) {
+            QSizeF size = shape->sizeMm();
+            if (m_propertyName == "Shape Width (mm)") size.setWidth(value.toDouble());
+            else size.setHeight(value.toDouble());
+            shape->setSizeMm(size);
+        }
+        else if (CopperPourItem* pour = dynamic_cast<CopperPourItem*>(m_item)) {
+            QPolygonF poly = pour->polygon();
+            const QRectF bounds = poly.boundingRect();
+            const QPointF center = bounds.center();
+            const qreal target = std::max(0.01, value.toDouble());
+            const qreal current = (m_propertyName == "Shape Width (mm)") ? bounds.width() : bounds.height();
+            if (current > 1e-9) {
+                const qreal scaleX = (m_propertyName == "Shape Width (mm)") ? (target / current) : 1.0;
+                const qreal scaleY = (m_propertyName == "Shape Height (mm)") ? (target / current) : 1.0;
+                for (QPointF& p : poly) {
+                    p.setX(center.x() + (p.x() - center.x()) * scaleX);
+                    p.setY(center.y() + (p.y() - center.y()) * scaleY);
+                }
+                pour->setPolygon(poly);
+            }
+        }
+    }
+    else if (m_propertyName == "Arc Start Angle (deg)") {
+        if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(m_item)) {
+            shape->setStartAngleDeg(value.toDouble());
+        }
+    }
+    else if (m_propertyName == "Arc Span Angle (deg)") {
+        if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(m_item)) {
+            shape->setSpanAngleDeg(value.toDouble());
+        }
+    }
     else if (m_propertyName == "Pad Shape") {
         if (PadItem* pad = dynamic_cast<PadItem*>(m_item)) pad->setPadShape(value.toString());
     }

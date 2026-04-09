@@ -48,6 +48,8 @@ public:
     void setCopperBottomColor(const QColor& color);
     void setComponentColor(const QColor& color);
     void setComponentAlpha(float alpha);
+    void setZoomDistance(float distance);
+    float zoomDistance() const { return -m_zoom; }
     void setMeasureMode(bool enabled);
     void clearMeasurement();
     bool setSpaceMouseEnabled(bool enabled);
@@ -59,6 +61,7 @@ public:
 signals:
     void componentPicked(const QUuid& id);
     void measurementUpdated(double distanceMm);
+    void zoomDistanceChanged(float distance);
 
 protected:
     void initializeGL() override;
@@ -69,6 +72,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     enum class RenderMode { Full, Fast };
@@ -177,10 +181,10 @@ private:
     float m_substrateAlpha = 1.0f;
     float m_soldermaskAlpha = 1.0f;
     float m_componentAlpha = 1.0f;
-    QColor m_soldermaskColor = QColor(20, 90, 20);
+    QColor m_soldermaskColor = QColor(38, 132, 76);
     QColor m_copperTopColor = QColor(212, 71, 51);
     QColor m_copperBottomColor = QColor(46, 107, 219);
-    QColor m_componentColor = QColor(48, 48, 54);
+    QColor m_componentColor = QColor(82, 86, 96);
 
     RenderMode m_renderMode = RenderMode::Full;
     QTimer m_interactionTimer;

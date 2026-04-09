@@ -17,6 +17,8 @@ public:
         TraceType,
         ComponentType,
         CopperPourType,
+        ShapeType,
+        ImageType,
         RatsnestType,
         // Reserve space for custom types
         CustomType = QGraphicsItem::UserType + 100

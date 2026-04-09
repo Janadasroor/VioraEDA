@@ -23,6 +23,10 @@ set(PCB_SOURCES
     items/pad_item.h
     items/copper_pour_item.cpp
     items/copper_pour_item.h
+    items/shape_item.cpp
+    items/shape_item.h
+    items/image_item.cpp
+    items/image_item.h
     items/ratsnest_item.h
 
     # Models
@@ -57,6 +61,8 @@ set(PCB_SOURCES
     tools/pcb_pour_tool.h
     tools/pcb_rect_tool.cpp
     tools/pcb_rect_tool.h
+    tools/pcb_shape_tool.cpp
+    tools/pcb_shape_tool.h
     tools/pcb_erase_tool.cpp
     tools/pcb_erase_tool.h
     tools/pcb_measure_tool.cpp
@@ -87,6 +93,8 @@ set(PCB_SOURCES
     analysis/length_match_manager.h
     analysis/length_measurement_engine.cpp
     analysis/length_measurement_engine.h
+    analysis/fanout_engine.cpp
+    analysis/fanout_engine.h
     analysis/serpentine_generator.cpp
     analysis/serpentine_generator.h
     analysis/pcb_diff_engine.cpp
@@ -139,6 +147,12 @@ set(PCB_SOURCES
     dialogs/pcb_diff_viewer.h
     dialogs/design_report_dialog.cpp
     dialogs/design_report_dialog.h
+    dialogs/pdf_viewer_dialog.cpp
+    dialogs/pdf_viewer_dialog.h
+    dialogs/footprint_browser_dialog.cpp
+    dialogs/footprint_browser_dialog.h
+    dialogs/fanout_wizard_dialog.cpp
+    dialogs/fanout_wizard_dialog.h
 
     # Import
     import/netlist_importer.cpp
@@ -215,3 +229,10 @@ target_link_libraries(VioraPCBCore PUBLIC
     Qt${QT_VERSION_MAJOR}::Svg
     Qt${QT_VERSION_MAJOR}::Charts
 )
+if(VIOSPICE_HAS_QT_PDF)
+    target_link_libraries(VioraPCBCore PUBLIC
+        Qt${QT_VERSION_MAJOR}::Pdf
+        Qt${QT_VERSION_MAJOR}::PdfWidgets
+    )
+    target_compile_definitions(VioraPCBCore PUBLIC VIOSPICE_HAS_QT_PDF)
+endif()

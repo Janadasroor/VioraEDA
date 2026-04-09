@@ -29,6 +29,11 @@ PCBLayer::PCBLayer(int id, const QString& name, LayerType type, Side side)
         case Soldermask:
             m_color = PCBLayerManager::soldermaskColor();
             break;
+        case Paste:
+        case Courtyard:
+        case Fabrication:
+            m_color = QColor(160, 160, 160);
+            break;
         case EdgeCuts:
             m_color = PCBLayerManager::edgeCutsColor();
             break;
@@ -48,6 +53,7 @@ QString PCBLayer::typeString() const {
         case Soldermask: return "Soldermask";
         case Paste: return "Paste";
         case Courtyard: return "Courtyard";
+        case Fabrication: return "Fabrication";
         case EdgeCuts: return "Edge Cuts";
         case Drill: return "Drill";
         case UserDefined: return "User Defined";
@@ -100,6 +106,12 @@ void PCBLayerManager::initializeStandardLayers() {
     // Paste layers
     m_layers.append(PCBLayer(TopPaste, "Top Paste", PCBLayer::Paste, PCBLayer::Top));
     m_layers.append(PCBLayer(BottomPaste, "Bottom Paste", PCBLayer::Paste, PCBLayer::Bottom));
+
+    // Mechanical documentation layers
+    m_layers.append(PCBLayer(TopCourtyard, "Top Courtyard", PCBLayer::Courtyard, PCBLayer::Top));
+    m_layers.append(PCBLayer(BottomCourtyard, "Bottom Courtyard", PCBLayer::Courtyard, PCBLayer::Bottom));
+    m_layers.append(PCBLayer(TopFabrication, "Top Fabrication", PCBLayer::Fabrication, PCBLayer::Top));
+    m_layers.append(PCBLayer(BottomFabrication, "Bottom Fabrication", PCBLayer::Fabrication, PCBLayer::Bottom));
 
     // Mechanical layers
     m_layers.append(PCBLayer(EdgeCuts, "Edge Cuts", PCBLayer::EdgeCuts, PCBLayer::Both));

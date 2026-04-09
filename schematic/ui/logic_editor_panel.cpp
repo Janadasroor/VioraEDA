@@ -388,11 +388,11 @@ void LogicEditorPanel::onDebuggerActiveLineChanged(int line) {
 
 void LogicEditorPanel::setupMenus() {
     auto* fileMenu = menuBar()->addMenu("&File");
-    fileMenu->addAction("Deploy to Block", this, &LogicEditorPanel::onApplyClicked, QKeySequence(QKeySequence::Save));
-    fileMenu->addAction("Close IDE", this, &LogicEditorPanel::closed);
+    fileMenu->addAction("Deploy to Block", QKeySequence(QKeySequence::Save), this, &LogicEditorPanel::onApplyClicked);
+    fileMenu->addAction("Close IDE", QKeySequence(), this, &LogicEditorPanel::closed);
 
     auto* viewMenu = menuBar()->addMenu("&View");
-    viewMenu->addAction("Refresh Explorer", this, &LogicEditorPanel::refreshExplorer, QKeySequence(QKeySequence::Refresh));
+    viewMenu->addAction("Refresh Explorer", QKeySequence(QKeySequence::Refresh), this, &LogicEditorPanel::refreshExplorer);
 }
 
 void LogicEditorPanel::createShortcuts() {
