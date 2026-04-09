@@ -31,6 +31,8 @@
 
 class LauncherTile;
 class CollapsibleSection;
+class FootprintEditor;
+class MainWindow;
 
 class ProjectManager : public QMainWindow {
     Q_OBJECT
@@ -47,9 +49,12 @@ private Q_SLOTS:
     void openSchematicEditor();
     void openSchematicFromTemplate(const QString& filePath);
     void openSymbolEditor();
+    void openPcbEditor();
+    void openFootprintEditor();
     void openCalculatorTools();
     void openPluginsManager();
     void openSpiceModelManager();
+    void launchOpenCode();
     void importLtspiceBatch();
     void importKicadBatch();
     void importLtspiceDiodeModels();
@@ -83,6 +88,7 @@ private:
     QWidget* createProjectFilesPanel();
     QWidget* createLauncherArea();
     void updateLauncherLayout();
+    void refreshFeatureDependentUi();
 
     void launchSchematicEditor(const QString& projectPath = QString());
     void populateProjectTree(const QString& projectPath);

@@ -45,7 +45,15 @@ void PCBRectTool::setToolProperty(const QString& name, const QVariant& value) {
 }
 
 void PCBRectTool::mousePressEvent(QMouseEvent* event) {
-    if (!view() || event->button() != Qt::LeftButton) return;
+    if (!view()) return;
+
+    if (event->button() == Qt::RightButton) {
+        view()->setCurrentTool("Select");
+        event->accept();
+        return; // CRITICAL: Tool is now deactivated and view() is null!
+    }
+
+    if (event->button() != Qt::LeftButton) return;
 
     QPointF pos = view()->snapToGrid(view()->mapToScene(event->pos()));
 
@@ -56,8 +64,12 @@ void PCBRectTool::mousePressEvent(QMouseEvent* event) {
         if (!m_previewRect) {
             m_previewRect = new QGraphicsRectItem();
             QColor color = QColor(200, 50, 50, 100);
-            m_previewRect->setPen(QPen(color.darker(), 1, Qt::DashLine));
-            m_previewRect->setBrush(QBrush(color));
+            if (PCBLayer* layer = PCBLayerManager::instance().layer(m_layerId)) {
+                color = layer->color();
+                color.setAlpha(110);
+            }
+            m_previewRect->setPen(QPen(color.darker(), 0, Qt::DashLine));
+            m_previewRect->setBrush(Qt::NoBrush);
             m_previewRect->setZValue(1000);
             view()->scene()->addItem(m_previewRect);
         }
@@ -103,9 +115,9 @@ void PCBRectTool::finishRect(const QPointF& pos) {
 
         CopperPourItem* pour = new CopperPourItem();
         pour->setPolygon(poly);
-        pour->setFilled(true);
         pour->setLayer(m_layerId);
-        pour->setNetName("GND"); // Default
+        pour->setFilled(false);
+        pour->setNetName(QString());
 
         if (view()->undoStack()) {
             view()->undoStack()->push(new PCBAddItemCommand(view()->scene(), pour));
@@ -114,6 +126,9 @@ void PCBRectTool::finishRect(const QPointF& pos) {
         }
     }
 
-    deactivate();
-    activate(view()); // Reset for next rect
+    // Reset state for next rectangle without deactivating tool
+    m_isDrawing = false;
+    if (m_previewRect) {
+        m_previewRect->hide();
+    }
 }

@@ -14,6 +14,7 @@ public:
     QCursor cursor() const override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
     void activate(class PCBView* view) override;
     void deactivate() override;
 

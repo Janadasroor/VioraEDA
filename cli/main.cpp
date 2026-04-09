@@ -60,6 +60,7 @@
 #include "flux/schematic/factories/schematic_item_registry.h"
 #include "flux/schematic/io/schematic_file_io.h"
 #include "schematic/io/netlist_generator.h"
+#include "schematic/io/netlist_to_schematic.h"
 #include "flux/schematic/items/wire_item.h"
 #include "flux/schematic/editor/schematic_api.h"
 #if VIOSPICE_HAS_PCB
@@ -386,8 +387,18 @@ struct MeasureRequest {
 };
 
 static int findVarIndex(const QStringList& vars, const QString& name) {
+    // Direct match
     for (int i = 0; i < vars.size(); ++i) {
         if (vars[i].compare(name, Qt::CaseInsensitive) == 0) return i;
+    }
+    // Fallback: try matching bare name against V(name) / I(name) entries
+    for (int i = 0; i < vars.size(); ++i) {
+        const QString& v = vars[i];
+        if ((v.startsWith("V(", Qt::CaseInsensitive) || v.startsWith("I(", Qt::CaseInsensitive))
+            && v.endsWith(")")) {
+            const QString inner = v.mid(2, v.size() - 3);
+            if (inner.compare(name, Qt::CaseInsensitive) == 0) return i;
+        }
     }
     return -1;
 }
@@ -434,13 +445,9 @@ static bool parseMeasure(const QString& expr, MeasureRequest* out, QString* erro
     }
 
     s = s.trimmed();
-    if (s.startsWith("V(", Qt::CaseInsensitive) && s.endsWith(")")) {
-        req.signalName = s.mid(2, s.size() - 3);
-    } else if (s.startsWith("I(", Qt::CaseInsensitive) && s.endsWith(")")) {
-        req.signalName = "i(" + s.mid(2, s.size() - 3) + ")";
-    } else {
-        req.signalName = s;
-    }
+    // Keep the signal name as-is (V(5), I(L1), or bare name like "5")
+    // findVarIndex handles both wrapped and bare-name matching
+    req.signalName = s;
     if (req.signalName.isEmpty()) {
         if (error) *error = "Invalid measure signal: " + expr;
         return false;
@@ -3050,6 +3057,43 @@ bool runNetlistValidate(const QString& filePath, const QCommandLineParser& parse
     return okForExit;
 }
 
+bool runNetlistToSchematic(const QString& filePath, const QCommandLineParser& parser) {
+    if (!QFileInfo::exists(filePath)) {
+        std::cerr << "Error: Netlist not found: " << filePath.toStdString() << std::endl;
+        return false;
+    }
+
+    QString outPath = parser.value("out");
+    if (outPath.isEmpty()) {
+        outPath = QFileInfo(filePath).absolutePath() + "/" + QFileInfo(filePath).baseName() + ".flxsch";
+    }
+
+    const auto result = NetlistToSchematic::convert(filePath, outPath);
+
+    if (parser.isSet("json")) {
+        QJsonObject out;
+        out["file"] = filePath;
+        out["output"] = result.outputPath;
+        out["ok"] = result.success;
+        out["components"] = result.componentCount;
+        out["airWires"] = result.airWireCount;
+        if (!result.errorMessage.isEmpty()) out["error"] = result.errorMessage;
+        printJsonValue(out);
+        return result.success;
+    }
+
+    if (result.success) {
+        if (!g_quiet) {
+            std::cout << "Converted " << filePath.toStdString() << " -> " << result.outputPath.toStdString() << std::endl;
+            std::cout << "  Components: " << result.componentCount << std::endl;
+            std::cout << "  Air wires:  " << result.airWireCount << std::endl;
+        }
+    } else {
+        std::cerr << "Error: " << result.errorMessage.toStdString() << std::endl;
+    }
+    return result.success;
+}
+
 bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
     RawData data;
     QString error;
@@ -3306,6 +3350,11 @@ void printSchema(const QString& command) {
         setSchema(
             QJsonObject{{"args", QJsonArray{"file.cir"}}, {"options", QJsonObject{{"json", "bool"}}}},
             QJsonObject{{"file", "string"}, {"ok", "bool"}, {"error", "string"}, {"log", "array[string]"}}
+        );
+    } else if (command == "netlist-to-schematic") {
+        setSchema(
+            QJsonObject{{"args", QJsonArray{"file.cir"}}, {"options", QJsonObject{{"json", "bool"}, {"out", "string"}, {"quiet", "bool"}}}},
+            QJsonObject{{"file", "string"}, {"output", "string"}, {"components", "int"}, {"airWires", "int"}, {"ok", "bool"}, {"error", "string"}}
         );
     } else if (command == "netlist-run") {
         setSchema(
@@ -3587,6 +3636,7 @@ static void printGeneralHelp() {
     std::cout << "  schematic-query <file.flxsch>\n";
     std::cout << "  schematic-netlist <file.flxsch> [--analysis tran|ac|op] [--step <s>] [--stop <s>]\n";
     std::cout << "  netlist-run <file.cir|file.flxsch> [--analysis tran|ac|op] [--export-raw csv|json]\n";
+    std::cout << "  netlist-to-schematic <file.cir> [--out <file.flxsch>]\n";
     std::cout << "  raw-info <file.raw> [--summary --json]\n";
     std::cout << "  raw-export <file.raw> [--format csv|json|parquet] [--out <file>]\n";
     std::cout << "  symbol-render <file.viosym> <out.png>\n";
@@ -4173,6 +4223,8 @@ int main(int argc, char *argv[]) {
         return runNetlistRun(filePath, parser) ? 0 : 1;
     } else if (command == "netlist-validate") {
         return runNetlistValidate(filePath, parser) ? 0 : 1;
+    } else if (command == "netlist-to-schematic") {
+        return runNetlistToSchematic(filePath, parser) ? 0 : 1;
     } else if (command == "raw-info") {
         return runRawInfo(filePath, parser) ? 0 : 1;
     } else if (command == "raw-export") {

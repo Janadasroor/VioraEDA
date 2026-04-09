@@ -18,6 +18,17 @@ class KicadSymbolImporter;
 class SymbolLibrary {
     Q_DISABLE_COPY(SymbolLibrary)
 public:
+    struct SymbolInfo {
+        QString name;
+        QString category;
+        QString description;
+        QString tags;
+        QString library;
+        QString libraryPath;
+        bool builtIn = false;
+        bool stub = false;
+    };
+
     SymbolLibrary();
     SymbolLibrary(const QString& name, bool builtIn = false);
     
@@ -37,6 +48,7 @@ public:
     SymbolDefinition* findSymbol(const QString& name);
     const SymbolDefinition* findSymbol(const QString& name) const;
     QStringList symbolNames() const;
+    QList<SymbolInfo> symbolInfos() const;
     int symbolCount() const { return m_symbols.size(); }
     QList<SymbolDefinition> allSymbols() const;
     
@@ -79,17 +91,19 @@ public:
     SymbolDefinition* findSymbol(const QString& name);
     SymbolDefinition* findSymbol(const QString& name, const QString& libraryName);
     QList<SymbolDefinition*> search(const QString& query);
+    QList<SymbolLibrary::SymbolInfo> searchMetadata(const QString& query) const;
     
     // Loading
     void loadBuiltInLibrary();
-    void loadUserLibraries(const QString& userLibPath);
-    void reloadUserLibraries();
+    void loadUserLibraries(const QString& userLibPath, bool asyncColdIndexing = false);
+    void reloadUserLibraries(bool asyncColdIndexing = false);
     
     // Categories across all libraries
     QStringList allCategories() const;
     
 Q_SIGNALS:
     void progressUpdated(const QString& status, int progress, int total);
+    void librariesChanged();
     void loadingFinished();
     
 private:
@@ -99,9 +113,11 @@ private:
     SymbolLibraryManager& operator=(const SymbolLibraryManager&) = delete;
     
     void createDefaultBuiltInLibrary();
+    bool isLoadGenerationCurrent(quint64 generation) const;
     
     mutable QReadWriteLock m_lock;
     QList<SymbolLibrary*> m_libraries;
+    quint64 m_loadGeneration = 0;
 };
 
 #endif // SYMBOL_LIBRARY_H

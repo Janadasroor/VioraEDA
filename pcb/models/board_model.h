@@ -39,6 +39,7 @@ public:
         qDeleteAll(m_pads); m_pads.clear();
         qDeleteAll(m_components); m_components.clear();
         qDeleteAll(m_copperPours); m_copperPours.clear();
+        m_extraItems.clear();
     }
 
     // Metadata
@@ -66,6 +67,9 @@ public:
     const QList<CopperPourModel*>& copperPours() const { return m_copperPours; }
     void addCopperPour(CopperPourModel* cp) { m_copperPours.append(cp); }
 
+    const QList<QJsonObject>& extraItems() const { return m_extraItems; }
+    void addExtraItem(const QJsonObject& obj) { m_extraItems.append(obj); }
+
     // Serialization (Headless)
     QJsonObject toJson() const {
         QJsonObject root;
@@ -83,6 +87,7 @@ public:
         for (auto* p : m_pads) { QJsonObject j = p->toJson(); j["type"] = "Pad"; itemsArray.append(j); }
         for (auto* c : m_components) { QJsonObject j = c->toJson(); j["type"] = "Component"; itemsArray.append(j); }
         for (auto* cp : m_copperPours) { QJsonObject j = cp->toJson(); j["type"] = "CopperPour"; itemsArray.append(j); }
+        for (const QJsonObject& extra : m_extraItems) { itemsArray.append(extra); }
         
         root["items"] = itemsArray;
         return root;
@@ -122,6 +127,8 @@ public:
                 CopperPourModel* cp = new CopperPourModel();
                 cp->fromJson(obj);
                 m_copperPours.append(cp);
+            } else {
+                m_extraItems.append(obj);
             }
         }
     }
@@ -137,6 +144,7 @@ private:
     QList<PadModel*> m_pads;
     QList<ComponentModel*> m_components;
     QList<CopperPourModel*> m_copperPours;
+    QList<QJsonObject> m_extraItems;
 };
 
 } // namespace Model

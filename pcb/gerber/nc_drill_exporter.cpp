@@ -210,17 +210,17 @@ QList<NCDrillExporter::DrillHole> NCDrillExporter::collectHoles(QGraphicsScene* 
             endLayer = via->endLayer();
             isBlindBuried = via->viaType() != "Through";
             isMicrovia = via->isMicrovia();
-
-            // Blind/buried vias: mark as different from through-hole
-            if (isBlindBuried || isMicrovia) {
-                // Still plated, but tracked differently
-            }
+            hole.rotation = 0;
         } else if (auto* pad = dynamic_cast<PadItem*>(gItem)) {
             drill = pad->drillSize();
             if (drill <= 0.001) continue; // SMD pad, no drill
 
             pos = pad->scenePos();
             netName = pad->netName();
+            
+            // Extract total rotation from scene transform
+            QTransform t = pad->sceneTransform();
+            hole.rotation = qRadiansToDegrees(qAtan2(t.m12(), t.m11()));
 
             // Find parent component for reference designator
             if (auto* parent = dynamic_cast<ComponentItem*>(pad->parentItem())) {
@@ -232,11 +232,17 @@ QList<NCDrillExporter::DrillHole> NCDrillExporter::collectHoles(QGraphicsScene* 
             isPlated = true; // Default: all pads with drills are plated through-hole
 
             // Check for oblong/slot pads
-            if (pad->padShape() == "Oblong" || pad->padShape() == "Slot") {
+            QString shape = pad->padShape().toLower();
+            if (shape == "oblong" || shape == "slot") {
                 isSlot = true;
-                // Approximate slot length from pad size
+                // Accurate slot length from pad size
                 QSizeF size = pad->size();
-                slotLength = qMax(size.width(), size.height());
+                if (size.width() < size.height()) {
+                    slotLength = size.height();
+                    hole.rotation += 90.0; // Adjust for vertical internal orientation
+                } else {
+                    slotLength = size.width();
+                }
             }
         } else {
             continue;
@@ -428,9 +434,13 @@ void NCDrillExporter::writeHoles(QTextStream& out, const QList<DrillHole>& holes
             // G85 slot routing for oblong holes
             // For a slot: start point and end point along the long axis
             double halfLen = (hole.slotLength - hole.diameter) / 2.0;
-            // Simplified: assume horizontal slot
-            QPointF startPos = offsetPos - QPointF(halfLen, 0);
-            QPointF endPos = offsetPos + QPointF(halfLen, 0);
+            
+            // Calculate start and end points based on rotation
+            double rad = qDegreesToRadians(hole.rotation);
+            QPointF dir(cos(rad), sin(rad));
+            
+            QPointF startPos = offsetPos - dir * halfLen;
+            QPointF endPos = offsetPos + dir * halfLen;
 
             out << "G85\n"; // Slot routing mode
             out << QString("X%1Y%2\n")

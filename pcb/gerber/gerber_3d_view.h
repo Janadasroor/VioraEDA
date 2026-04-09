@@ -1,6 +1,7 @@
 #ifndef GERBER_3D_VIEW_H
 #define GERBER_3D_VIEW_H
 
+#include <QColor>
 #include <QtOpenGLWidgets/QOpenGLWidget>
 #include <QMatrix4x4>
 #include <QQuaternion>
@@ -31,6 +32,8 @@ public:
     
     void setCameraPos(const QVector3D& pos);
     void setCameraRotation(const QVector2D& rot);
+    void setBackgroundColor(const QColor& color);
+    QColor backgroundColor() const { return m_backgroundColor; }
 
 public slots:
     void zoomIn();
@@ -50,6 +53,10 @@ private:
     void updateViewMatrix();
     void drawBoard();
     void drawLayer(GerberLayer* layer, float zOffset);
+    bool isEdgeLayer(const GerberLayer* layer) const;
+    bool isBottomLayer(const GerberLayer* layer) const;
+    bool isMaskLayer(const GerberLayer* layer) const;
+    QColor layerColor(const GerberLayer* layer) const;
 
     QList<GerberLayer*> m_layers;
     QList<Model3DInstance> m_components;
@@ -61,6 +68,7 @@ private:
     QVector2D m_rotation; // Pitch (x) and Yaw (y) in degrees 
     QPoint m_lastMousePos;
     QPointF m_boardCenter;
+    QColor m_backgroundColor;
     
     QMatrix4x4 m_viewMatrix;
     QMatrix4x4 m_projection;

@@ -13,7 +13,7 @@
 #include <QUndoStack>
 
 PCBPourTool::PCBPourTool(QObject* parent)
-    : PCBTool("Polygon Pour", parent)
+    : PCBTool("Filled Zone", parent)
     , m_isDrawing(false)
     , m_previewPath(nullptr)
     , m_netName("GND")
@@ -80,6 +80,7 @@ void PCBPourTool::mousePressEvent(QMouseEvent* event) {
                 cancelPour();
             }
             event->accept();
+            return;
         }
     }
 }
@@ -151,7 +152,7 @@ void PCBPourTool::startPour(QPointF pos) {
         QColor previewColor = layer ? layer->color() : QColor(200, 50, 50);
         previewColor.setAlpha(100);
 
-        QPen pen(previewColor.darker(120), 1, Qt::DashLine);
+        QPen pen(previewColor.darker(120), 0, Qt::DashLine);
         m_previewPath->setPen(pen);
         m_previewPath->setBrush(Qt::NoBrush);
         m_previewPath->setZValue(1000);

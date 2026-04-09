@@ -37,7 +37,8 @@ private:
     explicit LibraryIndex(QObject* parent = nullptr);
     ~LibraryIndex();
 
-    QSqlDatabase m_db;
+    QSqlDatabase db();
+    QString m_dbPath;
 };
 
 #endif // LIBRARY_INDEX_H

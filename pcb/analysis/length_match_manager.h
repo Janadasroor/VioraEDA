@@ -41,6 +41,7 @@ public:
 
     // Serpentine auto-tuning
     int autoTuneGroup(const QString& groupId, QGraphicsScene* scene);
+    int autoTuneDiffPair(const QString& pNet, const QString& nNet, QGraphicsScene* scene);
     int autoTuneAll(QGraphicsScene* scene);
 
     // Export/import (JSON serialization)

@@ -164,6 +164,24 @@ PCB3DWindow::PCB3DWindow(QGraphicsScene* scene, QWidget* parent)
     });
 
     toolbar->addSeparator();
+    toolbar->addWidget(new QLabel("Zoom"));
+    QSlider* zoomSlider = new QSlider(Qt::Horizontal, this);
+    zoomSlider->setRange(20, 2000);
+    zoomSlider->setValue(int(m_view->zoomDistance()));
+    zoomSlider->setFixedWidth(130);
+    toolbar->addWidget(zoomSlider);
+    connect(zoomSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_view->setZoomDistance(float(v));
+    });
+    connect(m_view, &PCB3DView::zoomDistanceChanged, this, [zoomSlider](float distance) {
+        const int value = int(std::lround(distance));
+        if (zoomSlider->value() == value) return;
+        zoomSlider->blockSignals(true);
+        zoomSlider->setValue(value);
+        zoomSlider->blockSignals(false);
+    });
+
+    toolbar->addSeparator();
     QAction* reset = toolbar->addAction("Reset Camera");
     connect(reset, &QAction::triggered, this, [this]() { m_view->resetCamera(); });
 
@@ -381,10 +399,10 @@ PCB3DWindow::PCB3DWindow(QGraphicsScene* scene, QWidget* parent)
         av->addWidget(row);
     };
 
-    mkColorRow("Soldermask", QColor(20, 90, 20), [this](const QColor& c) { m_view->setSoldermaskColor(c); });
+    mkColorRow("Soldermask", QColor(38, 132, 76), [this](const QColor& c) { m_view->setSoldermaskColor(c); });
     mkColorRow("Copper Top", QColor(212, 71, 51), [this](const QColor& c) { m_view->setCopperTopColor(c); });
     mkColorRow("Copper Bottom", QColor(46, 107, 219), [this](const QColor& c) { m_view->setCopperBottomColor(c); });
-    mkColorRow("Components", QColor(48, 48, 54), [this](const QColor& c) { m_view->setComponentColor(c); });
+    mkColorRow("Components", QColor(82, 86, 96), [this](const QColor& c) { m_view->setComponentColor(c); });
     av->addStretch();
 
     appearanceDock->setWidget(appearance);

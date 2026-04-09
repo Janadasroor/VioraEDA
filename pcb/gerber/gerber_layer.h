@@ -21,8 +21,10 @@ struct GerberAperture {
  * @brief Represents a single drawing command in a Gerber file
  */
 struct GerberPrimitive {
-    enum Type { Line, Arc, Flash };
+    enum Type { Line, Arc, Flash, Region };
+    enum Polarity { Dark, Clear };
     Type type;
+    Polarity polarity = Dark;
     int apertureId;
     QPainterPath path;
     QPointF center; // For arcs and flashes

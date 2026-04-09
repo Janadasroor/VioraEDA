@@ -296,6 +296,34 @@ int LengthMatchManager::autoTuneGroup(const QString& groupId, QGraphicsScene* sc
     return tunedCount;
 }
 
+int LengthMatchManager::autoTuneDiffPair(const QString& pNet, const QString& nNet, QGraphicsScene* scene) {
+    if (!scene || pNet.isEmpty() || nNet.isEmpty()) return 0;
+
+    auto allNetLengths = LengthMeasurementEngine::measureAllNets(scene);
+    if (!allNetLengths.contains(pNet) || !allNetLengths.contains(nNet)) return 0;
+
+    double pLen = allNetLengths[pNet].totalLength;
+    double nLen = allNetLengths[nNet].totalLength;
+
+    if (qAbs(pLen - nLen) < 0.05) return 0; // Already matched
+
+    QString shortNet = (pLen < nLen) ? pNet : nNet;
+    double targetLen = qMax(pLen, nLen);
+    double extraNeeded = targetLen - (shortNet == pNet ? pLen : nLen);
+
+    SerpentineGenerator::SerpentineConfig config;
+    config.netName = shortNet;
+    config.extraLength = extraNeeded;
+    config.amplitude = 1.0;
+    config.spacing = 0.4;
+    config.traceWidth = 0.25;
+    config.clearance = 0.4;
+
+    SerpentineGenerator generator(scene);
+    const SerpentineGenerator::SerpentineResult result = generator.generateSerpentine(config);
+    return result.success ? 1 : 0;
+}
+
 int LengthMatchManager::autoTuneAll(QGraphicsScene* scene) {
     int totalTuned = 0;
     for (const auto& group : m_groups) {

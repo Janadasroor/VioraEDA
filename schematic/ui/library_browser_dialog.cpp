@@ -213,7 +213,11 @@ LibraryBrowserDialog::LibraryBrowserDialog(QWidget *parent)
     }
 
     setupUI();
-    SymbolLibraryManager::instance().reloadUserLibraries();
+    connect(&SymbolLibraryManager::instance(), &SymbolLibraryManager::librariesChanged,
+            this, [this]() { performSymbolSearch(m_searchBox ? m_searchBox->text() : QString()); });
+    if (SymbolLibraryManager::instance().libraries().isEmpty()) {
+        SymbolLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym", true);
+    }
     performSymbolSearch("");
 }
 
@@ -371,9 +375,9 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
     m_resultsList->clear();
     m_searchResults.clear();
 
-    QList<SymbolDefinition*> found;
     const QString q = query.trimmed();
     QSet<QString> seenNames;
+    QList<SearchResult> found;
 
     if (q.isEmpty()) {
         auto scanLib = [&](SymbolLibrary* lib) {
@@ -382,18 +386,34 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
                 isBundledKicadSymLibraryPath(lib->path())) {
                 return;
             }
-            for (const QString& name : lib->symbolNames()) {
-                if (SymbolDefinition* sym = lib->findSymbol(name)) found.append(sym);
+            const QList<SymbolLibrary::SymbolInfo> infos = lib->symbolInfos();
+            for (const SymbolLibrary::SymbolInfo& info : infos) {
+                SearchResult result;
+                result.name = info.name;
+                result.category = info.category;
+                result.description = info.description;
+                result.library = info.library;
+                result.libraryPath = info.libraryPath;
+                found.append(result);
             }
         };
         for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) if (!lib->isBuiltIn()) scanLib(lib);
         for (SymbolLibrary* lib : SymbolLibraryManager::instance().libraries()) if (lib->isBuiltIn()) scanLib(lib);
     } else {
-        found = SymbolLibraryManager::instance().search(q);
+        const QList<SymbolLibrary::SymbolInfo> infos = SymbolLibraryManager::instance().searchMetadata(q);
+        for (const SymbolLibrary::SymbolInfo& info : infos) {
+            SearchResult result;
+            result.name = info.name;
+            result.category = info.category;
+            result.description = info.description;
+            result.library = info.library;
+            result.libraryPath = info.libraryPath;
+            found.append(result);
+        }
     }
 
-    auto appendResult = [&](const SymbolDefinition& def) {
-        const QString key = def.name().trimmed().toLower();
+    auto appendResult = [&](const SearchResult& result) {
+        const QString key = result.name.trimmed().toLower();
         if (key.isEmpty() || seenNames.contains(key)) return;
         seenNames.insert(key);
 
@@ -408,10 +428,10 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
         QString accent = theme ? theme->accentColor().name() : "#007acc";
         QString secFg = theme ? theme->textSecondary().name() : "#666";
 
-        QLabel* nameLabel = new QLabel(def.name());
+        QLabel* nameLabel = new QLabel(result.name);
         nameLabel->setStyleSheet(QString("font-weight: 700; font-size: 13px; color: %1;").arg(accent));
 
-        QString detailText = def.category();
+        QString detailText = result.category;
         if (detailText.isEmpty()) detailText = "General";
         detailText += " • Verified Symbol";
 
@@ -423,13 +443,13 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
 
         item->setSizeHint(itemWidget->sizeHint().expandedTo(QSize(0, 55)));
         m_resultsList->setItemWidget(item, itemWidget);
-        m_searchResults.append(def);
+        m_searchResults.append(result);
     };
 
-    for (SymbolDefinition* sym : found) {
-        if (!sym) continue;
-        if (!isSimulatableLibrarySymbol(*sym)) continue;
-        appendResult(*sym);
+    for (const SearchResult& result : found) {
+        if (result.name.trimmed().isEmpty()) continue;
+        if (isBundledKicadSymLibraryPath(result.libraryPath)) continue;
+        appendResult(result);
     }
 
     // Include built-in schematic tools
@@ -445,8 +465,11 @@ void LibraryBrowserDialog::performSymbolSearch(const QString& query) {
     };
     for (const auto& tool : builtInTools) {
         if (!q.isEmpty() && !tool.first.contains(q, Qt::CaseInsensitive)) continue;
-        SymbolDefinition d(tool.first); d.setCategory(tool.second);
-        appendResult(d);
+        SearchResult result;
+        result.name = tool.first;
+        result.category = tool.second;
+        result.builtInTool = true;
+        appendResult(result);
     }
 
     if (m_searchResults.isEmpty()) {
@@ -465,7 +488,19 @@ void LibraryBrowserDialog::onCategorySelected(QTreeWidgetItem* item, int) {
 void LibraryBrowserDialog::onResultSelected(QListWidgetItem* item) {
     int row = m_resultsList->row(item);
     if (row >= 0 && row < m_searchResults.size()) {
-        m_selectedSymbol = m_searchResults[row];
+        const SearchResult& result = m_searchResults[row];
+        if (result.builtInTool) {
+            m_selectedSymbol = SymbolDefinition(result.name);
+            m_selectedSymbol.setCategory(result.category);
+            m_selectedSymbol.setDescription(result.description);
+        } else if (SymbolDefinition* resolved =
+                       SymbolLibraryManager::instance().findSymbol(result.name, result.library)) {
+            m_selectedSymbol = *resolved;
+        } else {
+            m_selectedSymbol = SymbolDefinition(result.name);
+            m_selectedSymbol.setCategory(result.category);
+            m_selectedSymbol.setDescription(result.description);
+        }
         m_previewTitle->setText(m_selectedSymbol.name());
         m_previewDesc->setText(m_selectedSymbol.description().isEmpty() ? "No description available for this part." : m_selectedSymbol.description());
         m_previewStats->setText("Industry Standard • High Reliability");

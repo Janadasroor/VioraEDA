@@ -212,6 +212,7 @@ private:
     EdgeTimes computeEdgeTimes(const QVector<double>& time, const QVector<double>& values) const;
     QVector<double> computeDerivative(const QVector<double>& time, const QVector<double>& values);
     QVector<double> computeIntegral(const QVector<double>& time, const QVector<double>& values);
+    void scheduleVisibleRangeRefresh();
 
     bool m_preserveXRangeOnce = false;
     double m_preserveXMin = 0.0;
@@ -219,6 +220,7 @@ private:
     int m_holdXRangeCount = 0;
     double m_holdXMin = 0.0;
     double m_holdXMax = 0.0;
+    bool m_rebuildQueued = false;
     QPointF m_lastMouseValue;
     bool m_hasLastMouseValue = false;
 

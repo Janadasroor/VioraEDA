@@ -146,6 +146,21 @@ QString parseSExprName(const QString& sexpr) {
     return QString();
 }
 
+QString decodeKiCadEscapes(QString s);
+
+QMap<QString, QString> parseKiCadProperties(const QString& symbolContent) {
+    QMap<QString, QString> props;
+    QRegularExpression propRe("\\(property\\s+\"([^\"]+)\"\\s+\"([^\"]*)\"");
+    QRegularExpressionMatchIterator it = propRe.globalMatch(symbolContent);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        const QString key = match.captured(1).trimmed().toLower();
+        if (key.isEmpty()) continue;
+        props.insert(key, decodeKiCadEscapes(match.captured(2)));
+    }
+    return props;
+}
+
 QString extractSymbolByName(const QString& content, const QString& symbolName) {
     int cursor = 0;
     while (true) {
@@ -162,6 +177,33 @@ QString extractSymbolByName(const QString& content, const QString& symbolName) {
         cursor = std::max(start + 1, end + 1);
     }
     return QString();
+}
+
+QMap<QString, QString> resolveSymbolProperties(const QString& content, const QString& symbolName, QSet<QString>& visiting) {
+    if (symbolName.isEmpty() || visiting.contains(symbolName)) return {};
+
+    const QString symbolContent = extractSymbolByName(content, symbolName);
+    if (symbolContent.isEmpty()) return {};
+
+    visiting.insert(symbolName);
+    QMap<QString, QString> props;
+
+    QRegularExpression extendsRe("\\(extends\\s+\"([^\"]+)\"\\)");
+    const QRegularExpressionMatch mExt = extendsRe.match(symbolContent);
+    if (mExt.hasMatch()) {
+        const QString parentName = mExt.captured(1).trimmed();
+        if (!parentName.isEmpty() && parentName != symbolName) {
+            props = resolveSymbolProperties(content, parentName, visiting);
+        }
+    }
+
+    const QMap<QString, QString> localProps = parseKiCadProperties(symbolContent);
+    for (auto it = localProps.cbegin(); it != localProps.cend(); ++it) {
+        props.insert(it.key(), it.value());
+    }
+
+    visiting.remove(symbolName);
+    return props;
 }
 
 void parseKiCadSubSymbolSuffix(const QString& fullName, int& outUnit, int& outBodyStyle) {
@@ -908,6 +950,41 @@ QStringList KicadSymbolImporter::getSymbolNames(const QString& filePath) {
 
     names.removeDuplicates();
     return names;
+}
+
+QList<KicadSymbolImporter::SymbolMetadata> KicadSymbolImporter::getSymbolMetadata(const QString& filePath) {
+    QList<SymbolMetadata> out;
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return out;
+
+    QTextStream in(&file);
+    const QString content = in.readAll();
+
+    const QStringList names = getSymbolNames(filePath);
+    out.reserve(names.size());
+    for (const QString& name : names) {
+        QSet<QString> visiting;
+        const QMap<QString, QString> props = resolveSymbolProperties(content, name, visiting);
+
+        SymbolMetadata meta;
+        meta.name = name;
+        meta.description = props.value("description").trimmed();
+
+        QStringList tags;
+        const QString keywords = props.value("ki_keywords").trimmed();
+        if (!keywords.isEmpty()) tags.append(keywords);
+        const QString datasheet = props.value("datasheet").trimmed();
+        if (!datasheet.isEmpty()) tags.append(datasheet);
+        const QString footprint = props.value("footprint").trimmed();
+        if (!footprint.isEmpty()) tags.append(footprint);
+        tags.removeDuplicates();
+        meta.keywords = tags.join(" ");
+
+        out.append(meta);
+    }
+
+    return out;
 }
 
 SymbolDefinition KicadSymbolImporter::importSymbol(const QString& filePath, const QString& symbolName) {

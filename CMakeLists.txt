@@ -13,12 +13,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
+find_package(Qt${QT_VERSION_MAJOR} QUIET COMPONENTS Pdf PdfWidgets)
 find_package(Qt${QT_VERSION_MAJOR} QUIET COMPONENTS WebSockets)
 if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
     set(VIOSPICE_HAS_QT_WEBSOCKETS ON)
 else()
     set(VIOSPICE_HAS_QT_WEBSOCKETS OFF)
     message(WARNING "Qt WebSockets not found. Remote display streaming will be disabled.")
+endif()
+if(TARGET Qt${QT_VERSION_MAJOR}::Pdf AND TARGET Qt${QT_VERSION_MAJOR}::PdfWidgets)
+    set(VIOSPICE_HAS_QT_PDF ON)
+else()
+    set(VIOSPICE_HAS_QT_PDF OFF)
+    message(WARNING "Qt Pdf/PdfWidgets not found. PDF viewer will use fallback behavior.")
 endif()
 
 # --- VIOSPICE ENGINE Support ---
@@ -167,3 +174,16 @@ if(BUILD_VIOSPICE_APP)
         qt_finalize_executable(viospice)
     endif()
 endif()
+
+# Semantic merge tool (for Git integration)
+add_executable(viospice-merge
+    tools/viospice_merge.cpp
+)
+target_link_libraries(viospice-merge PRIVATE
+    FluxCore
+    Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Widgets
+)
+set_target_properties(viospice-merge PROPERTIES
+    CXX_STANDARD 17
+)

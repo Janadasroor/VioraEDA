@@ -1000,6 +1000,30 @@ void SimulationPanel::addProbe(const QString& signalName) {
     }
     
     const QString matchedName = (targetItem) ? targetItem->text() : signalName;
+
+    auto syncExclusiveProbeSelection = [this, &matchedName]() {
+        if (!m_signalList) return;
+
+        m_signalList->blockSignals(true);
+        m_persistentCheckedSignals.clear();
+
+        for (int i = 0; i < m_signalList->count(); ++i) {
+            auto* item = m_signalList->item(i);
+            if (!item) continue;
+
+            const bool shouldCheck = signalMatches(item->text(), matchedName);
+            item->setCheckState(shouldCheck ? Qt::Checked : Qt::Unchecked);
+            if (shouldCheck) {
+                m_persistentCheckedSignals.insert(item->text());
+            }
+
+            if (m_waveformViewer) {
+                m_waveformViewer->setSignalChecked(item->text(), shouldCheck);
+            }
+        }
+
+        m_signalList->blockSignals(false);
+    };
     
     // Sync with WaveformViewer
     if (m_waveformViewer) {
@@ -1153,8 +1177,10 @@ void SimulationPanel::addProbe(const QString& signalName) {
             }
         }
 
-        m_waveformViewer->setSignalChecked(matchedName, true);
+        syncExclusiveProbeSelection();
         m_waveformViewer->updatePlot(true);
+    } else {
+        syncExclusiveProbeSelection();
     }
     
     // If a transient simulation is running, add to real-time series
@@ -1864,6 +1890,20 @@ void SimulationPanel::setupUI() {
     QString textColor = theme ? theme->textColor().name() : "#cccccc";
     QString accent = theme ? theme->accentColor().name() : "#3b82f6";
     QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+    const bool isLight = theme && theme->type() == PCBTheme::Light;
+    const QString inputBg = isLight ? "#ffffff" : "#121214";
+    const QString mutedText = theme ? theme->textSecondary().name() : "#888888";
+    const QString chartBg = isLight ? "#ffffff" : "#000000";
+    const QString chartPlotBg = isLight ? "#f8fafc" : "#000000";
+    auto buttonStyle = [&](const QString& bgColor, const QString& fgColor) {
+        return QString("background-color: %1; color: %2; font-weight: bold; padding: 4px 10px; border-radius: 4px; border: 1px solid %3;")
+            .arg(bgColor, fgColor, borderColor);
+    };
+    const QString checkboxStyle = QString("QCheckBox { color: %1; font-weight: bold; }").arg(textColor);
+    const QString inputStyle = QString("QLineEdit, QComboBox, QDoubleSpinBox { background: %1; color: %2; border: 1px solid %3; }")
+        .arg(inputBg, textColor, borderColor);
+    const QString commandStyle = QString("QLineEdit { background: %1; color: %2; border: 1px solid %2; font-family: 'Courier New'; font-weight: bold; }")
+        .arg(isLight ? "#eff6ff" : "#1e3a5f", accent);
 
     setObjectName("SimulationPanel");
     setStyleSheet(QString("#SimulationPanel { background-color: %1; }").arg(bg));
@@ -1879,54 +1919,54 @@ void SimulationPanel::setupUI() {
     ).arg(panelBg, borderColor, bg, textColor, accent));
 
     m_runButton = new QPushButton("Run Simulation");
-    m_runButton->setStyleSheet("background-color: #065f46; color: white; font-weight: bold; padding: 4px 12px; border-radius: 4px;");
+    m_runButton->setStyleSheet(buttonStyle("#065f46", "white"));
     connect(m_runButton, &QPushButton::clicked, this, &SimulationPanel::onRunSimulation);
     toolbar->addWidget(m_runButton);
 
     QPushButton* exportCsvResultsBtn = new QPushButton("Export Waves CSV");
-    exportCsvResultsBtn->setStyleSheet("background-color: #1f2937; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
+    exportCsvResultsBtn->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#1f2937", isLight ? textColor : "white"));
     connect(exportCsvResultsBtn, &QPushButton::clicked, this, &SimulationPanel::onExportResultsCsv);
     toolbar->addWidget(exportCsvResultsBtn);
 
     QPushButton* exportJsonResultsBtn = new QPushButton("Export Results JSON");
-    exportJsonResultsBtn->setStyleSheet("background-color: #1f2937; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
+    exportJsonResultsBtn->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#1f2937", isLight ? textColor : "white"));
     connect(exportJsonResultsBtn, &QPushButton::clicked, this, &SimulationPanel::onExportResultsJson);
     toolbar->addWidget(exportJsonResultsBtn);
 
     QPushButton* exportReportBtn = new QPushButton("Export Report");
-    exportReportBtn->setStyleSheet("background-color: #0f766e; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
+    exportReportBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
     connect(exportReportBtn, &QPushButton::clicked, this, &SimulationPanel::onExportResultsReport);
     toolbar->addWidget(exportReportBtn);
 
     m_overlayPreviousRun = new QCheckBox("Overlay Previous");
-    m_overlayPreviousRun->setStyleSheet("QCheckBox { color: #eee; font-weight: bold; }");
+    m_overlayPreviousRun->setStyleSheet(checkboxStyle);
     connect(m_overlayPreviousRun, &QCheckBox::toggled, this, [this](bool) {
         if (m_hasLastResults) plotBuiltinResults(m_lastResults);
     });
     toolbar->addWidget(m_overlayPreviousRun);
 
     QPushButton* probeBtn = new QPushButton("Add Probe");
-    probeBtn->setStyleSheet("background-color: #1e40af; color: white; font-weight: bold; padding: 4px 12px; border-radius: 4px;");
+    probeBtn->setStyleSheet(buttonStyle("#1e40af", "white"));
     connect(probeBtn, &QPushButton::clicked, this, &SimulationPanel::probeRequested);
     toolbar->addWidget(probeBtn);
 
     QPushButton* probePinBtn = new QPushButton("Probe On Canvas");
-    probePinBtn->setStyleSheet("background-color: #1d4ed8; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
+    probePinBtn->setStyleSheet(buttonStyle("#1d4ed8", "white"));
     connect(probePinBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Probe"); });
     toolbar->addWidget(probePinBtn);
 
     QPushButton* placeScopeBtn = new QPushButton("Place Scope");
-    placeScopeBtn->setStyleSheet("background-color: #0f766e; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
+    placeScopeBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
     connect(placeScopeBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Oscilloscope Instrument"); });
     toolbar->addWidget(placeScopeBtn);
 
     QPushButton* placeMeterBtn = new QPushButton("Place Voltmeter");
-    placeMeterBtn->setStyleSheet("background-color: #0f766e; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;");
+    placeMeterBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
     connect(placeMeterBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Voltmeter (DC)"); });
     toolbar->addWidget(placeMeterBtn);
 
     QPushButton* removeProbeBtn = new QPushButton("Remove Probe");
-    removeProbeBtn->setStyleSheet("background-color: #9a3412; color: white; font-weight: bold; padding: 4px 12px; border-radius: 4px;");
+    removeProbeBtn->setStyleSheet(buttonStyle("#9a3412", "white"));
     connect(removeProbeBtn, &QPushButton::clicked, this, [this]() {
         QListWidgetItem* item = m_signalList ? m_signalList->currentItem() : nullptr;
         if (!item) {
@@ -1938,7 +1978,7 @@ void SimulationPanel::setupUI() {
     toolbar->addWidget(removeProbeBtn);
 
     QPushButton* clearProbesBtn = new QPushButton("Clear Probes");
-    clearProbesBtn->setStyleSheet("background-color: #4b5563; color: white; font-weight: bold; padding: 4px 12px; border-radius: 4px;");
+    clearProbesBtn->setStyleSheet(buttonStyle(isLight ? "#cbd5e1" : "#4b5563", isLight ? textColor : "white"));
     connect(clearProbesBtn, &QPushButton::clicked, this, &SimulationPanel::clearAllProbes);
     toolbar->addWidget(clearProbesBtn);
 
@@ -1946,12 +1986,12 @@ void SimulationPanel::setupUI() {
 
     QCheckBox* showVoltageCheck = new QCheckBox("Voltages");
     showVoltageCheck->setChecked(true);
-    showVoltageCheck->setStyleSheet("QCheckBox { color: #eee; font-weight: bold; }");
+    showVoltageCheck->setStyleSheet(checkboxStyle);
     toolbar->addWidget(showVoltageCheck);
 
     QCheckBox* showCurrentCheck = new QCheckBox("Currents");
     showCurrentCheck->setChecked(true);
-    showCurrentCheck->setStyleSheet("QCheckBox { color: #eee; font-weight: bold; }");
+    showCurrentCheck->setStyleSheet(checkboxStyle);
     toolbar->addWidget(showCurrentCheck);
 
     auto updateOverlays = [this, showVoltageCheck, showCurrentCheck]() {
@@ -1961,13 +2001,13 @@ void SimulationPanel::setupUI() {
     connect(showCurrentCheck, &QCheckBox::toggled, this, updateOverlays);
 
     QPushButton* clearOverlaysBtn = new QPushButton("Clear Overlays");
-    clearOverlaysBtn->setStyleSheet("background-color: #1f2937; color: white; padding: 4px 8px; border-radius: 4px;");
+    clearOverlaysBtn->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#1f2937", isLight ? textColor : "white"));
     connect(clearOverlaysBtn, &QPushButton::clicked, this, &SimulationPanel::clearOverlaysRequested);
     toolbar->addWidget(clearOverlaysBtn);
 
     QCheckBox* topNetTableCheck = new QCheckBox("Net Table");
     topNetTableCheck->setChecked(true);
-    topNetTableCheck->setStyleSheet("QCheckBox { color: #eee; font-weight: bold; }");
+    topNetTableCheck->setStyleSheet(checkboxStyle);
     toolbar->addWidget(topNetTableCheck);
 
     toolbar->addSeparator();
@@ -1980,7 +2020,7 @@ void SimulationPanel::setupUI() {
 
     QPushButton* listenBtn = new QPushButton("Listen");
     listenBtn->setToolTip("Play selected signal through speakers (Transient only)");
-    listenBtn->setStyleSheet("background-color: #7c3aed; color: white; font-weight: bold; padding: 4px 12px; border-radius: 4px;");
+    listenBtn->setStyleSheet(buttonStyle("#7c3aed", "white"));
     connect(listenBtn, &QPushButton::clicked, this, [this]() {
         if (!m_signalList || !m_signalList->currentItem()) return;
         QString name = m_signalList->currentItem()->text();
@@ -2019,11 +2059,11 @@ void SimulationPanel::setupUI() {
     m_analysisType = new QComboBox();
     m_analysisType->addItems({"Transient", "DC OP", "AC Sweep", "RF S-Parameter", "Monte Carlo", "Parametric Sweep", "Sensitivity", "Real-time Mode"});
     m_analysisType->setCurrentIndex(1);
-    m_analysisType->setStyleSheet("QComboBox { background: #121214; color: #eee; }");
+    m_analysisType->setStyleSheet(inputStyle);
     configForm->addRow("Type:", m_analysisType);
 
     m_commandLine = new QLineEdit(".op");
-    m_commandLine->setStyleSheet("QLineEdit { background: #1e3a5f; color: #3b82f6; border: 1px solid #3b82f6; font-family: 'Courier New'; font-weight: bold; }");
+    m_commandLine->setStyleSheet(commandStyle);
     m_commandLine->setPlaceholderText(".tran <tstep> <tstop>");
     QWidget* commandRow = new QWidget();
     auto* commandRowLayout = new QHBoxLayout(commandRow);
@@ -2032,7 +2072,7 @@ void SimulationPanel::setupUI() {
     commandRowLayout->addWidget(m_commandLine, 1);
     QPushButton* stepBuilderBtn = new QPushButton(".step...");
     stepBuilderBtn->setToolTip("Open the LTspice .step sweep builder");
-    stepBuilderBtn->setStyleSheet("QPushButton { background: #0f766e; color: white; font-weight: bold; padding: 4px 8px; border-radius: 4px; }");
+    stepBuilderBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
     connect(stepBuilderBtn, &QPushButton::clicked, this, &SimulationPanel::onOpenStepBuilder);
     commandRowLayout->addWidget(stepBuilderBtn);
     configForm->addRow("Command:", commandRow);
@@ -2049,8 +2089,8 @@ void SimulationPanel::setupUI() {
     m_autoNetTableCheck = new QCheckBox("Auto net table on transient run");
     m_autoNetTableCheck->setChecked(true);
     ConfigManager::instance().setToolProperty("SimulationPanel", "showTransientNetTable", true);
-    for(auto* l : {m_param1, m_param2, m_param3, m_param4, m_param5, m_param6}) l->setStyleSheet("QLineEdit { background: #121214; color: #fff; border: 1px solid #333; }");
-    for (auto* l : {m_steadyTolEdit, m_steadyDelayEdit}) l->setStyleSheet("QLineEdit { background: #121214; color: #fff; border: 1px solid #333; }");
+    for(auto* l : {m_param1, m_param2, m_param3, m_param4, m_param5, m_param6}) l->setStyleSheet(inputStyle);
+    for (auto* l : {m_steadyTolEdit, m_steadyDelayEdit}) l->setStyleSheet(inputStyle);
     m_steadyTolEdit->setPlaceholderText("0.01");
     m_steadyDelayEdit->setPlaceholderText("0");
     
@@ -2076,11 +2116,11 @@ void SimulationPanel::setupUI() {
 
     m_generatorType = new QComboBox();
     m_generatorType->addItems({"DC", "SIN", "PULSE", "EXP", "SFFM", "PWL", "AM", "FM"});
-    m_generatorType->setStyleSheet("QComboBox { background: #121214; color: #eee; }");
+    m_generatorType->setStyleSheet(inputStyle);
     generatorForm->addRow("Type:", m_generatorType);
 
     m_generatorPresetCombo = new QComboBox();
-    m_generatorPresetCombo->setStyleSheet("QComboBox { background: #121214; color: #eee; }");
+    m_generatorPresetCombo->setStyleSheet(inputStyle);
     generatorForm->addRow("Template:", m_generatorPresetCombo);
 
     m_genLabel1 = new QLabel("Value:");
@@ -2097,7 +2137,7 @@ void SimulationPanel::setupUI() {
     m_genParam5 = new QLineEdit("0");
     m_genParam6 = new QLineEdit("0");
     for (auto* l : {m_genParam1, m_genParam2, m_genParam3, m_genParam4, m_genParam5, m_genParam6}) {
-        l->setStyleSheet("QLineEdit { background: #121214; color: #fff; border: 1px solid #333; }");
+        l->setStyleSheet(inputStyle);
     }
 
     generatorForm->addRow(m_genLabel1, m_genParam1);
@@ -2108,7 +2148,7 @@ void SimulationPanel::setupUI() {
     generatorForm->addRow(m_genLabel6, m_genParam6);
 
     QPushButton* applyGeneratorBtn = new QPushButton("Apply to Selected Source");
-    applyGeneratorBtn->setStyleSheet("QPushButton { background-color: #7c2d12; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px; }");
+    applyGeneratorBtn->setStyleSheet(buttonStyle("#7c2d12", "white"));
     generatorForm->addRow("", applyGeneratorBtn);
 
     QWidget* waveTools = new QWidget();
@@ -2123,11 +2163,11 @@ void SimulationPanel::setupUI() {
     QPushButton* savePresetBtn = new QPushButton("Save Preset");
     QPushButton* deletePresetBtn = new QPushButton("Delete Preset");
     for (QPushButton* b : {pwlEditorBtn, importCsvBtn, exportCsvBtn, savePresetBtn, deletePresetBtn}) {
-        b->setStyleSheet("QPushButton { background-color: #374151; color: white; padding: 4px 8px; border-radius: 4px; }");
+        b->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#374151", isLight ? textColor : "white"));
     }
-    pwlEditorBtn->setStyleSheet("QPushButton { background-color: #1e40af; color: white; font-weight: bold; padding: 4px 8px; border-radius: 4px; }");
-    savePresetBtn->setStyleSheet("QPushButton { background-color: #065f46; color: white; font-weight: bold; padding: 4px 8px; border-radius: 4px; }");
-    deletePresetBtn->setStyleSheet("QPushButton { background-color: #7f1d1d; color: white; padding: 4px 8px; border-radius: 4px; }");
+    pwlEditorBtn->setStyleSheet(buttonStyle("#1e40af", "white"));
+    savePresetBtn->setStyleSheet(buttonStyle("#065f46", "white"));
+    deletePresetBtn->setStyleSheet(buttonStyle("#7f1d1d", "white"));
 
     waveToolsLayout->addWidget(pwlEditorBtn, 0, 0);
     waveToolsLayout->addWidget(importCsvBtn, 0, 1);
@@ -2246,19 +2286,19 @@ void SimulationPanel::setupUI() {
     timelineLayout->setContentsMargins(0, 0, 0, 0);
     
     QLabel* ttLabel = new QLabel("TIME-TRAVEL:");
-    ttLabel->setStyleSheet("font-weight: bold; font-size: 10px; color: #569cd6;");
+    ttLabel->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1;").arg(accent));
     timelineLayout->addWidget(ttLabel);
     
     m_timelineSlider = new QSlider(Qt::Horizontal);
     m_timelineSlider->setRange(0, 1000);
     m_timelineSlider->setEnabled(false);
-    m_timelineSlider->setStyleSheet("QSlider::handle:horizontal { background: #569cd6; border-radius: 4px; width: 12px; }");
+    m_timelineSlider->setStyleSheet(QString("QSlider::handle:horizontal { background: %1; border-radius: 4px; width: 12px; }").arg(accent));
     timelineLayout->addWidget(m_timelineSlider, 1);
     
     m_timelineLabel = new QLabel("--- s");
     m_timelineLabel->setMinimumWidth(80);
     m_timelineLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_timelineLabel->setStyleSheet("font-family: monospace; color: #fff; font-size: 11px;");
+    m_timelineLabel->setStyleSheet(QString("font-family: monospace; color: %1; font-size: 11px;").arg(textColor));
     timelineLayout->addWidget(m_timelineLabel);
     
     plotLayout->addWidget(timelineWidget);
@@ -2269,9 +2309,9 @@ void SimulationPanel::setupUI() {
     netTableLayout->setContentsMargins(0, 0, 0, 0);
     netTableLayout->setSpacing(8);
     QLabel* netTableLabel = new QLabel("SCHEMATIC NET TABLE:");
-    netTableLabel->setStyleSheet("font-weight: bold; font-size: 10px; color: #569cd6;");
+    netTableLabel->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1;").arg(accent));
     netTableLayout->addWidget(netTableLabel);
-    m_autoNetTableCheck->setStyleSheet("QCheckBox { color: #e5e7eb; font-weight: bold; }");
+    m_autoNetTableCheck->setStyleSheet(checkboxStyle);
     netTableLayout->addWidget(m_autoNetTableCheck);
     netTableLayout->addStretch(1);
     plotLayout->addWidget(netTableControls);
@@ -2290,9 +2330,9 @@ void SimulationPanel::setupUI() {
 
     m_chart = new QChart();
     m_chart->setTitle("Waveform Viewer");
-    m_chart->setTitleBrush(QBrush(Qt::white));
-    m_chart->setBackgroundBrush(QBrush(Qt::black));
-    m_chart->setPlotAreaBackgroundBrush(QBrush(Qt::black));
+    m_chart->setTitleBrush(QBrush(theme ? theme->textColor() : QColor(Qt::white)));
+    m_chart->setBackgroundBrush(QBrush(QColor(chartBg)));
+    m_chart->setPlotAreaBackgroundBrush(QBrush(QColor(chartPlotBg)));
     m_chart->setPlotAreaBackgroundVisible(true);
     m_chart->setMargins(QMargins(0, 0, 0, 0));
     m_chart->setBackgroundRoundness(0);
@@ -2301,17 +2341,17 @@ void SimulationPanel::setupUI() {
     m_chart->legend()->setAlignment(Qt::AlignTop);
     m_chart->legend()->setMarkerShape(QLegend::MarkerShapeRectangle);
     m_chart->legend()->setBackgroundVisible(false);
-    m_chart->legend()->setLabelColor(Qt::white);
+    m_chart->legend()->setLabelColor(theme ? theme->textColor() : QColor(Qt::white));
     
     m_plotView = new QChartView(m_chart);
     m_plotView->setRenderHint(QPainter::Antialiasing);
-    m_plotView->setStyleSheet(QString("background-color: black; border: 1px solid %1;").arg(borderColor));
+    m_plotView->setStyleSheet(QString("background-color: %1; border: 1px solid %2;").arg(chartBg, borderColor));
 
     m_spectrumChart = new QChart();
     m_spectrumChart->setTitle("FFT Spectrum Analysis");
-    m_spectrumChart->setTitleBrush(QBrush(Qt::white));
-    m_spectrumChart->setBackgroundBrush(QBrush(Qt::black));
-    m_spectrumChart->setPlotAreaBackgroundBrush(QBrush(Qt::black));
+    m_spectrumChart->setTitleBrush(QBrush(theme ? theme->textColor() : QColor(Qt::white)));
+    m_spectrumChart->setBackgroundBrush(QBrush(QColor(chartBg)));
+    m_spectrumChart->setPlotAreaBackgroundBrush(QBrush(QColor(chartPlotBg)));
     m_spectrumChart->setPlotAreaBackgroundVisible(true);
     m_spectrumChart->setMargins(QMargins(0, 0, 0, 0));
     m_spectrumChart->setBackgroundRoundness(0);
@@ -2319,7 +2359,7 @@ void SimulationPanel::setupUI() {
     m_spectrumChart->legend()->setVisible(true);
     m_spectrumChart->legend()->setAlignment(Qt::AlignTop);
     m_spectrumChart->legend()->setBackgroundVisible(false);
-    m_spectrumChart->legend()->setLabelColor(Qt::white);
+    m_spectrumChart->legend()->setLabelColor(theme ? theme->textColor() : QColor(Qt::white));
 
     m_spectrumView = new QChartView(m_spectrumChart);
     m_spectrumView->setRenderHint(QPainter::Antialiasing);
@@ -2361,7 +2401,7 @@ void SimulationPanel::setupUI() {
     efficiencyLayout->setSpacing(8);
     m_efficiencySummaryLabel = new QLabel("No efficiency summary available for this run.");
     m_efficiencySummaryLabel->setWordWrap(true);
-    m_efficiencySummaryLabel->setStyleSheet("QLabel { color: #d1d5db; font-size: 12px; padding: 4px; }");
+    m_efficiencySummaryLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; padding: 4px; }").arg(mutedText));
     efficiencyLayout->addWidget(m_efficiencySummaryLabel);
     m_efficiencyTable = new QTableWidget(0, 2);
     m_efficiencyTable->setHorizontalHeaderLabels({"Metric", "Value"});
@@ -2451,6 +2491,15 @@ void SimulationPanel::setupUI() {
     connect(m_signalList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
         QString seriesName = item->text();
         bool isVisible = (item->checkState() == Qt::Checked);
+        if (isVisible) {
+            m_persistentCheckedSignals.insert(seriesName);
+        } else {
+            m_persistentCheckedSignals.remove(seriesName);
+        }
+        if (m_waveformViewer) {
+            m_waveformViewer->setSignalChecked(seriesName, isVisible);
+            m_waveformViewer->updatePlot(false);
+        }
         if (m_chart) {
             for (auto* series : m_chart->series()) {
                 if (series->name() == seriesName) {
@@ -2482,11 +2531,14 @@ void SimulationPanel::onViewNetlist() {
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setWindowTitle("Generated SPICE Netlist");
     dlg->resize(600, 500);
+    if (ThemeManager::theme()) {
+        dlg->setStyleSheet(ThemeManager::theme()->widgetStylesheet());
+    }
     QVBoxLayout* lay = new QVBoxLayout(dlg);
     QTextEdit* edit = new QTextEdit;
     edit->setReadOnly(true);
     edit->setPlainText(generateSpiceNetlist());
-    edit->setStyleSheet("background-color: #1e1e24; color: #dcdcdc; font-family: monospace;");
+    edit->setStyleSheet("font-family: monospace;");
     lay->addWidget(edit);
     dlg->show();
 }

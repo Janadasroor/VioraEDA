@@ -10,6 +10,8 @@
 #include "plugin_manager_dialog.h"
 #include "../schematic/ui/netlist_editor.h"
 #include "csv_viewer.h"
+#include "../pcb/editor/mainwindow.h"
+#include "../footprints/footprint_editor.h"
 #include "../core/config_manager.h"
 #include "../core/settings_dialog.h"
 #include "../core/recent_workspaces.h"
@@ -36,6 +38,7 @@
 #include <QStandardPaths>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QProcess>
 #include <QUrl>
 #include <QHeaderView>
 #include <QStyle>
@@ -63,6 +66,10 @@
 #include <cstring>
 
 namespace {
+bool pcbToolsEnabled() {
+    return ConfigManager::instance().isFeatureEnabled("pcb_tools", false);
+}
+
 struct PassivePartEntry {
     QString value;
     QString manufacturer;
@@ -289,22 +296,22 @@ QString decodeSpiceText(const QByteArray& raw) {
     if (raw.isEmpty()) return QString();
 
     auto decodeUtf16Le = [](const QByteArray& bytes, int start) {
-        QVector<ushort> u16;
+        QVector<char16_t> u16;
         u16.reserve((bytes.size() - start) / 2);
         for (int i = start; i + 1 < bytes.size(); i += 2) {
-            const ushort ch = static_cast<ushort>(static_cast<unsigned char>(bytes[i])) |
-                              (static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1])) << 8);
+            const char16_t ch = static_cast<char16_t>(static_cast<unsigned char>(bytes[i])) |
+                                (static_cast<char16_t>(static_cast<unsigned char>(bytes[i + 1])) << 8);
             u16.push_back(ch);
         }
         return QString::fromUtf16(u16.constData(), u16.size());
     };
 
     auto decodeUtf16Be = [](const QByteArray& bytes, int start) {
-        QVector<ushort> u16;
+        QVector<char16_t> u16;
         u16.reserve((bytes.size() - start) / 2);
         for (int i = start; i + 1 < bytes.size(); i += 2) {
-            const ushort ch = (static_cast<ushort>(static_cast<unsigned char>(bytes[i])) << 8) |
-                               static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1]));
+            const char16_t ch = (static_cast<char16_t>(static_cast<unsigned char>(bytes[i])) << 8) |
+                                 static_cast<char16_t>(static_cast<unsigned char>(bytes[i + 1]));
             u16.push_back(ch);
         }
         return QString::fromUtf16(u16.constData(), u16.size());
@@ -737,6 +744,12 @@ QWidget* ProjectManager::createLauncherArea() {
                   ":/icons/schematic_editor.png", QColor("#3b82f6"), &ProjectManager::openSchematicEditor);
         addDesign("Symbol Editor", "Create and manage schematic symbol libraries",
                   ":/icons/symbol_editor.png",    QColor("#8b5cf6"), &ProjectManager::openSymbolEditor);
+        if (pcbToolsEnabled()) {
+            addDesign("PCB Editor", "Layout and edit printed circuit boards",
+                      ":/icons/pcb_editor.png", QColor("#10b981"), &ProjectManager::openPcbEditor);
+            addDesign("Footprint Editor", "Create and manage PCB footprint libraries",
+                      ":/icons/footprint_editor.png", QColor("#f59e0b"), &ProjectManager::openFootprintEditor);
+        }
 
         layout->addLayout(m_launcherGrid);
     }
@@ -793,6 +806,8 @@ QWidget* ProjectManager::createLauncherArea() {
                 ":/icons/toolbar_netlist.png", QColor("#06b6d4"), &ProjectManager::openSpiceModelManager);
         addUtil("Calculator Tools",  "Resistance, trace width, and impedance calculators",
                 ":/icons/calculator_tools.png", QColor("#f59e0b"), &ProjectManager::openCalculatorTools);
+        addUtil("OpenCode AI",         "AI-powered circuit design, simulation, and analysis",
+                ":/icons/tool_search.svg",      QColor("#3b82f6"), &ProjectManager::launchOpenCode);
         addUtil("Plugins Manager",   "Manage extensions, importers, and add-ons",
                 ":/icons/plugins_manager.png",  QColor("#8b5cf6"), &ProjectManager::openPluginsManager);
         addUtil("Help Documentation","Software guides, tutorials, and documentation",
@@ -1644,13 +1659,14 @@ void ProjectManager::updateThemeStyle() {
 
 
 void ProjectManager::createMenuBar() {
+    menuBar()->clear();
+
     QMenu* fileMenu = menuBar()->addMenu("&File");
-    m_newProjectAction = fileMenu->addAction("&New Project...", this, &ProjectManager::createNewProject);
-    m_newProjectAction->setShortcut(QKeySequence::New);
-    m_openProjectAction = fileMenu->addAction("&Open...", this, &ProjectManager::openExistingProject);
-    m_openProjectAction->setShortcut(QKeySequence::Open);
+    m_newProjectAction = fileMenu->addAction("&New Project...", QKeySequence::New, this, &ProjectManager::createNewProject);
+    m_openProjectAction = fileMenu->addAction("&Open...", QKeySequence::Open, this, &ProjectManager::openExistingProject);
     
-    QAction* openWorkspaceAction = fileMenu->addAction("&Open Workspace...", this, [this]() {
+    QAction* openWorkspaceAction = fileMenu->addAction("&Open Workspace...");
+    connect(openWorkspaceAction, &QAction::triggered, this, [this]() {
         QString path = QFileDialog::getOpenFileName(this, "Open Workspace",
             QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
             "viospice Workspace (*.viospice-workspace)");
@@ -1660,11 +1676,9 @@ void ProjectManager::createMenuBar() {
     });
 
     fileMenu->addSeparator();
-    m_addFolderAction = fileMenu->addAction("Add Folder to &Workspace...", this, &ProjectManager::addFolderToWorkspace);
-    m_addFolderAction->setShortcut(QKeySequence("Ctrl+Shift+O"));
+    m_addFolderAction = fileMenu->addAction("Add Folder to &Workspace...", QKeySequence("Ctrl+Shift+O"), this, &ProjectManager::addFolderToWorkspace);
     
-    QAction* saveWorkspaceAction = fileMenu->addAction("&Save Workspace", this, &ProjectManager::saveWorkspace);
-    saveWorkspaceAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
+    QAction* saveWorkspaceAction = fileMenu->addAction("&Save Workspace", QKeySequence("Ctrl+Shift+S"), this, &ProjectManager::saveWorkspace);
 
     m_recentProjectsMenu = fileMenu->addMenu("Open &Recent");
     updateRecentProjectsMenu();
@@ -1674,35 +1688,39 @@ void ProjectManager::createMenuBar() {
     m_exitAction->setShortcut(QKeySequence::Quit);
 
     QMenu* viewMenu = menuBar()->addMenu("&View");
-    viewMenu->addAction("Refresh", this, &ProjectManager::refreshProjectTree);
+    viewMenu->addAction("Refresh", QKeySequence(), this, &ProjectManager::refreshProjectTree);
 
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
-    toolsMenu->addAction("Schematic Editor", this, &ProjectManager::openSchematicEditor);
-    toolsMenu->addAction("Symbol Editor", this, &ProjectManager::openSymbolEditor);
+    toolsMenu->addAction("Schematic Editor", QKeySequence(), this, &ProjectManager::openSchematicEditor);
+    toolsMenu->addAction("Symbol Editor", QKeySequence(), this, &ProjectManager::openSymbolEditor);
+    if (pcbToolsEnabled()) {
+        toolsMenu->addAction("PCB Editor", QKeySequence(), this, &ProjectManager::openPcbEditor);
+        toolsMenu->addAction("Footprint Editor", QKeySequence(), this, &ProjectManager::openFootprintEditor);
+    }
+    toolsMenu->addSeparator();
+    toolsMenu->addAction("💻 OpenCode AI (Ctrl+Shift+O)", QKeySequence("Ctrl+Shift+O"), this, &ProjectManager::launchOpenCode);
     toolsMenu->addSeparator();
     QMenu* importersMenu = toolsMenu->addMenu("Importers");
-    importersMenu->addAction("LTspice Batch Symbols...", this, &ProjectManager::importLtspiceBatch);
-    importersMenu->addAction("KiCad Batch Symbols (.kicad_sym)...", this, &ProjectManager::importKicadBatch);
-    importersMenu->addAction("Diode/JFET Models...", this, &ProjectManager::importLtspiceDiodeModels);
-    importersMenu->addAction("JFET Models...", this, &ProjectManager::importLtspiceJfetModels);
-    importersMenu->addAction("BJT Models...", this, &ProjectManager::importLtspiceBjtModels);
-    importersMenu->addAction("MOS Models...", this, &ProjectManager::importLtspiceMosModels);
-    importersMenu->addAction("Resistor Models (standard.res)", this, &ProjectManager::importLtspiceResistorModels);
-    importersMenu->addAction("Capacitor Models (standard.cap)", this, &ProjectManager::importLtspiceCapacitorModels);
-    importersMenu->addAction("Inductor Models (standard.ind)", this, &ProjectManager::importLtspiceInductorModels);
-    importersMenu->addAction("Import Standard Passive Models", this, &ProjectManager::importLtspiceStandardPassiveModels);
+    importersMenu->addAction("LTspice Batch Symbols...", QKeySequence(), this, &ProjectManager::importLtspiceBatch);
+    importersMenu->addAction("KiCad Batch Symbols (.kicad_sym)...", QKeySequence(), this, &ProjectManager::importKicadBatch);
+    importersMenu->addAction("Diode/JFET Models...", QKeySequence(), this, &ProjectManager::importLtspiceDiodeModels);
+    importersMenu->addAction("JFET Models...", QKeySequence(), this, &ProjectManager::importLtspiceJfetModels);
+    importersMenu->addAction("BJT Models...", QKeySequence(), this, &ProjectManager::importLtspiceBjtModels);
+    importersMenu->addAction("MOS Models...", QKeySequence(), this, &ProjectManager::importLtspiceMosModels);
+    importersMenu->addAction("Resistor Models (standard.res)", QKeySequence(), this, &ProjectManager::importLtspiceResistorModels);
+    importersMenu->addAction("Capacitor Models (standard.cap)", QKeySequence(), this, &ProjectManager::importLtspiceCapacitorModels);
+    importersMenu->addAction("Inductor Models (standard.ind)", QKeySequence(), this, &ProjectManager::importLtspiceInductorModels);
+    importersMenu->addAction("Import Standard Passive Models", QKeySequence(), this, &ProjectManager::importLtspiceStandardPassiveModels);
 
     QMenu* prefsMenu = menuBar()->addMenu("&Preferences");
-    prefsMenu->addAction("Settings", this, &ProjectManager::onSettings);
+    prefsMenu->addAction("Settings", QKeySequence(), this, &ProjectManager::onSettings);
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");
-    QAction* helpAction = helpMenu->addAction("&Help & Guides", this, &ProjectManager::showHelp);
-    helpAction->setShortcut(QKeySequence::HelpContents);
+    QAction* helpAction = helpMenu->addAction("&Help & Guides", QKeySequence::HelpContents, this, &ProjectManager::showHelp);
 
-    QAction* devHelpAction = helpMenu->addAction("&Developer Documentation", this, &ProjectManager::showDeveloperHelp);
-    devHelpAction->setShortcut(QKeySequence("Ctrl+Shift+F1"));
-    helpMenu->addAction("Project &Health Audit...", this, &ProjectManager::onProjectAudit);
-    m_aboutAction = helpMenu->addAction("&About viospice", this, &ProjectManager::showAbout);
+    QAction* devHelpAction = helpMenu->addAction("&Developer Documentation", QKeySequence("Ctrl+Shift+F1"), this, &ProjectManager::showDeveloperHelp);
+    helpMenu->addAction("Project &Health Audit...", QKeySequence(), this, &ProjectManager::onProjectAudit);
+    m_aboutAction = helpMenu->addAction("&About viospice", QKeySequence(), this, &ProjectManager::showAbout);
 }
 
 void ProjectManager::createNewProject() {
@@ -1851,6 +1869,22 @@ void ProjectManager::openSymbolEditor() {
         projectKey = QFileInfo(m_workspaceFilePath).absolutePath();
     }
     editor->setProjectKey(projectKey);
+    editor->show();
+}
+
+void ProjectManager::openPcbEditor() {
+    MainWindow* editor = new MainWindow();
+    editor->setAttribute(Qt::WA_DeleteOnClose);
+    if (!m_workspaceFolders.isEmpty()) {
+        const QString projectDir = m_workspaceFolders.first();
+        editor->setProjectContext(QFileInfo(projectDir).baseName(), projectDir);
+    }
+    editor->show();
+}
+
+void ProjectManager::openFootprintEditor() {
+    FootprintEditor* editor = new FootprintEditor(this);
+    editor->setAttribute(Qt::WA_DeleteOnClose);
     editor->show();
 }
 
@@ -2728,8 +2762,60 @@ void ProjectManager::importLtspiceStandardPassiveModels() {
 void ProjectManager::onSettings() {
     SettingsDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) {
+        refreshFeatureDependentUi();
         // Apply global changes if needed, though most are persisted in ConfigManager
         statusBar()->showMessage("Global settings updated.", 3000);
+    }
+}
+
+void ProjectManager::launchOpenCode() {
+    QString appPath;
+    QStringList candidates = {
+        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/linux-unpacked/@opencode-aidesktop-electron",
+        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/opencode-electron-linux-x86_64.AppImage",
+        "/opt/opencode/opencode",
+        "/usr/local/bin/opencode",
+    };
+
+    for (const auto& candidate : candidates) {
+        if (QFile::exists(candidate)) {
+            appPath = candidate;
+            break;
+        }
+    }
+
+    if (appPath.isEmpty()) {
+        QProcess proc;
+        proc.start("which", {"opencode"});
+        proc.waitForFinished(1000);
+        if (proc.exitCode() == 0) {
+            appPath = QString::fromLocal8Bit(proc.readAllStandardOutput()).trimmed();
+        }
+    }
+
+    if (appPath.isEmpty()) {
+        QMessageBox::warning(this, "OpenCode Not Found",
+            "Could not find the OpenCode Electron app.\n\n"
+            "Build it: cd packages/desktop-electron && bun run build && bun run package:linux\n"
+            "Or download from https://opencode.ai");
+        return;
+    }
+
+    QProcess::startDetached(appPath);
+    statusBar()->showMessage("Launched OpenCode Desktop", 3000);
+}
+
+void ProjectManager::refreshFeatureDependentUi() {
+    createMenuBar();
+
+    if (m_splitter && m_launcherArea) {
+        const QList<int> sizes = m_splitter->sizes();
+        QWidget* newLauncherArea = createLauncherArea();
+        QWidget* oldLauncherArea = m_splitter->replaceWidget(1, newLauncherArea);
+        m_launcherArea = newLauncherArea;
+        if (oldLauncherArea) oldLauncherArea->deleteLater();
+        if (!sizes.isEmpty()) m_splitter->setSizes(sizes);
+        updateLauncherLayout();
     }
 }
 

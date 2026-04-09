@@ -20,6 +20,9 @@ private:
         double unitFactor; // 1.0 for mm, 25.4 for inches
         int formatInt;
         int formatDec;
+        bool inRegion;
+        QPainterPath regionPath;
+        GerberPrimitive::Polarity currentPolarity;
         
         // Drill specific
         bool isExcellon;
@@ -27,6 +30,7 @@ private:
         
         State() : currentPos(0,0), currentAperture(-1), lastDCode(2), 
                   interpolationLinear(true), unitFactor(1.0), formatInt(2), formatDec(4),
+                  inRegion(false), currentPolarity(GerberPrimitive::Dark),
                   isExcellon(false) {}
     };
 

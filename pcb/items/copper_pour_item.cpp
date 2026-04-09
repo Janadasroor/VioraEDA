@@ -107,10 +107,17 @@ void CopperPourItem::setThermalSpokeAngleDeg(double deg) {
 }
 
 QRectF CopperPourItem::boundingRect() const {
-    return m_path.boundingRect().adjusted(-1, -1, 1, 1);
+    return shape().boundingRect().adjusted(-0.5, -0.5, 0.5, 0.5);
 }
 
 QPainterPath CopperPourItem::shape() const {
+    if (!m_model->filled()) {
+        QPainterPathStroker stroker;
+        stroker.setWidth(0.6);
+        stroker.setCapStyle(Qt::RoundCap);
+        stroker.setJoinStyle(Qt::RoundJoin);
+        return stroker.createStroke(m_path);
+    }
     return m_path;
 }
 

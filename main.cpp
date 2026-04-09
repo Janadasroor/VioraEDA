@@ -205,7 +205,7 @@ int main(int argc, char *argv[])
     QtConcurrent::run([splash, startMainApp]() {
         // Load symbols first because startup UI depends on them. Model and footprint
         // scans can be much larger, so do not block the splash on those.
-        SymbolLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym");
+        SymbolLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym", true);
 
         QMetaObject::invokeMethod(qApp, [startMainApp, splash]() {
             startMainApp(splash);

@@ -329,9 +329,17 @@ void SymbolTextItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
     painter->setFont(font);
     
     QColor c = Qt::white;
-    if (ThemeManager::theme()) c = ThemeManager::theme()->textColor();
+    PCBTheme* theme = ThemeManager::theme();
+    if (theme) c = theme->textColor();
     if (m_model.data.contains("color")) {
-        c = QColor(m_model.data["color"].toString());
+        const QColor explicitColor(m_model.data["color"].toString());
+        if (explicitColor.isValid()) {
+            const bool useThemeTextForLegacyBlack =
+                theme &&
+                theme->type() != PCBTheme::Light &&
+                explicitColor == QColor(Qt::black);
+            c = useThemeTextForLegacyBlack ? theme->textColor() : explicitColor;
+        }
     }
     painter->setPen(c);
 
@@ -445,8 +453,17 @@ void SymbolPinItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* opt
         int nsz = m_model.data.value("numSize").toInt(7);
         painter->setFont(QFont("Monospace", nsz > 0 ? nsz : 7));
         painter->setPen(textColor);
-        QPointF numPos = (QPointF(px, py) + endPt) / 2.0 + QPointF(0, -2);
-        painter->drawText(numPos, numStr);
+        QRectF numRect;
+        if (orient == "Left" || orient == "Right") {
+            const qreal left = qMin<qreal>(px, endPt.x());
+            const qreal width = qAbs(endPt.x() - px);
+            numRect = QRectF(left, py - 8.0, width, 16.0);
+        } else {
+            const qreal top = qMin<qreal>(py, endPt.y());
+            const qreal height = qAbs(endPt.y() - py);
+            numRect = QRectF(px - 12.0, top, 24.0, height);
+        }
+        painter->drawText(numRect, Qt::AlignCenter, numStr);
     }
 
     if (!m_model.data.value("hideName").toBool()) {
@@ -454,8 +471,20 @@ void SymbolPinItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* opt
         int asz = m_model.data.value("nameSize").toInt(7);
         painter->setFont(QFont("SansSerif", asz > 0 ? asz : 7));
         painter->setPen(textColor);
-        QPointF namePos = endPt + QPointF(5, 5);
-        painter->drawText(namePos, nameStr);
+        QRectF nameRect;
+        if (orient == "Right") {
+            nameRect = QRectF(endPt.x() + 4.0, py - 8.0, 80.0, 16.0);
+            painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, nameStr);
+        } else if (orient == "Left") {
+            nameRect = QRectF(endPt.x() - 84.0, py - 8.0, 80.0, 16.0);
+            painter->drawText(nameRect, Qt::AlignRight | Qt::AlignVCenter, nameStr);
+        } else if (orient == "Up") {
+            nameRect = QRectF(px - 40.0, endPt.y() - 20.0, 80.0, 16.0);
+            painter->drawText(nameRect, Qt::AlignHCenter | Qt::AlignBottom, nameStr);
+        } else {
+            nameRect = QRectF(px - 40.0, endPt.y() + 4.0, 80.0, 16.0);
+            painter->drawText(nameRect, Qt::AlignHCenter | Qt::AlignTop, nameStr);
+        }
     }
 
     paintSelectionBorder(painter, option);

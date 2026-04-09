@@ -119,27 +119,34 @@ void PCBDRC::addViolation(const DRCViolation& violation) {
 bool PCBDRC::checkItemClearance(PCBItem* item1, PCBItem* item2, double minClearance, QPointF& violationPos) {
     if (item1 == item2) return false;
 
-    const ViaItem* via1 = dynamic_cast<const ViaItem*>(item1);
-    const ViaItem* via2 = dynamic_cast<const ViaItem*>(item2);
-    if (!via1 && !via2) {
-        if (item1->layer() != item2->layer()) return false;
-    } else if (via1 && !via2) {
-        if (!via1->spansLayer(item2->layer())) return false;
-    } else if (!via1 && via2) {
-        if (!via2->spansLayer(item1->layer())) return false;
-    } else {
-        // Via-via: they only interact if at least one copper layer overlap exists.
-        bool overlaps = false;
-        for (PCBLayer* layer : PCBLayerManager::instance().copperLayers()) {
-            if (!layer) continue;
-            const int lid = layer->id();
-            if (via1->spansLayer(lid) && via2->spansLayer(lid)) {
-                overlaps = true;
-                break;
-            }
+    auto itemsOverlapLayers = [](PCBItem* a, PCBItem* b) {
+        // If they share a primary layer, they definitely overlap
+        if (a->layer() == b->layer()) return true;
+
+        // Check if either is a through-hole item (spans all copper)
+        const PadItem* padA = dynamic_cast<const PadItem*>(a);
+        const PadItem* padB = dynamic_cast<const PadItem*>(b);
+        const ViaItem* viaA = dynamic_cast<const ViaItem*>(a);
+        const ViaItem* viaB = dynamic_cast<const ViaItem*>(b);
+
+        bool aIsTH = (viaA || (padA && padA->drillSize() > 0.001));
+        bool bIsTH = (viaB || (padB && padB->drillSize() > 0.001));
+
+        if (aIsTH && bIsTH) return true; // Both through-hole, they always overlap in Z
+
+        if (aIsTH) {
+            const PCBLayer* layerB = PCBLayerManager::instance().layer(b->layer());
+            return layerB && layerB->isCopperLayer();
         }
-        if (!overlaps) return false;
-    }
+        if (bIsTH) {
+            const PCBLayer* layerA = PCBLayerManager::instance().layer(a->layer());
+            return layerA && layerA->isCopperLayer();
+        }
+
+        return false;
+    };
+
+    if (!itemsOverlapLayers(item1, item2)) return false;
     
     // Skip items on the same net (they can touch/overlap)
     if (!item1->netName().isEmpty() && item1->netName() == item2->netName()) return false;
@@ -805,6 +812,8 @@ void PCBDRC::checkAcuteAngles(QGraphicsScene* scene) {
             for (auto* item : scene->items(searchRect)) {
                 TraceItem* t2 = dynamic_cast<TraceItem*>(item);
                 if (!t2 || t1 == t2) continue;
+                
+                // Traces must be on the same layer or connected via a TH item
                 if (t1->layer() != t2->layer()) continue;
 
                 // Ensure unique pairs
@@ -887,17 +896,20 @@ void PCBDRC::checkStubs(QGraphicsScene* scene) {
                 // Pads and Vias also connect
                 else if (pcbItem->itemType() == PCBItem::PadType || pcbItem->itemType() == PCBItem::ViaType) {
                     // For pads/vias, they connect if they exist on the trace's layer
-                    if (pcbItem->layer() == t1->layer() || pcbItem->itemType() == PCBItem::ViaType) {
-                        // Vias connect to all layers they span
-                        if (pcbItem->itemType() == PCBItem::ViaType) {
-                            ViaItem* via = dynamic_cast<ViaItem*>(pcbItem);
-                            if (via && via->spansLayer(t1->layer())) {
+                    if (pcbItem->itemType() == PCBItem::ViaType) {
+                        ViaItem* via = dynamic_cast<ViaItem*>(pcbItem);
+                        if (via && via->spansLayer(t1->layer())) {
+                            connected = true;
+                            break;
+                        }
+                    } else { // Pad
+                        PadItem* pad = dynamic_cast<PadItem*>(pcbItem);
+                        if (pad) {
+                            bool padOnLayer = (pad->layer() == t1->layer() || pad->drillSize() > 0.001);
+                            if (padOnLayer) {
                                 connected = true;
                                 break;
                             }
-                        } else {
-                            connected = true;
-                            break;
                         }
                     }
                 }

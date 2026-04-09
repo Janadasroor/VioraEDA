@@ -19,10 +19,14 @@
 #include "../dialogs/length_matching_dialog.h"
 #include "../dialogs/pcb_diff_viewer.h"
 #include "../dialogs/design_report_dialog.h"
+#include "../dialogs/pdf_viewer_dialog.h"
 #include "../analysis/pcb_diff_engine.h"
 #include "../gerber/gerber_exporter.h"
 #include "../manufacturing/manufacturing_exporter.h"
 #include "../mcad/mcad_exporter.h"
+#include "../gerber/gerber_parser.h"
+#include "../gerber/gerber_view.h"
+#include <QPdfWriter>
 #include <QPrinter>
 #include <QSvgGenerator>
 #include "../../core/ui/selection_filter_widget.h"
@@ -41,6 +45,8 @@
 #include "via_item.h"
 #include "../ui/pcb_3d_window.h"
 #include "copper_pour_item.h"
+#include "shape_item.h"
+#include "image_item.h"
 #include "../../core/ui/command_palette.h"
 #include <QMenuBar>
 #include <QMenu>
@@ -71,10 +77,16 @@
 #include <QFrame>
 #include <QTimer>
 #include <QSet>
+#include <QApplication>
 #include <QPainter>
+#include <QProcess>
+#include <QLineF>
 #include <QPixmap>
+#include <QImageReader>
+#include <QTemporaryDir>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
+#include <vector>
 #include <algorithm>
 #include <cmath>
 
@@ -97,7 +109,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_gridCombo(nullptr)
     , m_layerLabel(nullptr)
     , m_undoStack(new QUndoStack(this))
-    , m_api(new PCBAPI(nullptr, m_undoStack, this))
+    , m_api(nullptr)
     , m_selectionFilter(nullptr) {
 
     setWindowTitle("Viora EDA - PCB Editor");
@@ -109,6 +121,7 @@ MainWindow::MainWindow(QWidget *parent)
     PCBToolRegistryBuiltIn::registerBuiltInTools();
 
     setupCanvas();
+    m_api = new PCBAPI(m_scene, m_undoStack, this);
     createMenuBar();
     createToolBar();
     createDockWidgets();
@@ -254,41 +267,49 @@ void MainWindow::createMenuBar() {
 
     fileMenu->addSeparator();
     fileMenu->addAction("📥 Import Netlist...", QKeySequence("Ctrl+I"), this, &MainWindow::onImportNetlist);
+    fileMenu->addAction("Import Image...", QKeySequence("Ctrl+Shift+I"), this, &MainWindow::onImportImage);
 
     fileMenu->addSeparator();
     QMenu* exportMenu = fileMenu->addMenu("Export");
-    exportMenu->addAction("Export as Image...", this, &MainWindow::onExportImage);
-    exportMenu->addAction("Export as PDF...", this, &MainWindow::onExportPDF);
-    exportMenu->addAction("Export as SVG...", this, &MainWindow::onExportSVG);
-    exportMenu->addAction("Export Assembly Drawing...", this, &MainWindow::onExportAssemblyDrawing);
+    exportMenu->addAction("Export as Image...", QKeySequence(), this, &MainWindow::onExportImage);
+    exportMenu->addAction("Export as PDF...", QKeySequence(), this, &MainWindow::onExportPDF);
+    exportMenu->addAction("Export as SVG...", QKeySequence(), this, &MainWindow::onExportSVG);
+    exportMenu->addAction("Export Assembly Drawing...", QKeySequence(), this, &MainWindow::onExportAssemblyDrawing);
     exportMenu->addSeparator();
-    exportMenu->addAction("Export IPC-2581...", this, &MainWindow::onExportIPC2581);
-    exportMenu->addAction("Export ODB++ Package...", this, &MainWindow::onExportODBpp);
+    exportMenu->addAction("Export IPC-2581...", QKeySequence(), this, &MainWindow::onExportIPC2581);
+    exportMenu->addAction("Export ODB++ Package...", QKeySequence(), this, &MainWindow::onExportODBpp);
     exportMenu->addSeparator();
-    exportMenu->addAction("Export Pick and Place...", this, &MainWindow::onExportPickPlace);
+    exportMenu->addAction("Export Pick and Place...", QKeySequence(), this, &MainWindow::onExportPickPlace);
     exportMenu->addSeparator();
-    exportMenu->addAction("Export STEP (Wireframe)...", this, &MainWindow::onExportSTEP);
-    exportMenu->addAction("Export IGES (Wireframe)...", this, &MainWindow::onExportIGES);
+    exportMenu->addAction("Export STEP (Wireframe)...", QKeySequence(), this, &MainWindow::onExportSTEP);
+    exportMenu->addAction("Export IGES (Wireframe)...", QKeySequence(), this, &MainWindow::onExportIGES);
     
-    fileMenu->addAction("Generate Gerber Files...", this, &MainWindow::onGenerateGerbers);
+    fileMenu->addAction("Generate Gerber Files...", QKeySequence(), this, &MainWindow::onGenerateGerbers);
     
     fileMenu->addSeparator();
     fileMenu->addAction("E&xit", QKeySequence::Quit, this, &QWidget::close);
 
     QMenu *editMenu = menuBar->addMenu("&Edit");
-    QAction* undoAction = m_undoStack->createUndoAction(this, "&Undo");
-    undoAction->setShortcut(QKeySequence::Undo);
-    editMenu->addAction(undoAction);
-    QAction* redoAction = m_undoStack->createRedoAction(this, "&Redo");
-    redoAction->setShortcut(QKeySequence::Redo);
-    editMenu->addAction(redoAction);
+    m_undoAction = m_undoStack->createUndoAction(this, "&Undo");
+    m_undoAction->setShortcut(QKeySequence::Undo);
+    m_undoAction->setIcon(QIcon(":/icons/undo.svg"));
+    editMenu->addAction(m_undoAction);
+    addAction(m_undoAction); // Register globally
+
+    m_redoAction = m_undoStack->createRedoAction(this, "&Redo");
+    m_redoAction->setShortcut(QKeySequence::Redo);
+    m_redoAction->setIcon(QIcon(":/icons/redo.svg"));
+    editMenu->addAction(m_redoAction);
+    addAction(m_redoAction); // Register globally
     editMenu->addSeparator();
-    editMenu->addAction("Cu&t", QKeySequence::Cut, nullptr, nullptr);
-    editMenu->addAction("&Copy", QKeySequence::Copy, nullptr, nullptr);
-    editMenu->addAction("&Paste", QKeySequence::Paste, nullptr, nullptr);
+    editMenu->addAction("Cu&t", QKeySequence::Cut);
+    editMenu->addAction("&Copy", QKeySequence::Copy);
+    editMenu->addAction("&Paste", QKeySequence::Paste);
     editMenu->addSeparator();
     editMenu->addAction("&Delete", QKeySequence::Delete, this, &MainWindow::onDeleteSelection);
-    editMenu->addAction("Select &All", QKeySequence::SelectAll, this, [this]() {
+    QAction* selectAllAct = editMenu->addAction("Select &All");
+    selectAllAct->setShortcut(QKeySequence::SelectAll);
+    connect(selectAllAct, &QAction::triggered, this, [this]() {
         if (!m_scene) return;
         m_scene->clearSelection();
 
@@ -309,7 +330,7 @@ void MainWindow::createMenuBar() {
         statusBar()->showMessage(QString("Selected %1 item(s)").arg(count), 2000);
     });
     editMenu->addSeparator();
-    editMenu->addAction("Settings...", this, &MainWindow::onSettings);
+    editMenu->addAction("Settings...", QKeySequence(), this, &MainWindow::onSettings);
 
     QMenu *viewMenu = menuBar->addMenu("&View");
     viewMenu->addAction("Zoom &In", QKeySequence::ZoomIn, this, &MainWindow::onZoomIn);
@@ -386,6 +407,11 @@ void MainWindow::createMenuBar() {
     QAction* paletteAction = toolsMenu->addAction("Command Palette...");
     paletteAction->setShortcut(QKeySequence("Ctrl+K"));
     connect(paletteAction, &QAction::triggered, this, &MainWindow::onOpenCommandPalette);
+
+    toolsMenu->addSeparator();
+    QAction* openCodeAction = toolsMenu->addAction("💻 Open Code Editor (OpenCode)");
+    openCodeAction->setShortcut(QKeySequence("Ctrl+Shift+O"));
+    connect(openCodeAction, &QAction::triggered, this, &MainWindow::onLaunchOpenCode);
 }
 
 void MainWindow::createToolBar() {
@@ -425,7 +451,10 @@ void MainWindow::createToolBar() {
     QActionGroup* toolGroup = new QActionGroup(this);
     toolGroup->setExclusive(true);
     
-    QStringList toolNames = {"Select", "Erase", "Zoom Area", "Trace", "Diff Pair", "Length Tuning", "Pad", "Via", "Rectangle", "Polygon Pour", "Measure"};
+    QStringList coreTools = {"Select", "Erase", "Zoom Area", "Trace", "Diff Pair", "Length Tuning", "Pad", "Via"};
+    QStringList shapeTools = {"Rectangle", "Filled Zone", "Line", "Circle", "Arc"};
+    QStringList extraTools = {"Measure"};
+
     QMap<QString, QIcon> toolIcons;
     toolIcons["Select"] = QIcon(":/icons/tool_select.svg");
     toolIcons["Erase"] = QIcon(":/icons/tool_erase.svg");
@@ -436,12 +465,16 @@ void MainWindow::createToolBar() {
     toolIcons["Pad"] = QIcon(":/icons/tool_pad.svg");
     toolIcons["Via"] = QIcon(":/icons/tool_circle.svg");
     toolIcons["Rectangle"] = QIcon(":/icons/tool_rect.svg");
-    toolIcons["Polygon Pour"] = QIcon(":/icons/tool_polygon.svg");
+    toolIcons["Filled Zone"] = QIcon(":/icons/tool_polygon.svg");
+    toolIcons["Line"] = QIcon(":/icons/tool_line.svg");
+    toolIcons["Circle"] = QIcon(":/icons/tool_circle.svg");
+    toolIcons["Arc"] = QIcon(":/icons/tool_arc.svg");
     toolIcons["Measure"] = QIcon(":/icons/tool_measure.svg");
     
     auto availableTools = PCBToolRegistry::instance().registeredTools();
     
-    for (const QString& toolName : toolNames) {
+    // 1. Add Core Tools
+    for (const QString& toolName : coreTools) {
         if (availableTools.contains(toolName)) {
             QIcon icon = toolIcons.value(toolName);
             if (icon.isNull()) icon = QIcon(":/icons/tool_generic.svg");
@@ -450,19 +483,43 @@ void MainWindow::createToolBar() {
             action->setCheckable(true);
             action->setData(toolName);
             
-            // Assign hotkeys
-            if (toolName == "Select") action->setShortcut(QKeySequence("Esc"));
-            else if (toolName == "Erase") action->setShortcut(QKeySequence("E"));
-            else if (toolName == "Trace") action->setShortcut(QKeySequence("W"));
-            else if (toolName == "Diff Pair") action->setShortcut(QKeySequence("D"));
-            else if (toolName == "Via") action->setShortcut(QKeySequence("V"));
-            else if (toolName == "Zoom Area") action->setShortcut(QKeySequence("Z"));
-            else if (toolName == "Measure") action->setShortcut(QKeySequence("M"));
-            else if (toolName == "Pad") action->setShortcut(QKeySequence("P"));
-            else if (toolName == "Rectangle") action->setShortcut(QKeySequence("R"));
-            else if (toolName == "Polygon Pour") action->setShortcut(QKeySequence("O"));
-            else if (toolName == "Length Tuning") action->setShortcut(QKeySequence("T"));
+            m_toolActions[toolName] = action;
+            toolGroup->addAction(action);
+            connect(action, &QAction::triggered, this, &MainWindow::onToolSelected);
+        }
+    }
+
+    // 2. Add Shape Tools Group
+    QToolButton* shapesBtn = new QToolButton(toolbar);
+    shapesBtn->setIcon(QIcon(":/icons/tool_rect.svg"));
+    shapesBtn->setToolTip("Geometric Shapes...");
+    shapesBtn->setPopupMode(QToolButton::InstantPopup);
+    QMenu* shapesMenu = new QMenu(shapesBtn);
+    for (const QString& toolName : shapeTools) {
+        if (availableTools.contains(toolName)) {
+            QAction* action = new QAction(toolIcons.value(toolName), toolName, this);
+            action->setCheckable(true);
+            action->setData(toolName);
+            m_toolActions[toolName] = action;
+            toolGroup->addAction(action);
+            shapesMenu->addAction(action);
+            connect(action, &QAction::triggered, this, &MainWindow::onToolSelected);
             
+            // If sub-tool selected, update the main button icon
+            connect(action, &QAction::triggered, this, [shapesBtn, action](){
+                shapesBtn->setIcon(action->icon());
+            });
+        }
+    }
+    shapesBtn->setMenu(shapesMenu);
+    toolbar->addWidget(shapesBtn);
+
+    // 3. Add Extra Tools
+    for (const QString& toolName : extraTools) {
+        if (availableTools.contains(toolName)) {
+            QAction* action = toolbar->addAction(toolIcons.value(toolName), toolName);
+            action->setCheckable(true);
+            action->setData(toolName);
             m_toolActions[toolName] = action;
             toolGroup->addAction(action);
             connect(action, &QAction::triggered, this, &MainWindow::onToolSelected);
@@ -475,6 +532,7 @@ void MainWindow::createToolBar() {
 
     toolbar->addSeparator();
 
+    // 4. Component Tool
     if (availableTools.contains("Component")) {
         QAction* action = toolbar->addAction(QIcon(":/icons/comp_ic.svg"), "Component");
         action->setCheckable(true);
@@ -485,17 +543,44 @@ void MainWindow::createToolBar() {
         toolbar->addSeparator();
     }
 
-    // Undo button for quick access
-    QAction* undoToolbarAction = toolbar->addAction(QIcon(":/icons/undo.svg"), "Undo");
-    undoToolbarAction->setShortcut(QKeySequence::Undo);
-    undoToolbarAction->setToolTip("Undo last action (Ctrl+Z)");
-    connect(undoToolbarAction, &QAction::triggered, m_undoStack, &QUndoStack::undo);
+    // 5. More Tools Button (Global Access)
+    QToolButton* moreBtn = new QToolButton(toolbar);
+    moreBtn->setObjectName("MoreToolsButton");
+    moreBtn->setIcon(QIcon(":/icons/chevron_down.svg"));
+    moreBtn->setToolTip("All Tools...");
+    moreBtn->setPopupMode(QToolButton::InstantPopup);
+    QMenu* moreMenu = new QMenu(moreBtn);
+    connect(moreMenu, &QMenu::aboutToShow, this, [this, moreMenu, coreTools, shapeTools, extraTools]() {
+        moreMenu->clear();
+        QStringList all = coreTools + shapeTools + extraTools;
+        all << "Component";
+        for (const QString& key : all) {
+            QAction* a = m_toolActions.value(key, nullptr);
+            if (!a) continue;
+            QAction* proxy = moreMenu->addAction(a->icon(), a->text(), [a]() { a->trigger(); });
+            proxy->setCheckable(true);
+            proxy->setChecked(a->isChecked());
+        }
+    });
+    moreBtn->setMenu(moreMenu);
+    toolbar->addWidget(moreBtn);
+
+    // 6. Explicitly style the standard Qt extension button if it appears
+    QTimer::singleShot(0, this, [toolbar]() {
+        if (QToolButton* extBtn = toolbar->findChild<QToolButton*>("qt_toolbar_ext_button")) {
+            extBtn->setIcon(QIcon(":/icons/chevron_down.svg"));
+            extBtn->setToolTip("Hidden Tools");
+            extBtn->setStyleSheet("QToolButton { background: #2d2d30; border-radius: 4px; padding: 2px; }");
+        }
+    });
+
+    // Undo/Redo buttons for quick access
+    toolbar->addAction(m_undoAction);
+    toolbar->addAction(m_redoAction);
 
     QAction* deleteAction = toolbar->addAction(QIcon(":/icons/tool_delete.svg"), "Delete");
-    deleteAction->setShortcuts({QKeySequence::Delete, QKeySequence(Qt::Key_Backspace)});
     deleteAction->setToolTip("Delete selected items (Del / Bksp)");
     connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeleteSelection);
-    addAction(deleteAction);
 
     toolbar->addSeparator();
     QAction* drcToolbarAction = toolbar->addAction(QIcon(":/icons/check.svg"), "DRC");
@@ -709,6 +794,7 @@ void MainWindow::createToolBar() {
     QToolBar *layoutToolbar = addToolBar("Layout");
     layoutToolbar->setObjectName("LayoutToolbar");
     layoutToolbar->setIconSize(QSize(20, 20));
+    layoutToolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
     layoutToolbar->setMovable(false);
     layoutToolbar->setOrientation(Qt::Vertical);
     addToolBar(Qt::LeftToolBarArea, layoutToolbar);
@@ -883,6 +969,8 @@ void MainWindow::createDockWidgets() {
         if (m_netHighlightEnabled) {
             applyNetHighlighting();
         }
+
+        updateSelectionQuickInfo(pItems);
     });
 }
 
@@ -915,14 +1003,40 @@ void MainWindow::createStatusBar() {
         if (m_view) m_view->setGridSize(size);
     });
 
-    m_layerLabel = new QLabel("⚡ Layer: Top Copper");
-    m_layerLabel->setStyleSheet("QLabel { padding: 4px 12px; }");
+    // Layer Switcher
+    m_layerCombo = new QComboBox();
+    for (const auto& layer : PCBLayerManager::instance().layers()) {
+        if (layer.isCopperLayer()) {
+            m_layerCombo->addItem(layer.name(), layer.id());
+        }
+    }
+    m_layerCombo->setToolTip("Select Active Routing Layer");
+    m_layerCombo->setStyleSheet(
+        "QComboBox { border: none; padding: 2px 10px; background: transparent; font-weight: 500; min-width: 140px; color: #ef4444; }"
+        "QComboBox:hover { background: #2d2d30; }"
+        "QComboBox::drop-down { border: none; }"
+    );
+    connect(m_layerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index){
+        int layerId = m_layerCombo->itemData(index).toInt();
+        onActiveLayerChanged(layerId);
+        if (m_layerPanel) m_layerPanel->selectLayer(layerId);
+    });
+
+    m_layerLabel = new QLabel("⚡");
+    m_layerLabel->setStyleSheet("QLabel { padding: 0 0 0 12px; }");
+
+    m_selectionInfoLabel = new QLabel("Selection: none");
+    m_selectionInfoLabel->setMinimumWidth(320);
+    m_selectionInfoLabel->setStyleSheet("QLabel { padding: 4px 12px; }");
 
     statusBar()->addWidget(m_coordLabel);
     statusBar()->addWidget(createStatusSeparator());
     statusBar()->addPermanentWidget(m_gridCombo);
     statusBar()->addWidget(createStatusSeparator());
     statusBar()->addPermanentWidget(m_layerLabel);
+    statusBar()->addPermanentWidget(m_layerCombo);
+    statusBar()->addWidget(createStatusSeparator());
+    statusBar()->addPermanentWidget(m_selectionInfoLabel, 1);
     statusBar()->addWidget(createStatusSeparator());
 
     QPushButton* themeBtn = new QPushButton("🎨 Theme");
@@ -936,6 +1050,125 @@ void MainWindow::createStatusBar() {
         else tm.setTheme(PCBTheme::Engineering);
     });
     statusBar()->addPermanentWidget(themeBtn);
+}
+
+void MainWindow::updateSelectionQuickInfo(const QList<PCBItem*>& items) {
+    if (!m_selectionInfoLabel) {
+        return;
+    }
+
+    if (items.isEmpty()) {
+        m_selectionInfoLabel->setText("Selection: none");
+        return;
+    }
+
+    if (items.size() == 1 && items.first()) {
+        m_selectionInfoLabel->setText(selectionQuickInfoText(items.first()));
+        return;
+    }
+
+    QMap<QString, int> typeCounts;
+    for (PCBItem* item : items) {
+        if (item) {
+            typeCounts[item->itemTypeName()] += 1;
+        }
+    }
+
+    QStringList parts;
+    for (auto it = typeCounts.cbegin(); it != typeCounts.cend(); ++it) {
+        parts << QString("%1 %2").arg(it.value()).arg(it.key());
+    }
+
+    m_selectionInfoLabel->setText(QString("Selection: %1 item(s) | %2")
+        .arg(items.size())
+        .arg(parts.join(", ")));
+}
+
+QString MainWindow::selectionQuickInfoText(PCBItem* item) const {
+    if (!item) {
+        return "Selection: none";
+    }
+
+    auto layerNameFor = [](int layerId) -> QString {
+        if (PCBLayer* layer = PCBLayerManager::instance().layer(layerId)) {
+            return layer->name();
+        }
+        return QString("Layer %1").arg(layerId);
+    };
+    auto fmt = [](double value) -> QString {
+        return QString::number(value, 'f', 2);
+    };
+
+    const QString layerName = layerNameFor(item->layer());
+
+    if (auto* trace = dynamic_cast<TraceItem*>(item)) {
+        const double length = QLineF(trace->startPoint(), trace->endPoint()).length();
+        return QString("Trace | L: %1 mm | W: %2 mm | Layer: %3")
+            .arg(fmt(length))
+            .arg(fmt(trace->width()))
+            .arg(layerName);
+    }
+
+    if (auto* shape = dynamic_cast<PCBShapeItem*>(item)) {
+        const QSizeF size = shape->sizeMm();
+        QString text = QString("%1 | W: %2 mm | H: %3 mm | Stroke: %4 mm | Layer: %5")
+            .arg(shape->shapeKindName())
+            .arg(fmt(size.width()))
+            .arg(fmt(size.height()))
+            .arg(fmt(shape->strokeWidth()))
+            .arg(layerName);
+        if (shape->shapeKind() == PCBShapeItem::ShapeKind::Arc) {
+            text += QString(" | Start: %1° | Span: %2°")
+                .arg(fmt(shape->startAngleDeg()))
+                .arg(fmt(shape->spanAngleDeg()));
+        }
+        return text;
+    }
+
+    if (auto* pour = dynamic_cast<CopperPourItem*>(item)) {
+        const QRectF bounds = pour->polygon().boundingRect();
+        return QString("Shape | W: %1 mm | H: %2 mm | Clearance: %3 mm | Layer: %4")
+            .arg(fmt(bounds.width()))
+            .arg(fmt(bounds.height()))
+            .arg(fmt(pour->clearance()))
+            .arg(layerName);
+    }
+
+    if (auto* image = dynamic_cast<PCBImageItem*>(item)) {
+        const QSizeF size = image->sizeMm();
+        return QString("Image | W: %1 mm | H: %2 mm | Layer: %3")
+            .arg(fmt(size.width()))
+            .arg(fmt(size.height()))
+            .arg(layerName);
+    }
+
+    if (auto* comp = dynamic_cast<ComponentItem*>(item)) {
+        const QSizeF size = comp->size();
+        return QString("Component %1 | W: %2 mm | H: %3 mm | Layer: %4")
+            .arg(comp->componentType())
+            .arg(fmt(size.width()))
+            .arg(fmt(size.height()))
+            .arg(layerName);
+    }
+
+    if (auto* pad = dynamic_cast<PadItem*>(item)) {
+        const QSizeF size = pad->size();
+        return QString("Pad | W: %1 mm | H: %2 mm | Drill: %3 mm | Layer: %4")
+            .arg(fmt(size.width()))
+            .arg(fmt(size.height()))
+            .arg(fmt(pad->drillSize()))
+            .arg(layerName);
+    }
+
+    if (auto* via = dynamic_cast<ViaItem*>(item)) {
+        return QString("Via | Dia: %1 mm | Drill: %2 mm | %3-%4")
+            .arg(fmt(via->diameter()))
+            .arg(fmt(via->drillSize()))
+            .arg(layerNameFor(via->startLayer()))
+            .arg(layerNameFor(via->endLayer()));
+    }
+
+    return QString("%1 | Layer: %2").arg(item->itemTypeName()).arg(layerName);
 }
 
 QWidget* MainWindow::createStatusSeparator() {
@@ -1018,6 +1251,46 @@ void MainWindow::onOpenProject() {
     if (!filePath.isEmpty()) {
         openFile(filePath);
     }
+}
+
+void MainWindow::onImportImage() {
+    if (!m_scene || !m_view || !m_undoStack) return;
+
+    const QString filePath = QFileDialog::getOpenFileName(
+        this,
+        "Import Image Into PCB",
+        QString(),
+        "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp)");
+    if (filePath.isEmpty()) return;
+
+    QImageReader reader(filePath);
+    reader.setAutoTransform(true);
+    const QImage image = reader.read();
+    if (image.isNull()) {
+        statusBar()->showMessage("Failed to load image: " + reader.errorString(), 5000);
+        return;
+    }
+
+    const qreal longestPx = std::max(image.width(), image.height());
+    if (longestPx <= 0.0) {
+        statusBar()->showMessage("Invalid image size.", 5000);
+        return;
+    }
+
+    const qreal targetLongestMm = 40.0;
+    const qreal scale = targetLongestMm / longestPx;
+    const QSizeF sizeMm(image.width() * scale, image.height() * scale);
+
+    const QPointF centerScene = m_view->mapToScene(m_view->viewport()->rect().center());
+    PCBImageItem* item = new PCBImageItem(image, sizeMm);
+    item->setName(QFileInfo(filePath).baseName());
+    item->setLayer(PCBLayerManager::TopSilkscreen);
+    item->setPos(m_view->snapToGrid(centerScene));
+
+    m_undoStack->push(new PCBAddItemCommand(m_scene, item));
+    m_scene->clearSelection();
+    item->setSelected(true);
+    statusBar()->showMessage("Imported image into PCB", 4000);
 }
 
 void MainWindow::onSaveProject() {
@@ -1144,18 +1417,30 @@ void MainWindow::onZoomSelection() {
 }
 
 void MainWindow::onActiveLayerChanged(int layerId) {
-    if (m_layerLabel) {
+    if (m_layerCombo) {
+        m_layerCombo->blockSignals(true);
+        int idx = m_layerCombo->findData(layerId);
+        if (idx != -1) m_layerCombo->setCurrentIndex(idx);
+        
         QString colorStr = (layerId == 0) ? "#ef4444" : "#3b82f6";
-        m_layerLabel->setText(QString("⚡ Layer: %1").arg(layerId == 0 ? "Top Copper" : "Bottom Copper"));
-        m_layerLabel->setStyleSheet(QString("QLabel { padding: 4px 12px; color: %1; }").arg(colorStr));
+        m_layerCombo->setStyleSheet(QString(
+            "QComboBox { border: none; padding: 2px 10px; background: transparent; font-weight: 500; min-width: 140px; color: %1; }"
+            "QComboBox:hover { background: #2d2d30; }"
+            "QComboBox::drop-down { border: none; }"
+        ).arg(colorStr));
+        m_layerCombo->blockSignals(false);
     }
-    
+
     // Sync active tool with the newly selected layer
     if (m_view && m_view->currentTool()) {
         m_view->currentTool()->setToolProperty("Active Layer", layerId);
     }
-}
 
+    // Force refresh of pads to show/hide active layer highlight
+    if (m_scene) {
+        m_scene->update();
+    }
+}
 void MainWindow::updateCoordinates(QPointF pos) {
     if (m_coordLabel)
         m_coordLabel->setText(QString("📍 X: %1mm  Y: %2mm").arg(pos.x(), 0, 'f', 2).arg(pos.y(), 0, 'f', 2));
@@ -1695,13 +1980,15 @@ void MainWindow::onBoardSetup() {
 }
 
 void MainWindow::onGenerateGerbers() {
-    GerberExportDialog dlg(this);
+    GerberExportDialog dlg(GerberExportDialog::Mode::Gerber, this);
     if (dlg.exec() == QDialog::Accepted) {
         QString outDir = dlg.outputDirectory();
         GerberExportSettings settings;
         settings.outputDirectory = outDir;
 
         int successCount = 0;
+        QStringList failedLayers;
+        QStringList generatedFiles;
         for (int layerId : dlg.selectedLayers()) {
             PCBLayer* layer = PCBLayerManager::instance().layer(layerId);
             if (!layer) continue;
@@ -1711,36 +1998,203 @@ void MainWindow::onGenerateGerbers() {
             
             if (GerberExporter::exportLayer(m_scene, layerId, filePath, settings)) {
                 successCount++;
+                generatedFiles.append(filePath);
+            } else {
+                failedLayers.append(layer->name());
             }
         }
 
-        // Generate Drill file
-        QString drillPath = outDir + "/Drills.drl";
-        GerberExporter::generateDrillFile(m_scene, drillPath);
+        bool drillOk = true;
+        if (dlg.generateDrillFile()) {
+            QString drillPath = outDir + "/Drills.drl";
+            drillOk = GerberExporter::generateDrillFile(m_scene, drillPath);
+            if (drillOk) generatedFiles.append(drillPath);
+        }
 
-        QMessageBox::information(this, "Export Complete", 
-            QString("Successfully generated %1 Gerber files and 1 Drill file in:\n%2").arg(successCount).arg(outDir));
+        QString message = QString("Generated %1 Gerber file(s)").arg(successCount);
+        if (dlg.generateDrillFile()) {
+            message += drillOk ? " and drill file" : ", but drill export failed";
+        }
+        message += QString(" in:\n%1").arg(outDir);
+        if (!failedLayers.isEmpty()) {
+            message += QString("\n\nFailed layers:\n%1").arg(failedLayers.join("\n"));
+        }
+
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle((!failedLayers.isEmpty() || !drillOk) ? "Gerber Export Finished With Issues" : "Export Complete");
+        msgBox.setText(message);
+        msgBox.setIcon((!failedLayers.isEmpty() || !drillOk) ? QMessageBox::Warning : QMessageBox::Information);
+        QPushButton* openViewerBtn = nullptr;
+        if (!generatedFiles.isEmpty()) {
+            openViewerBtn = msgBox.addButton("Open Gerber Viewer", QMessageBox::ActionRole);
+        }
+        msgBox.addButton(QMessageBox::Ok);
+        msgBox.exec();
+
+        if (msgBox.clickedButton() == openViewerBtn) {
+            GerberViewerWindow* viewer = new GerberViewerWindow();
+            viewer->setAttribute(Qt::WA_DeleteOnClose);
+            viewer->show();
+            viewer->raise();
+            viewer->activateWindow();
+            viewer->openFiles(generatedFiles);
+        }
     }
 }
 
 void MainWindow::onExportPDF() {
-    QString path = QFileDialog::getSaveFileName(this, "Export PDF", "Board.pdf", "PDF Files (*.pdf)");
-    if (path.isEmpty()) return;
+    GerberExportDialog dlg(GerberExportDialog::Mode::Pdf, this);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
 
-    QPrinter printer(QPrinter::HighResolution);
-    printer.setOutputFormat(QPrinter::PdfFormat);
-    printer.setOutputFileName(path);
-    printer.setPageSize(QPageSize(QPageSize::A4));
-    printer.setPageOrientation(QPageLayout::Landscape);
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) {
+        QMessageBox::warning(this, "PDF Export", "Failed to create temporary plot directory.");
+        return;
+    }
 
-    QPainter painter(&printer);
-    painter.setRenderHint(QPainter::Antialiasing);
-    
-    QRectF source = m_scene->itemsBoundingRect().adjusted(-10, -10, 10, 10);
-    QRectF target = painter.viewport();
-    m_scene->render(&painter, target, source, Qt::KeepAspectRatio);
-    painter.end();
-    statusBar()->showMessage("Exported PDF to " + path, 3000);
+    const QString outDir = dlg.outputDirectory();
+    QDir().mkpath(outDir);
+    const bool oneToOne = dlg.pdfPlotOneToOne();
+    const bool blackAndWhite = dlg.pdfBlackAndWhite();
+
+    auto renderToPdf = [&](QPdfWriter& writer, GerberView& preview) {
+        QPainter pdfPainter(&writer);
+        pdfPainter.setRenderHint(QPainter::Antialiasing, true);
+        pdfPainter.fillRect(pdfPainter.viewport(), Qt::white);
+
+        const QRectF source = preview.plotBounds();
+        const QRectF pageRect = QRectF(writer.pageLayout().fullRectPixels(writer.resolution()));
+        const QRectF availableRect = pageRect;
+        QRectF targetRect = availableRect;
+        if (!oneToOne) {
+            const qreal fitScale = qMin(availableRect.width() / qMax(1.0, source.width()),
+                                        availableRect.height() / qMax(1.0, source.height()));
+            const QSizeF fittedSize(source.width() * fitScale, source.height() * fitScale);
+            targetRect = QRectF(
+                QPointF(availableRect.center().x() - fittedSize.width() * 0.5,
+                        availableRect.center().y() - fittedSize.height() * 0.5),
+                fittedSize);
+            preview.scene()->render(&pdfPainter, targetRect, source, Qt::IgnoreAspectRatio);
+        } else {
+            const qreal pxPerMmX = writer.resolution() / 25.4;
+            const qreal pxPerMmY = writer.resolution() / 25.4;
+            const QSizeF physicalSize(source.width() * pxPerMmX, source.height() * pxPerMmY);
+            targetRect = QRectF(
+                QPointF(pageRect.center().x() - physicalSize.width() * 0.5,
+                        pageRect.center().y() - physicalSize.height() * 0.5),
+                physicalSize);
+            preview.scene()->render(&pdfPainter, targetRect, source, Qt::IgnoreAspectRatio);
+        }
+        pdfPainter.end();
+    };
+
+    int successCount = 0;
+    QStringList failedLayers;
+    std::vector<std::unique_ptr<GerberLayer>> combinedOwnedLayers;
+    QList<GerberLayer*> combinedLayers;
+
+    for (int layerId : dlg.selectedLayers()) {
+        PCBLayer* layer = PCBLayerManager::instance().layer(layerId);
+        if (!layer) {
+            continue;
+        }
+
+        const QString safeName = layer->name().replace(" ", "_");
+        const QString gerberPath = tempDir.path() + "/" + safeName + ".gbr";
+        if (!GerberExporter::exportLayer(m_scene, layerId, gerberPath, GerberExportSettings())) {
+            failedLayers.append(layer->name());
+            continue;
+        }
+
+        std::unique_ptr<GerberLayer> parsedLayer(GerberParser::parse(gerberPath));
+        if (!parsedLayer) {
+            failedLayers.append(layer->name());
+            continue;
+        }
+
+        const QString pdfPath = outDir + "/" + safeName + ".pdf";
+        QPdfWriter printer(pdfPath);
+        printer.setResolution(600);
+        printer.setPageSize(QPageSize(QPageSize::A4));
+        printer.setPageOrientation(QPageLayout::Landscape);
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout::Millimeter);
+
+        GerberView preview;
+        preview.resize(1600, 1100);
+        preview.setBackgroundColor(Qt::white);
+        preview.setMonochrome(blackAndWhite);
+        preview.setLayers({parsedLayer.get()});
+        preview.zoomFit();
+
+        renderToPdf(printer, preview);
+        ++successCount;
+
+        if (dlg.exportCombinedPdf()) {
+            std::unique_ptr<GerberLayer> combinedLayer(GerberParser::parse(gerberPath));
+            if (combinedLayer) {
+                combinedLayers.append(combinedLayer.get());
+                combinedOwnedLayers.push_back(std::move(combinedLayer));
+            }
+        }
+    }
+
+    if (dlg.exportCombinedPdf() && !combinedLayers.isEmpty()) {
+        const QString pdfPath = outDir + "/Board_Combined.pdf";
+        QPdfWriter printer(pdfPath);
+        printer.setResolution(600);
+        printer.setPageSize(QPageSize(QPageSize::A4));
+        printer.setPageOrientation(QPageLayout::Landscape);
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout::Millimeter);
+
+        GerberView preview;
+        preview.resize(1600, 1100);
+        preview.setBackgroundColor(Qt::white);
+        preview.setMonochrome(blackAndWhite);
+        preview.setLayers(combinedLayers);
+        preview.zoomFit();
+
+        renderToPdf(printer, preview);
+        ++successCount;
+    }
+
+    QString message = QString("Exported %1 PDF plot(s) to:\n%2").arg(successCount).arg(outDir);
+    if (!failedLayers.isEmpty()) {
+        message += QString("\n\nFailed layers:\n%1").arg(failedLayers.join("\n"));
+    }
+
+    QMessageBox::information(
+        this,
+        failedLayers.isEmpty() ? "PDF Export Complete" : "PDF Export Finished With Issues",
+        message);
+    statusBar()->showMessage(QString("Exported %1 PDF plot(s)").arg(successCount), 3000);
+
+    // Open PDF viewer if requested and at least one PDF was exported
+    if (dlg.pdfOpenAfterExport() && successCount > 0) {
+        // Open the combined PDF if it exists, otherwise the first exported PDF
+        QString pdfToOpen;
+        if (dlg.exportCombinedPdf() && !combinedLayers.isEmpty()) {
+            pdfToOpen = outDir + "/Board_Combined.pdf";
+        } else if (!dlg.selectedLayers().isEmpty()) {
+            // Open the first successfully exported layer PDF
+            for (int layerId : dlg.selectedLayers()) {
+                PCBLayer* layer = PCBLayerManager::instance().layer(layerId);
+                if (!layer) continue;
+                QString safeName = layer->name().replace(" ", "_");
+                QString path = outDir + "/" + safeName + ".pdf";
+                if (QFileInfo::exists(path)) {
+                    pdfToOpen = path;
+                    break;
+                }
+            }
+        }
+
+        if (!pdfToOpen.isEmpty() && QFileInfo::exists(pdfToOpen)) {
+            PdfViewerDialog viewer(pdfToOpen, this);
+            viewer.exec();
+        }
+    }
 }
 
 void MainWindow::onExportSVG() {
@@ -2216,12 +2670,29 @@ void MainWindow::onPropertyChanged(const QString& name, const QVariant& value) {
         PCBItem* item = dynamic_cast<PCBItem*>(gItem);
         if (!item) continue;
 
+        PCBItem* commandTarget = item;
+
         QVariant oldValue;
         bool found = false;
 
         if (name == "ID") { /* Read-only */ }
         else if (name == "Name") { oldValue = item->name(); found = true; }
         else if (name == "Net") { oldValue = item->netName(); found = true; }
+        else if (name == "Component Net") {
+            if (ComponentItem* comp = dynamic_cast<ComponentItem*>(item)) {
+                QList<PadItem*> pads;
+                for (QGraphicsItem* child : comp->childItems()) {
+                    if (PadItem* pad = dynamic_cast<PadItem*>(child)) {
+                        pads.append(pad);
+                    }
+                }
+                if (pads.size() == 1) {
+                    commandTarget = pads.first();
+                    oldValue = pads.first()->netName();
+                    found = true;
+                }
+            }
+        }
         else if (name == "Layer") { oldValue = item->layer(); found = true; }
         else if (name == "Height (mm)") { oldValue = item->height(); found = true; }
         else if (name == "3D Model Path") { oldValue = item->modelPath(); found = true; }
@@ -2252,6 +2723,18 @@ void MainWindow::onPropertyChanged(const QString& name, const QVariant& value) {
         else if (name == "Rotation (deg)") {
             oldValue = item->rotation();
             found = true;
+        }
+        else if (name == "Image Width (mm)" || name == "Image Height (mm)") {
+            if (PCBImageItem* image = dynamic_cast<PCBImageItem*>(item)) {
+                oldValue = (name == "Image Width (mm)") ? image->sizeMm().width() : image->sizeMm().height();
+                found = true;
+            }
+        }
+        else if (name == "Shape Stroke Width (mm)") {
+            if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) {
+                oldValue = shape->strokeWidth();
+                found = true;
+            }
         }
         else if (selected.size() == 1) {
             if (name == "Pad Shape") {
@@ -2341,6 +2824,29 @@ void MainWindow::onPropertyChanged(const QString& name, const QVariant& value) {
                     found = true;
                 }
             }
+            else if (name == "Shape Width (mm)" || name == "Shape Height (mm)") {
+                if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) {
+                    oldValue = (name == "Shape Width (mm)") ? shape->sizeMm().width() : shape->sizeMm().height();
+                    found = true;
+                }
+                else if (CopperPourItem* pour = dynamic_cast<CopperPourItem*>(item)) {
+                    const QRectF bounds = pour->polygon().boundingRect();
+                    oldValue = (name == "Shape Width (mm)") ? bounds.width() : bounds.height();
+                    found = true;
+                }
+            }
+            else if (name == "Arc Start Angle (deg)") {
+                if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) {
+                    oldValue = shape->startAngleDeg();
+                    found = true;
+                }
+            }
+            else if (name == "Arc Span Angle (deg)") {
+                if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) {
+                    oldValue = shape->spanAngleDeg();
+                    found = true;
+                }
+            }
             else if (name == "Priority") {
                 if (CopperPourItem* pour = dynamic_cast<CopperPourItem*>(item)) {
                     oldValue = pour->priority();
@@ -2411,11 +2917,21 @@ void MainWindow::onPropertyChanged(const QString& name, const QVariant& value) {
 
         if (found && oldValue != value) {
             if (m_undoStack) {
-                m_undoStack->push(new PCBPropertyCommand(m_scene, item, name, oldValue, value));
+                const QString effectiveName = (name == "Component Net") ? QString("Net") : name;
+                m_undoStack->push(new PCBPropertyCommand(m_scene, commandTarget, effectiveName, oldValue, value));
             } else {
                 // Manual fallback
                 if (name == "Name") item->setName(value.toString());
                 else if (name == "Net") item->setNetName(value.toString());
+                else if (name == "Component Net") {
+                    if (ComponentItem* comp = dynamic_cast<ComponentItem*>(item)) {
+                        for (QGraphicsItem* child : comp->childItems()) {
+                            if (PadItem* pad = dynamic_cast<PadItem*>(child)) {
+                                pad->setNetName(value.toString());
+                            }
+                        }
+                    }
+                }
                 else if (name == "Layer") item->setLayer(value.toInt());
                 else if (name == "Height (mm)") item->setHeight(value.toDouble());
                 else if (name == "3D Model Path") item->setModelPath(value.toString());
@@ -2427,6 +2943,47 @@ void MainWindow::onPropertyChanged(const QString& name, const QVariant& value) {
                 else if (name == "Position X (mm)") item->setX(value.toDouble());
                 else if (name == "Position Y (mm)") item->setY(value.toDouble());
                 else if (name == "Rotation (deg)") item->setRotation(value.toDouble());
+                else if (name == "Image Width (mm)" || name == "Image Height (mm)") {
+                    if (PCBImageItem* image = dynamic_cast<PCBImageItem*>(item)) {
+                        QSizeF size = image->sizeMm();
+                        if (name == "Image Width (mm)") size.setWidth(value.toDouble());
+                        else size.setHeight(value.toDouble());
+                        image->setSizeMm(size);
+                    }
+                }
+                else if (name == "Shape Stroke Width (mm)") {
+                    if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) shape->setStrokeWidth(value.toDouble());
+                }
+                else if (name == "Shape Width (mm)" || name == "Shape Height (mm)") {
+                    if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) {
+                        QSizeF size = shape->sizeMm();
+                        if (name == "Shape Width (mm)") size.setWidth(value.toDouble());
+                        else size.setHeight(value.toDouble());
+                        shape->setSizeMm(size);
+                    }
+                    else if (CopperPourItem* pour = dynamic_cast<CopperPourItem*>(item)) {
+                        QPolygonF poly = pour->polygon();
+                        const QRectF bounds = poly.boundingRect();
+                        const QPointF center = bounds.center();
+                        const qreal target = std::max(0.01, value.toDouble());
+                        const qreal current = (name == "Shape Width (mm)") ? bounds.width() : bounds.height();
+                        if (current > 1e-9) {
+                            const qreal scaleX = (name == "Shape Width (mm)") ? (target / current) : 1.0;
+                            const qreal scaleY = (name == "Shape Height (mm)") ? (target / current) : 1.0;
+                            for (QPointF& p : poly) {
+                                p.setX(center.x() + (p.x() - center.x()) * scaleX);
+                                p.setY(center.y() + (p.y() - center.y()) * scaleY);
+                            }
+                            pour->setPolygon(poly);
+                        }
+                    }
+                }
+                else if (name == "Arc Start Angle (deg)") {
+                    if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) shape->setStartAngleDeg(value.toDouble());
+                }
+                else if (name == "Arc Span Angle (deg)") {
+                    if (PCBShapeItem* shape = dynamic_cast<PCBShapeItem*>(item)) shape->setSpanAngleDeg(value.toDouble());
+                }
                 else if (name == "Pad Shape") {
                     if (PadItem* pad = dynamic_cast<PadItem*>(item)) pad->setPadShape(value.toString());
                 }
@@ -2490,10 +3047,13 @@ void MainWindow::onPropertyChanged(const QString& name, const QVariant& value) {
             if (m_view && m_view->currentTool()) {
                 if (name == "Width (mm)") {
                     m_view->currentTool()->setToolProperty("Trace Width (mm)", value);
-                    updateOptionsBar("Trace");
+                    updateOptionsBar(m_view->currentTool()->name());
+                } else if (name == "Shape Stroke Width (mm)") {
+                    m_view->currentTool()->setToolProperty("Stroke Width (mm)", value);
+                    updateOptionsBar(m_view->currentTool()->name());
                 } else if (name == "Layer") {
                     m_view->currentTool()->setToolProperty("Active Layer", value);
-                    updateOptionsBar("Trace");
+                    updateOptionsBar(m_view->currentTool()->name());
                 }
             }
         }
@@ -2717,15 +3277,10 @@ void MainWindow::onDeleteSelection() {
 
     QSet<PCBItem*> itemsToDelete;
     for (QGraphicsItem* it : selected) {
-        // Find the top-most selectable PCBItem
         PCBItem* pcbItem = nullptr;
         QGraphicsItem* current = it;
         while (current) {
-            if (PCBItem* candidate = dynamic_cast<PCBItem*>(current)) {
-                if (candidate->flags() & QGraphicsItem::ItemIsSelectable) {
-                    pcbItem = candidate;
-                }
-            }
+            if (PCBItem* candidate = dynamic_cast<PCBItem*>(current)) pcbItem = candidate;
             current = current->parentItem();
         }
 
@@ -2931,6 +3486,11 @@ QIcon MainWindow::createPCBIcon(const QString& name) {
 void MainWindow::updateOptionsBar(const QString& toolName) {
     if (!m_optionsToolbar) return;
     
+    // Sync toolbar buttons visually
+    if (m_toolActions.contains(toolName)) {
+        m_toolActions[toolName]->setChecked(true);
+    }
+    
     m_optionsToolbar->clear();
     
     QLabel* title = new QLabel("<b>" + toolName.toUpper() + " SETTINGS:</b>  ");
@@ -3054,7 +3614,7 @@ void MainWindow::updateOptionsBar(const QString& toolName) {
             tool->setToolProperty("Amplitude (mm)", val);
         });
     }
-    else if (toolName == "Rectangle" || toolName == "Polygon Pour") {
+    else if (toolName == "Rectangle" || toolName == "Filled Zone" || toolName == "Polygon Pour") {
         PCBTool* tool = m_view->currentTool();
         int currentLayer = tool->toolProperties().value("Active Layer", 0).toInt();
 
@@ -3081,7 +3641,7 @@ void MainWindow::updateOptionsBar(const QString& toolName) {
             if (m_layerPanel) m_layerPanel->selectLayer(layerId);
         });
 
-        if (toolName == "Polygon Pour") {
+        if (toolName == "Filled Zone" || toolName == "Polygon Pour") {
             m_optionsToolbar->addSeparator();
             m_optionsToolbar->addWidget(new QLabel("Net: "));
             QLineEdit* netEdit = new QLineEdit(tool->toolProperties().value("Net Name", "GND").toString());
@@ -3100,6 +3660,61 @@ void MainWindow::updateOptionsBar(const QString& toolName) {
             m_optionsToolbar->addWidget(clearSpin);
             connect(clearSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [tool](double val){
                 tool->setToolProperty("Clearance (mm)", val);
+            });
+        }
+    }
+    else if (toolName == "Line" || toolName == "Circle" || toolName == "Arc") {
+        PCBTool* tool = m_view->currentTool();
+        int currentLayer = tool->toolProperties().value("Active Layer", 0).toInt();
+        double stroke = tool->toolProperties().value("Stroke Width (mm)", 0.25).toDouble();
+
+        m_optionsToolbar->addWidget(new QLabel("Layer: "));
+        QComboBox* layerCombo = new QComboBox();
+        for (const auto& layer : PCBLayerManager::instance().layers()) {
+            layerCombo->addItem(layer.name(), layer.id());
+        }
+        int initialIdx = layerCombo->findData(currentLayer);
+        if (initialIdx != -1) layerCombo->setCurrentIndex(initialIdx);
+        m_optionsToolbar->addWidget(layerCombo);
+        connect(layerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, tool, layerCombo](int index){
+            int layerId = layerCombo->itemData(index).toInt();
+            tool->setToolProperty("Active Layer", layerId);
+            onActiveLayerChanged(layerId);
+            if (m_layerPanel) m_layerPanel->selectLayer(layerId);
+            if (!m_scene->selectedItems().isEmpty()) onPropertyChanged("Layer", layerId);
+        });
+
+        m_optionsToolbar->addSeparator();
+        m_optionsToolbar->addWidget(new QLabel("Stroke: "));
+        QDoubleSpinBox* strokeSpin = new QDoubleSpinBox();
+        strokeSpin->setRange(0.05, 10.0);
+        strokeSpin->setSingleStep(0.05);
+        strokeSpin->setValue(stroke);
+        strokeSpin->setSuffix(" mm");
+        m_optionsToolbar->addWidget(strokeSpin);
+        connect(strokeSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, tool](double val){
+            tool->setToolProperty("Stroke Width (mm)", val);
+            if (!m_scene->selectedItems().isEmpty()) onPropertyChanged("Shape Stroke Width (mm)", val);
+        });
+
+        if (toolName == "Arc") {
+            m_optionsToolbar->addSeparator();
+            m_optionsToolbar->addWidget(new QLabel("Start: "));
+            QDoubleSpinBox* startSpin = new QDoubleSpinBox();
+            startSpin->setRange(-360.0, 360.0);
+            startSpin->setValue(tool->toolProperties().value("Arc Start Angle (deg)", 0.0).toDouble());
+            m_optionsToolbar->addWidget(startSpin);
+            connect(startSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [tool](double val){
+                tool->setToolProperty("Arc Start Angle (deg)", val);
+            });
+
+            m_optionsToolbar->addWidget(new QLabel("Span: "));
+            QDoubleSpinBox* spanSpin = new QDoubleSpinBox();
+            spanSpin->setRange(-360.0, 360.0);
+            spanSpin->setValue(tool->toolProperties().value("Arc Span Angle (deg)", 180.0).toDouble());
+            m_optionsToolbar->addWidget(spanSpin);
+            connect(spanSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [tool](double val){
+                tool->setToolProperty("Arc Span Angle (deg)", val);
             });
         }
     }
@@ -3311,6 +3926,58 @@ void MainWindow::updatePropertyBar() {
             });
             m_propertyBar->addWidget(cSpin);
 
+        } else if (pItem->itemType() == PCBItem::ShapeType) {
+            PCBShapeItem* shape = static_cast<PCBShapeItem*>(pItem);
+            m_propertyBar->addWidget(new QLabel(QString(" %1: ").arg(shape->shapeKindName().toUpper())));
+
+            m_propertyBar->addWidget(new QLabel(" W:"));
+            QDoubleSpinBox* wSpin = new QDoubleSpinBox();
+            wSpin->setRange(0.2, 1000.0);
+            wSpin->setValue(shape->sizeMm().width());
+            connect(wSpin, &QDoubleSpinBox::valueChanged, this, [this](double val) {
+                onPropertyChanged("Shape Width (mm)", val);
+            });
+            m_propertyBar->addWidget(wSpin);
+
+            m_propertyBar->addWidget(new QLabel(" H:"));
+            QDoubleSpinBox* hSpin = new QDoubleSpinBox();
+            hSpin->setRange(0.2, 1000.0);
+            hSpin->setValue(shape->sizeMm().height());
+            connect(hSpin, &QDoubleSpinBox::valueChanged, this, [this](double val) {
+                onPropertyChanged("Shape Height (mm)", val);
+            });
+            m_propertyBar->addWidget(hSpin);
+
+            m_propertyBar->addWidget(new QLabel(" Stroke:"));
+            QDoubleSpinBox* sSpin = new QDoubleSpinBox();
+            sSpin->setRange(0.05, 10.0);
+            sSpin->setSingleStep(0.05);
+            sSpin->setValue(shape->strokeWidth());
+            connect(sSpin, &QDoubleSpinBox::valueChanged, this, [this](double val) {
+                onPropertyChanged("Shape Stroke Width (mm)", val);
+            });
+            m_propertyBar->addWidget(sSpin);
+
+            if (shape->shapeKind() == PCBShapeItem::ShapeKind::Arc) {
+                m_propertyBar->addWidget(new QLabel(" Start:"));
+                QDoubleSpinBox* startSpin = new QDoubleSpinBox();
+                startSpin->setRange(-360.0, 360.0);
+                startSpin->setValue(shape->startAngleDeg());
+                connect(startSpin, &QDoubleSpinBox::valueChanged, this, [this](double val) {
+                    onPropertyChanged("Arc Start Angle (deg)", val);
+                });
+                m_propertyBar->addWidget(startSpin);
+
+                m_propertyBar->addWidget(new QLabel(" Span:"));
+                QDoubleSpinBox* spanSpin = new QDoubleSpinBox();
+                spanSpin->setRange(-360.0, 360.0);
+                spanSpin->setValue(shape->spanAngleDeg());
+                connect(spanSpin, &QDoubleSpinBox::valueChanged, this, [this](double val) {
+                    onPropertyChanged("Arc Span Angle (deg)", val);
+                });
+                m_propertyBar->addWidget(spanSpin);
+            }
+
         } else if (pItem->itemType() == PCBItem::PadType) {
             PadItem* pad = static_cast<PadItem*>(pItem);
             m_propertyBar->addWidget(new QLabel(QString(" PAD (%1)").arg(pad->padShape())));
@@ -3431,4 +4098,40 @@ void MainWindow::onGenerateDesignReport() {
 
     DesignReportDialog* dlg = new DesignReportDialog(m_scene, this);
     dlg->exec();
+}
+
+void MainWindow::onLaunchOpenCode() {
+    QString appPath;
+    QStringList candidates = {
+        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/linux-unpacked/@opencode-aidesktop-electron",
+        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/opencode-electron-linux-x86_64.AppImage",
+        "/opt/opencode/opencode",
+        "/usr/local/bin/opencode",
+    };
+
+    for (const auto& candidate : candidates) {
+        if (QFile::exists(candidate)) {
+            appPath = candidate;
+            break;
+        }
+    }
+
+    if (appPath.isEmpty()) {
+        QProcess proc;
+        proc.start("which", {"opencode"});
+        proc.waitForFinished(1000);
+        if (proc.exitCode() == 0) {
+            appPath = QString::fromLocal8Bit(proc.readAllStandardOutput()).trimmed();
+        }
+    }
+
+    if (appPath.isEmpty()) {
+        QMessageBox::warning(this, "OpenCode Not Found",
+            "Could not find the OpenCode Electron app.\n\n"
+            "Build it: cd packages/desktop-electron && bun run package:linux");
+        return;
+    }
+
+    QProcess::startDetached(appPath);
+    statusBar()->showMessage("Launched OpenCode Desktop", 3000);
 }

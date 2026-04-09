@@ -5,6 +5,8 @@
 #include "../items/pcb_item.h"
 #include "../items/trace_item.h"
 #include "../items/via_item.h"
+#include "../items/copper_pour_item.h"
+#include "../items/image_item.h"
 #include "../layers/pcb_layer.h"
 #include "../../core/config_manager.h"
 #include "../../footprints/footprint_library.h"
@@ -21,6 +23,7 @@
 #include <QGraphicsEllipseItem>
 #include <QGraphicsPathItem>
 #include <QGraphicsPolygonItem>
+#include <QKeyEvent>
 #include <QtMath>
 #include <algorithm>
 
@@ -151,10 +154,269 @@ void appendThickSegment(QVector<PCB3DView::Vertex>& out,
         appendQuad(out, p1 - o, p1 + o, p2 + o, p2 - o, normal);
     }
 }
+
+void appendTraceCapFace(QVector<PCB3DView::Vertex>& out,
+                        const QVector3D& center,
+                        const QVector3D& dir,
+                        const QVector3D& side,
+                        float radius,
+                        float startAngle,
+                        float endAngle,
+                        const QVector3D& normal,
+                        int segments = 12) {
+    QVector3D prev = center + (std::cos(startAngle) * dir + std::sin(startAngle) * side) * radius;
+    for (int i = 1; i <= segments; ++i) {
+        const float t = startAngle + (endAngle - startAngle) * (float(i) / float(segments));
+        const QVector3D cur = center + (std::cos(t) * dir + std::sin(t) * side) * radius;
+        if (normal.z() > 0.0f) appendTri(out, center, prev, cur);
+        else appendTri(out, center, cur, prev);
+        prev = cur;
+    }
+}
+
+void appendTraceCapWall(QVector<PCB3DView::Vertex>& out,
+                        const QVector3D& centerTop,
+                        const QVector3D& centerBot,
+                        const QVector3D& dir,
+                        const QVector3D& side,
+                        float radius,
+                        float startAngle,
+                        float endAngle,
+                        int segments = 12) {
+    QVector3D prevTop = centerTop + (std::cos(startAngle) * dir + std::sin(startAngle) * side) * radius;
+    QVector3D prevBot = centerBot + (std::cos(startAngle) * dir + std::sin(startAngle) * side) * radius;
+    for (int i = 1; i <= segments; ++i) {
+        const float t = startAngle + (endAngle - startAngle) * (float(i) / float(segments));
+        const QVector3D curTop = centerTop + (std::cos(t) * dir + std::sin(t) * side) * radius;
+        const QVector3D curBot = centerBot + (std::cos(t) * dir + std::sin(t) * side) * radius;
+        const QVector3D mid = ((prevTop + curTop) * 0.5f) - centerTop;
+        QVector3D normal(mid.x(), mid.y(), 0.0f);
+        if (normal.lengthSquared() < 1e-9f) normal = QVector3D(side.x(), side.y(), 0.0f);
+        normal.normalize();
+        appendQuad(out, prevTop, curTop, curBot, prevBot, normal);
+        prevTop = curTop;
+        prevBot = curBot;
+    }
+}
+
+void appendCopperTrace(QVector<PCB3DView::Vertex>& out,
+                       const QPointF& a,
+                       const QPointF& b,
+                       float width,
+                       float zFace,
+                       float zBase,
+                       bool topLayer) {
+    QVector2D d(float(b.x() - a.x()), float(-(b.y() - a.y())));
+    if (d.lengthSquared() < 1e-9f) return;
+    d.normalize();
+    const QVector2D n(-d.y(), d.x());
+    const float hw = std::max(0.01f, width * 0.5f);
+
+    const QVector3D dir(d.x(), d.y(), 0.0f);
+    const QVector3D side(n.x(), n.y(), 0.0f);
+    const QVector3D normal = topLayer ? QVector3D(0, 0, 1) : QVector3D(0, 0, -1);
+
+    const QVector3D aTop(float(a.x()), float(-a.y()), zFace);
+    const QVector3D bTop(float(b.x()), float(-b.y()), zFace);
+    const QVector3D aBot(float(a.x()), float(-a.y()), zBase);
+    const QVector3D bBot(float(b.x()), float(-b.y()), zBase);
+
+    const QVector3D left = side * hw;
+    const QVector3D right = side * -hw;
+
+    if (topLayer) {
+        appendQuad(out, aTop + left, bTop + left, bTop + right, aTop + right, normal);
+    } else {
+        appendQuad(out, aTop + left, aTop + right, bTop + right, bTop + left, normal);
+    }
+
+    appendTraceCapFace(out, aTop, -dir, side, hw, -float(M_PI_2), float(M_PI_2), normal);
+    appendTraceCapFace(out, bTop, dir, side, hw, -float(M_PI_2), float(M_PI_2), normal);
+
+    appendQuad(out, aTop + left, bTop + left, bBot + left, aBot + left, side);
+    appendQuad(out, bTop + right, aTop + right, aBot + right, bBot + right, -side);
+
+    appendTraceCapWall(out, aTop, aBot, -dir, side, hw, -float(M_PI_2), float(M_PI_2));
+    appendTraceCapWall(out, bTop, bBot, dir, side, hw, -float(M_PI_2), float(M_PI_2));
+}
+
+void appendMappedQuad(QVector<PCB3DView::Vertex>& out,
+                      const QPointF& tl,
+                      const QPointF& tr,
+                      const QPointF& br,
+                      const QPointF& bl,
+                      float z,
+                      const QVector3D& normal) {
+    const QVector3D a(float(tl.x()), float(-tl.y()), z);
+    const QVector3D b(float(tr.x()), float(-tr.y()), z);
+    const QVector3D c(float(br.x()), float(-br.y()), z);
+    const QVector3D d(float(bl.x()), float(-bl.y()), z);
+    if (normal.z() > 0.0f) appendQuad(out, a, d, c, b, normal);
+    else appendQuad(out, a, b, c, d, normal);
+}
+
+void appendPolygonFace(QVector<PCB3DView::Vertex>& out,
+                       const QPolygonF& poly,
+                       float z,
+                       const QVector3D& normal) {
+    if (poly.size() < 3) return;
+    const QPointF origin = poly.first();
+    for (int i = 1; i + 1 < poly.size(); ++i) {
+        const QPointF p1 = poly[i];
+        const QPointF p2 = poly[i + 1];
+        const QVector3D a(float(origin.x()), float(-origin.y()), z);
+        const QVector3D b(float(p1.x()), float(-p1.y()), z);
+        const QVector3D c(float(p2.x()), float(-p2.y()), z);
+        if (normal.z() > 0.0f) appendTri(out, a, c, b);
+        else appendTri(out, a, b, c);
+    }
+}
+
+void appendPolygonWalls(QVector<PCB3DView::Vertex>& out,
+                        const QPolygonF& poly,
+                        float zTop,
+                        float zBot) {
+    if (poly.size() < 2) return;
+    const int last = poly.size() - 1;
+    for (int i = 0; i < last; ++i) {
+        const QPointF p0 = poly[i];
+        const QPointF p1 = poly[i + 1];
+        if (QLineF(p0, p1).length() < 1e-6) continue;
+
+        const QVector3D a(float(p0.x()), float(-p0.y()), zBot);
+        const QVector3D b(float(p1.x()), float(-p1.y()), zBot);
+        const QVector3D c(float(p1.x()), float(-p1.y()), zTop);
+        const QVector3D d(float(p0.x()), float(-p0.y()), zTop);
+        QVector3D normal = QVector3D::crossProduct(c - b, a - b).normalized();
+        if (normal.lengthSquared() < 1e-9f) continue;
+        appendQuad(out, a, b, c, d, normal);
+    }
+}
+
+qreal polygonSignedArea(const QPolygonF& poly) {
+    if (poly.size() < 3) return 0.0;
+    qreal area = 0.0;
+    const int last = poly.size() - 1;
+    for (int i = 0; i < last; ++i) {
+        const QPointF& a = poly[i];
+        const QPointF& b = poly[i + 1];
+        area += (a.x() * b.y()) - (b.x() * a.y());
+    }
+    return area * 0.5;
+}
+
+QPolygonF ensureClosedPolygon(QPolygonF poly) {
+    if (poly.size() >= 3 && poly.first() != poly.last()) {
+        poly << poly.first();
+    }
+    return poly;
+}
+
+QPainterPath polygonToPath(QPolygonF poly) {
+    QPainterPath path;
+    path.setFillRule(Qt::WindingFill);
+    if (poly.size() >= 3) {
+        if (poly.first() == poly.last()) {
+            poly.removeLast();
+        }
+        path.addPolygon(poly);
+        path.closeSubpath();
+    }
+    return path;
+}
+
+void appendPathFaceTiled(QVector<PCB3DView::Vertex>& out,
+                         const QPainterPath& path,
+                         float z,
+                         const QVector3D& normal,
+                         qreal step = 1.0) {
+    if (path.isEmpty()) return;
+    const QRectF bounds = path.boundingRect();
+    const qreal cell = std::max<qreal>(0.25, step);
+
+    for (qreal y = bounds.top(); y < bounds.bottom(); y += cell) {
+        const qreal y1 = std::min(y + cell, bounds.bottom());
+        for (qreal x = bounds.left(); x < bounds.right(); x += cell) {
+            const qreal x1 = std::min(x + cell, bounds.right());
+            const QRectF tile(x, y, x1 - x, y1 - y);
+            if (tile.width() <= 1e-6 || tile.height() <= 1e-6) continue;
+
+            const QPointF center = tile.center();
+            if (!path.contains(center)) continue;
+
+            const QVector3D a(float(tile.left()),  float(-tile.top()),    z);
+            const QVector3D b(float(tile.right()), float(-tile.top()),    z);
+            const QVector3D c(float(tile.right()), float(-tile.bottom()), z);
+            const QVector3D d(float(tile.left()),  float(-tile.bottom()), z);
+
+            if (normal.z() > 0.0f) appendQuad(out, a, d, c, b, normal);
+            else appendQuad(out, a, b, c, d, normal);
+        }
+    }
+}
+
+bool pointsNear2D(const QPointF& a, const QPointF& b, qreal eps = 1e-3) {
+    return QLineF(a, b).length() <= eps;
+}
+
+QList<QPolygonF> buildClosedPolygonsFromSegments(const QList<QPair<QPointF, QPointF>>& segments) {
+    QList<QPolygonF> polygons;
+    if (segments.isEmpty()) return polygons;
+
+    QVector<bool> used(segments.size(), false);
+    for (int i = 0; i < segments.size(); ++i) {
+        if (used[i]) continue;
+
+        QPolygonF poly;
+        QPointF start = segments[i].first;
+        QPointF current = segments[i].second;
+        poly << start << current;
+        used[i] = true;
+
+        bool advanced = true;
+        while (advanced) {
+            advanced = false;
+            for (int j = 0; j < segments.size(); ++j) {
+                if (used[j]) continue;
+                const QPointF& a = segments[j].first;
+                const QPointF& b = segments[j].second;
+                if (pointsNear2D(a, current)) {
+                    current = b;
+                    poly << current;
+                    used[j] = true;
+                    advanced = true;
+                    break;
+                }
+                if (pointsNear2D(b, current)) {
+                    current = a;
+                    poly << current;
+                    used[j] = true;
+                    advanced = true;
+                    break;
+                }
+            }
+
+            if (poly.size() >= 4 && pointsNear2D(current, start)) {
+                if (!pointsNear2D(poly.last(), poly.first())) {
+                    poly << poly.first();
+                }
+                break;
+            }
+        }
+
+        if (poly.size() >= 4 && pointsNear2D(poly.first(), poly.last())) {
+            polygons.append(ensureClosedPolygon(poly));
+        }
+    }
+
+    return polygons;
+}
 }
 
 PCB3DView::PCB3DView(QWidget* parent)
     : QOpenGLWidget(parent) {
+    setFocusPolicy(Qt::StrongFocus);
+
     m_rotation = QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), -45.0f) *
                  QQuaternion::fromAxisAndAngle(QVector3D(0, 0, 1), 45.0f);
 
@@ -258,6 +520,16 @@ void PCB3DView::setComponentAlpha(float alpha) {
     update();
 }
 
+void PCB3DView::setZoomDistance(float distance) {
+    const float clamped = std::clamp(distance, 20.0f, 2000.0f);
+    const float newZoom = -clamped;
+    if (std::abs(m_zoom - newZoom) < 1e-3f) return;
+    m_cameraAnimTimer.stop();
+    m_zoom = newZoom;
+    Q_EMIT zoomDistanceChanged(clamped);
+    update();
+}
+
 void PCB3DView::setMeasureMode(bool enabled) {
     m_measureMode = enabled;
     if (!enabled) clearMeasurement();
@@ -316,6 +588,7 @@ void PCB3DView::resetCamera() {
     m_zoom = -300.0f;
     m_cameraAnimTimer.stop();
     m_cameraAnimT = 1.0f;
+    Q_EMIT zoomDistanceChanged(-m_zoom);
     update();
 }
 
@@ -364,7 +637,7 @@ void PCB3DView::setViewPreset(const QString& preset) {
 
 void PCB3DView::initializeGL() {
     initializeOpenGLFunctions();
-    glClearColor(0.07f, 0.09f, 0.12f, 1.0f);
+    glClearColor(0.11f, 0.14f, 0.18f, 1.0f);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glEnable(GL_CULL_FACE);
@@ -475,7 +748,7 @@ void PCB3DView::paintGL() {
     m_shader.setUniformValue("uView", view);
     m_shader.setUniformValue("uProj", m_projection);
     m_shader.setUniformValue("uShadowVP", shadowVP);
-    m_shader.setUniformValue("uLightPos", QVector3D(350.0f, -280.0f, 450.0f));
+    m_shader.setUniformValue("uLightPos", QVector3D(260.0f, -180.0f, 520.0f));
     m_shader.setUniformValue("uCamPos", QVector3D(0.0f, 0.0f, -m_zoom));
     m_shader.setUniformValue("uRaytraceMode", m_raytracingEnabled ? 1 : 0);
 
@@ -600,7 +873,8 @@ void PCB3DView::initShaders() {
             float shadow = calculateShadow();
             float lit = 1.0 - shadow;
 
-            vec3 ambient = 0.14 * uAlbedo;
+            float hemi = clamp(N.z * 0.5 + 0.5, 0.0, 1.0);
+            vec3 ambient = (0.20 + 0.10 * hemi) * uAlbedo;
             vec3 diffuse = ndl * uAlbedo * (1.0 - 0.2 * uMetallic) * lit;
             vec3 color = ambient + diffuse + specular * lit + uEmissive;
 
@@ -844,6 +1118,8 @@ void PCB3DView::rebuildSceneCache() {
 
     bool hasEdgeCuts = false;
     float ecMinX = 0.0f, ecMinY = 0.0f, ecMaxX = 0.0f, ecMaxY = 0.0f;
+    QList<QPolygonF> edgeCutPolygons;
+    QList<QPair<QPointF, QPointF>> edgeCutSegments;
     auto includeEdgePoint = [&](float x, float y) {
         if (!hasEdgeCuts) {
             ecMinX = ecMaxX = x;
@@ -865,8 +1141,22 @@ void PCB3DView::rebuildSceneCache() {
 
         if (pcb->layer() == PCBLayerManager::EdgeCuts) {
             if (TraceItem* trace = dynamic_cast<TraceItem*>(pcb)) {
-                includeEdgePoint(float(trace->startPoint().x()), float(-trace->startPoint().y()));
-                includeEdgePoint(float(trace->endPoint().x()), float(-trace->endPoint().y()));
+                const QPointF startScene = trace->mapToScene(trace->startPoint());
+                const QPointF endScene = trace->mapToScene(trace->endPoint());
+                includeEdgePoint(float(startScene.x()), float(-startScene.y()));
+                includeEdgePoint(float(endScene.x()), float(-endScene.y()));
+                edgeCutSegments.append({startScene, endScene});
+            } else if (CopperPourItem* pour = dynamic_cast<CopperPourItem*>(pcb)) {
+                QPolygonF poly;
+                const QPolygonF src = pour->polygon();
+                for (const QPointF& point : src) {
+                    const QPointF scenePoint = pour->mapToScene(point);
+                    poly << scenePoint;
+                    includeEdgePoint(float(scenePoint.x()), float(-scenePoint.y()));
+                }
+                if (poly.size() >= 3) {
+                    edgeCutPolygons.append(ensureClosedPolygon(poly));
+                }
             }
             continue;
         }
@@ -907,8 +1197,11 @@ void PCB3DView::rebuildSceneCache() {
             includePoint((p2 + o).x(), (p2 + o).y());
             includePoint((p1 + o).x(), (p1 + o).y());
 
-            if (faceZ > 0) appendQuad(m_copperTopVerts, p1 - o, p2 - o, p2 + o, p1 + o, {0, 0, 1.0f});
-            else appendQuad(m_copperBottomVerts, p1 - o, p1 + o, p2 + o, p2 - o, {0, 0, -1.0f});
+            if (faceZ > 0) {
+                appendCopperTrace(m_copperTopVerts, s2, e2, float(trace->width()), faceZ, kCopperZTop, true);
+            } else {
+                appendCopperTrace(m_copperBottomVerts, s2, e2, float(trace->width()), faceZ, kCopperZBottom, false);
+            }
             continue;
         }
 
@@ -960,6 +1253,56 @@ void PCB3DView::rebuildSceneCache() {
             includePoint(px + outer, py + outer);
             continue;
         }
+
+        if (PCBImageItem* image = dynamic_cast<PCBImageItem*>(pcb)) {
+            const QImage& stencil = image->fabPreview();
+            if (stencil.isNull()) continue;
+
+            const QRectF localRect = image->boundingRect();
+            const float silkZ = (pcb->layer() == PCBLayerManager::BottomCopper)
+                ? (kCopperZBottom - kCopperThickness - 0.01f)
+                : (kCopperZTop + kCopperThickness + 0.01f);
+            const QVector3D silkNormal = (pcb->layer() == PCBLayerManager::BottomCopper)
+                ? QVector3D(0, 0, -1)
+                : QVector3D(0, 0, 1);
+
+            const int w = stencil.width();
+            const int h = stencil.height();
+            if (w <= 0 || h <= 0) continue;
+
+            for (int y = 0; y < h; ++y) {
+                int x = 0;
+                while (x < w) {
+                    while (x < w && QColor::fromRgba(stencil.pixel(x, y)).alpha() < 10) ++x;
+                    if (x >= w) break;
+                    const int runStart = x;
+                    while (x < w && QColor::fromRgba(stencil.pixel(x, y)).alpha() >= 10) ++x;
+                    const int runEnd = x;
+
+                    const qreal x0 = localRect.left() + (qreal(runStart) / qreal(w)) * localRect.width();
+                    const qreal x1 = localRect.left() + (qreal(runEnd) / qreal(w)) * localRect.width();
+                    const qreal y0 = localRect.top() + (qreal(y) / qreal(h)) * localRect.height();
+                    const qreal y1 = localRect.top() + (qreal(y + 1) / qreal(h)) * localRect.height();
+
+                    const QPointF tl = image->mapToScene(QPointF(x0, y0));
+                    const QPointF tr = image->mapToScene(QPointF(x1, y0));
+                    const QPointF br = image->mapToScene(QPointF(x1, y1));
+                    const QPointF bl = image->mapToScene(QPointF(x0, y1));
+
+                    appendMappedQuad(m_silkscreenVerts, tl, tr, br, bl, silkZ, silkNormal);
+                    includePoint(float(tl.x()), float(-tl.y()));
+                    includePoint(float(tr.x()), float(-tr.y()));
+                    includePoint(float(br.x()), float(-br.y()));
+                    includePoint(float(bl.x()), float(-bl.y()));
+                }
+            }
+            continue;
+        }
+    }
+
+    const QList<QPolygonF> traceEdgeCutPolygons = buildClosedPolygonsFromSegments(edgeCutSegments);
+    for (const QPolygonF& poly : traceEdgeCutPolygons) {
+        edgeCutPolygons.append(ensureClosedPolygon(poly));
     }
 
     // Components and pick proxies.
@@ -1188,24 +1531,74 @@ void PCB3DView::rebuildSceneCache() {
     const float y2 = maxY + margin;
     const float z = kBoardThickness * 0.5f;
 
-    appendQuad(m_substrateVerts,
-               {x1, y1, z}, {x2, y1, z}, {x2, y2, z}, {x1, y2, z},
-               {0, 0, 1});
-    appendQuad(m_substrateVerts,
-               {x1, y2, -z}, {x2, y2, -z}, {x2, y1, -z}, {x1, y1, -z},
-               {0, 0, -1});
-    appendQuad(m_substrateVerts,
-               {x1, y1, -z}, {x2, y1, -z}, {x2, y1, z}, {x1, y1, z},
-               {0, 1, 0});
-    appendQuad(m_substrateVerts,
-               {x2, y1, -z}, {x2, y2, -z}, {x2, y2, z}, {x2, y1, z},
-               {1, 0, 0});
-    appendQuad(m_substrateVerts,
-               {x2, y2, -z}, {x1, y2, -z}, {x1, y2, z}, {x2, y2, z},
-               {0, -1, 0});
-    appendQuad(m_substrateVerts,
-               {x1, y2, -z}, {x1, y1, -z}, {x1, y1, z}, {x1, y2, z},
-               {-1, 0, 0});
+    QPolygonF outerEdgeCutOutline;
+    QList<QPolygonF> innerEdgeCutCutouts;
+    qreal outerEdgeCutArea = 0.0;
+    for (const QPolygonF& poly : edgeCutPolygons) {
+        const qreal area = std::abs(polygonSignedArea(poly));
+        if (area > outerEdgeCutArea) {
+            if (!outerEdgeCutOutline.isEmpty()) {
+                innerEdgeCutCutouts.append(outerEdgeCutOutline);
+            }
+            outerEdgeCutOutline = poly;
+            outerEdgeCutArea = area;
+        } else {
+            innerEdgeCutCutouts.append(poly);
+        }
+    }
+
+    const bool hasPolygonOutline = outerEdgeCutOutline.size() >= 4;
+    if (hasPolygonOutline) {
+        QPainterPath boardPath;
+        boardPath.setFillRule(Qt::WindingFill);
+        QPolygonF openPoly = outerEdgeCutOutline;
+        if (openPoly.first() == openPoly.last()) openPoly.removeLast();
+        boardPath = polygonToPath(openPoly);
+
+        for (QPolygonF cutout : innerEdgeCutCutouts) {
+            if (cutout.size() < 4) continue;
+            const QPainterPath cutoutPath = polygonToPath(cutout);
+            boardPath = boardPath.subtracted(cutoutPath);
+        }
+
+        const QList<QPolygonF> fillPolys = boardPath.toFillPolygons();
+        Q_UNUSED(fillPolys)
+        appendPathFaceTiled(m_substrateVerts, boardPath, z, QVector3D(0, 0, 1));
+        appendPathFaceTiled(m_substrateVerts, boardPath, -z, QVector3D(0, 0, -1));
+
+        QPolygonF wallPoly = openPoly;
+        wallPoly << openPoly.first();
+        appendPolygonWalls(m_substrateVerts, wallPoly, z, -z);
+
+        for (QPolygonF cutout : innerEdgeCutCutouts) {
+            if (cutout.first() == cutout.last()) cutout.removeLast();
+            if (cutout.size() < 3) continue;
+            if (polygonSignedArea(cutout) > 0.0) {
+                std::reverse(cutout.begin(), cutout.end());
+            }
+            cutout << cutout.first();
+            appendPolygonWalls(m_substrateVerts, cutout, z, -z);
+        }
+    } else {
+        appendQuad(m_substrateVerts,
+                   {x1, y1, z}, {x2, y1, z}, {x2, y2, z}, {x1, y2, z},
+                   {0, 0, 1});
+        appendQuad(m_substrateVerts,
+                   {x1, y2, -z}, {x2, y2, -z}, {x2, y1, -z}, {x1, y1, -z},
+                   {0, 0, -1});
+        appendQuad(m_substrateVerts,
+                   {x1, y1, -z}, {x2, y1, -z}, {x2, y1, z}, {x1, y1, z},
+                   {0, 1, 0});
+        appendQuad(m_substrateVerts,
+                   {x2, y1, -z}, {x2, y2, -z}, {x2, y2, z}, {x2, y1, z},
+                   {1, 0, 0});
+        appendQuad(m_substrateVerts,
+                   {x2, y2, -z}, {x1, y2, -z}, {x1, y2, z}, {x2, y2, z},
+                   {0, -1, 0});
+        appendQuad(m_substrateVerts,
+                   {x1, y2, -z}, {x1, y1, -z}, {x1, y1, z}, {x1, y2, z},
+                   {-1, 0, 0});
+    }
 
     // Full stackup approximation: dielectric cores/prepreg and two internal copper planes.
     const float innerZ1 = z * 0.34f;
@@ -1217,25 +1610,71 @@ void PCB3DView::rebuildSceneCache() {
     const float dielBotA = innerZ2 - kCopperThickness * 0.4f;
     const float dielBotB = -z * 0.78f;
 
-    auto appendSlab = [&](float za, float zb) {
-        if (za <= zb + 1e-6f) return;
-        appendQuad(m_dielectricVerts, {x1, y1, za}, {x2, y1, za}, {x2, y2, za}, {x1, y2, za}, {0, 0, 1});
-        appendQuad(m_dielectricVerts, {x1, y2, zb}, {x2, y2, zb}, {x2, y1, zb}, {x1, y1, zb}, {0, 0, -1});
-        appendQuad(m_dielectricVerts, {x1, y1, zb}, {x2, y1, zb}, {x2, y1, za}, {x1, y1, za}, {0, 1, 0});
-        appendQuad(m_dielectricVerts, {x2, y1, zb}, {x2, y2, zb}, {x2, y2, za}, {x2, y1, za}, {1, 0, 0});
-        appendQuad(m_dielectricVerts, {x2, y2, zb}, {x1, y2, zb}, {x1, y2, za}, {x2, y2, za}, {0, -1, 0});
-        appendQuad(m_dielectricVerts, {x1, y2, zb}, {x1, y1, zb}, {x1, y1, za}, {x1, y2, za}, {-1, 0, 0});
+        auto appendSlab = [&](float za, float zb) {
+            if (za <= zb + 1e-6f) return;
+        if (hasPolygonOutline) {
+            QPainterPath boardPath;
+            boardPath.setFillRule(Qt::WindingFill);
+            QPolygonF openPoly = outerEdgeCutOutline;
+            if (openPoly.first() == openPoly.last()) openPoly.removeLast();
+            boardPath = polygonToPath(openPoly);
+            for (QPolygonF cutout : innerEdgeCutCutouts) {
+                if (cutout.size() < 4) continue;
+                const QPainterPath cutoutPath = polygonToPath(cutout);
+                boardPath = boardPath.subtracted(cutoutPath);
+            }
+            const QList<QPolygonF> fillPolys = boardPath.toFillPolygons();
+            Q_UNUSED(fillPolys)
+            appendPathFaceTiled(m_dielectricVerts, boardPath, za, QVector3D(0, 0, 1));
+            appendPathFaceTiled(m_dielectricVerts, boardPath, zb, QVector3D(0, 0, -1));
+            QPolygonF wallPoly = openPoly;
+            wallPoly << openPoly.first();
+            appendPolygonWalls(m_dielectricVerts, wallPoly, za, zb);
+            for (QPolygonF cutout : innerEdgeCutCutouts) {
+                if (cutout.first() == cutout.last()) cutout.removeLast();
+                if (cutout.size() < 3) continue;
+                if (polygonSignedArea(cutout) > 0.0) {
+                    std::reverse(cutout.begin(), cutout.end());
+                }
+                cutout << cutout.first();
+                appendPolygonWalls(m_dielectricVerts, cutout, za, zb);
+            }
+        } else {
+            appendQuad(m_dielectricVerts, {x1, y1, za}, {x2, y1, za}, {x2, y2, za}, {x1, y2, za}, {0, 0, 1});
+            appendQuad(m_dielectricVerts, {x1, y2, zb}, {x2, y2, zb}, {x2, y1, zb}, {x1, y1, zb}, {0, 0, -1});
+            appendQuad(m_dielectricVerts, {x1, y1, zb}, {x2, y1, zb}, {x2, y1, za}, {x1, y1, za}, {0, 1, 0});
+            appendQuad(m_dielectricVerts, {x2, y1, zb}, {x2, y2, zb}, {x2, y2, za}, {x2, y1, za}, {1, 0, 0});
+            appendQuad(m_dielectricVerts, {x2, y2, zb}, {x1, y2, zb}, {x1, y2, za}, {x2, y2, za}, {0, -1, 0});
+            appendQuad(m_dielectricVerts, {x1, y2, zb}, {x1, y1, zb}, {x1, y1, za}, {x1, y2, za}, {-1, 0, 0});
+        }
     };
     appendSlab(dielTopA, dielTopB);
     appendSlab(dielMidA, dielMidB);
     appendSlab(dielBotA, dielBotB);
 
-    appendQuad(m_copperInnerVerts,
-               {x1, y1, innerZ1}, {x2, y1, innerZ1}, {x2, y2, innerZ1}, {x1, y2, innerZ1},
-               {0, 0, 1});
-    appendQuad(m_copperInnerVerts,
-               {x1, y2, innerZ2}, {x2, y2, innerZ2}, {x2, y1, innerZ2}, {x1, y1, innerZ2},
-               {0, 0, -1});
+    if (hasPolygonOutline) {
+        QPainterPath boardPath;
+        boardPath.setFillRule(Qt::WindingFill);
+        QPolygonF openPoly = outerEdgeCutOutline;
+        if (openPoly.first() == openPoly.last()) openPoly.removeLast();
+        boardPath = polygonToPath(openPoly);
+        for (QPolygonF cutout : innerEdgeCutCutouts) {
+            if (cutout.size() < 4) continue;
+            const QPainterPath cutoutPath = polygonToPath(cutout);
+            boardPath = boardPath.subtracted(cutoutPath);
+        }
+        const QList<QPolygonF> fillPolys = boardPath.toFillPolygons();
+        Q_UNUSED(fillPolys)
+        appendPathFaceTiled(m_copperInnerVerts, boardPath, innerZ1, QVector3D(0, 0, 1));
+        appendPathFaceTiled(m_copperInnerVerts, boardPath, innerZ2, QVector3D(0, 0, -1));
+    } else {
+        appendQuad(m_copperInnerVerts,
+                   {x1, y1, innerZ1}, {x2, y1, innerZ1}, {x2, y2, innerZ1}, {x1, y2, innerZ1},
+                   {0, 0, 1});
+        appendQuad(m_copperInnerVerts,
+                   {x1, y2, innerZ2}, {x2, y2, innerZ2}, {x2, y1, innerZ2}, {x1, y1, innerZ2},
+                   {0, 0, -1});
+    }
 
     // Drop stale collision marks for components no longer present.
     if (!m_collidedComponents.isEmpty()) {
@@ -1617,6 +2056,7 @@ bool PCB3DView::passesSelectionFilter(QGraphicsItem* item) const {
 }
 
 void PCB3DView::mousePressEvent(QMouseEvent* event) {
+    setFocus(Qt::MouseFocusReason);
     m_lastPos = event->pos();
     if (event->button() == Qt::LeftButton) {
         m_leftPressed = true;
@@ -1674,9 +2114,45 @@ void PCB3DView::mouseReleaseEvent(QMouseEvent* event) {
 void PCB3DView::wheelEvent(QWheelEvent* event) {
     beginInteractiveRender();
     m_cameraAnimTimer.stop();
-    m_zoom += event->angleDelta().y() * 0.2f;
-    m_zoom = std::clamp(m_zoom, -2000.0f, -20.0f);
+    const float steps = event->angleDelta().y() / 120.0f;
+    const float currentDistance = -m_zoom;
+    const float factor = std::pow(0.85f, steps);
+    const float newDistance = std::clamp(currentDistance * factor, 20.0f, 2000.0f);
+    m_zoom = -newDistance;
+    Q_EMIT zoomDistanceChanged(newDistance);
     update();
+    event->accept();
+}
+
+void PCB3DView::keyPressEvent(QKeyEvent* event) {
+    const float distance = -m_zoom;
+    const float baseStep = std::max(2.0f, distance * 0.05f);
+    const float step = event->modifiers().testFlag(Qt::ShiftModifier) ? baseStep * 3.0f : baseStep;
+    QVector3D delta(0.0f, 0.0f, 0.0f);
+
+    switch (event->key()) {
+    case Qt::Key_Left:
+        delta.setX(step);
+        break;
+    case Qt::Key_Right:
+        delta.setX(-step);
+        break;
+    case Qt::Key_Up:
+        delta.setY(-step);
+        break;
+    case Qt::Key_Down:
+        delta.setY(step);
+        break;
+    default:
+        QOpenGLWidget::keyPressEvent(event);
+        return;
+    }
+
+    beginInteractiveRender();
+    m_cameraAnimTimer.stop();
+    m_pan += delta;
+    update();
+    event->accept();
 }
 
 void PCB3DView::beginInteractiveRender() {
@@ -1701,6 +2177,7 @@ void PCB3DView::pollSpaceMouse() {
             m_pan += QVector3D(ev.motion.x * panScale, -ev.motion.y * panScale, 0.0f);
             m_zoom += ev.motion.z * 0.12f;
             m_zoom = std::clamp(m_zoom, -2000.0f, -20.0f);
+            Q_EMIT zoomDistanceChanged(-m_zoom);
             m_rotation = QQuaternion::fromAxisAndAngle(QVector3D(0, 0, 1), -ev.motion.rx * rotScale) * m_rotation;
             m_rotation = QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), ev.motion.ry * rotScale) * m_rotation;
             m_rotation = QQuaternion::fromAxisAndAngle(QVector3D(0, 1, 0), ev.motion.rz * rotScale) * m_rotation;
@@ -1726,6 +2203,7 @@ void PCB3DView::startCameraTransition(const QQuaternion& targetRot, float target
     m_zoomFrom = m_zoom;
     m_zoomTo = targetZoom;
     m_cameraAnimT = 0.0f;
+    Q_EMIT zoomDistanceChanged(-m_zoom);
     m_cameraAnimTimer.start();
 }
 
@@ -1734,6 +2212,7 @@ void PCB3DView::tickCameraAnimation() {
     const float s = m_cameraAnimT * m_cameraAnimT * (3.0f - 2.0f * m_cameraAnimT);
     m_rotation = QQuaternion::slerp(m_rotFrom, m_rotTo, s);
     m_zoom = m_zoomFrom + (m_zoomTo - m_zoomFrom) * s;
+    Q_EMIT zoomDistanceChanged(-m_zoom);
     update();
     if (m_cameraAnimT >= 1.0f) {
         m_cameraAnimTimer.stop();
@@ -1967,7 +2446,7 @@ void PCB3DView::drawGridOverlay() {
 
     auto chooseStep = [](float span) -> float {
         if (span <= 0.0f) return 1.0f;
-        const float raw = span / 20.0f;
+        const float raw = span / 10.0f;
         const float p10 = std::pow(10.0f, std::floor(std::log10(raw)));
         const float n = raw / p10;
         float m = 1.0f;
@@ -1978,7 +2457,8 @@ void PCB3DView::drawGridOverlay() {
     };
 
     const float span = std::max(maxX - minX, maxY - minY);
-    const float step = chooseStep(span);
+    const float majorStep = chooseStep(span);
+    const float minorStep = std::max(majorStep / 5.0f, 0.5f);
     const float zPlane = kCopperZTop + kCopperThickness + 0.002f;
 
     auto project = [&](const QVector3D& w, QPointF& outPt) -> bool {
@@ -1993,20 +2473,42 @@ void PCB3DView::drawGridOverlay() {
 
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(QPen(QColor(160, 175, 196, 70), 1.0));
 
-    const float startX = std::floor(minX / step) * step;
-    const float endX = std::ceil(maxX / step) * step;
-    const float startY = std::floor(minY / step) * step;
-    const float endY = std::ceil(maxY / step) * step;
+    const QColor minorColor(150, 170, 205, 90);
+    const QColor majorColor(205, 220, 245, 150);
 
-    for (float x = startX; x <= endX + 1e-6f; x += step) {
+    const float startMinorX = std::floor(minX / minorStep) * minorStep;
+    const float endMinorX = std::ceil(maxX / minorStep) * minorStep;
+    const float startMinorY = std::floor(minY / minorStep) * minorStep;
+    const float endMinorY = std::ceil(maxY / minorStep) * minorStep;
+
+    p.setPen(QPen(minorColor, 1.0));
+    for (float x = startMinorX; x <= endMinorX + 1e-6f; x += minorStep) {
         QPointF a, b;
         if (project(QVector3D(x, minY, zPlane), a) && project(QVector3D(x, maxY, zPlane), b)) {
             p.drawLine(a, b);
         }
     }
-    for (float y = startY; y <= endY + 1e-6f; y += step) {
+    for (float y = startMinorY; y <= endMinorY + 1e-6f; y += minorStep) {
+        QPointF a, b;
+        if (project(QVector3D(minX, y, zPlane), a) && project(QVector3D(maxX, y, zPlane), b)) {
+            p.drawLine(a, b);
+        }
+    }
+
+    const float startMajorX = std::floor(minX / majorStep) * majorStep;
+    const float endMajorX = std::ceil(maxX / majorStep) * majorStep;
+    const float startMajorY = std::floor(minY / majorStep) * majorStep;
+    const float endMajorY = std::ceil(maxY / majorStep) * majorStep;
+
+    p.setPen(QPen(majorColor, 1.35));
+    for (float x = startMajorX; x <= endMajorX + 1e-6f; x += majorStep) {
+        QPointF a, b;
+        if (project(QVector3D(x, minY, zPlane), a) && project(QVector3D(x, maxY, zPlane), b)) {
+            p.drawLine(a, b);
+        }
+    }
+    for (float y = startMajorY; y <= endMajorY + 1e-6f; y += majorStep) {
         QPointF a, b;
         if (project(QVector3D(minX, y, zPlane), a) && project(QVector3D(maxX, y, zPlane), b)) {
             p.drawLine(a, b);

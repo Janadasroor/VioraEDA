@@ -114,6 +114,8 @@ SchematicComponentsWidget::SchematicComponentsWidget(QWidget *parent)
     m_proxyModel->setSourceModel(m_symbolListModel);
     m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
     m_proxyModel->setRecursiveFilteringEnabled(true);
+    connect(&SymbolLibraryManager::instance(), &SymbolLibraryManager::librariesChanged,
+            this, &SchematicComponentsWidget::populate);
 
     // 2. Setup Base UI
     PCBTheme* theme = ThemeManager::theme();
@@ -320,7 +322,7 @@ void SchematicComponentsWidget::focusSearch() {
 void SchematicComponentsWidget::populate() {
     // Only reload if we have no libraries
     if (SymbolLibraryManager::instance().libraries().isEmpty()) {
-        SymbolLibraryManager::instance().reloadUserLibraries();
+        SymbolLibraryManager::instance().reloadUserLibraries(true);
     }
 
     QVector<SymbolListModel::SymbolMetadata> builtIn;
@@ -388,20 +390,12 @@ void SchematicComponentsWidget::populate() {
         }
 
         QStringList accepted;
-        const QStringList names = lib->symbolNames();
-        totalLibrarySymbols += names.size();
+        const QList<SymbolLibrary::SymbolInfo> infos = lib->symbolInfos();
+        totalLibrarySymbols += infos.size();
 
-        for (const QString& symName : names) {
-            SymbolDefinition* sym = lib->findSymbol(symName);
-            if (!sym) continue;
-            
-            // For user libraries (viosym/local sclib), show all symbols.
-            // For bundled libraries (KiCad), keep the simulatable filter to avoid noise.
-            if (isBundledKicadSymLibraryPath(lib->path())) {
-                if (!isSimulatableLibrarySymbol(*sym)) continue;
-            }
-            
-            accepted.append(symName);
+        for (const SymbolLibrary::SymbolInfo& info : infos) {
+            if (info.name.trimmed().isEmpty()) continue;
+            accepted.append(info.name);
         }
 
         accepted.sort(Qt::CaseInsensitive);

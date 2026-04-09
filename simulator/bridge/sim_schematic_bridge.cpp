@@ -25,22 +25,22 @@ QString decodeSpiceTextInBridge(const QByteArray& raw) {
     if (raw.isEmpty()) return QString();
 
     auto decodeUtf16Le = [](const QByteArray& bytes, int start) {
-        QVector<ushort> u16;
+        QVector<char16_t> u16;
         u16.reserve((bytes.size() - start) / 2);
         for (int i = start; i + 1 < bytes.size(); i += 2) {
-            const ushort ch = static_cast<ushort>(static_cast<unsigned char>(bytes[i])) |
-                              (static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1])) << 8);
+            const char16_t ch = static_cast<char16_t>(static_cast<unsigned char>(bytes[i])) |
+                                (static_cast<char16_t>(static_cast<unsigned char>(bytes[i + 1])) << 8);
             u16.push_back(ch);
         }
         return QString::fromUtf16(u16.constData(), u16.size());
     };
 
     auto decodeUtf16Be = [](const QByteArray& bytes, int start) {
-        QVector<ushort> u16;
+        QVector<char16_t> u16;
         u16.reserve((bytes.size() - start) / 2);
         for (int i = start; i + 1 < bytes.size(); i += 2) {
-            const ushort ch = (static_cast<ushort>(static_cast<unsigned char>(bytes[i])) << 8) |
-                               static_cast<ushort>(static_cast<unsigned char>(bytes[i + 1]));
+            const char16_t ch = (static_cast<char16_t>(static_cast<unsigned char>(bytes[i])) << 8) |
+                                 static_cast<char16_t>(static_cast<unsigned char>(bytes[i + 1]));
             u16.push_back(ch);
         }
         return QString::fromUtf16(u16.constData(), u16.size());

@@ -1,5 +1,6 @@
 #include "pcb_components_widget.h"
 #include "footprint_preview_view.h"
+#include "../dialogs/footprint_browser_dialog.h"
 #include "../../core/theme_manager.h"
 #include "../../footprints/footprint_library.h"
 #include "../../footprints/footprint_editor.h"
@@ -307,5 +308,9 @@ void PCBComponentsWidget::onCreateFootprint() {
 }
 
 void PCBComponentsWidget::onOpenLibraryBrowser() {
-    // Future generic library browser
+    FootprintBrowserDialog dialog(this);
+    connect(&dialog, &FootprintBrowserDialog::footprintSelected, this, [this](const FootprintDefinition& fp) {
+        emit footprintSelected(fp.name());
+    });
+    dialog.exec();
 }

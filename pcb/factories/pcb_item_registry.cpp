@@ -1,4 +1,5 @@
 #include "pcb_item_registry.h"
+#include "../items/image_item.h"
 
 void PCBItemRegistry::registerBuiltInItems() {
     static bool initialized = false;
@@ -9,7 +10,7 @@ void PCBItemRegistry::registerBuiltInItems() {
 
     // Register Pad item
     factory.registerItemType("Pad", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> PCBItem* {
-        double diameter = properties.value("diameter").toDouble(1.0);
+        double diameter = properties.value("diameter").toDouble(1.5);
         return new PadItem(pos, diameter, parent);
     });
 
@@ -38,5 +39,13 @@ void PCBItemRegistry::registerBuiltInItems() {
     // Register Copper Pour item
     factory.registerItemType("CopperPour", [](QPointF, const QJsonObject&, QGraphicsItem* parent) -> PCBItem* {
         return new CopperPourItem(parent);
+    });
+
+    factory.registerItemType("Shape", [](QPointF, const QJsonObject&, QGraphicsItem* parent) -> PCBItem* {
+        return new PCBShapeItem(parent);
+    });
+
+    factory.registerItemType("Image", [](QPointF, const QJsonObject&, QGraphicsItem* parent) -> PCBItem* {
+        return new PCBImageItem(parent);
     });
 }

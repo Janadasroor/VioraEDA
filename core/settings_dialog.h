@@ -44,6 +44,10 @@ private:
     QDoubleSpinBox* m_vntolSpin;
     QDoubleSpinBox* m_gminSpin;
     QSpinBox* m_maxIterSpin;
+    QCheckBox* m_showFullSimulationPanelCheck;
+
+    // PCB
+    QCheckBox* m_enablePcbEditorsCheck;
     
     // AI
     QLineEdit* m_geminiKeyEdit;

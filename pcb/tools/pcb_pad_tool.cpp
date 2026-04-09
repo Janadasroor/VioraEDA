@@ -13,8 +13,23 @@ QCursor PCBPadTool::cursor() const {
     return QCursor(Qt::CrossCursor);
 }
 
+void PCBPadTool::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape) {
+        event->ignore(); // Let PCBView handle return to Select tool
+        return;
+    }
+    PCBTool::keyPressEvent(event);
+}
+
 void PCBPadTool::mousePressEvent(QMouseEvent* event) {
-    if (!view() || event->button() != Qt::LeftButton) return;
+    if (!view()) return;
+
+    if (event->button() == Qt::RightButton) {
+        event->ignore(); // Let PCBView handle return to Select tool
+        return;
+    }
+
+    if (event->button() != Qt::LeftButton) return;
 
     QPointF scenePos = view()->mapToScene(event->pos());
     QPointF snappedPos = view()->snapToGrid(scenePos);
@@ -28,6 +43,9 @@ void PCBPadTool::mousePressEvent(QMouseEvent* event) {
             view()->scene()->addItem(pad);
         }
         qDebug() << "Placed pad at" << snappedPos;
+        
+        // RE-FOCUS view after adding item to scene
+        view()->setFocus();
     } else {
         qWarning() << "Failed to create pad item";
     }

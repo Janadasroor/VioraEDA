@@ -13,8 +13,27 @@
 #include "theme_manager.h"
 #include "pcb_item.h"
 #include "pcb_commands.h"
+#include "../items/component_item.h"
+#include "../items/trace_item.h"
+#include "../dialogs/fanout_wizard_dialog.h"
+#include "../analysis/fanout_engine.h"
+#include "../analysis/length_match_manager.h"
 #include <QLineF>
 #include <QTimer>
+
+namespace {
+PCBItem* resolveOwningPCBItem(QGraphicsItem* item) {
+    PCBItem* pcbItem = nullptr;
+    QGraphicsItem* current = item;
+    while (current) {
+        if (PCBItem* candidate = dynamic_cast<PCBItem*>(current)) {
+            pcbItem = candidate;
+        }
+        current = current->parentItem();
+    }
+    return pcbItem;
+}
+}
 
 PCBView::PCBView(QWidget *parent)
     : QGraphicsView(parent),
@@ -38,6 +57,9 @@ PCBView::PCBView(QWidget *parent)
     setCacheMode(QGraphicsView::CacheBackground);
     setBackgroundBrush(QBrush(QColor(30, 30, 35)));
     setMouseTracking(true);
+    
+    setFocusPolicy(Qt::StrongFocus);
+    viewport()->setFocusPolicy(Qt::StrongFocus);
 
     // Set default tool to Select
     setCurrentTool("Select");
@@ -152,6 +174,8 @@ void PCBView::wheelEvent(QWheelEvent *event) {
 }
 
 void PCBView::mousePressEvent(QMouseEvent *event) {
+    setFocus(); // Ensure we have focus for key events
+
     if (event->button() == Qt::MiddleButton) {
         m_isPanning = true;
         m_lastPanPoint = event->pos();
@@ -170,9 +194,10 @@ void PCBView::mousePressEvent(QMouseEvent *event) {
 
     // Consistent quick-exit behavior: right-click returns to Select tool,
     // but only if the active tool did not consume the event itself.
-    if (event->button() == Qt::RightButton) {
+    if (event->button() == Qt::RightButton && !event->isAccepted()) {
         if (m_currentTool && m_currentTool->name() != "Select") {
             setCurrentTool("Select");
+            emit toolChanged("Select");
         }
         event->accept();
         return;
@@ -255,7 +280,20 @@ void PCBView::mouseDoubleClickEvent(QMouseEvent *event) {
 }
 
 void PCBView::keyPressEvent(QKeyEvent *event) {
-    // Forward to current tool FIRST
+    if (event->key() == Qt::Key_Escape) {
+        if (m_currentTool && m_currentTool->name() != "Select") {
+            setCurrentTool("Select");
+            emit toolChanged("Select");
+            event->accept();
+            return;
+        } else if (scene()) {
+            scene()->clearSelection();
+            event->accept();
+            return;
+        }
+    }
+
+    // Forward to current tool FIRST (after global Escape check)
     if (m_currentTool) {
         m_currentTool->keyPressEvent(event);
         if (event->isAccepted()) {
@@ -280,16 +318,7 @@ void PCBView::keyPressEvent(QKeyEvent *event) {
 
         QSet<PCBItem*> itemsToDelete;
         for (QGraphicsItem* it : selected) {
-            PCBItem* pcbItem = nullptr;
-            QGraphicsItem* current = it;
-            while (current) {
-                if (PCBItem* candidate = dynamic_cast<PCBItem*>(current)) {
-                    if (candidate->flags() & QGraphicsItem::ItemIsSelectable) {
-                        pcbItem = candidate;
-                    }
-                }
-                current = current->parentItem();
-            }
+            PCBItem* pcbItem = resolveOwningPCBItem(it);
 
             if (pcbItem && !pcbItem->isLocked()) {
                 itemsToDelete.insert(pcbItem);
@@ -336,34 +365,62 @@ void PCBView::keyPressEvent(QKeyEvent *event) {
         return true;
     };
 
-    // Single-key hotkeys (schematic-style workflow).
-    switch (event->key()) {
-    case Qt::Key_Delete:
-    case Qt::Key_Backspace:
-        if (event->modifiers() == Qt::NoModifier) {
-            if (deleteSelection()) return;
+    // Forward to current tool FIRST
+    if (m_currentTool) {
+        m_currentTool->keyPressEvent(event);
+        if (event->isAccepted()) {
+            return;
         }
-        break;
-    case Qt::Key_W: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Trace")) return; break;
-    case Qt::Key_E: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Erase")) return; break;
-    case Qt::Key_D: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Diff Pair")) return; break;
-    case Qt::Key_V: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Via")) return; break;
-    case Qt::Key_Z: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Zoom Area")) return; break;
-    case Qt::Key_M: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Measure")) return; break;
-    case Qt::Key_P: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Pad")) return; break;
-    case Qt::Key_R: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Rectangle")) return; break;
-    case Qt::Key_O: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Polygon Pour")) return; break;
-    case Qt::Key_T: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Length Tuning")) return; break;
-    case Qt::Key_C: if (event->modifiers() == Qt::NoModifier && trySwitchTool("Component")) return; break;
-    default: break;
     }
 
-    if (event->key() == Qt::Key_Escape) {
-        if (m_currentTool && m_currentTool->name() != "Select") {
-            setCurrentTool("Select");
-            emit toolChanged("Select");
-            event->accept();
-            return;
+    // 1. Handle Global Multi-key Shortcuts (Undo/Redo/Clipboard)
+    if (event->modifiers() & Qt::ControlModifier) {
+        switch (event->key()) {
+        case Qt::Key_Z:
+            if (m_undoStack) {
+                if (event->modifiers() & Qt::ShiftModifier) m_undoStack->redo();
+                else m_undoStack->undo();
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_Y:
+            if (m_undoStack) {
+                m_undoStack->redo();
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_A:
+            // Forward to base class for standard "Select All" or handle manually if needed
+            break;
+        default:
+            break;
+        }
+    }
+
+    // 2. Single-key hotkeys (schematic-style workflow).
+    // MUST check that NO modifier is pressed to avoid clashing with Ctrl+Z etc.
+    if (event->modifiers() == Qt::NoModifier) {
+        switch (event->key()) {
+        case Qt::Key_Delete:
+        case Qt::Key_Backspace:
+            if (deleteSelection()) return;
+            break;
+        case Qt::Key_W: if (trySwitchTool("Trace")) return; break;
+        case Qt::Key_E: if (trySwitchTool("Erase")) return; break;
+        case Qt::Key_D: if (trySwitchTool("Diff Pair")) return; break;
+        case Qt::Key_V: if (trySwitchTool("Via")) return; break;
+        case Qt::Key_Z: if (trySwitchTool("Zoom Area")) return; break;
+        case Qt::Key_M: if (trySwitchTool("Measure")) return; break;
+        case Qt::Key_P: if (trySwitchTool("Pad")) return; break;
+        case Qt::Key_R: if (trySwitchTool("Rectangle")) return; break;
+        case Qt::Key_O: if (trySwitchTool("Polygon Pour")) return; break;
+        case Qt::Key_L: if (trySwitchTool("Line")) return; break;
+        case Qt::Key_A: if (trySwitchTool("Arc")) return; break;
+        case Qt::Key_T: if (trySwitchTool("Length Tuning")) return; break;
+        case Qt::Key_C: if (trySwitchTool("Component")) return; break;
+        default: break;
         }
     }
 
@@ -377,16 +434,7 @@ void PCBView::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
 
-    // Find the selectable PCBItem parent
-    PCBItem* pcbItem = nullptr;
-    QGraphicsItem* current = item;
-    while (current) {
-        PCBItem* candidate = dynamic_cast<PCBItem*>(current);
-        if (candidate && (candidate->flags() & QGraphicsItem::ItemIsSelectable)) {
-            pcbItem = candidate;
-        }
-        current = current->parentItem();
-    }
+    PCBItem* pcbItem = resolveOwningPCBItem(item);
 
     if (!pcbItem) {
         QGraphicsView::contextMenuEvent(event);
@@ -444,9 +492,43 @@ void PCBView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addSeparator();
     QAction* propsAct = menu.addAction("Properties...");
 
+    // ─── Phase 2: Intelligent Layout Actions ────────────────────────────────
+    QAction* fanoutAct = nullptr;
+    ComponentItem* targetComp = nullptr;
+    if (selectedPCBItems.size() == 1) {
+        targetComp = dynamic_cast<ComponentItem*>(selectedPCBItems.first());
+        if (targetComp) {
+            menu.addSeparator();
+            fanoutAct = menu.addAction(QIcon(":/icons/tool_gear.svg"), "Fan-out Wizard...");
+        }
+    }
+
+    QAction* phaseTuneAct = nullptr;
+    QString pNet, nNet;
+    if (selectedPCBItems.size() == 1) {
+        if (TraceItem* t = dynamic_cast<TraceItem*>(selectedPCBItems.first())) {
+            QString net = t->netName();
+            if (net.endsWith("_P") || net.endsWith("_N")) {
+                menu.addSeparator();
+                phaseTuneAct = menu.addAction(QIcon(":/icons/tool_meander.svg"), "Differential Pair Phase Tune");
+                pNet = net.endsWith("_P") ? net : net.left(net.size()-2) + "_P";
+                nNet = net.endsWith("_N") ? net : net.left(net.size()-2) + "_N";
+            }
+        }
+    }
+
     QAction* selectedAct = menu.exec(event->globalPos());
 
-    if (selectedAct == rotateAct) {
+    if (selectedAct == fanoutAct && targetComp) {
+        FanoutWizardDialog dlg(targetComp, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            FanoutEngine::generateFanout(scene(), targetComp, dlg.options(), m_undoStack);
+        }
+    } else if (selectedAct == phaseTuneAct && !pNet.isEmpty()) {
+        int tuned = LengthMatchManager::instance().autoTuneDiffPair(pNet, nNet, scene());
+        if (tuned > 0) emit statusMessage("Phase tuning applied: meanders added to match lengths.");
+        else emit statusMessage("Phase tuning: lengths already matched within tolerance.");
+    } else if (selectedAct == rotateAct) {
         if (m_undoStack) {
             m_undoStack->push(new PCBRotateItemCommand(scene(), selectedPCBItems, 90));
         } else {
@@ -457,16 +539,7 @@ void PCBView::contextMenuEvent(QContextMenuEvent *event) {
     } else if (selectedAct == deleteAct) {
         QSet<PCBItem*> itemsToDelete;
         for (auto* it : selected) {
-            PCBItem* pcbItem = nullptr;
-            QGraphicsItem* current = it;
-            while (current) {
-                if (PCBItem* candidate = dynamic_cast<PCBItem*>(current)) {
-                    if (candidate->flags() & QGraphicsItem::ItemIsSelectable) {
-                        pcbItem = candidate;
-                    }
-                }
-                current = current->parentItem();
-            }
+            PCBItem* pcbItem = resolveOwningPCBItem(it);
             if (pcbItem && !pcbItem->isLocked()) {
                 itemsToDelete.insert(pcbItem);
             }

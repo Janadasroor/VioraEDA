@@ -5,6 +5,7 @@
 #include "../ui/netlist_editor.h"
 #include "theme_manager.h"
 #include "schematic_page_item.h"
+#include <QToolButton>
 #include <QGraphicsLineItem>
 #include <QStatusBar>
 #include <QDate>
@@ -13,6 +14,15 @@
 void SchematicEditor::applyTheme() {
     PCBTheme* theme = ThemeManager::theme();
     theme->applyToWidget(this);
+
+    auto makeStrokeIcon = [&](std::function<void(QPainter&)> draw, const QSize& size = QSize(24, 24)) {
+        QPixmap pixmap(size);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        draw(painter);
+        return QIcon(pixmap);
+    };
 
     for (auto it = m_toolActions.begin(); it != m_toolActions.end(); ++it) {
         if (it.value()) it.value()->setIcon(createComponentIcon(it.key()));
@@ -31,6 +41,49 @@ void SchematicEditor::applyTheme() {
         else if (text == "Simulation Setup...") action->setIcon(getThemeIcon(":/icons/tool_gear.svg"));
         else if (text == "Run Simulation (F8)") action->setIcon(getThemeIcon(":/icons/tool_run.svg"));
         else if (text == "Stop") action->setIcon(getThemeIcon(":/icons/tool_stop.svg"));
+    }
+
+    if (QToolButton* menuBtn = findChild<QToolButton*>("MainMenuButton")) {
+        menuBtn->setIcon(makeStrokeIcon([&](QPainter& p) {
+            p.setPen(QPen(theme->textColor(), 2, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(4, 6, 20, 6);
+            p.drawLine(4, 12, 20, 12);
+            p.drawLine(4, 18, 20, 18);
+        }));
+    }
+
+    if (QToolButton* newBtn = findChild<QToolButton*>("NewSchematicButton")) {
+        newBtn->setIcon(makeStrokeIcon([&](QPainter& p) {
+            p.setPen(QPen(theme->textColor(), 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            QPolygonF filePoly;
+            filePoly << QPointF(12, 8) << QPointF(28, 8) << QPointF(36, 16) << QPointF(36, 40) << QPointF(12, 40);
+            p.drawPolygon(filePoly);
+            p.drawLine(28, 8, 28, 16);
+            p.drawLine(28, 16, 36, 16);
+            p.setPen(QPen(theme->accentColor(), 4.5, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(20, 28, 28, 28);
+            p.drawLine(24, 24, 24, 32);
+        }, QSize(48, 48)));
+    }
+
+    if (QToolButton* openBtn = findChild<QToolButton*>("OpenSchematicButton")) {
+        openBtn->setIcon(makeStrokeIcon([&](QPainter& p) {
+            p.setPen(QPen(theme->textColor(), 3.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            QPolygonF folderPoly;
+            folderPoly << QPointF(8, 16) << QPointF(20, 16) << QPointF(24, 12) << QPointF(40, 12) << QPointF(40, 36) << QPointF(8, 36);
+            p.drawPolygon(folderPoly);
+            p.drawLine(8, 20, 40, 20);
+        }, QSize(48, 48)));
+    }
+
+    if (QToolButton* moreBtn = findChild<QToolButton*>("MoreToolsButton")) {
+        moreBtn->setIcon(getThemeIcon(":/icons/chevron_down.svg"));
+    }
+
+    const QList<QToolButton*> toolButtons = findChildren<QToolButton*>("qt_toolbar_ext_button");
+    for (QToolButton* extBtn : toolButtons) {
+        if (!extBtn) continue;
+        extBtn->setIcon(getThemeIcon(":/icons/chevron_down.svg"));
     }
 
     // Modern status bar styling

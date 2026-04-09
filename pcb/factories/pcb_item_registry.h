@@ -7,6 +7,7 @@
 #include "trace_item.h"
 #include "component_item.h"
 #include "copper_pour_item.h"
+#include "shape_item.h"
 
 class PCBItemRegistry {
 public:

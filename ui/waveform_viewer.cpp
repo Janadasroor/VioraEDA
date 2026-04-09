@@ -3,6 +3,7 @@
 
 #include "waveform_viewer.h"
 #include "waveform_expression_dialog.h"
+#include "../core/theme_manager.h"
 #include "../core/si_formatter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -51,6 +52,97 @@ double toDb(double value) {
 
 QString formatDb(double value) {
     return QString::number(value, 'g', 4) + " dB";
+}
+
+QList<QPointF> buildVisibleMinMaxSeries(const QVector<double>& time,
+                                        const QVector<double>& values,
+                                        double minX,
+                                        double maxX,
+                                        int maxColumns,
+                                        bool acMode) {
+    const int n = std::min(time.size(), values.size());
+    if (n <= 0) return {};
+
+    if (maxColumns < 8) maxColumns = 8;
+    if (!(minX < maxX)) {
+        minX = time.first();
+        maxX = time.last();
+    }
+
+    auto lower = std::lower_bound(time.begin(), time.end(), minX);
+    auto upper = std::upper_bound(time.begin(), time.end(), maxX);
+
+    int begin = std::max(0, static_cast<int>(std::distance(time.begin(), lower)) - 1);
+    int end = std::min(n, static_cast<int>(std::distance(time.begin(), upper)) + 1);
+    if (begin >= end) {
+        begin = 0;
+        end = n;
+    }
+
+    const int visibleCount = end - begin;
+    QList<QPointF> points;
+    if (visibleCount <= 0) return points;
+
+    auto pointAt = [&](int idx) {
+        const double y = acMode ? toDb(values[idx]) : values[idx];
+        return QPointF(time[idx], y);
+    };
+
+    if (visibleCount <= maxColumns) {
+        points.reserve(visibleCount);
+        for (int i = begin; i < end; ++i) {
+            points.append(pointAt(i));
+        }
+        return points;
+    }
+
+    const int bucketCount = std::max(1, maxColumns / 2);
+    const double bucketSpan = static_cast<double>(visibleCount) / static_cast<double>(bucketCount);
+
+    points.reserve(bucketCount * 2 + 2);
+    points.append(pointAt(begin));
+
+    for (int bucket = 0; bucket < bucketCount; ++bucket) {
+        const int bucketBegin = begin + static_cast<int>(std::floor(bucket * bucketSpan));
+        int bucketEnd = begin + static_cast<int>(std::floor((bucket + 1) * bucketSpan));
+        if (bucket == bucketCount - 1 || bucketEnd > end) bucketEnd = end;
+        if (bucketBegin >= bucketEnd) continue;
+
+        int minIdx = bucketBegin;
+        int maxIdx = bucketBegin;
+        double minVal = acMode ? toDb(values[bucketBegin]) : values[bucketBegin];
+        double maxVal = minVal;
+
+        for (int i = bucketBegin + 1; i < bucketEnd; ++i) {
+            const double y = acMode ? toDb(values[i]) : values[i];
+            if (y < minVal) {
+                minVal = y;
+                minIdx = i;
+            }
+            if (y > maxVal) {
+                maxVal = y;
+                maxIdx = i;
+            }
+        }
+
+        if (minIdx == maxIdx) {
+            if (points.isEmpty() || points.back().x() != time[minIdx] || points.back().y() != minVal) {
+                points.append(QPointF(time[minIdx], minVal));
+            }
+        } else if (minIdx < maxIdx) {
+            points.append(QPointF(time[minIdx], minVal));
+            points.append(QPointF(time[maxIdx], maxVal));
+        } else {
+            points.append(QPointF(time[maxIdx], maxVal));
+            points.append(QPointF(time[minIdx], minVal));
+        }
+    }
+
+    const QPointF lastPoint = pointAt(end - 1);
+    if (points.isEmpty() || points.back() != lastPoint) {
+        points.append(lastPoint);
+    }
+    return points;
 }
 } // namespace
 
@@ -439,26 +531,22 @@ void WaveformViewer::setupUi() {
     layout->setSpacing(0);
 
     auto *toolbar = new QToolBar("Waveform Controls", this);
+    toolbar->setObjectName("waveformToolbar");
     toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->setMinimumHeight(24);
-    toolbar->setStyleSheet(R"(
-        QToolBar { spacing: 2px; padding: 0px 2px; background: #1a1a1a; border-bottom: 1px solid #333; }
-        QToolButton { padding: 2px 6px; margin: 0px; font-size: 11px; min-height: 20px; color: #ccc; }
-        QToolButton:hover { background: #333; }
-    )");
 
-    toolbar->addAction("Z+", this, &WaveformViewer::zoomIn);
-    toolbar->addAction("Z-", this, &WaveformViewer::zoomOut);
-    toolbar->addAction("Fit", this, &WaveformViewer::zoomFit);
+    toolbar->addAction("Z+", QKeySequence(), this, &WaveformViewer::zoomIn);
+    toolbar->addAction("Z-", QKeySequence(), this, &WaveformViewer::zoomOut);
+    toolbar->addAction("Fit", QKeySequence(), this, &WaveformViewer::zoomFit);
     toolbar->addSeparator();
-    toolbar->addAction("Diff", this, &WaveformViewer::onSubtractRequested);
-    toolbar->addAction("FFT", this, &WaveformViewer::onFftRequested);
-    toolbar->addAction("Save", this, &WaveformViewer::exportImage);
+    toolbar->addAction("Diff", QKeySequence(), this, &WaveformViewer::onSubtractRequested);
+    toolbar->addAction("FFT", QKeySequence(), this, &WaveformViewer::onFftRequested);
+    toolbar->addAction("Save", QKeySequence(), this, &WaveformViewer::exportImage);
     toolbar->addSeparator();
-    auto *cursorAct = toolbar->addAction("Cursors", this, &WaveformViewer::toggleCursors);
+    auto *cursorAct = toolbar->addAction("Cursors", QKeySequence(), this, &WaveformViewer::toggleCursors);
     cursorAct->setCheckable(true);
     
-    auto *crosshairAct = toolbar->addAction("Crosshair", this, &WaveformViewer::toggleCrosshair);
+    auto *crosshairAct = toolbar->addAction("Crosshair", QKeySequence(), this, &WaveformViewer::toggleCrosshair);
     crosshairAct->setCheckable(true);
     
     layout->addWidget(toolbar);
@@ -467,7 +555,6 @@ void WaveformViewer::setupUi() {
     m_nodeList = new QListWidget(this);
     m_nodeList->setSelectionMode(QAbstractItemView::MultiSelection);
     m_nodeList->setFixedWidth(120);
-    m_nodeList->setStyleSheet("QListWidget { background: #111; border-right: 1px solid #333; color: #eee; }");
 
     connect(m_nodeList, &QListWidget::itemSelectionChanged, this, &WaveformViewer::onNodeSelected);
     connect(m_nodeList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item){
@@ -480,19 +567,16 @@ void WaveformViewer::setupUi() {
 
     m_splitter = new QSplitter(Qt::Vertical, this);
     m_splitter->setHandleWidth(1);
-    m_splitter->setStyleSheet("QSplitter::handle { background: #333; }");
     mainArea->addWidget(m_splitter, 1);
 
     layout->addLayout(mainArea);
  
     m_legendContainer = new QWidget(this);
-    m_legendContainer->setStyleSheet("background: #1a1a1a; border-top: 1px solid #333;");
     m_legendLayout = new QHBoxLayout(m_legendContainer);
     m_legendLayout->setContentsMargins(10, 2, 10, 2);
     m_legendLayout->setSpacing(15);
 
     m_xAxisTitleLabel = new QLabel("Time (s)", this);
-    m_xAxisTitleLabel->setStyleSheet("color: #aaa; font-weight: bold; font-size: 10px; text-transform: uppercase;");
     m_legendLayout->addWidget(m_xAxisTitleLabel);
     m_legendLayout->addStretch();
 
@@ -500,9 +584,7 @@ void WaveformViewer::setupUi() {
  
     auto *footer = new QHBoxLayout();
     m_coordLabel = new QLabel("Ready");
-    m_coordLabel->setStyleSheet("font-family: monospace; color: #00ff00;");
     m_statsLabel = new QLabel("");
-    m_statsLabel->setStyleSheet("font-family: monospace; color: #ffaa00;");
     footer->addWidget(m_coordLabel);
     footer->addStretch();
     footer->addWidget(m_statsLabel);
@@ -512,7 +594,29 @@ void WaveformViewer::setupUi() {
 
 void WaveformViewer::setupStyle() {
     PCBTheme* theme = ThemeManager::theme();
-    bool isDark = theme && theme->type() == PCBTheme::Dark;
+    bool isDark = !theme || theme->type() != PCBTheme::Light;
+    const QString panelBg = theme ? theme->panelBackground().name() : "#18181b";
+    const QString windowBg = theme ? theme->windowBackground().name() : "#111111";
+    const QString border = theme ? theme->panelBorder().name() : "#3f3f46";
+    const QString text = theme ? theme->textColor().name() : "#f4f4f5";
+    const QString secondary = theme ? theme->textSecondary().name() : "#a1a1aa";
+    const QString accent = theme ? theme->accentColor().name() : "#2563eb";
+    const QString hover = isDark ? "#333333" : "#e5e7eb";
+
+    if (auto* toolbar = findChild<QToolBar*>("waveformToolbar")) {
+        toolbar->setStyleSheet(QString(
+            "QToolBar { spacing: 2px; padding: 0px 2px; background: %1; border-bottom: 1px solid %2; }"
+            "QToolButton { padding: 2px 6px; margin: 0px; font-size: 11px; min-height: 20px; color: %3; border-radius: 4px; }"
+            "QToolButton:hover { background: %4; }"
+            "QToolButton:checked { background: %5; color: white; }"
+        ).arg(panelBg, border, text, hover, accent));
+    }
+
+    m_splitter->setStyleSheet(QString("QSplitter::handle { background: %1; }").arg(border));
+    m_legendContainer->setStyleSheet(QString("background: %1; border-top: 1px solid %2;").arg(panelBg, border));
+    m_xAxisTitleLabel->setStyleSheet(QString("color: %1; font-weight: bold; font-size: 10px; text-transform: uppercase;").arg(secondary));
+    m_coordLabel->setStyleSheet(QString("font-family: monospace; color: %1;").arg(accent));
+    m_statsLabel->setStyleSheet(QString("font-family: monospace; color: %1;").arg(isDark ? "#f59e0b" : "#b45309"));
     
     for (auto* p : m_panes) {
         if (isDark) {
@@ -544,17 +648,17 @@ void WaveformViewer::setupStyle() {
     }
     
     if (isDark) {
-        m_nodeList->setStyleSheet(R"(
-            QListWidget { background: #18181b; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 4px; }
-            QListWidget::item { padding: 6px 8px; border-bottom: 1px solid #27272a; }
-            QListWidget::item:selected { background: #2563eb; color: white; }
-        )");
+        m_nodeList->setStyleSheet(QString(
+            "QListWidget { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; }"
+            "QListWidget::item { padding: 6px 8px; border-bottom: 1px solid %4; }"
+            "QListWidget::item:selected { background: %5; color: white; }"
+        ).arg(panelBg, text, border, windowBg, accent));
     } else {
-        m_nodeList->setStyleSheet(R"(
-            QListWidget { background: #ffffff; color: #111827; border: 1px solid #e5e7eb; border-radius: 4px; }
-            QListWidget::item { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }
-            QListWidget::item:selected { background: #dbeafe; color: #1e40af; }
-        )");
+        m_nodeList->setStyleSheet(QString(
+            "QListWidget { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; }"
+            "QListWidget::item { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }"
+            "QListWidget::item:selected { background: #dbeafe; color: #1e40af; }"
+        ).arg(windowBg, text, border));
     }
 }
 
@@ -856,6 +960,15 @@ void WaveformViewer::onMouseMoved(const QPointF &value) {
 }
 
 void WaveformViewer::toggleCursors() {
+    const bool hasPlottedSeries = std::any_of(m_panes.begin(), m_panes.end(), [](const ChartPane* pane) {
+        return pane && pane->chart && !pane->chart->series().isEmpty();
+    });
+
+    if (!m_cursorsEnabled && !hasPlottedSeries) {
+        if (m_measureDialog) m_measureDialog->hide();
+        return;
+    }
+
     m_cursorsEnabled = !m_cursorsEnabled;
     for (auto* p : m_panes) p->view->setCursorsEnabled(m_cursorsEnabled);
     if (m_cursorsEnabled) {
@@ -881,6 +994,15 @@ void WaveformViewer::toggleCrosshair() {
 
 void WaveformViewer::updateCursors() {
     if (!m_cursorsEnabled || m_panes.isEmpty()) return;
+
+    const bool hasPlottedSeries = std::any_of(m_panes.begin(), m_panes.end(), [](const ChartPane* pane) {
+        return pane && pane->chart && !pane->chart->series().isEmpty();
+    });
+
+    if (!hasPlottedSeries) {
+        if (m_measureDialog) m_measureDialog->hide();
+        return;
+    }
 
     m_cursor1X = m_panes.first()->view->cursor1X();
     m_cursor2X = m_panes.first()->view->cursor2X();
@@ -1022,17 +1144,13 @@ void WaveformViewer::updatePlot(bool autoScale) {
                 auto* series = new QLineSeries();
                 series->setName(name);
                 series->setPen(QPen(data.customColor.isValid() ? data.customColor : item->foreground().color(), data.lineWidth, data.penStyle));
-                
-                const int totalSize = data.time.size();
-                const int step = std::max(1, totalSize / 2000); 
-                for (int j = 0; j < totalSize; j += step) {
-                    double y = m_acMode ? toDb(data.values[j]) : data.values[j];
-                    series->append(data.time[j], y);
-                }
-                if (totalSize > 1 && (totalSize - 1) % step != 0) {
-                     double y = m_acMode ? toDb(data.values.last()) : data.values.last();
-                     series->append(data.time.last(), y);
-                }
+
+                const double minX = pane->axisX->min();
+                const double maxX = pane->axisX->max();
+                const int viewportWidth = pane->view ? std::max(64, pane->view->viewport()->width()) : 1200;
+                const QList<QPointF> visiblePoints = buildVisibleMinMaxSeries(
+                    data.time, data.values, minX, maxX, viewportWidth * 2, m_acMode);
+                series->append(visiblePoints);
 
                 pane->chart->addSeries(series);
                 series->attachAxis(pane->axisX);
@@ -1053,7 +1171,10 @@ void WaveformViewer::exportImage() {
     }
 }
 
-void WaveformViewer::resetZoom() { for (auto* p : m_panes) p->chart->zoomReset(); }
+void WaveformViewer::resetZoom() {
+    for (auto* p : m_panes) p->chart->zoomReset();
+    scheduleVisibleRangeRefresh();
+}
 
 void WaveformViewer::pushZoomState() {
     if (m_panes.isEmpty()) return;
@@ -1084,6 +1205,7 @@ void WaveformViewer::applyZoomState(const ZoomState &s) {
         }
     }
     m_blockUpdates = false;
+    scheduleVisibleRangeRefresh();
 }
 
 void WaveformViewer::onZoomRectCompleted(const QRectF &valueRect) {
@@ -1108,6 +1230,7 @@ void WaveformViewer::onZoomRectCompleted(const QRectF &valueRect) {
         sourcePane->axisY->setRange(valueRect.top(), valueRect.bottom());
     }
     m_blockUpdates = false;
+    scheduleVisibleRangeRefresh();
 }
 
 void WaveformViewer::undoZoom() {
@@ -1235,6 +1358,18 @@ void WaveformViewer::syncAxesX(QValueAxis* source) {
         }
     }
     m_blockUpdates = false;
+    scheduleVisibleRangeRefresh();
+}
+
+void WaveformViewer::scheduleVisibleRangeRefresh() {
+    if (m_blockUpdates || m_rebuildQueued) return;
+    m_rebuildQueued = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        m_rebuildQueued = false;
+        if (!m_blockUpdates) {
+            updatePlot(false);
+        }
+    }, Qt::QueuedConnection);
 }
 
 void WaveformViewer::onPaneClicked() {
@@ -1528,6 +1663,9 @@ void WaveformViewer::onFftRequested() {
     
     auto* dlg = new QDialog(this);
     dlg->setWindowTitle("FFT - " + m_activeSeriesName);
+    if (ThemeManager::theme()) {
+        dlg->setStyleSheet(ThemeManager::theme()->widgetStylesheet());
+    }
     auto* l = new QVBoxLayout(dlg);
     auto* chart = new QChart();
     auto* series = new QLineSeries();

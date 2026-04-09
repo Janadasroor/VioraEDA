@@ -6,6 +6,7 @@
 #include "../analysis/schematic_erc.h"
 #include "theme_manager.h"
 #include "../../python/gemini_panel.h"
+#include "../../core/config_manager.h"
 #include "schematic_commands.h"
 #include "spice_directive_classifier.h"
 #include "../dialogs/spice_mean_dialog.h"
@@ -103,6 +104,27 @@ QIcon SchematicEditor::getThemeIcon(const QString& path) {
     painter.fillRect(pixmap.rect(), ThemeManager::theme()->textColor());
     painter.end();
     return QIcon(pixmap);
+}
+
+void SchematicEditor::refreshOscilloscopeDockContent() {
+    if (!m_oscilloscopeDock || !m_simulationPanel) return;
+
+    const bool showFullPanel = ConfigManager::instance()
+                                   .toolProperty("SimulationPanel", "showFullPanelInDock", false)
+                                   .toBool();
+    QWidget* targetWidget = showFullPanel
+        ? static_cast<QWidget*>(m_simulationPanel)
+        : m_simulationPanel->getOscilloscopeContainer();
+
+    if (!targetWidget) {
+        targetWidget = m_simulationPanel;
+    }
+
+    if (m_oscilloscopeDock->widget() == targetWidget) {
+        return;
+    }
+
+    m_oscilloscopeDock->setWidget(targetWidget);
 }
 
 // Helper to create simple programmatic icons for components/tools
@@ -338,6 +360,7 @@ void SchematicEditor::createToolBar() {
     
     // 1. CREATE MODERN HAMBURGER MENU BUTTON
     QToolButton* menuBtn = new QToolButton(this);
+    menuBtn->setObjectName("MainMenuButton");
     menuBtn->setText("Menu");
     // Simple 3-line hamburger icon
     QPixmap menuPix(24, 24);
@@ -362,7 +385,8 @@ void SchematicEditor::createToolBar() {
     QMenu* fileMenu = mainAppMenu->addMenu("&File");
     fileMenu->addAction(createComponentIcon("New"), "New Schematic", QKeySequence::New, this, &SchematicEditor::onNewSchematic);
     fileMenu->addAction(createComponentIcon("Open"), "Open Schematic...", QKeySequence::Open, this, &SchematicEditor::onOpenSchematic);
-    fileMenu->addAction(createComponentIcon("Open"), "Open Template...", this, [this]() {
+    QAction* openTemplateAct = fileMenu->addAction(createComponentIcon("Open"), "Open Template...");
+    connect(openTemplateAct, &QAction::triggered, this, [this]() {
         CircuitTemplateGallery dlg(m_projectDir, this);
         if (dlg.exec() == QDialog::Accepted) {
             auto tpl = dlg.selectedTemplate();
@@ -387,11 +411,12 @@ void SchematicEditor::createToolBar() {
             }
         }
     });
-    fileMenu->addAction(createComponentIcon("Open"), "Import ASC File...", this, &SchematicEditor::onImportAscFile);
+    fileMenu->addAction(createComponentIcon("Open"), "Import ASC File...", QKeySequence(), this, &SchematicEditor::onImportAscFile);
     
     QMenu* importSubcktMenu = fileMenu->addMenu("Import SPICE Subcircuit");
-    importSubcktMenu->addAction(createComponentIcon("Open"), "Import from Text/Paste...", this, &SchematicEditor::onImportSpiceSubcircuit);
-    importSubcktMenu->addAction(createComponentIcon("Open"), "Import from File...", this, [this]() {
+    importSubcktMenu->addAction(createComponentIcon("Open"), "Import from Text/Paste...", QKeySequence(), this, &SchematicEditor::onImportSpiceSubcircuit);
+    QAction* importSubcktFileAct = importSubcktMenu->addAction(createComponentIcon("Open"), "Import from File...");
+    connect(importSubcktFileAct, &QAction::triggered, this, [this]() {
         const QString projectDir = m_projectDir.isEmpty() ? QFileInfo(m_currentFilePath).absolutePath() : m_projectDir;
         const QString filePath = QFileDialog::getOpenFileName(this, "Import SPICE Subcircuit File",
             projectDir, "SPICE Files (*.cir *.lib *.sub *.sp);;All Files (*)");
@@ -399,21 +424,22 @@ void SchematicEditor::createToolBar() {
             onImportSpiceSubcircuitFile(filePath);
         }
     });
-    importSubcktMenu->addAction(createComponentIcon("Open"), "Import from Library...", this, [this]() {
+    QAction* importSubcktLibAct = importSubcktMenu->addAction(createComponentIcon("Open"), "Import from Library...");
+    connect(importSubcktLibAct, &QAction::triggered, this, [this]() {
         onImportSpiceSubcircuitFile("");
     });
     
     fileMenu->addAction(createComponentIcon("Save"), "Save Schematic", QKeySequence::Save, this, &SchematicEditor::onSaveSchematic);
     fileMenu->addSeparator();
-    fileMenu->addAction(createComponentIcon("New Symbol"), "Create New Symbol", this, &SchematicEditor::onOpenSymbolEditor);
-    fileMenu->addAction(createComponentIcon("New Symbol"), "Create New Symbol from Schematic", this, &SchematicEditor::onCreateSymbolFromSchematic);
+    fileMenu->addAction(createComponentIcon("New Symbol"), "Create New Symbol", QKeySequence(), this, &SchematicEditor::onOpenSymbolEditor);
+    fileMenu->addAction(createComponentIcon("New Symbol"), "Create New Symbol from Schematic", QKeySequence(), this, &SchematicEditor::onCreateSymbolFromSchematic);
     fileMenu->addSeparator();
     QMenu* exportMenu = fileMenu->addMenu("Export");
-    exportMenu->addAction("Export as PDF", this, &SchematicEditor::onExportPDF);
-    exportMenu->addAction("Export as SVG", this, &SchematicEditor::onExportSVG);
-    exportMenu->addAction("Export as Image", this, &SchematicEditor::onExportImage);
+    exportMenu->addAction("Export as PDF", QKeySequence(), this, &SchematicEditor::onExportPDF);
+    exportMenu->addAction("Export as SVG", QKeySequence(), this, &SchematicEditor::onExportSVG);
+    exportMenu->addAction("Export as Image", QKeySequence(), this, &SchematicEditor::onExportImage);
     exportMenu->addSeparator();
-    exportMenu->addAction("Export AI JSON...", this, &SchematicEditor::onExportAISchematic);
+    exportMenu->addAction("Export AI JSON...", QKeySequence(), this, &SchematicEditor::onExportAISchematic);
     fileMenu->addSeparator();
     fileMenu->addAction(createComponentIcon("Exit"), "Exit", QKeySequence::Quit, this, &QWidget::close);
 
@@ -430,9 +456,9 @@ void SchematicEditor::createToolBar() {
     editMenu->addAction(getThemeIcon(":/icons/tool_duplicate.svg"), "Copy", QKeySequence::Copy, this, &SchematicEditor::onCopy);
     editMenu->addAction(getThemeIcon(":/icons/tool_generic.svg"), "Paste", QKeySequence::Paste, this, &SchematicEditor::onPaste);
     editMenu->addSeparator();
-    QAction* deleteAction = editMenu->addAction(getThemeIcon(":/icons/tool_delete.svg"), "Delete", this, &SchematicEditor::onDelete);
+    QAction* deleteAction = editMenu->addAction(getThemeIcon(":/icons/tool_delete.svg"), "Delete", QKeySequence(), this, &SchematicEditor::onDelete);
     deleteAction->setShortcut(QKeySequence());
-    editMenu->addAction("Select All", this, &SchematicEditor::onSelectAll, QKeySequence::SelectAll);
+    editMenu->addAction("Select All", QKeySequence::SelectAll, this, &SchematicEditor::onSelectAll);
     editMenu->addSeparator();
     editMenu->addAction(getThemeIcon(":/icons/tool_search.svg"), "Find and Replace...", QKeySequence::Find, this, &SchematicEditor::onOpenFindReplace);
     editMenu->addSeparator();
@@ -449,7 +475,9 @@ void SchematicEditor::createToolBar() {
     viewMenu->addAction(getThemeIcon(":/icons/view_zoom_components.svg"), "Zoom to Components", QKeySequence("Alt+F"), this, &SchematicEditor::onZoomAllComponents);
     viewMenu->addSeparator();
     viewMenu->addAction(getThemeIcon(":/icons/toolbar_new.png"), "Show Netlist", QKeySequence("Ctrl+G"), this, &SchematicEditor::onOpenNetlistEditor);
-    m_showDetailedLogAction = viewMenu->addAction("Show Detailed Log", QKeySequence("Ctrl+L"), this, [this]() {
+    m_showDetailedLogAction = viewMenu->addAction("Show Detailed Log");
+    m_showDetailedLogAction->setShortcut(QKeySequence("Ctrl+L"));
+    connect(m_showDetailedLogAction, &QAction::triggered, this, [this]() {
         if (m_simulationPanel) m_simulationPanel->showDetailedLog();
     });
     if (m_showDetailedLogAction) {
@@ -518,25 +546,28 @@ void SchematicEditor::createToolBar() {
     m_runSimMenuAction = simMenu->addAction(createComponentIcon("Simulator"), "Run Simulation", QKeySequence("F8"), this, &SchematicEditor::onRunSimulation);
     m_stopSimMenuAction = simMenu->addAction(getThemeIcon(":/icons/tool_delete.svg"), "Stop Simulation", QKeySequence("Shift+F8"), this, &SchematicEditor::onPauseSimulation);
     simMenu->addSeparator();
-    simMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Simulation Setup...", this, &SchematicEditor::onOpenSimulationSetup);
+    simMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Simulation Setup...", QKeySequence(), this, &SchematicEditor::onOpenSimulationSetup);
 
     // Tools Menu
     QMenu* toolsMenu = mainAppMenu->addMenu("&Tools");
-    toolsMenu->addAction(createComponentIcon("Annotate"), "Annotate Components", this, &SchematicEditor::onAnnotate);
+    toolsMenu->addAction(createComponentIcon("Annotate"), "Annotate Components", QKeySequence(), this, &SchematicEditor::onAnnotate);
     toolsMenu->addAction(createComponentIcon("ERC"), "Run ERC Checker", QKeySequence("F7"), this, &SchematicEditor::onRunERC);
-    toolsMenu->addAction("Configure ERC Rules...", this, &SchematicEditor::onOpenERCRulesConfig);
-    toolsMenu->addAction("Design Rule Editor...", this, &SchematicEditor::onOpenDesignRuleEditor);
-    toolsMenu->addAction("Clear ERC Exclusions", this, &SchematicEditor::onClearErcExclusions);
-    toolsMenu->addAction("Bus Aliases...", this, &SchematicEditor::onOpenBusAliasesManager);
-    toolsMenu->addAction(createComponentIcon("Netlist"), "Netlist Editor", this, &SchematicEditor::onOpenNetlistEditor);
+    toolsMenu->addAction("Configure ERC Rules...", QKeySequence(), this, &SchematicEditor::onOpenERCRulesConfig);
+    toolsMenu->addAction("Design Rule Editor...", QKeySequence(), this, &SchematicEditor::onOpenDesignRuleEditor);
+    toolsMenu->addAction("Clear ERC Exclusions", QKeySequence(), this, &SchematicEditor::onClearErcExclusions);
+    toolsMenu->addAction("Bus Aliases...", QKeySequence(), this, &SchematicEditor::onOpenBusAliasesManager);
+    toolsMenu->addAction(createComponentIcon("Netlist"), "Netlist Editor", QKeySequence(), this, &SchematicEditor::onOpenNetlistEditor);
     toolsMenu->addSeparator();
 
-    QAction* syncAction = toolsMenu->addAction(createComponentIcon("Sync"), "🔄 Update PCB from Schematic...", QKeySequence("Ctrl+Shift+U"), this, &SchematicEditor::onSendToPCB);
-    syncAction->setToolTip("Generate ECO and push changes to the PCB editor");
+    if (ConfigManager::instance().isFeatureEnabled("pcb_tools", false)) {
+        QAction* syncAction = toolsMenu->addAction(createComponentIcon("Sync"), "🔄 Update PCB from Schematic...", QKeySequence("Ctrl+Shift+U"), this, &SchematicEditor::onSendToPCB);
+        syncAction->setToolTip("Generate ECO and push changes to the PCB editor");
+    }
 
     QMenu* importSubcktToolsMenu = toolsMenu->addMenu(getThemeIcon(":/icons/tool_spice_directive.svg"), "Import SPICE Subcircuit");
-    importSubcktToolsMenu->addAction("Import from Text/Paste...", this, &SchematicEditor::onImportSpiceSubcircuit);
-    importSubcktToolsMenu->addAction("Import from File...", this, [this]() {
+    importSubcktToolsMenu->addAction("Import from Text/Paste...", QKeySequence(), this, &SchematicEditor::onImportSpiceSubcircuit);
+    QAction* importSubcktToolsFileAct = importSubcktToolsMenu->addAction("Import from File...");
+    connect(importSubcktToolsFileAct, &QAction::triggered, this, [this]() {
         const QString projectDir = m_projectDir.isEmpty() ? QFileInfo(m_currentFilePath).absolutePath() : m_projectDir;
         const QString filePath = QFileDialog::getOpenFileName(this, "Import SPICE Subcircuit File",
             projectDir, "SPICE Files (*.cir *.lib *.sub *.sp);;All Files (*)");
@@ -544,14 +575,16 @@ void SchematicEditor::createToolBar() {
             onImportSpiceSubcircuitFile(filePath);
         }
     });
-    importSubcktToolsMenu->addAction("Import from Library...", this, [this]() {
+    QAction* importSubcktToolsLibAct = importSubcktToolsMenu->addAction("Import from Library...");
+    connect(importSubcktToolsLibAct, &QAction::triggered, this, [this]() {
         onImportSpiceSubcircuitFile("");
     });
     
-    toolsMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "SPICE Model Architect", this, &SchematicEditor::onOpenModelArchitect);
+    toolsMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "SPICE Model Architect", QKeySequence(), this, &SchematicEditor::onOpenModelArchitect);
     toolsMenu->addSeparator();
     
-    QAction* askModeAct = toolsMenu->addAction("Ask Co-Pilot (Mode)", this, [this](bool checked) {
+    QAction* askModeAct = toolsMenu->addAction("Ask Co-Pilot (Mode)");
+    connect(askModeAct, &QAction::triggered, this, [this](bool checked) {
         if (m_geminiPanel) {
             m_geminiPanel->setMode(checked ? "ask" : "schematic");
             if (m_geminiDock) m_geminiDock->show();
@@ -568,14 +601,14 @@ void SchematicEditor::createToolBar() {
 
     // Settings (top-level, above Help)
     mainAppMenu->addSeparator();
-    mainAppMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Settings...", this, &SchematicEditor::onSettings);
+    mainAppMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Settings...", QKeySequence(), this, &SchematicEditor::onSettings);
 
     QMenu* helpMenu = mainAppMenu->addMenu("&Help");
-    helpMenu->addAction(createComponentIcon("About"), "About viospice", this, &SchematicEditor::onAbout);
+    helpMenu->addAction(createComponentIcon("About"), "About viospice", QKeySequence(), this, &SchematicEditor::onAbout);
     helpMenu->addAction("Help & Guides", QKeySequence::HelpContents, this, &SchematicEditor::onShowHelp);
     helpMenu->addAction("Developer Documentation", QKeySequence("Ctrl+Shift+F1"), this, &SchematicEditor::onShowDeveloperHelp);
     helpMenu->addSeparator();
-    helpMenu->addAction("Project Health Audit...", this, &SchematicEditor::onProjectAudit);
+    helpMenu->addAction("Project Health Audit...", QKeySequence(), this, &SchematicEditor::onProjectAudit);
 
     menuBtn->setMenu(mainAppMenu);
     mainToolbar->addWidget(menuBtn);
@@ -604,6 +637,7 @@ void SchematicEditor::createToolBar() {
         p.drawLine(24, 24, 24, 32);
     }
     QToolButton* newFileBtn = new QToolButton(this);
+    newFileBtn->setObjectName("NewSchematicButton");
     newFileBtn->setIcon(QIcon(newFilePix));
     newFileBtn->setToolTip("New Schematic (Ctrl+N)");
     connect(newFileBtn, &QToolButton::clicked, this, &SchematicEditor::onNewSchematic);
@@ -625,6 +659,7 @@ void SchematicEditor::createToolBar() {
         p.drawLine(8, 20, 40, 20);
     }
     QToolButton* openFileBtn = new QToolButton(this);
+    openFileBtn->setObjectName("OpenSchematicButton");
     openFileBtn->setIcon(QIcon(openFilePix));
     openFileBtn->setToolTip("Open Schematic (Ctrl+O)");
     connect(openFileBtn, &QToolButton::clicked, this, &SchematicEditor::onOpenSchematic);
@@ -1048,7 +1083,8 @@ void SchematicEditor::createToolBar() {
     }
 
     QToolButton* moreBtn = new QToolButton(this);
-    moreBtn->setIcon(QIcon(":/icons/chevron_down.svg"));
+    moreBtn->setObjectName("MoreToolsButton");
+    moreBtn->setIcon(getThemeIcon(":/icons/chevron_down.svg"));
     moreBtn->setToolTip("More...");
     moreBtn->setPopupMode(QToolButton::InstantPopup);
     QMenu* moreMenu = new QMenu(moreBtn);
@@ -1092,10 +1128,10 @@ void SchematicEditor::createToolBar() {
     }
 
     // Make overflow button explicit/visible when toolbar has hidden actions.
-    QTimer::singleShot(0, this, [schToolbar]() {
+    QTimer::singleShot(0, this, [this, schToolbar]() {
         if (QToolButton* extBtn = schToolbar->findChild<QToolButton*>("qt_toolbar_ext_button")) {
             extBtn->setToolTip("More...");
-            extBtn->setIcon(QIcon(":/icons/chevron_down.svg"));
+            extBtn->setIcon(getThemeIcon(":/icons/chevron_down.svg"));
             extBtn->setIconSize(QSize(12, 12));
             extBtn->setAutoRaise(false);
             extBtn->show();
@@ -1590,7 +1626,7 @@ void SchematicEditor::createDockWidgets() {
         connect(m_simulationPanel, &SimulationPanel::clearOverlaysRequested,
                 this, &SchematicEditor::onClearSimulationOverlays, Qt::UniqueConnection);
 
-        m_oscilloscopeDock->setWidget(m_simulationPanel);
+        refreshOscilloscopeDockContent();
     }
 }
 
@@ -1614,21 +1650,6 @@ void SchematicEditor::createStatusBar() {
     m_remoteLabel->setMinimumWidth(180);
     m_remoteLabel->setStyleSheet("color: #6b7280;"); // Muted gray when off
     statusBar()->addWidget(m_remoteLabel);
-
-    // Unit Switcher
-    auto* unitCombo = new QComboBox();
-    unitCombo->addItems({"mm", "mil", "in"});
-    unitCombo->setStyleSheet(
-        "QComboBox { background: #ffffff; color: #111827; border: 1px solid #d1d5db; font-size: 10px; height: 18px; margin: 4px 0; }"
-        "QComboBox QAbstractItemView { background: #ffffff; color: #111827; selection-background-color: #e5e7eb; selection-color: #111827; }"
-    );
-    connect(unitCombo, &QComboBox::currentTextChanged, this, [this](const QString& unit) {
-        m_view->setProperty("currentUnit", unit);
-        // Refresh coords if mouse is over view
-        QPointF scenePos = m_view->mapToScene(m_view->mapFromGlobal(QCursor::pos()));
-        updateCoordinates(scenePos);
-    });
-    statusBar()->addWidget(unitCombo);
 
     // Separator
     QFrame* sep1 = new QFrame();
@@ -2198,7 +2219,7 @@ void SchematicEditor::onRunSimulation() {
     // Avoid blocking the UI with a full net rebuild here.
 
     if (m_oscilloscopeDock && m_simulationPanel) {
-        m_oscilloscopeDock->setWidget(m_simulationPanel);
+        refreshOscilloscopeDockContent();
         m_oscilloscopeDock->setFloating(false);
         m_oscilloscopeDock->show();
     }

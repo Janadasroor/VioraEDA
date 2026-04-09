@@ -92,6 +92,26 @@ private:
 };
 
 /**
+ * @brief Command for restoring an item's serialized geometry/state
+ */
+class PCBItemStateCommand : public PCBCommand {
+public:
+    PCBItemStateCommand(QGraphicsScene* scene, PCBItem* item,
+                        const QJsonObject& oldState, const QJsonObject& newState,
+                        const QString& text, QUndoCommand* parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+private:
+    void applyState(const QJsonObject& state);
+
+    PCBItem* m_item;
+    QJsonObject m_oldState;
+    QJsonObject m_newState;
+};
+
+/**
  * @brief Command for rotating items on the PCB
  */
 class PCBRotateItemCommand : public PCBCommand {

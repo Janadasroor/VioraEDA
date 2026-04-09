@@ -74,8 +74,23 @@ void PCBComponentTool::mouseMoveEvent(QMouseEvent* event) {
     }
 }
 
+void PCBComponentTool::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape) {
+        event->ignore(); // Let PCBView handle return to Select tool
+        return;
+    }
+    PCBTool::keyPressEvent(event);
+}
+
 void PCBComponentTool::mousePressEvent(QMouseEvent* event) {
-    if (!view() || event->button() != Qt::LeftButton) return;
+    if (!view()) return;
+
+    if (event->button() == Qt::RightButton) {
+        event->ignore(); // Let PCBView handle return to Select tool
+        return;
+    }
+
+    if (event->button() != Qt::LeftButton) return;
 
     QPointF scenePos = view()->mapToScene(event->pos());
     QPointF snappedPos = view()->snapToGrid(scenePos);
@@ -92,6 +107,9 @@ void PCBComponentTool::mousePressEvent(QMouseEvent* event) {
             view()->scene()->addItem(component);
         }
         qDebug() << "Placed" << m_componentType << "component at" << snappedPos;
+        
+        // RE-FOCUS view after adding item to scene
+        view()->setFocus();
     }
     event->accept();
 }

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Janada Sroor
 
 #include "measurement_dialog.h"
+#include "../core/theme_manager.h"
 #include <cmath>
 
 MeasurementDialog::MeasurementDialog(QWidget *parent) : QDialog(parent) {
@@ -94,11 +95,9 @@ MeasurementDialog::MeasurementDialog(QWidget *parent) : QDialog(parent) {
     m_dgd = createReadOnlyEdit();
     layout->addWidget(m_dgd, 9, 3);
 
-    setStyleSheet(R"(
-        QDialog { background-color: #f0f0f0; border: 1px solid #ccc; color: black; }
-        QLabel { font-weight: bold; color: #333; }
-        QLineEdit { background-color: white; color: black; border: 1px solid #aaa; padding: 2px; }
-    )");
+    if (ThemeManager::theme()) {
+        setStyleSheet(ThemeManager::theme()->widgetStylesheet());
+    }
 
     setAcMode(false);
 }
