@@ -22,7 +22,7 @@
 #include <QTabWidget>
 #include <QTextEdit>
 #include <QListWidget>
-#include <QGraphicsRectItem>
+#include <QGraphicsItem>
 #include "../ui/property_editor.h"
 #include "models/footprint_definition.h"
 
@@ -199,7 +199,7 @@ private:
     QPointF m_startPoint;
     QGraphicsItem* m_previewItem;
     QList<QPointF> m_polyPoints;
-    QList<QGraphicsRectItem*> m_resizeHandles;
+    QList<QGraphicsItem*> m_resizeHandles;
     bool m_rectResizeSessionActive = false;
     int m_rectResizePrimIdx = -1;
     QString m_rectResizeCorner;

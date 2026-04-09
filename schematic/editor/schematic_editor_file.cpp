@@ -1262,6 +1262,7 @@ void SchematicEditor::onOpenNetlistEditor() {
 
 #include "../items/net_label_item.h"
 #include "schematic_item.h"
+#include "../../pcb/editor/mainwindow.h"
 
 void SchematicEditor::onSendToPCB() {
     // 1. Run ERC Check before syncing
@@ -1423,11 +1424,16 @@ void SchematicEditor::onSwitchToPCBEditor() {
         // Trigger ECO handle via meta-object call
         QMetaObject::invokeMethod(existing, "handleIncomingECO", Qt::QueuedConnection);
     } else {
-        // Dynamically load and create PCB MainWindow
-        QObject* pcbEditor = nullptr;
-        // Try to find the PCB module's MainWindow class via plugin or direct instantiation
-        // For now, open via the application's main window mechanism
-        statusBar()->showMessage("No PCB Editor found. Please open PCB file separately.", 5000);
+        // Create a new PCB MainWindow
+        MainWindow* pcbEditor = new MainWindow();
+        pcbEditor->setAttribute(Qt::WA_DeleteOnClose);
+        pcbEditor->setProperty("projectName", m_projectName);
+        pcbEditor->show();
+        pcbEditor->raise();
+        pcbEditor->activateWindow();
+        statusBar()->showMessage("Opened PCB Editor", 3000);
+        // Trigger ECO handle via meta-object call
+        QMetaObject::invokeMethod(pcbEditor, "handleIncomingECO", Qt::QueuedConnection);
     }
 }
 

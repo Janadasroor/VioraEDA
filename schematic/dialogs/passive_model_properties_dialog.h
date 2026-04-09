@@ -25,11 +25,13 @@ public:
     QString spiceModel() const;
     QString manufacturer() const;
     QString mpn() const;
+    QString footprint() const;
     bool excludeFromSimulation() const;
     bool excludeFromPcb() const;
 
 private Q_SLOTS:
     void pickModel();
+    void pickFootprint();
 
 private:
     SchematicItem* m_item;
@@ -39,6 +41,7 @@ private:
     QLineEdit* m_spiceModelEdit = nullptr;
     QLineEdit* m_manufacturerEdit = nullptr;
     QLineEdit* m_mpnEdit = nullptr;
+    QLineEdit* m_footprintEdit = nullptr;
     QGroupBox* m_inductorModelGroup = nullptr;
     QLineEdit* m_seriesResistanceEdit = nullptr;
     QLineEdit* m_parallelResistanceEdit = nullptr;

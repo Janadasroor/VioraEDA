@@ -5,6 +5,7 @@
 InstrumentProbeItem::InstrumentProbeItem(Kind kind, QPointF pos, QGraphicsItem* parent)
     : SchematicItem(parent)
     , m_kind(kind) {
+    setExcludeFromPcb(true); // Instruments are excluded from PCB by default
     setPos(pos);
     setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
     setReference(referencePrefix() + "1");

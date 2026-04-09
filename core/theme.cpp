@@ -299,7 +299,7 @@ QString PCBTheme::widgetStylesheet() const {
         "   border-color: %19;"
         "}"
         "QCheckBox::indicator:checked, QRadioButton::indicator:checked {"
-        "   background-color: %5;"
+        "   background-color: transparent;"
         "   border-color: %5;"
         "}"
         "QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {"

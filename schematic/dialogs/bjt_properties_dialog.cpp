@@ -1,6 +1,6 @@
 #include "bjt_properties_dialog.h"
 #include "bjt_model_picker_dialog.h"
-
+#include "../../pcb/dialogs/footprint_browser_dialog.h"
 #include "../items/schematic_item.h"
 #include "../../core/theme_manager.h"
 #include "../../simulator/bridge/model_library_manager.h"
@@ -82,6 +82,16 @@ void BjtPropertiesDialog::setupUI() {
     m_trEdit = new QLineEdit();
     m_trEdit->setPlaceholderText("e.g. 50n");
     form->addRow("Tr:", m_trEdit);
+
+    auto* fpRow = new QHBoxLayout();
+    m_footprintEdit = new QLineEdit();
+    m_footprintEdit->setPlaceholderText("Select a footprint");
+    m_footprintEdit->setReadOnly(true);
+    auto* fpBtn = new QPushButton("Pick Footprint");
+    connect(fpBtn, &QPushButton::clicked, this, &BjtPropertiesDialog::pickFootprint);
+    fpRow->addWidget(m_footprintEdit, 1);
+    fpRow->addWidget(fpBtn);
+    form->addRow("Footprint:", fpRow);
 
     mainLayout->addLayout(form);
 
@@ -165,6 +175,10 @@ void BjtPropertiesDialog::loadValues() {
     loadParam(m_cjcEdit, "bjt.Cjc", "3p");
     loadParam(m_tfEdit, "bjt.Tf", "400p");
     loadParam(m_trEdit, "bjt.Tr", "50n");
+
+    if (m_footprintEdit) {
+        m_footprintEdit->setText(m_item->footprint());
+    }
 }
 
 void BjtPropertiesDialog::fillFromModel(const QString& modelName) {
@@ -249,4 +263,18 @@ QMap<QString, QString> BjtPropertiesDialog::paramExpressions() const {
 
 QString BjtPropertiesDialog::newSymbolName() const {
     return isPnpSelected() ? "pnp" : "npn";
+}
+
+QString BjtPropertiesDialog::footprint() const {
+    return m_footprintEdit ? m_footprintEdit->text().trimmed() : QString();
+}
+
+void BjtPropertiesDialog::pickFootprint() {
+    FootprintBrowserDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        FootprintDefinition fp = dlg.selectedFootprint();
+        if (!fp.name().isEmpty()) {
+            m_footprintEdit->setText(fp.name());
+        }
+    }
 }

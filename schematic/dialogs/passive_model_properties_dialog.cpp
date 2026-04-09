@@ -1,6 +1,7 @@
 #include "passive_model_properties_dialog.h"
 
 #include "passive_model_picker_dialog.h"
+#include "../../pcb/dialogs/footprint_browser_dialog.h"
 #include "../items/schematic_item.h"
 #include "../../core/theme_manager.h"
 
@@ -108,6 +109,16 @@ PassiveModelPropertiesDialog::PassiveModelPropertiesDialog(SchematicItem* item, 
     m_mpnEdit = new QLineEdit(item ? item->mpn() : QString());
     form->addRow("MPN:", m_mpnEdit);
 
+    auto* fpRow = new QHBoxLayout();
+    m_footprintEdit = new QLineEdit(item ? item->footprint() : QString());
+    m_footprintEdit->setPlaceholderText("Select a footprint");
+    m_footprintEdit->setReadOnly(true);
+    auto* fpBtn = new QPushButton("Pick Footprint");
+    connect(fpBtn, &QPushButton::clicked, this, &PassiveModelPropertiesDialog::pickFootprint);
+    fpRow->addWidget(m_footprintEdit, 1);
+    fpRow->addWidget(fpBtn);
+    form->addRow("Footprint:", fpRow);
+
     m_excludeSimCheck = new QCheckBox("Exclude from Simulation");
     m_excludeSimCheck->setChecked(item ? item->excludeFromSimulation() : false);
     form->addRow("", m_excludeSimCheck);
@@ -175,6 +186,16 @@ void PassiveModelPropertiesDialog::pickModel() {
     }
 }
 
+void PassiveModelPropertiesDialog::pickFootprint() {
+    FootprintBrowserDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        FootprintDefinition fp = dlg.selectedFootprint();
+        if (!fp.name().isEmpty()) {
+            m_footprintEdit->setText(fp.name());
+        }
+    }
+}
+
 QString PassiveModelPropertiesDialog::reference() const {
     return m_referenceEdit ? m_referenceEdit->text().trimmed() : QString();
 }
@@ -211,6 +232,10 @@ QString PassiveModelPropertiesDialog::manufacturer() const {
 
 QString PassiveModelPropertiesDialog::mpn() const {
     return m_mpnEdit ? m_mpnEdit->text().trimmed() : QString();
+}
+
+QString PassiveModelPropertiesDialog::footprint() const {
+    return m_footprintEdit ? m_footprintEdit->text().trimmed() : QString();
 }
 
 bool PassiveModelPropertiesDialog::excludeFromSimulation() const {

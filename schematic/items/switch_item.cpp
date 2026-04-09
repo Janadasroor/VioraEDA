@@ -3,6 +3,7 @@
 #include <QJsonObject>
 
 SwitchItem::SwitchItem(QPointF pos, QGraphicsItem *parent) : SchematicItem(parent) {
+    setExcludeFromPcb(true); // Switches are excluded from PCB by default
     setPos(pos);
     setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
     m_isOpen = true;

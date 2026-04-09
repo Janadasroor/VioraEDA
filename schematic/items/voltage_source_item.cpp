@@ -9,9 +9,9 @@ using Flux::Model::SymbolPrimitive;
 using Flux::Model::SymbolDefinition;
 
 VoltageSourceItem::VoltageSourceItem(QPointF pos, const QString& value, SourceType type, QGraphicsItem* parent)
-    : SchematicItem(parent), m_sourceType(type), m_dcVoltage("5.0"), 
+    : SchematicItem(parent), m_sourceType(type), m_dcVoltage("5.0"),
       m_sineAmplitude("1.0"), m_sineFrequency("1000"), m_sineOffset("0.0"), m_sineDelay("0"), m_sineTheta("0"), m_sinePhi("0"), m_sineNcycles("0"),
-      m_pulseV1("0.0"), m_pulseV2("5.0"), m_pulseDelay("0"), m_pulseRise("1u"), m_pulseFall("1u"), 
+      m_pulseV1("0.0"), m_pulseV2("5.0"), m_pulseDelay("0"), m_pulseRise("1u"), m_pulseFall("1u"),
       m_pulseWidth("0.5m"), m_pulsePeriod("1m"), m_pulseNcycles("0"),
       m_expV1("0.0"), m_expV2("5.0"), m_expTd1("0"), m_expTau1("1m"), m_expTd2("2m"), m_expTau2("1m"),
       m_sffmOff("0.0"), m_sffmAmplit("1.0"), m_sffmCarrier("1000"), m_sffmModIndex("1.0"), m_sffmSignalFreq("100"),
@@ -19,7 +19,9 @@ VoltageSourceItem::VoltageSourceItem(QPointF pos, const QString& value, SourceTy
       m_acAmplitude(""), m_acPhase(""),
       m_seriesResistance("0.0"), m_parallelCapacitance("0.0"),
       m_showFunction(true), m_showDc(true), m_showAc(true), m_showParasitic(true) {
-    
+
+    setExcludeFromPcb(true); // Voltage sources are excluded from PCB by default
+
     setPos(pos);
     setFlag(QGraphicsItem::ItemIsSelectable, true);
     setFlag(QGraphicsItem::ItemIsMovable, true);

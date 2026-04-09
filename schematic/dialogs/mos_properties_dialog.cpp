@@ -1,6 +1,6 @@
 #include "mos_properties_dialog.h"
 #include "mos_model_picker_dialog.h"
-
+#include "../../pcb/dialogs/footprint_browser_dialog.h"
 #include "../items/schematic_item.h"
 #include "../../core/theme_manager.h"
 #include "../../simulator/bridge/model_library_manager.h"
@@ -83,6 +83,16 @@ void MosPropertiesDialog::setupUI() {
     m_cgdoEdit->setPlaceholderText("e.g. 50p");
     form->addRow("Cgdo:", m_cgdoEdit);
 
+    auto* fpRow = new QHBoxLayout();
+    m_footprintEdit = new QLineEdit();
+    m_footprintEdit->setPlaceholderText("Select a footprint");
+    m_footprintEdit->setReadOnly(true);
+    auto* fpBtn = new QPushButton("Pick Footprint");
+    connect(fpBtn, &QPushButton::clicked, this, &MosPropertiesDialog::pickFootprint);
+    fpRow->addWidget(m_footprintEdit, 1);
+    fpRow->addWidget(fpBtn);
+    form->addRow("Footprint:", fpRow);
+
     mainLayout->addLayout(form);
 
     mainLayout->addWidget(new QLabel("SPICE Preview:"));
@@ -163,6 +173,10 @@ void MosPropertiesDialog::loadValues() {
     loadParam(m_rsEdit, "mos.Rs", "1");
     loadParam(m_cgsoEdit, "mos.Cgso", "50p");
     loadParam(m_cgdoEdit, "mos.Cgdo", "50p");
+
+    if (m_footprintEdit) {
+        m_footprintEdit->setText(m_item->footprint());
+    }
 }
 
 void MosPropertiesDialog::fillFromModel(const QString& modelName) {
@@ -246,4 +260,18 @@ QMap<QString, QString> MosPropertiesDialog::paramExpressions() const {
 
 QString MosPropertiesDialog::newSymbolName() const {
     return isPmosSelected() ? "pmos" : "nmos";
+}
+
+QString MosPropertiesDialog::footprint() const {
+    return m_footprintEdit ? m_footprintEdit->text().trimmed() : QString();
+}
+
+void MosPropertiesDialog::pickFootprint() {
+    FootprintBrowserDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        FootprintDefinition fp = dlg.selectedFootprint();
+        if (!fp.name().isEmpty()) {
+            m_footprintEdit->setText(fp.name());
+        }
+    }
 }

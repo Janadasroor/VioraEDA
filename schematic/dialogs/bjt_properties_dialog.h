@@ -17,12 +17,14 @@ public:
     explicit BjtPropertiesDialog(SchematicItem* item, QWidget* parent = nullptr);
 
     QString modelName() const;
+    QString footprint() const;
     QMap<QString, QString> paramExpressions() const;
     QString newSymbolName() const;
 
 private Q_SLOTS:
     void updateCommandPreview();
     void applyChanges();
+    void pickFootprint();
 
 private:
     void setupUI();
@@ -43,6 +45,7 @@ private:
     QLineEdit* m_cjcEdit = nullptr;
     QLineEdit* m_tfEdit = nullptr;
     QLineEdit* m_trEdit = nullptr;
+    QLineEdit* m_footprintEdit = nullptr;
     QLineEdit* m_commandPreview = nullptr;
 };
 

@@ -99,7 +99,14 @@ void PCBSyncDialog::setupUI() {
 }
 
 void PCBSyncDialog::populateTable() {
+    // Clear existing table data to prevent duplication
+    m_table->clearContents();
+    m_table->setRowCount(0);
     m_table->setRowCount(m_package.components.size());
+
+    const PCBTheme* theme = ThemeManager::theme();
+    const QColor background = theme ? theme->panelBackground() : QColor("#13131a");
+    const QColor textColor = theme ? theme->textColor() : QColor("#e2e8f0");
 
     for (int i = 0; i < m_package.components.size(); ++i) {
         const auto& comp = m_package.components[i];
@@ -117,11 +124,23 @@ void PCBSyncDialog::populateTable() {
             onExcludeToggled(i, checked);
         });
 
-        m_table->setItem(i, 1, new QTableWidgetItem(comp.reference));
-        m_table->setItem(i, 2, new QTableWidgetItem(comp.value));
-        m_table->setItem(i, 3, new QTableWidgetItem(comp.footprint.isEmpty() ? "<Not Assigned>" : comp.footprint));
+        QTableWidgetItem* refItem = new QTableWidgetItem(comp.reference);
+        refItem->setBackground(i % 2 == 0 ? background : background.lighter(110));
+        refItem->setForeground(textColor);
+        m_table->setItem(i, 1, refItem);
+
+        QTableWidgetItem* valueItem = new QTableWidgetItem(comp.value);
+        valueItem->setBackground(i % 2 == 0 ? background : background.lighter(110));
+        valueItem->setForeground(textColor);
+        m_table->setItem(i, 2, valueItem);
+
+        QTableWidgetItem* fpItem = new QTableWidgetItem(comp.footprint.isEmpty() ? "<Not Assigned>" : comp.footprint);
+        fpItem->setBackground(i % 2 == 0 ? background : background.lighter(110));
+        fpItem->setForeground(comp.footprint.isEmpty() ? QColor("#94a3b8") : textColor);
+        m_table->setItem(i, 3, fpItem);
 
         QTableWidgetItem* statusItem = new QTableWidgetItem();
+        statusItem->setBackground(i % 2 == 0 ? background : background.lighter(110));
         m_table->setItem(i, 4, statusItem);
     }
 

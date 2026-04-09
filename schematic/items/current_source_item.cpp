@@ -19,7 +19,9 @@ CurrentSourceItem::CurrentSourceItem(QPointF pos, const QString& value, SourceTy
       m_acAmplitude(""), m_acPhase(""),
       m_seriesResistance("0.0"), m_parallelCapacitance("0.0"),
       m_showFunction(true), m_showDc(true), m_showAc(true), m_showParasitic(true) {
-    
+
+    setExcludeFromPcb(true); // Current sources are excluded from PCB by default
+
     setPos(pos);
     setFlag(QGraphicsItem::ItemIsSelectable, true);
     setFlag(QGraphicsItem::ItemIsMovable, true);

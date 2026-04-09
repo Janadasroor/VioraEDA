@@ -7,6 +7,7 @@
 
 SignalGeneratorItem::SignalGeneratorItem(QPointF pos, QGraphicsItem *parent)
     : SchematicItem(parent), m_waveform(Sine), m_freq("1000"), m_amplitude("5.0"), m_offset("0.0"), m_acMagnitude("1.0"), m_acPhase("0.0") {
+    setExcludeFromPcb(true); // Instruments are excluded from PCB by default
     setPos(pos);
     setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
     setReference("VGEN1");
