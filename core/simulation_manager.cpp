@@ -99,7 +99,6 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     }
 
     Q_EMIT simulationStarted();
-    qDebug() << "SimulationManager: Starting bg_run with post-run RAW capture";
     ngSpice_Command(const_cast<char*>("set filetype=binary"));
     const int rc = ngSpice_Command((char*)"bg_run");
     if (rc != 0 || m_lastLoadFailed) {
@@ -380,10 +379,10 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
         if (msg.startsWith("stderr ")) msg.remove(0, 7);
         else if (msg.startsWith("stdout ")) msg.remove(0, 7);
 
-        qDebug() << "[Ngspice]" << msg.trimmed();
         {
             std::lock_guard<std::mutex> lock(self->m_logMutex);
-            if (lower.contains("no circuit loaded") ||
+            const bool isError =
+                lower.contains("no circuit loaded") ||
                 lower.contains("there is no circuit") ||
                 lower.contains("error on line") ||
                 lower.contains("unknown model type") ||
@@ -391,7 +390,10 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
                 lower.contains("mif-error") ||
                 lower.contains("circuit not parsed") ||
                 lower.contains("ngspice.dll cannot recover") ||
-                lower.contains("could not find include file")) {
+                lower.contains("could not find include file");
+            const bool isWarning = lower.contains("warning");
+
+            if (isError) {
                 self->m_lastLoadFailed = true;
                 if (self->m_lastErrorMessage.isEmpty()) {
                     self->m_lastErrorMessage = msg.trimmed();
@@ -403,6 +405,10 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
                 self->m_lastErrorMessage = msg.trimmed();
             }
             self->m_logBuffer.push_back(msg);
+
+            if (isError || isWarning) {
+                qWarning() << "[Ngspice]" << msg.trimmed();
+            }
         }
     }
     return 0;

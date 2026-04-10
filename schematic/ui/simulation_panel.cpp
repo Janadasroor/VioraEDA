@@ -2344,7 +2344,7 @@ void SimulationPanel::setupUI() {
     m_chart->legend()->setLabelColor(theme ? theme->textColor() : QColor(Qt::white));
     
     m_plotView = new QChartView(m_chart);
-    m_plotView->setRenderHint(QPainter::Antialiasing);
+    m_plotView->setRenderHint(QPainter::Antialiasing, false);
     m_plotView->setStyleSheet(QString("background-color: %1; border: 1px solid %2;").arg(chartBg, borderColor));
 
     m_spectrumChart = new QChart();
@@ -2362,7 +2362,7 @@ void SimulationPanel::setupUI() {
     m_spectrumChart->legend()->setLabelColor(theme ? theme->textColor() : QColor(Qt::white));
 
     m_spectrumView = new QChartView(m_spectrumChart);
-    m_spectrumView->setRenderHint(QPainter::Antialiasing);
+    m_spectrumView->setRenderHint(QPainter::Antialiasing, false);
     m_spectrumView->setStyleSheet(m_plotView->styleSheet());
 
     m_spectrumTab = new QWidget();
@@ -2519,6 +2519,16 @@ void SimulationPanel::setupUI() {
     connect(m_steppedMeasAxisCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
         m_selectedSteppedAxis = text;
         if (m_hasLastResults) rebuildSteppedMeasurementPlot(m_lastResults);
+    });
+    connect(m_viewTabs, &QTabWidget::currentChanged, this, [this](int) {
+        if (!m_hasLastResults) return;
+        if (shouldBuildStandardChart() && m_chart && m_chart->series().isEmpty()) {
+            plotBuiltinResults(m_lastResults);
+            return;
+        }
+        if (shouldBuildSpectrumChart() && m_spectrumChart && m_spectrumChart->series().isEmpty()) {
+            plotBuiltinResults(m_lastResults);
+        }
     });
 
     onGeneratorTypeChanged(m_generatorType->currentIndex());
@@ -3112,7 +3122,6 @@ void SimulationPanel::appendIssueItem(const QString& msg) {
 }
 
 void SimulationPanel::onSimulationFinished() {
-    qDebug() << "SimulationPanel::onSimulationFinished() called";
     m_logOutput->append("\nSimulation finished (Ngspice).");
     
     if (!m_lastNetlistPath.isEmpty()) {
@@ -3123,7 +3132,6 @@ void SimulationPanel::onSimulationFinished() {
 }
 
 void SimulationPanel::plotResultsFromRaw(const QString& path) {
-    qDebug() << "SimulationPanel: Plotting results from raw file:" << path;
     RawData rawData;
     QString error;
     if (!RawDataParser::loadRawAscii(path, &rawData, &error)) {
@@ -3416,18 +3424,23 @@ void SimulationPanel::updateChartRealTime(const QString& name, double t, double 
     }
 }
 
+bool SimulationPanel::shouldBuildStandardChart() const {
+    return !m_viewTabs || m_viewTabs->currentWidget() == m_plotView;
+}
+
+bool SimulationPanel::shouldBuildSpectrumChart() const {
+    return !m_viewTabs || m_viewTabs->currentWidget() == m_spectrumTab;
+}
+
 
 
 
 void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
     if (times.empty()) return;
     if (!m_isSimInitiator) return;
-    qDebug() << "SimulationPanel: onRealTimeDataBatchReceived batchSize=" << times.size() << "firstT=" << times.front() << "lastT=" << times.back() << "numVars=" << names.size();
     if (!m_acceptRealTimeStream) return;
     if (!m_waveformViewer) return;
     if (times.empty() || values.empty() || names.empty()) return;
-
-    qDebug() << "SimulationPanel: Received real-time batch. Times:" << times.size() << "Names:" << names.size() << "Last T:" << times.back();
 
     // 1. Update Probes / Schematic Labels (Live)
     // We only use the VERY LAST point for the schematic probes to save CPU.
@@ -3543,6 +3556,9 @@ void SimulationPanel::onTimelineValueChanged(int value) {
 }
 
 void SimulationPanel::plotBuiltinResults(const SimResults& results) {
+    const bool buildStandardChart = shouldBuildStandardChart();
+    const bool buildSpectrumChart = shouldBuildSpectrumChart();
+
     // Disable real-time data while clearing to avoid race conditions
     m_acceptRealTimeStream = false;
     if (m_signalList) {
@@ -3555,7 +3571,6 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         }
     }
     bool hadChecks = !m_persistentCheckedSignals.isEmpty();
-    qDebug() << "[CRASH_TRACE] plotBuiltinResults START - persistentChecks:" << m_persistentCheckedSignals.size();
 
     m_realTimeSeries.clear();
 
@@ -3576,7 +3591,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     QSet<QString> currentWaveNames;
     
     // Safer clearing of series and axes
-    if (m_chart) {
+    if (m_chart && buildStandardChart) {
         const auto seriesList = m_chart->series();
         for (auto* series : seriesList) {
             m_chart->removeSeries(series);
@@ -3590,7 +3605,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         }
     }
     
-    if (m_spectrumChart) {
+    if (m_spectrumChart && buildSpectrumChart) {
         const auto specSeriesList = m_spectrumChart->series();
         for (auto* series : specSeriesList) {
             m_spectrumChart->removeSeries(series);
@@ -3628,7 +3643,9 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         return;
     }
 
-    m_chart->legend()->hide();
+    if (buildStandardChart) {
+        m_chart->legend()->hide();
+    }
 
     int analysisIdx = m_analysisType->currentIndex();
     if (m_waveformViewer) {
@@ -3683,7 +3700,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         return axis;
     };
     
-    if (analysisIdx == 2) { // AC Sweep / Bode Plot
+    if (buildStandardChart && analysisIdx == 2) { // AC Sweep / Bode Plot
         auto* logX = new QLogValueAxis();
         logX->setTitleText("Frequency (Hz)");
         logX->setBase(10.0);
@@ -3696,7 +3713,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         axisYPhase->setLabelFormat("%d");
         axisYPhase->setGridLineVisible(false);
         m_chart->addAxis(axisYPhase, Qt::AlignRight);
-    } else {
+    } else if (buildStandardChart) {
         if (analysisIdx == 3) {
             auto* valX = new QValueAxis();
             valX->setTitleText("Run Number");
@@ -3715,16 +3732,18 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         }
     }
     
-    axisX->setGridLinePen(QPen(QColor("#d0d0d0"), 1, Qt::DotLine));
-    m_chart->addAxis(axisX, Qt::AlignBottom);
+    if (buildStandardChart && axisX) {
+        axisX->setGridLinePen(QPen(QColor("#d0d0d0"), 1, Qt::DotLine));
+        m_chart->addAxis(axisX, Qt::AlignBottom);
+    }
 
-    if (analysisIdx == 2) {
+    if (buildStandardChart && analysisIdx == 2) {
         QValueAxis* axisY = new QValueAxis();
         axisY->setTitleText("Magnitude (dB)");
         axisY->setGridLinePen(QPen(QColor("#d0d0d0"), 1, Qt::DotLine));
         m_chart->addAxis(axisY, Qt::AlignLeft);
         axisYBase = axisY;
-    } else {
+    } else if (buildStandardChart) {
         double minY = 0.0, maxY = 0.0;
         bool firstY = true;
         for (const auto& w : results.waveforms) {
@@ -3749,13 +3768,18 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     int colorIdx = 0;
     
     for (const auto& wave : results.waveforms) {
+        const QString waveName = QString::fromStdString(wave.name);
+        const QColor waveColor = colors[colorIdx % colors.size()];
+
         QLineSeries* series = new QLineSeries();
-        series->setName(QString::fromStdString(wave.name));
-        series->setPen(QPen(colors[colorIdx % colors.size()], 1.5));
+        series->setUseOpenGL(true);
+        series->setName(waveName);
+        series->setPen(QPen(waveColor, 1.5));
         
         QLineSeries* phaseSeries = nullptr;
         if (analysisIdx == 2 && !wave.yPhase.empty()) {
             phaseSeries = new QLineSeries();
+            phaseSeries->setUseOpenGL(true);
             phaseSeries->setName(series->name() + " (Phase)");
             QPen phasePen = series->pen();
             phasePen.setStyle(Qt::DashLine);
@@ -3779,9 +3803,14 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             series->replace(decimateMinMaxBuckets(wave.xData, wave.yData, targetPoints));
         }
 
-        m_chart->addSeries(series);
-        series->attachAxis(axisX);
-        series->attachAxis(axisYBase);
+        if (buildStandardChart) {
+            m_chart->addSeries(series);
+            series->attachAxis(axisX);
+            series->attachAxis(axisYBase);
+        } else {
+            delete series;
+            series = nullptr;
+        }
 
         if (m_waveformViewer) {
             if (analysisIdx == 2 && !wave.yPhase.empty()) {
@@ -3790,13 +3819,12 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
                                             QVector<double>(wave.yData.begin(), wave.yData.end()),
                                             QVector<double>(wave.yPhase.begin(), wave.yPhase.end()));
             } else {
-                m_waveformViewer->addSignal(QString::fromStdString(wave.name),
+                m_waveformViewer->addSignal(waveName,
                                             QVector<double>(wave.xData.begin(), wave.xData.end()),
                                             QVector<double>(wave.yData.begin(), wave.yData.end()));
             }
             
             // Restore checked state
-            const QString waveName = QString::fromStdString(wave.name);
             bool shouldCheck = m_persistentCheckedSignals.contains(waveName);
             
             // Try normalized matching
@@ -3820,7 +3848,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
                 shouldCheck = true;
             }
             
-            if (shouldCheck) {
+            if (shouldCheck && series) {
                 series->show();
                 m_waveformViewer->setSignalChecked(waveName, true);
             }
@@ -3829,7 +3857,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             QListWidgetItem* item = new QListWidgetItem(waveName);
             item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
             item->setCheckState(shouldCheck ? Qt::Checked : Qt::Unchecked);
-            item->setForeground(series->pen().color());
+            item->setForeground(waveColor);
             m_signalList->addItem(item);
         }
         
@@ -3853,15 +3881,16 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             }
         }
 
-        if (phaseSeries) {
+        if (buildStandardChart && phaseSeries) {
             m_chart->addSeries(phaseSeries);
             phaseSeries->attachAxis(axisX);
             phaseSeries->attachAxis(axisYPhase);
+        } else if (phaseSeries) {
+            delete phaseSeries;
         }
 
         colorIdx++;
         
-        const QString waveName = QString::fromStdString(wave.name);
         currentWaveNames.insert(waveName);
 
         double minVal = 0.0, maxVal = 0.0, avgVal = 0.0;
@@ -3874,14 +3903,16 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             avgVal = sum / static_cast<double>(wave.yData.size());
         }
 
-        if (!showSteppedMeasurementPlot && analysisIdx == 0 && wave.yData.size() >= 64) {
+        if (buildSpectrumChart && !showSteppedMeasurementPlot && analysisIdx == 0 && wave.yData.size() >= 64) {
             int nfft = 1024;
             std::vector<double> resampled = SimMath::resample(wave.xData, wave.yData, nfft);
             std::vector<std::complex<double>> complexIn(nfft);
             for(int i=0; i<nfft; ++i) complexIn[i] = resampled[i];
             auto complexOut = SimMath::fft(complexIn);
             QLineSeries* specSeries = new QLineSeries();
-            specSeries->setPen(series->pen());
+            specSeries->setUseOpenGL(true);
+            specSeries->setName(waveName);
+            specSeries->setPen(QPen(waveColor, 1.5));
             double sampleRate = 1.0 / ( (wave.xData.back() - wave.xData.front()) / (wave.xData.size()-1) );
             for (int i = 0; i < nfft / 2; ++i) {
                 double freq = i * sampleRate / nfft;
@@ -3896,8 +3927,8 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         if (m_measurementsTable) {
             int row = m_measurementsTable->rowCount();
             m_measurementsTable->insertRow(row);
-            m_measurementsTable->setItem(row, 0, new QTableWidgetItem(series->name()));
-            m_measurementsTable->item(row, 0)->setForeground(series->pen().color());
+            m_measurementsTable->setItem(row, 0, new QTableWidgetItem(waveName));
+            m_measurementsTable->item(row, 0)->setForeground(waveColor);
             m_measurementsTable->setItem(row, 1, new QTableWidgetItem(QString::number(maxVal - minVal, 'f', 3)));
             m_measurementsTable->setItem(row, 2, new QTableWidgetItem(QString::number(avgVal, 'f', 3)));
             double sumSq = 0.0;
@@ -3926,7 +3957,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     // Finalize the waveform viewer AFTER all waves have been added
     if (m_waveformViewer) m_waveformViewer->endBatchUpdate();
 
-    if (m_overlayPreviousRun && m_overlayPreviousRun->isChecked() && m_hasPreviousResults) {
+    if (buildStandardChart && m_overlayPreviousRun && m_overlayPreviousRun->isChecked() && m_hasPreviousResults) {
         for (const auto& wave : m_previousResults.waveforms) {
             const QString prevName = QString::fromStdString(wave.name);
             if (currentWaveNames.contains(prevName)) {
@@ -3942,9 +3973,9 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     }
 
     refreshSteppedMeasurementControls(results);
-    if (showSteppedMeasurementPlot) {
+    if (buildSpectrumChart && showSteppedMeasurementPlot) {
         rebuildSteppedMeasurementPlot(results);
-    } else if (!m_spectrumChart->series().isEmpty()) {
+    } else if (buildSpectrumChart && !m_spectrumChart->series().isEmpty()) {
         QValueAxis* axisFreq = new QValueAxis();
         axisFreq->setTitleText("Frequency (Hz)");
         m_spectrumChart->addAxis(axisFreq, Qt::AlignBottom);

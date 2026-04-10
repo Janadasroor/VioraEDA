@@ -1142,6 +1142,7 @@ void WaveformViewer::updatePlot(bool autoScale) {
                 }
                 
                 auto* series = new QLineSeries();
+                series->setUseOpenGL(true);
                 series->setName(name);
                 series->setPen(QPen(data.customColor.isValid() ? data.customColor : item->foreground().color(), data.lineWidth, data.penStyle));
 
@@ -1298,7 +1299,7 @@ WaveformViewer::ChartPane* WaveformViewer::createPane(WaveformViewer::SignalType
     
     pane->view = new VioChartView(pane->chart);
     pane->view->setContentsMargins(0, 0, 0, 0);
-    pane->view->setRenderHint(QPainter::Antialiasing);
+    pane->view->setRenderHint(QPainter::Antialiasing, false);
     pane->view->setRubberBand(QChartView::RectangleRubberBand);
     pane->view->setInteractive(true);
     pane->view->setCursorsEnabled(m_cursorsEnabled);

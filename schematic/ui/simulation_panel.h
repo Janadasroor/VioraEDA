@@ -179,6 +179,8 @@ private:
     void refreshEfficiencyReport(const SimResults& results);
     void refreshSteppedMeasurementControls(const SimResults& results);
     void rebuildSteppedMeasurementPlot(const SimResults& results);
+    bool shouldBuildStandardChart() const;
+    bool shouldBuildSpectrumChart() const;
 
     QGraphicsScene* m_scene = nullptr;
     SchematicEditor* m_editor = nullptr;
