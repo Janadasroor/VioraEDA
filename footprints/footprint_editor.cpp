@@ -2303,6 +2303,7 @@ void FootprintEditor::onSelectionChanged() {
     if (m_rightTabWidget && !m_scene->selectedItems().isEmpty() && m_rightTabWidget->currentIndex() != 0) {
         m_rightTabWidget->setCurrentIndex(0);
     }
+    updateResizeHandles();
     updatePropertiesPanel();
 }
 
