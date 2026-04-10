@@ -1421,19 +1421,19 @@ void SchematicEditor::onSwitchToPCBEditor() {
         w->raise();
         w->activateWindow();
         statusBar()->showMessage("Switched to existing PCB Editor", 3000);
-        // Trigger ECO handle via meta-object call
-        QMetaObject::invokeMethod(existing, "handleIncomingECO", Qt::QueuedConnection);
+        // The PCB editor already connects to SyncManager::ecoAvailable
+        // and will auto-call handleIncomingECO via QTimer
     } else {
         // Create a new PCB MainWindow
+        qDebug() << "[onSwitchToPCBEditor] Creating new PCB MainWindow...";
         MainWindow* pcbEditor = new MainWindow();
         pcbEditor->setAttribute(Qt::WA_DeleteOnClose);
         pcbEditor->setProperty("projectName", m_projectName);
+        // The PCB constructor checks for pending ECO and calls handleIncomingECO via QTimer
         pcbEditor->show();
         pcbEditor->raise();
         pcbEditor->activateWindow();
         statusBar()->showMessage("Opened PCB Editor", 3000);
-        // Trigger ECO handle via meta-object call
-        QMetaObject::invokeMethod(pcbEditor, "handleIncomingECO", Qt::QueuedConnection);
     }
 }
 

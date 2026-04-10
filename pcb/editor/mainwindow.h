@@ -40,7 +40,7 @@ public:
     bool openFile(const QString& filePath);
     void setProjectContext(const QString& projectName, const QString& projectDir);
     QString projectName() const { return m_projectName; }
-    void handleIncomingECO();
+    Q_INVOKABLE void handleIncomingECO();
 
 private slots:
     void onToolSelected();
@@ -133,6 +133,9 @@ private:
     // UI Components
     QGraphicsScene *m_scene;
     PCBView *m_view;
+
+    // ECO processing guard
+    bool m_isProcessingECO = false;
 
     // Dock widgets
     QDockWidget *m_layerDock;

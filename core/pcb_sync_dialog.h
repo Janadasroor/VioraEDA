@@ -21,11 +21,16 @@ public:
 
     ECOPackage package() const { return m_package; }
 
+protected:
+    void accept() override;
+
 private:
     void setupUI();
     void populateTable();
     void validatePackage();
     void onExcludeToggled(int row, bool checked);
+    void loadSavedExcludes();
+    void saveExcludes();
 
     ECOPackage m_package;
     QTableWidget* m_table;

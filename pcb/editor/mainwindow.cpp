@@ -2480,28 +2480,40 @@ void MainWindow::onOpenGeminiAI() {
 }
 
 void MainWindow::handleIncomingECO() {
+    if (m_isProcessingECO) {
+        qDebug() << "[PCB handleIncomingECO] Already processing, skipping.";
+        return;
+    }
+    qDebug() << "[PCB handleIncomingECO] hasPendingECO:" << SyncManager::instance().hasPendingECO()
+             << "target:" << (int)SyncManager::instance().pendingECOTarget();
     if (!SyncManager::instance().hasPendingECO()) return;
     const SyncManager::ECOTarget target = SyncManager::instance().pendingECOTarget();
     if (target == SyncManager::ECOTarget::Schematic) return;
 
     ECOPackage pkg = SyncManager::instance().pendingECO();
+    qDebug() << "[PCB handleIncomingECO] ECO package:" << pkg.components.size() << "components," << pkg.nets.size() << "nets";
+
+    // Clear immediately to prevent re-entry
+    SyncManager::instance().clearPendingECO();
+    m_isProcessingECO = true;
 
     // Show review dialog before applying
-    PCBSyncDialog* reviewDlg = new PCBSyncDialog(pkg, this);
-    if (reviewDlg->exec() == QDialog::Accepted) {
+    PCBSyncDialog reviewDlg(pkg, this);
+    if (reviewDlg.exec() == QDialog::Accepted) {
         // User approved the changes
+        qDebug() << "[PCB handleIncomingECO] User accepted, applying ECO...";
         applyECO(pkg);
-        SyncManager::instance().clearPendingECO();
     } else {
-        // User rejected — clear the pending ECO
-        SyncManager::instance().clearPendingECO();
+        // User rejected
         statusBar()->showMessage("ECO review cancelled — no changes applied", 3000);
     }
-    reviewDlg->deleteLater();
+
+    m_isProcessingECO = false;
 }
 
 void MainWindow::applyECO(const ECOPackage& package) {
-    if (!m_scene) return;
+    if (!m_scene) { qWarning() << "[PCB applyECO] m_scene is null!"; return; }
+    qDebug() << "[PCB applyECO] Starting, package:" << package.components.size() << "components," << package.nets.size() << "nets";
 
     statusBar()->showMessage("🔄 Applying ECO from Schematic...", 3000);
     auto& lib = FootprintLibraryManager::instance();
@@ -2644,6 +2656,7 @@ void MainWindow::applyECO(const ECOPackage& package) {
     }
 
     statusBar()->showMessage(QString("✅ ECO Applied: %1 new parts, %2 active nets").arg(newCount).arg(netCount), 5000);
+    qDebug() << "[PCB applyECO] Done. newCount:" << newCount << "netCount:" << netCount << "total items in scene:" << m_scene->items().size();
     if (!unresolvedFootprints.isEmpty()) {
         QStringList unresolvedList;
         for (const QString& fp : unresolvedFootprints) unresolvedList.append(fp);
