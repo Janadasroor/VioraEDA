@@ -27,13 +27,13 @@ ComponentItem::ComponentItem(QPointF pos, QString type, QGraphicsItem *parent)
     , m_ownsModel(true)
     , m_body(nullptr)
     , m_label(nullptr) {
-    
+
     m_model->setPos(pos);
     m_model->setComponentType(type);
     m_model->setSize(QSizeF(5.0, 5.0)); // Default fallback size
-    
+
     setPos(pos);
-    setFiltersChildEvents(true);
+    setFiltersChildEvents(false); // Allow children to receive mouse events directly
     createBody();
     createLabel();
     createPads(); // This will populate model from library if available
@@ -45,13 +45,13 @@ ComponentItem::ComponentItem(ComponentModel* model, QGraphicsItem *parent)
     , m_ownsModel(false)
     , m_body(nullptr)
     , m_label(nullptr) {
-    
+
     setPos(model->pos());
     setRotation(model->rotation());
     setName(model->name());
     setLayer(model->layer());
     setId(model->id());
-    setFiltersChildEvents(true);
+    setFiltersChildEvents(false); // Allow children to receive mouse events directly
     createBody();
     createLabel();
     createPads(); // This will create UI items for existing PadModels
@@ -149,12 +149,15 @@ QPainterPath ComponentItem::shape() const {
             path.addPath(child->mapToParent(child->shape()));
         }
     }
-    
+
     if (path.isEmpty()) {
+        // Always provide a valid shape even if no pads exist
         QSizeF size = m_model->size();
+        if (size.width() <= 0) size.setWidth(2.0);
+        if (size.height() <= 0) size.setHeight(2.0);
         path.addRect(-size.width()/2, -size.height()/2, size.width(), size.height());
     }
-    
+
     return path.simplified();
 }
 
