@@ -5,6 +5,7 @@
 #include <QIcon>
 #include <QColor>
 #include <QCheckBox>
+#include <QSettings>
 
 namespace {
 int countFootprintPads(const FootprintDefinition& def) {
@@ -144,6 +145,9 @@ void PCBSyncDialog::populateTable() {
         m_table->setItem(i, 4, statusItem);
     }
 
+    // Load saved exclude preferences from previous sessions
+    loadSavedExcludes();
+
     validatePackage();
 }
 
@@ -216,4 +220,45 @@ void PCBSyncDialog::onExcludeToggled(int row, bool checked) {
     if (row < 0 || row >= m_package.components.size()) return;
     m_package.components[row].excludeFromPcb = checked;
     validatePackage();
+}
+
+void PCBSyncDialog::accept() {
+    saveExcludes();
+    QDialog::accept();
+}
+
+void PCBSyncDialog::loadSavedExcludes() {
+    QSettings settings("VioraEDA", "PCBSyncExcludes");
+    for (int i = 0; i < m_package.components.size(); ++i) {
+        const auto& comp = m_package.components[i];
+        const QString key = comp.reference;
+        if (settings.contains(key)) {
+            bool savedExclude = settings.value(key, false).toBool();
+            m_package.components[i].excludeFromPcb = savedExclude;
+
+            // Update the checkbox in the table
+            if (QWidget* checkWidget = m_table->cellWidget(i, 0)) {
+                if (QCheckBox* check = checkWidget->findChild<QCheckBox*>()) {
+                    check->blockSignals(true);
+                    check->setChecked(savedExclude);
+                    check->blockSignals(false);
+                }
+            }
+        }
+    }
+    validatePackage();
+}
+
+void PCBSyncDialog::saveExcludes() {
+    QSettings settings("VioraEDA", "PCBSyncExcludes");
+    // Clear previous settings for this project
+    settings.clear();
+
+    for (const auto& comp : m_package.components) {
+        const QString key = comp.reference;
+        if (!key.isEmpty()) {
+            settings.setValue(key, comp.excludeFromPcb);
+        }
+    }
+    settings.sync();
 }
