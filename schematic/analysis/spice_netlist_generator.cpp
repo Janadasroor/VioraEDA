@@ -3485,10 +3485,6 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             }
         }
         const bool isADevice = line.startsWith("A", Qt::CaseInsensitive);
-        const QString currentSaveVector = currentSaveVectorForRef(line);
-        if (!currentSaveVector.isEmpty() && !savedCurrentVectors.contains(currentSaveVector, Qt::CaseInsensitive)) {
-            savedCurrentVectors.append(currentSaveVector);
-        }
 
         // --- SPICE Mapper Logic ---
         value = comp.value;
@@ -3702,6 +3698,11 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             nodes.append(e_s);
         }
 
+        auto isEffectivelyDisconnectedNode = [&](const QString& nodeName) {
+            const QString node = nodeName.trimmed();
+            return node.isEmpty() || node == "0" || node.startsWith("NC_", Qt::CaseInsensitive);
+        };
+
         if (nodes.isEmpty()) {
             // Default: Fallback to natural sorting of pins
             QStringList sortedKeys = pins.keys();
@@ -3778,6 +3779,29 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
                     nodes.append(net.replace(" ", "_"));
                 }
             }
+        }
+
+        const bool isSemiconductorInstance =
+            line.startsWith("D", Qt::CaseInsensitive) ||
+            line.startsWith("M", Qt::CaseInsensitive) ||
+            line.startsWith("Q", Qt::CaseInsensitive);
+        if (isSemiconductorInstance && !nodes.isEmpty()) {
+            bool allDisconnected = true;
+            for (const QString& node : nodes) {
+                if (!isEffectivelyDisconnectedNode(node)) {
+                    allDisconnected = false;
+                    break;
+                }
+            }
+            if (allDisconnected) {
+                netlist += "* Skipping " + ref + " (unconnected live duplicate)\n";
+                continue;
+            }
+        }
+
+        const QString currentSaveVector = currentSaveVectorForRef(line);
+        if (!currentSaveVector.isEmpty() && !savedCurrentVectors.contains(currentSaveVector, Qt::CaseInsensitive)) {
+            savedCurrentVectors.append(currentSaveVector);
         }
 
         // Strip unsupported voltage parasitics and emit separate elements for ngspice.

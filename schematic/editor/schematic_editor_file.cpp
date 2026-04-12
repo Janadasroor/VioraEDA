@@ -784,6 +784,11 @@ void SchematicEditor::onSaveSchematic() {
     if (m_isSaving) return;
     m_isSaving = true;
 
+    if (m_mouseFollowPlacementActive) {
+        endMouseFollowPlacement(true);
+        statusBar()->showMessage("Canceled pending placement before save", 2000);
+    }
+
     // If current tab is an unsaved schematic, force Save As to avoid overwriting another file
     if (m_view && m_view->property("filePath").toString().isEmpty()) {
         onSaveSchematicAs();
@@ -861,6 +866,11 @@ void SchematicEditor::onSaveSchematic() {
 }
 
 void SchematicEditor::onSaveSchematicAs() {
+    if (m_mouseFollowPlacementActive) {
+        endMouseFollowPlacement(true);
+        statusBar()->showMessage("Canceled pending placement before save", 2000);
+    }
+
     QWidget* current = m_workspaceTabs->currentWidget();
     if (auto* textEditor = qobject_cast<QPlainTextEdit*>(current)) {
         QString defaultPath = textEditor->property("filePath").toString();

@@ -2171,6 +2171,11 @@ void SchematicEditor::onRunSimulation() {
         return;
     }
 
+    if (m_mouseFollowPlacementActive) {
+        endMouseFollowPlacement(true);
+        statusBar()->showMessage("Canceled pending placement before simulation", 2000);
+    }
+
     if (m_simulationRunning) {
         onPauseSimulation(); // Toggle pause/resume if already running
         return;

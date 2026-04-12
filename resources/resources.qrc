@@ -113,6 +113,7 @@
         <file>icons/tool_wizard.png</file>
         <file>icons/tool_drc.png</file>
         <file>icons/tool_3d.png</file>
+        <file>icons/tool_array.png</file>
         <file>icons/file_flux_sch.png</file>
         <file>icons/file_viora_eda.png</file>
         <file>icons/file_kicad_sch.png</file>

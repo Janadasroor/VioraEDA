@@ -52,6 +52,7 @@ private Q_SLOTS:
     void warnsAboutIllFormedLtspicePwlRepeat();
     void rewritesLtspiceCurrentSourceSpecialForms();
     void preservesMutualInductorDirectives();
+    void preservesMultiInductorMutualCouplingDirectives();
     void expandsInductorParasiticsForNgspiceCompatibility();
     void loadsBoostConverterLtspiceDirectiveInNgspice();
     void emulatesLtspiceStepParamList();
@@ -927,6 +928,41 @@ void SpiceDirectiveNetlistTest::expandsInductorParasiticsForNgspiceCompatibility
              qPrintable(netlist));
     QVERIFY2(netlist.contains("Expanded inline parasitics on L2 into explicit companion elements for ngspice compatibility."),
              qPrintable(netlist));
+}
+
+void SpiceDirectiveNetlistTest::preservesMultiInductorMutualCouplingDirectives() {
+    QGraphicsScene scene;
+
+    auto* l1 = new InductorItem(QPointF(-120, 0), "10u");
+    l1->setReference("L1");
+    scene.addItem(l1);
+
+    auto* l2 = new InductorItem(QPointF(0, 0), "22u");
+    l2->setReference("L2");
+    scene.addItem(l2);
+
+    auto* l3 = new InductorItem(QPointF(120, 0), "33u");
+    l3->setReference("L3");
+    scene.addItem(l3);
+
+    auto* directive = new SchematicSpiceDirectiveItem(
+        "K1 L1 L2 L3 0.99\n"
+        ".tran 1u 1m",
+        QPointF(0, 0));
+    scene.addItem(directive);
+
+    SpiceNetlistGenerator::SimulationParams params;
+    params.type = SpiceNetlistGenerator::Transient;
+    params.step = "1u";
+    params.stop = "1m";
+
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+
+    QVERIFY2(netlist.contains("L1 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("L2 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("L3 "), qPrintable(netlist));
+    QVERIFY2(netlist.contains("K1 L1 L2 L3 0.99"), qPrintable(netlist));
+    QCOMPARE(netlist.count(".tran "), 1);
 }
 
 void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {

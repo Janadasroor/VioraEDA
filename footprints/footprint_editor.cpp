@@ -1755,13 +1755,13 @@ void FootprintEditor::createToolBar() {
     QAction* flipV = m_toolbar->addAction(getThemeIcon(":/icons/flip_v.svg"), "Flip V");
     connect(flipV, &QAction::triggered, this, &FootprintEditor::onFlipVertical);
 
-    QAction* pairAct = m_toolbar->addAction(getThemeIcon(":/icons/tool_array.svg"), "Mirror Pair");
+    QAction* pairAct = m_toolbar->addAction(getThemeIcon(":/icons/tool_array.png", false), "Mirror Pair");
     pairAct->setToolTip("Create mirrored copies (with optional top/bottom layer swap)");
     connect(pairAct, &QAction::triggered, this, &FootprintEditor::onCreateMirroredPair);
 
     m_toolbar->addSeparator();
     
-    QAction* arrayAct = m_toolbar->addAction(getThemeIcon(":/icons/tool_duplicate.svg"), "Array Tool");
+    QAction* arrayAct = m_toolbar->addAction(getThemeIcon(":/icons/tool_array.png", false), "Array Tool");
     arrayAct->setToolTip("Create Linear or Circular Array of items");
     connect(arrayAct, &QAction::triggered, this, &FootprintEditor::onArrayTool);
 

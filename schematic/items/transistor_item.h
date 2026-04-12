@@ -17,7 +17,7 @@ public:
 
     QString itemTypeName() const override { return "Transistor"; }
     ItemType itemType() const override { return SchematicItem::TransistorType; }
-    QString referencePrefix() const override { return "Q"; }
+    QString referencePrefix() const override { return (m_transistorType == NMOS) ? "MN" : (m_transistorType == PMOS) ? "MP" : "Q"; }
     QString pinName(int index) const override;
     void rebuildPrimitives() override { buildPrimitives(); }
     QJsonObject toJson() const override;
