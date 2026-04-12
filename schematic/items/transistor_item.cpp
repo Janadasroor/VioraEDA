@@ -234,8 +234,10 @@ bool TransistorItem::fromJson(const QJsonObject& json) {
 }
 
 SchematicItem* TransistorItem::clone() const {
-    TransistorItem* newItem = new TransistorItem(pos(), m_value, m_transistorType, parentItem());
-    newItem->setName(name());
+    auto* newItem = new TransistorItem(pos(), m_value, m_transistorType, parentItem());
+    QJsonObject state = toJson();
+    state["id"] = QUuid::createUuid().toString();
+    newItem->fromJson(state);
     return newItem;
 }
 

@@ -156,8 +156,10 @@ bool DiodeItem::fromJson(const QJsonObject& json) {
 }
 
 SchematicItem* DiodeItem::clone() const {
-    DiodeItem* newItem = new DiodeItem(pos(), m_value, parentItem());
-    newItem->setName(name());
+    auto* newItem = new DiodeItem(pos(), m_value, parentItem());
+    QJsonObject state = toJson();
+    state["id"] = QUuid::createUuid().toString();
+    newItem->fromJson(state);
     return newItem;
 }
 

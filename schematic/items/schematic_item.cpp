@@ -25,6 +25,9 @@ void SchematicItem::createLabels(const QPointF& refOffset, const QPointF& valOff
     if (!m_refLabelItem) {
         const QString refText = referenceDisplayText();
         m_refLabelItem = new SchematicTextItem(refText, QPointF(0,0), this);
+        QObject::connect(m_refLabelItem, &QObject::destroyed, this, [this](QObject* obj) {
+            if (obj == m_refLabelItem) m_refLabelItem = nullptr;
+        });
         m_refLabelItem->setSubItem(true);
         m_refLabelItem->setPos(refOffset);
         m_refLabelItem->setFont(QFont("Inter", 10, QFont::Bold));
@@ -32,6 +35,9 @@ void SchematicItem::createLabels(const QPointF& refOffset, const QPointF& valOff
     }
     if (!m_valueLabelItem) {
         m_valueLabelItem = new SchematicTextItem(value(), QPointF(0,0), this);
+        QObject::connect(m_valueLabelItem, &QObject::destroyed, this, [this](QObject* obj) {
+            if (obj == m_valueLabelItem) m_valueLabelItem = nullptr;
+        });
         m_valueLabelItem->setSubItem(true);
         m_valueLabelItem->setPos(valOffset);
         m_valueLabelItem->setFont(QFont("Inter", 9));

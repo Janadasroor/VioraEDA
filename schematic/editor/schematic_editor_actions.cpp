@@ -689,6 +689,21 @@ void SchematicEditor::onDuplicate() {
         SchematicItem* item = SchematicFileIO::createItemFromJson(itemJson);
         if (item) {
             item->setRotation(itemJson["rotation"].toDouble());
+            // Avoid duplicate references when duplicating, just like paste.
+            const int t = item->itemType();
+            if (t != SchematicItem::WireType &&
+                t != SchematicItem::LabelType &&
+                t != SchematicItem::NetLabelType &&
+                t != SchematicItem::JunctionType &&
+                t != SchematicItem::NoConnectType &&
+                t != SchematicItem::BusType &&
+                t != SchematicItem::SheetType &&
+                t != SchematicItem::HierarchicalPortType) {
+                const QString prefix = item->referencePrefix();
+                if (!prefix.isEmpty() && m_view) {
+                    item->setReference(m_view->getNextReference(prefix));
+                }
+            }
             m_undoStack->push(new AddItemCommand(m_scene, item));
             duplicatedItems.append(item);
         }

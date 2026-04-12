@@ -348,12 +348,43 @@ bool SchematicEditor::eventFilter(QObject* watched, QEvent* event) {
     }
 
     // Handle mouse-follow placement mode
-    if (m_mouseFollowPlacementActive && m_view && watched == m_view->viewport()) {
-        if (event->type() == QEvent::MouseButtonPress) {
+    if (m_mouseFollowPlacementActive && m_view) {
+        if (event->type() == QEvent::KeyPress) {
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (!ke) return true;
+            if (ke->key() == Qt::Key_Escape) {
+                endMouseFollowPlacement(true);
+                statusBar()->showMessage("Placement canceled", 1200);
+                return true;
+            }
+            if (ke->key() == Qt::Key_R && (ke->modifiers() & Qt::ControlModifier)) {
+                if (ke->modifiers() & Qt::ShiftModifier) onRotateCCW();
+                else onRotateCW();
+                return true;
+            }
+            if (ke->key() == Qt::Key_H && !(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+                onFlipHorizontal();
+                return true;
+            }
+            if (ke->key() == Qt::Key_V &&
+                (ke->modifiers() & Qt::ShiftModifier) &&
+                !(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+                onFlipVertical();
+                return true;
+            }
+        }
+
+        if (event->type() == QEvent::MouseButtonPress &&
+            (watched == m_view->viewport() || watched == m_view)) {
             auto* me = static_cast<QMouseEvent*>(event);
             if (me && me->button() == Qt::LeftButton) {
                 endMouseFollowPlacement(false);
                 statusBar()->showMessage("Placement confirmed", 1200);
+                return true;
+            }
+            if (me && me->button() == Qt::RightButton) {
+                endMouseFollowPlacement(true);
+                statusBar()->showMessage("Placement canceled", 1200);
                 return true;
             }
         }
@@ -892,7 +923,11 @@ void SchematicEditor::beginMouseFollowPlacement(const QList<SchematicItem*>& ite
 
     m_mouseFollowActionLabel = actionLabel;
     m_mouseFollowPlacementActive = true;
+    qApp->installEventFilter(this);
+    m_view->installEventFilter(this);
     m_view->viewport()->installEventFilter(this);
+    m_view->setFocus(Qt::OtherFocusReason);
+    m_view->viewport()->setFocus(Qt::OtherFocusReason);
 
     const QPointF cursorScene = m_view->mapToScene(m_view->mapFromGlobal(QCursor::pos()));
     const QPointF target = m_view->snapToGridOrPin(cursorScene).point;
@@ -911,8 +946,10 @@ void SchematicEditor::endMouseFollowPlacement(bool cancel) {
     if (!m_mouseFollowPlacementActive) return;
     QList<SchematicItem*> activeItems = m_mouseFollowItems;
     if (m_view) {
+        m_view->removeEventFilter(this);
         m_view->viewport()->removeEventFilter(this);
     }
+    qApp->removeEventFilter(this);
     m_mouseFollowPlacementActive = false;
     m_mouseFollowItems.clear();
     m_mouseFollowOriginalPositions.clear();

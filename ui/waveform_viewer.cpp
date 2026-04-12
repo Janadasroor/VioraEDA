@@ -978,18 +978,29 @@ void WaveformViewer::appendPoints(const QString& name, const std::vector<double>
 }
 
 void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
+    const Qt::CheckState targetState = checked ? Qt::Checked : Qt::Unchecked;
     for (int i = 0; i < m_nodeList->count(); ++i) {
         QListWidgetItem* item = m_nodeList->item(i);
         if (item->text().compare(name, Qt::CaseInsensitive) == 0) {
-            item->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+            if (item->checkState() == targetState) {
+                return;
+            }
+            m_nodeList->blockSignals(true);
+            item->setCheckState(targetState);
+            updateNodeItemStyle(item);
+            m_nodeList->blockSignals(false);
+            if (!m_blockUpdates) updatePlot(false);
             return;
         }
     }
 
+    m_nodeList->blockSignals(true);
     auto* item = new QListWidgetItem(name, m_nodeList);
     item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
-    item->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+    item->setCheckState(targetState);
     updateNodeItemStyle(item);
+    m_nodeList->blockSignals(false);
+    if (checked && !m_blockUpdates) updatePlot(false);
 }
 
 void WaveformViewer::removeSignal(const QString& name) {
