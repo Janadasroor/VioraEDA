@@ -1,34 +1,36 @@
-import os
-import json
-import requests
-from typing import Dict, Any, List, Optional
+"""Supply-chain lookup for component pricing and availability.
+
+Currently returns simulated data.  To enable real Octopart API calls,
+set the ``OCTOPART_API_KEY`` environment variable and uncomment the
+``requests`` block in :py:meth:`search_component`.
+"""
+
+from typing import Any, Dict, List, Optional
+
 
 class SupplyChainService:
-    """
-    Service to fetch real-time component data from Octopart or other supply chain APIs.
-    If no API key is provided, it falls back to simulated/cached data.
-    """
-    
+    """Look up component data from Octopart or fall back to simulated values."""
+
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key
-        self.base_url = "https://octopart.com/api/v4/endpoint" # Placeholder for actual v4 endpoint
 
     def search_component(self, query: str) -> List[Dict[str, Any]]:
         """Search for a component and return basic info, price, and stock."""
         if not self.api_key:
             return self._get_simulated_data(query)
-            
-        try:
-            # Actual Octopart GraphQL or REST call would go here
-            # For now, we simulate the structure of a real response
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-            params = {"q": query, "limit": 5}
-            # response = requests.get(self.base_url, headers=headers, params=params)
-            # return response.json()
-            return self._get_simulated_data(query) # Fallback while developing
-        except Exception as e:
-            print(f"SupplyChainService Error: {e}")
-            return []
+
+        # Real Octopart API call (requires octopart Python SDK or REST setup):
+        # import requests
+        # headers = {"Authorization": f"Token {self.api_key}"}
+        # response = requests.post(
+        #     "https://api.octopart.com/v4/endpoint",
+        #     headers=headers,
+        #     json={"queries": [{"mpn_or_sku": query, "reference": "q1"}]},
+        # )
+        # response.raise_for_status()
+        # return self._parse_octopart_response(response.json())
+
+        return self._get_simulated_data(query)
 
     def _get_simulated_data(self, query: str) -> List[Dict[str, Any]]:
         """Simulated data for development when no API key is present."""
@@ -55,7 +57,7 @@ class SupplyChainService:
                 "distributor": "Mouser",
                 "datasheet_url": "https://www.onsemi.com/pdf/datasheet/2n3903-d.pdf"
             }]
-        
+
         return [{
             "mpn": f"{query.upper()}-GENERIC",
             "manufacturer": "Generic Vendor",

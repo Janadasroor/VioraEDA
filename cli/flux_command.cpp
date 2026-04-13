@@ -3,6 +3,7 @@
 #ifdef HAVE_FLUXSCRIPT
 #include <flux/jit_engine.h>
 #include <flux/compiler/compiler_instance.h>
+#include <flux/compiler/netlist_generator.h>
 #include <flux/runtime/ngspice_bridge.h>
 #endif
 
@@ -19,16 +20,22 @@ namespace VioSpice {
 
 FluxCommand::FluxCommand(QObject* parent) : QObject(parent) {}
 
-int FluxCommand::run(const QStringList& args, bool quiet) {
+int FluxCommand::run(const QStringList& args, const QCommandLineParser& globalParser, bool quiet) {
     QCommandLineParser parser;
     parser.setApplicationDescription("FluxScript SPICE Integration");
+    
+    // Add a dummy executable name so the first real argument isn't skipped
+    QStringList argsWithExec;
+    argsWithExec << "vio-cmd flux" << args;
     
     parser.addPositionalArgument("subcommand", 
         "Subcommand: run, compile, eval, repl", "<subcommand>");
     parser.addPositionalArgument("file", 
         "FluxScript file to process", "[file.flux]");
     
-    QCommandLineOption outputOption(QStringList() << "o" << "output",
+    // We still define 'output' locally for when called standalone or with -- (not implemented yet)
+    // but we will prioritize globalParser.value("out") or globalParser.value("output")
+    QCommandLineOption outputOption(QStringList() << "output",
         "Output file for results", "file");
     parser.addOption(outputOption);
     
@@ -50,9 +57,18 @@ int FluxCommand::run(const QStringList& args, bool quiet) {
     
     parser.addHelpOption();
     
-    if (!parser.parse(args)) {
+    if (!parser.parse(argsWithExec)) {
         std::cerr << qPrintable(parser.errorText()) << std::endl;
         return 1;
+    }
+    
+    // Merge global options if not set locally
+    QString outputFile = parser.value("output");
+    if (outputFile.isEmpty()) {
+        outputFile = globalParser.value("out");
+    }
+    if (outputFile.isEmpty()) {
+        outputFile = globalParser.value("output");
     }
     
     const QStringList positional = parser.positionalArguments();
@@ -64,9 +80,9 @@ int FluxCommand::run(const QStringList& args, bool quiet) {
     const QString subcommand = positional[0];
     
     if (subcommand == "run") {
-        return cmdRun(parser, positional, quiet);
+        return cmdRun(parser, positional, outputFile, quiet);
     } else if (subcommand == "compile") {
-        return cmdCompile(parser, positional, quiet);
+        return cmdCompile(parser, positional, outputFile, quiet);
     } else if (subcommand == "eval") {
         return cmdEval(parser, positional, quiet);
     } else if (subcommand == "repl") {
@@ -80,6 +96,7 @@ int FluxCommand::run(const QStringList& args, bool quiet) {
 
 int FluxCommand::cmdRun(const QCommandLineParser& parser, 
                         const QStringList& positional, 
+                        const QString& outputFile,
                         bool quiet) {
     if (positional.size() < 2) {
         std::cerr << "Error: Missing file argument" << std::endl;
@@ -87,6 +104,7 @@ int FluxCommand::cmdRun(const QCommandLineParser& parser,
     }
     
     const QString inputFile = positional[1];
+    QString resolvedOutput = outputFile;
     
     // Read input file
     QFile file(inputFile);
@@ -122,12 +140,12 @@ int FluxCommand::cmdRun(const QCommandLineParser& parser,
     
     // Check if netlist generation only
     if (parser.isSet("netlist")) {
-        return generateNetlist(code, inputFile, parser.value("output"), quiet);
+        return generateNetlist(code, inputFile, resolvedOutput, quiet);
     }
     
     // Run simulation
     if (parser.isSet("run")) {
-        return runSimulation(inputFile, parser.value("output"), 
+        return runSimulation(inputFile, resolvedOutput, 
                            parser.value("tran"), quiet);
     }
 #else
@@ -141,6 +159,7 @@ int FluxCommand::cmdRun(const QCommandLineParser& parser,
 
 int FluxCommand::cmdCompile(const QCommandLineParser& parser,
                             const QStringList& positional,
+                            const QString& outputFile,
                             bool quiet) {
     if (positional.size() < 2) {
         std::cerr << "Error: Missing file argument" << std::endl;
@@ -148,10 +167,10 @@ int FluxCommand::cmdCompile(const QCommandLineParser& parser,
     }
     
     const QString inputFile = positional[1];
-    QString outputFile = parser.value("output");
+    QString resolvedOutput = outputFile;
     
-    if (outputFile.isEmpty()) {
-        outputFile = inputFile + ".cir";
+    if (resolvedOutput.isEmpty()) {
+        resolvedOutput = inputFile + ".cir";
     }
     
     // Read file
@@ -167,7 +186,7 @@ int FluxCommand::cmdCompile(const QCommandLineParser& parser,
     file.close();
     
     // Generate netlist
-    return generateNetlist(code, inputFile, outputFile, quiet);
+    return generateNetlist(code, inputFile, resolvedOutput, quiet);
 }
 
 int FluxCommand::cmdEval(const QCommandLineParser& parser,
@@ -244,17 +263,17 @@ int FluxCommand::cmdRepl(const QCommandLineParser& parser,
 #ifdef HAVE_FLUXSCRIPT
     Flux::JITEngine::instance().initialize();
     
-    QString line;
+    std::string stdLine;
     int counter = 0;
     
     while (true) {
         std::cout << "flux[" << counter++ << "]> " << std::flush;
         
-        if (!std::getline(std::cin, line)) {
+        if (!std::getline(std::cin, stdLine)) {
             break;
         }
         
-        line = line.trimmed();
+        QString line = QString::fromStdString(stdLine).trimmed();
         if (line.isEmpty()) {
             continue;
         }
@@ -395,7 +414,7 @@ int FluxCommand::runSimulation(const QString& inputFile,
             
             int vecSize = Flux::flux_ngspice_get_vector_size("v(out)");
             for (int i = 0; i < qMin(vecSize, 1000); ++i) {
-                double time = Flux::flux_get_time();
+                double time = Flux::flux_ngspice_get_vector("time", i);
                 double vout = Flux::flux_ngspice_get_vector("v(out)", i);
                 out << time << "," << vout << "\n";
             }
@@ -433,7 +452,7 @@ void FluxCommand::printHelp() {
     std::cout << "  repl                Interactive REPL mode\n";
     std::cout << "\n";
     std::cout << "Options:\n";
-    std::cout << "  -o, --output <file>  Output file for results\n";
+    std::cout << "  --out <file>        Output file for results\n";
     std::cout << "  --netlist           Generate netlist only\n";
     std::cout << "  --run               Run simulation\n";
     std::cout << "  --tran <tstep,tstop> Transient parameters\n";
@@ -443,7 +462,7 @@ void FluxCommand::printHelp() {
     std::cout << "\n";
     std::cout << "Examples:\n";
     std::cout << "  vio-cmd flux run circuit.flux\n";
-    std::cout << "  vio-cmd flux compile circuit.flux -o circuit.cir\n";
+    std::cout << "  vio-cmd flux compile circuit.flux --out circuit.cir\n";
     std::cout << "  vio-cmd flux eval \"sin(pi/2)\"\n";
     std::cout << "  vio-cmd flux repl\n";
 }

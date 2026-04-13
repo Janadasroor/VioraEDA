@@ -1,6 +1,7 @@
 #include "spice_model_manager_dialog.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QFormLayout>
 #include <QSplitter>
 #include <QPushButton>
 #include <QLineEdit>
@@ -11,6 +12,9 @@
 #include <QTextStream>
 #include <QFileInfo>
 #include <QSettings>
+#include <QDir>
+#include <utility>
+#include <initializer_list>
 #include "../core/theme_manager.h"
 #include "../core/config_manager.h"
 #include <QTextBrowser>
@@ -198,6 +202,37 @@ void SpiceModelManagerDialog::setupUI() {
 
     mainLayout->addWidget(toolbar);
     mainLayout->addWidget(m_advancedFilterPanel);
+
+    // Type quick-add buttons row
+    auto* typeButtonsRow = new QWidget;
+    typeButtonsRow->setFixedHeight(40);
+    typeButtonsRow->setStyleSheet("background-color: #12131a; border-bottom: 1px solid #2d2d30;");
+    m_typeButtonsLayout = new QHBoxLayout(typeButtonsRow);
+    m_typeButtonsLayout->setContentsMargins(15, 5, 15, 5);
+    m_typeButtonsLayout->setSpacing(8);
+
+    auto* typeLabel = new QLabel("Add Model:");
+    typeLabel->setStyleSheet("color: #71717a; font-size: 11px; font-weight: 600;");
+    m_typeButtonsLayout->addWidget(typeLabel);
+
+    // Create buttons for each type
+    struct TypeBtn { QString type; QString color; };
+    QList<TypeBtn> types = {
+        {"NMOS", "#3b82f6"}, {"PMOS", "#8b5cf6"}, {"Diode", "#f59e0b"},
+        {"NPN", "#10b981"}, {"PNP", "#ec4899"}, {"NJF", "#06b6d4"}
+    };
+    for (const auto& t : types) {
+        auto* btn = new QPushButton(t.type);
+        btn->setFixedHeight(26);
+        btn->setFixedWidth(70);
+        btn->setStyleSheet(QString("QPushButton { background-color: %1; border: none; border-radius: 4px; color: white; font-size: 11px; font-weight: 600; } QPushButton:hover { opacity: 0.85; }").arg(t.color));
+        m_typeButtons[t.type] = btn;
+        m_typeButtonsLayout->addWidget(btn);
+        connect(btn, &QPushButton::clicked, [this, t]() { onNewModel(t.type); });
+    }
+    m_typeButtonsLayout->addStretch();
+
+    mainLayout->addWidget(typeButtonsRow);
 
     m_reloadBtn = new QPushButton("Reload");
     m_reloadBtn->setFixedHeight(32);
@@ -616,4 +651,393 @@ void SpiceModelManagerDialog::onShowStatistics() {
         msg += QString("%1: %2\n").arg(it.key(), 15).arg(it.value());
     }
     QMessageBox::information(this, "Model Statistics", msg);
+}
+
+void SpiceModelManagerDialog::onNewModel(const QString& type) {
+    NewModelDialog dlg(type, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        auto data = dlg.getData();
+        addNewModel(data);
+    }
+}
+
+void SpiceModelManagerDialog::onNewModelClicked() {
+    onNewModel("NMOS");  // Default to NMOS for the generic button
+}
+
+void SpiceModelManagerDialog::addNewModel(const NewModelDialog::NewModelData& data) {
+    if (data.name.isEmpty()) {
+        QMessageBox::warning(this, "Error", "Model name is required.");
+        return;
+    }
+
+    // Build the .model line
+    QString modelLine = QString(".model %1 %2(").arg(data.name, data.type);
+    QStringList params;
+    for (auto it = data.params.begin(); it != data.params.end(); ++it) {
+        if (!it.value().isEmpty()) {
+            params << QString("%1=%2").arg(it.key(), it.value());
+        }
+    }
+    modelLine += params.join(" ") + ")";
+
+    // Determine library path
+    QString libPath = data.libraryPath;
+    if (libPath.isEmpty()) {
+        // Save to the last configured model path, or create spice_models.lib in current dir
+        auto paths = ConfigManager::instance().modelPaths();
+        if (!paths.isEmpty()) {
+            libPath = paths.last();
+        } else {
+            libPath = QFileInfo("spice_models.lib").absoluteFilePath();
+        }
+    }
+
+    // Ensure directory exists
+    QFileInfo fi(libPath);
+    QDir().mkpath(fi.absolutePath());
+
+    // Append to library file
+    QFile file(libPath);
+    if (!file.open(QIODevice::Append | QIODevice::Text)) {
+        QMessageBox::warning(this, "Error", QString("Cannot open library file:\n%1").arg(libPath));
+        return;
+    }
+
+    QTextStream out(&file);
+    out << "\n* --- Added by Model Manager ---\n";
+    out << modelLine << "\n";
+    file.close();
+
+    QMessageBox::information(this, "Success", QString("Model '%1' added to:\n%2").arg(data.name, libPath));
+
+    // Reload libraries to include the new model
+    ModelLibraryManager::instance().reload();
+}
+
+// ============================================================
+// NewModelDialog Implementation
+// ============================================================
+
+NewModelDialog::NewModelDialog(const QString& defaultType, QWidget* parent)
+    : QDialog(parent) {
+    setWindowTitle("Add New SPICE Model");
+    setMinimumSize(550, 500);
+    setupUI();
+    m_typeCombo->setCurrentText(defaultType);
+    loadPresetParams(defaultType);
+}
+
+void NewModelDialog::setupUI() {
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(15);
+
+    auto* formLayout = new QFormLayout;
+    formLayout->setSpacing(10);
+
+    // Model type
+    m_typeCombo = new QComboBox;
+    m_typeCombo->addItems({"NMOS", "PMOS", "Diode", "NPN", "PNP", "NJF", "PJF"});
+    m_typeCombo->setFixedHeight(32);
+    m_typeCombo->setStyleSheet("QComboBox { background-color: #0a0a0c; border: 1px solid #3f3f46; border-radius: 6px; padding: 0 10px; color: white; }");
+    connect(m_typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewModelDialog::onTypeChanged);
+    formLayout->addRow("Type:", m_typeCombo);
+
+    // Model name
+    m_nameEdit = new QLineEdit;
+    m_nameEdit->setPlaceholderText("e.g. MY_MOSFET, 2N7000_CUSTOM");
+    m_nameEdit->setFixedHeight(32);
+    m_nameEdit->setStyleSheet("QLineEdit { background-color: #0a0a0c; border: 1px solid #3f3f46; border-radius: 6px; padding: 0 10px; color: white; }");
+    formLayout->addRow("Name:", m_nameEdit);
+
+    // Library path
+    m_libraryEdit = new QLineEdit;
+    m_libraryEdit->setPlaceholderText("Leave empty to use default library");
+    m_libraryEdit->setFixedHeight(32);
+    m_libraryEdit->setStyleSheet("QLineEdit { background-color: #0a0a0c; border: 1px solid #3f3f46; border-radius: 6px; padding: 0 10px; color: white; }");
+
+    auto* libRow = new QHBoxLayout;
+    libRow->addWidget(m_libraryEdit);
+    auto* browseBtn = new QPushButton("...");
+    browseBtn->setFixedWidth(36);
+    browseBtn->setFixedHeight(32);
+    browseBtn->setStyleSheet("QPushButton { background-color: #27272a; border: 1px solid #3f3f46; border-radius: 6px; color: #d4d4d8; } QPushButton:hover { background-color: #3f3f46; }");
+    connect(browseBtn, &QPushButton::clicked, [this]() {
+        QString path = QFileDialog::getSaveFileName(this, "Select Library File", QDir::homePath(), "Library Files (*.lib *.mod)");
+        if (!path.isEmpty()) m_libraryEdit->setText(path);
+    });
+    libRow->addWidget(browseBtn);
+    formLayout->addRow("Library:", libRow);
+
+    layout->addLayout(formLayout);
+
+    // Preset selector
+    auto* presetRow = new QHBoxLayout;
+    presetRow->addWidget(new QLabel("Presets:"));
+    m_presetCombo = new QComboBox;
+    m_presetCombo->setFixedHeight(28);
+    m_presetCombo->setStyleSheet("QComboBox { background-color: #18181b; border: 1px solid #3f3f46; border-radius: 4px; padding: 0 8px; color: white; font-size: 11px; }");
+    m_presetCombo->addItem("Custom (Empty)", "");
+    m_presetCombo->addItem("Generic", "generic");
+    m_presetCombo->addItem("Low Power", "low_power");
+    m_presetCombo->addItem("Power", "power");
+    m_presetCombo->addItem("Fast/Switching", "fast");
+    m_presetCombo->addItem("Low Noise", "low_noise");
+    connect(m_presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewModelDialog::onPresetChanged);
+    presetRow->addWidget(m_presetCombo);
+    presetRow->addStretch();
+    layout->addLayout(presetRow);
+
+    // Parameters table
+    m_paramsTable = new QTableWidget(0, 3);
+    m_paramsTable->setHorizontalHeaderLabels({"Parameter", "Value", ""});
+    m_paramsTable->horizontalHeader()->setStretchLastSection(false);
+    m_paramsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_paramsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_paramsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_paramsTable->setColumnWidth(2, 36);
+    m_paramsTable->setAlternatingRowColors(false);
+    m_paramsTable->setStyleSheet(
+        "QTableWidget { background-color: #0f1012; border: 1px solid #2d2d30; border-radius: 8px; gridline-color: #1f1f23; }"
+        "QHeaderView::section { background-color: #1a1c22; color: #71717a; padding: 8px; border: none; font-weight: bold; font-size: 11px; letter-spacing: 1px; }"
+        "QTableWidget::item { background-color: #0f1012; }"
+        "QTableWidget QLineEdit { background-color: transparent; border: none; color: #e4e4e7; font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 12px; }"
+    );
+    m_paramsTable->viewport()->setStyleSheet("background-color: #0f1012;");
+    layout->addWidget(m_paramsTable, 1);
+
+    // Buttons
+    auto* btnLayout = new QHBoxLayout;
+    btnLayout->addStretch();
+
+    auto* addBtn = new QPushButton("+ Add Param");
+    addBtn->setFixedHeight(28);
+    addBtn->setStyleSheet("QPushButton { background-color: #27272a; border: 1px solid #3f3f46; border-radius: 4px; color: #d4d4d8; padding: 0 12px; } QPushButton:hover { background-color: #3f3f46; }");
+    connect(addBtn, &QPushButton::clicked, this, &NewModelDialog::onAddParam);
+    btnLayout->addWidget(addBtn);
+
+    btnLayout->addSpacing(10);
+
+    auto* okBtn = new QPushButton("OK");
+    okBtn->setFixedHeight(32);
+    okBtn->setFixedWidth(80);
+    okBtn->setStyleSheet("QPushButton { background-color: #007acc; border: none; border-radius: 6px; color: white; font-weight: bold; } QPushButton:hover { background-color: #008be5; }");
+    connect(okBtn, &QPushButton::clicked, this, &QDialog::accept);
+    btnLayout->addWidget(okBtn);
+
+    auto* cancelBtn = new QPushButton("Cancel");
+    cancelBtn->setFixedHeight(32);
+    cancelBtn->setFixedWidth(80);
+    cancelBtn->setStyleSheet("QPushButton { background-color: #27272a; border: 1px solid #3f3f46; border-radius: 6px; color: #d4d4d8; } QPushButton:hover { background-color: #3f3f46; }");
+    connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+    btnLayout->addWidget(cancelBtn);
+
+    layout->addLayout(btnLayout);
+}
+
+void NewModelDialog::loadPresetParams(const QString& type) {
+    m_paramsTable->setRowCount(0);
+
+    struct Param { QString key; QString placeholder; QString presetValue; };
+    QMap<QString, QList<Param>> presets;
+
+    presets["NMOS"] = {
+        {"Vto", "Threshold voltage (V)", ""},
+        {"Kp", "Transconductance (A/V²)", ""},
+        {"Lambda", "Channel-length modulation (1/V)", ""},
+        {"Rd", "Drain resistance (Ω)", ""},
+        {"Rs", "Source resistance (Ω)", ""},
+        {"Cgso", "Gate-source capacitance (F)", ""},
+        {"Cgdo", "Gate-drain capacitance (F)", ""},
+        {"Cbd", "Bulk-drain capacitance (F)", ""},
+        {"Cbs", "Bulk-source capacitance (F)", ""},
+        {"Is", "Bulk junction saturation current (A)", ""},
+    };
+
+    presets["PMOS"] = presets["NMOS"];  // Same params
+
+    presets["NPN"] = {
+        {"Is", "Saturation current (A)", ""},
+        {"Bf", "Forward beta", ""},
+        {"Br", "Reverse beta", ""},
+        {"Vaf", "Forward Early voltage (V)", ""},
+        {"Var", "Reverse Early voltage (V)", ""},
+        {"Ise", "B-E leakage current (A)", ""},
+        {"Ne", "B-E leakage exponent", ""},
+        {"Rb", "Base resistance (Ω)", ""},
+        {"Rc", "Collector resistance (Ω)", ""},
+        {"Re", "Emitter resistance (Ω)", ""},
+        {"Cje", "B-E depletion capacitance (F)", ""},
+        {"Cjc", "B-C depletion capacitance (F)", ""},
+        {"Tf", "Ideal forward transit time (s)", ""},
+        {"Tr", "Ideal reverse transit time (s)", ""},
+    };
+
+    presets["PNP"] = presets["NPN"];
+
+    presets["Diode"] = {
+        {"Is", "Saturation current (A)", ""},
+        {"Rs", "Ohmic resistance (Ω)", ""},
+        {"N", "Emission coefficient", ""},
+        {"Tt", "Transit time (s)", ""},
+        {"Cjo", "Zero-bias junction capacitance (F)", ""},
+        {"Vj", "Junction potential (V)", ""},
+        {"M", "Grading coefficient", ""},
+        {"Eg", "Energy gap (eV)", ""},
+        {"Bv", "Reverse breakdown voltage (V)", ""},
+        {"Ibv", "Breakdown current (A)", ""},
+    };
+
+    presets["NJF"] = {
+        {"Beta", "Transconductance coefficient (A/V²)", ""},
+        {"Vto", "Threshold voltage (V)", ""},
+        {"Lambda", "Channel-length modulation (1/V)", ""},
+        {"Rd", "Drain resistance (Ω)", ""},
+        {"Rs", "Source resistance (Ω)", ""},
+        {"Cgd", "Gate-drain capacitance (F)", ""},
+        {"Cgs", "Gate-source capacitance (F)", ""},
+        {"Is", "Gate junction saturation current (A)", ""},
+    };
+
+    presets["PJF"] = presets["NJF"];
+
+    auto params = presets.value(type);
+    for (const auto& p : params) {
+        addParamRow(p.key, p.placeholder);
+    }
+}
+
+void NewModelDialog::addParamRow(const QString& key, const QString& placeholder) {
+    int row = m_paramsTable->rowCount();
+    m_paramsTable->insertRow(row);
+
+    auto setupEdit = [](QLineEdit* edit, const QColor& textColor) {
+        edit->setStyleSheet("background: transparent; border: none; font-family: monospace; font-size: 12px;");
+        auto pal = edit->palette();
+        pal.setColor(QPalette::Text, textColor);
+        pal.setColor(QPalette::PlaceholderText, QColor(0x52, 0x52, 0x5b));
+        pal.setColor(QPalette::Base, Qt::transparent);
+        edit->setPalette(pal);
+    };
+
+    // Parameter name
+    auto* keyEdit = new QLineEdit(key);
+    setupEdit(keyEdit, QColor(0xd4, 0xd4, 0xd8));
+    keyEdit->setPlaceholderText("Parameter");
+    m_paramsTable->setCellWidget(row, 0, keyEdit);
+
+    // Parameter value
+    auto* valEdit = new QLineEdit();
+    setupEdit(valEdit, Qt::white);
+    valEdit->setPlaceholderText(placeholder);
+    m_paramsTable->setCellWidget(row, 1, valEdit);
+
+    // Remove button
+    auto* removeBtn = new QPushButton("×");
+    removeBtn->setFixedWidth(28);
+    removeBtn->setFixedHeight(22);
+    removeBtn->setStyleSheet("QPushButton { background: transparent; border: none; color: #ef4444; font-size: 16px; font-weight: bold; } QPushButton:hover { background: #1f1f23; border-radius: 3px; }");
+    connect(removeBtn, &QPushButton::clicked, [this, row]() {
+        m_paramsTable->removeRow(m_paramsTable->indexAt(m_paramsTable->cellWidget(row, 0)->pos()).row());
+    });
+    m_paramsTable->setCellWidget(row, 2, removeBtn);
+}
+
+void NewModelDialog::onTypeChanged(int index) {
+    QString type = m_typeCombo->itemText(index);
+    loadPresetParams(type);
+}
+
+void NewModelDialog::onAddParam() {
+    addParamRow();
+}
+
+void NewModelDialog::onRemoveParam() {
+    int row = m_paramsTable->currentRow();
+    if (row >= 0) m_paramsTable->removeRow(row);
+}
+
+void NewModelDialog::onPresetChanged(int index) {
+    QString preset = m_presetCombo->itemData(index).toString();
+    QString type = m_typeCombo->currentText();
+
+    // Clear existing values
+    for (int i = 0; i < m_paramsTable->rowCount(); ++i) {
+        auto* valEdit = qobject_cast<QLineEdit*>(m_paramsTable->cellWidget(i, 1));
+        if (valEdit) valEdit->clear();
+    }
+
+    // Apply preset values based on type
+    QMap<QString, QMap<QString, QMap<QString, QString>>> presetValues;
+
+    auto addPreset = [&](const QString& type, const QString& preset, std::initializer_list<std::pair<QString, QString>> params) {
+        QMap<QString, QString> m;
+        for (const auto& p : params) m.insert(p.first, p.second);
+        presetValues[type][preset] = m;
+    };
+
+    addPreset("NMOS", "generic", {{"Vto", "1"}, {"Kp", "100u"}, {"Lambda", "0.01"}});
+    addPreset("NMOS", "low_power", {{"Vto", "0.7"}, {"Kp", "50u"}, {"Lambda", "0.02"}});
+    addPreset("NMOS", "power", {{"Vto", "2"}, {"Kp", "500u"}, {"Lambda", "0.005"}, {"Rd", "0.1"}, {"Rs", "0.1"}});
+    addPreset("NMOS", "fast", {{"Vto", "0.5"}, {"Kp", "200u"}, {"Lambda", "0.01"}, {"Cgso", "1p"}, {"Cgdo", "1p"}});
+    addPreset("NMOS", "low_noise", {{"Vto", "1"}, {"Kp", "150u"}, {"Lambda", "0.008"}, {"Is", "1f"}});
+
+    // PMOS presets (copy NMOS, negate Vto)
+    for (auto it = presetValues["NMOS"].begin(); it != presetValues["NMOS"].end(); ++it) {
+        auto pmosParams = it.value();
+        if (pmosParams.contains("Vto")) pmosParams["Vto"] = QString("-") + pmosParams["Vto"];
+        presetValues["PMOS"][it.key()] = pmosParams;
+    }
+
+    addPreset("NPN", "generic", {{"Is", "1e-14"}, {"Bf", "100"}, {"Vaf", "100"}, {"Tf", "0.4n"}});
+    addPreset("NPN", "low_power", {{"Is", "1e-15"}, {"Bf", "150"}, {"Vaf", "200"}});
+    addPreset("NPN", "power", {{"Is", "1e-13"}, {"Bf", "50"}, {"Vaf", "50"}, {"Rc", "0.1"}, {"Re", "0.1"}});
+    addPreset("NPN", "fast", {{"Is", "1e-14"}, {"Bf", "100"}, {"Tf", "0.1n"}, {"Cje", "2p"}, {"Cjc", "1p"}});
+    addPreset("NPN", "low_noise", {{"Is", "1e-15"}, {"Bf", "200"}, {"Vaf", "300"}, {"Ne", "1.5"}});
+
+    presetValues["PNP"] = presetValues["NPN"];
+
+    addPreset("Diode", "generic", {{"Is", "1e-14"}, {"N", "1"}, {"Cjo", "2p"}, {"Vj", "0.75"}});
+    addPreset("Diode", "low_power", {{"Is", "1e-15"}, {"N", "1.2"}, {"Cjo", "0.5p"}});
+    addPreset("Diode", "power", {{"Is", "1e-9"}, {"Rs", "0.01"}, {"Cjo", "100p"}});
+    addPreset("Diode", "fast", {{"Is", "1e-12"}, {"Tt", "1n"}, {"Cjo", "1p"}});
+    addPreset("Diode", "low_noise", {{"Is", "1e-15"}, {"N", "1"}, {"Kf", "1e-15"}});
+
+    addPreset("NJF", "generic", {{"Beta", "1m"}, {"Vto", "-2"}, {"Lambda", "0.01"}});
+    addPreset("NJF", "low_power", {{"Beta", "500u"}, {"Vto", "-1.5"}, {"Lambda", "0.02"}});
+
+    presetValues["PJF"] = presetValues["NJF"];
+
+    auto values = presetValues.value(type).value(preset);
+    for (int i = 0; i < m_paramsTable->rowCount(); ++i) {
+        auto* keyEdit = qobject_cast<QLineEdit*>(m_paramsTable->cellWidget(i, 0));
+        auto* valEdit = qobject_cast<QLineEdit*>(m_paramsTable->cellWidget(i, 1));
+        if (keyEdit && valEdit) {
+            QString key = keyEdit->text();
+            if (values.contains(key)) {
+                valEdit->setText(values[key]);
+            }
+        }
+    }
+}
+
+NewModelDialog::NewModelData NewModelDialog::getData() const {
+    NewModelData data;
+    data.name = m_nameEdit->text().trimmed();
+    data.type = m_typeCombo->currentText();
+    data.libraryPath = m_libraryEdit->text().trimmed();
+
+    for (int i = 0; i < m_paramsTable->rowCount(); ++i) {
+        auto* keyEdit = qobject_cast<QLineEdit*>(m_paramsTable->cellWidget(i, 0));
+        auto* valEdit = qobject_cast<QLineEdit*>(m_paramsTable->cellWidget(i, 1));
+        if (keyEdit && valEdit) {
+            QString key = keyEdit->text().trimmed();
+            QString val = valEdit->text().trimmed();
+            if (!key.isEmpty()) {
+                data.params[key] = val;
+            }
+        }
+    }
+    return data;
 }

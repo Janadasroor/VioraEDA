@@ -4,9 +4,10 @@ import sys
 import tempfile
 import unittest
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from ai_pipeline.config import _ensure_python_root_in_syspath
+_ensure_python_root_in_syspath()
 
-from python.ai_pipeline.ai_tools.tools import ToolRegistry
+from ai_pipeline.ai_tools.tools import ToolRegistry
 
 
 class _FakeAdapter:

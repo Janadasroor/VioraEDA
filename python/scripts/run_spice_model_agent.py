@@ -6,6 +6,9 @@ import argparse
 from google import genai
 from google.genai import types
 
+from ai_pipeline.config import _ensure_python_root_in_syspath, ENV_GEMINI_API_KEY, ENV_OCTOPART_API_KEY
+_ensure_python_root_in_syspath()
+
 # SPICE Parameter Definitions (from SpiceModelArchitect.cpp)
 DEVICE_PARAMS = {
     "Diode (D)": ["IS", "RS", "N", "CJO", "VJ", "M", "TT", "BV", "IBV"],
@@ -62,12 +65,12 @@ def main():
     parser = argparse.ArgumentParser(description='Extract SPICE parameters from a datasheet PDF.')
     parser.add_argument('--pdf', required=True, help='Path to the PDF datasheet')
     parser.add_argument('--type', required=True, help='Device category (e.g., "Power MOSFET (VDMOS)")')
-    parser.add_argument('--api_key', default=os.environ.get("GEMINI_API_KEY"), help='Gemini API Key')
-    
+    parser.add_argument('--api_key', default=os.environ.get(ENV_GEMINI_API_KEY), help='Gemini API Key')
+
     args = parser.parse_args()
-    
+
     if not args.api_key:
-        print(json.dumps({"error": "GEMINI_API_KEY not found. Please set it as an environment variable or pass it via --api_key."}))
+        print(json.dumps({"error": f"{ENV_GEMINI_API_KEY} not found. Please set it as an environment variable or pass it via --api_key."}))
         sys.exit(1)
         
     result = extract_params(args.api_key, args.pdf, args.type)

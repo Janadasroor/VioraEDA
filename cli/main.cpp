@@ -3780,7 +3780,7 @@ int main(int argc, char *argv[]) {
     QCommandLineOption summaryOption("summary", "Show concise summary (raw-info)");
 
     QCommandLineOption signalRegexOption("signal-regex", "Filter signals by regex (raw-export)", "pattern");
-    QCommandLineOption outOption("out", "Write output to file (schematic-netlist)", "outfile");
+    QCommandLineOption outOption(QStringList() << "out" << "output", "Write output to file (schematic-netlist)", "outfile");
     QCommandLineOption reportTitleOption("report-title", "Report title", "rtitle", "VioSpice Design Review");
     QCommandLineOption reportAuthorOption("report-author", "Report author", "rauthor", "VioSpice");
     QCommandLineOption noSchematicOption("no-schematic", "Exclude schematic section from report");
@@ -3905,7 +3905,7 @@ int main(int argc, char *argv[]) {
         for (int i = 1; i < args.size(); ++i) {
             fluxArgs << args.at(i);
         }
-        return fluxCmd.run(fluxArgs, g_quiet);
+        return fluxCmd.run(fluxArgs, parser, g_quiet);
     }
 
     if (command == "plugins-smoke") {

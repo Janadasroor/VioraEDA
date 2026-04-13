@@ -153,6 +153,7 @@ protected:
 
 private Q_SLOTS:
     void handleAutoScroll();
+    void handleProbeLongPress();
 
 private:
     bool m_isPanning;
@@ -178,6 +179,9 @@ private:
     bool m_probeClickActive = false;
     QString m_probeStartNet;
     QPointF m_probeStartPos;
+    QString m_probePendingNet;
+    QPointF m_probePendingPos;
+    bool m_probeReleaseCompletesDifferential = false;
     QGraphicsEllipseItem* m_probeStartMarker = nullptr;
     QGraphicsPixmapItem* m_probeCursorItem = nullptr;
     bool m_probeCursorVisible = false;
@@ -191,6 +195,7 @@ private:
     QMap<QString, double> m_simBranchCurrents;
 
     QTimer* m_autoScrollTimer;
+    QTimer* m_probeLongPressTimer = nullptr;
     QPoint m_autoScrollDelta;
 
     class SmartProbeOverlay* m_smartProbeOverlay = nullptr;

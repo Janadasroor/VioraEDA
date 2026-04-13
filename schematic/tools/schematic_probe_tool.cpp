@@ -121,6 +121,8 @@ void placeProbeMarker(QGraphicsScene* scene, const QPointF& pos, const QString& 
 
 QString SchematicProbeTool::tooltip() const {
     switch (m_kind) {
+    case ProbeKind::DifferentialVoltage:
+        return "Interactive Differential Voltage Probe (Click two nets)";
     case ProbeKind::Current:
         return "Interactive Current Probe (Click net/pin)";
     case ProbeKind::Power:
@@ -145,12 +147,14 @@ SchematicProbeTool::ProbeCursorArt SchematicProbeTool::createProbeCursorArt(Prob
     const QPoint hotspot(static_cast<int>(std::lround(hotspotF.x())),
                          static_cast<int>(std::lround(hotspotF.y())));
 
-    if (kind == ProbeKind::Voltage) {
+    if (kind == ProbeKind::Voltage || kind == ProbeKind::DifferentialVoltage) {
         QPixmap pixmap(kCursorSize, kCursorSize);
         pixmap.fill(Qt::transparent);
         QPainter painter(&pixmap);
         painter.setRenderHint(QPainter::Antialiasing);
-        QString iconPath = ":/icons/p-v-probe.svg";
+        QString iconPath = (kind == ProbeKind::DifferentialVoltage)
+            ? ":/icons/n-v-probe.svg"
+            : ":/icons/p-v-probe.svg";
         QSvgRenderer renderer(iconPath);
         if (renderer.isValid()) {
             renderer.render(&painter, QRectF(kPadding, kPadding, kDrawSize, kDrawSize));
@@ -166,7 +170,8 @@ SchematicProbeTool::ProbeCursorArt SchematicProbeTool::createProbeCursorArt(Prob
 
     // Color scheme
     QColor tipColor = QColor(220, 38, 38);
-    if (kind == ProbeKind::Current) tipColor = QColor(245, 158, 11);
+    if (kind == ProbeKind::DifferentialVoltage) tipColor = QColor(24, 24, 27);
+    else if (kind == ProbeKind::Current) tipColor = QColor(245, 158, 11);
     else if (kind == ProbeKind::Power) tipColor = QColor(239, 68, 68);
     QColor bodyColor = QColor(209, 213, 219); // Light Gray
     QColor shadowColor = QColor(0, 0, 0, 100);
@@ -280,11 +285,11 @@ void SchematicProbeTool::mouseMoveEvent(QMouseEvent* event) {
         if (editor && editor->netManager()) {
             QString netName = editor->netManager()->findNetAtPoint(scenePos);
             
-            // If over a different net, show BLACK probe cursor
+            // If over a different net, show the differential-voltage probe cursor.
             if (!netName.isEmpty() && netName != m_startNetName) {
-                view()->setProbeCursorOverlay(ProbeKind::Current, scenePos); // Current is Black
+                view()->setProbeCursorOverlay(ProbeKind::DifferentialVoltage, scenePos);
             } else {
-                view()->setProbeCursorOverlay(ProbeKind::Voltage, scenePos); // Voltage is Red
+                view()->setProbeCursorOverlay(ProbeKind::Voltage, scenePos);
             }
         }
         event->accept();
