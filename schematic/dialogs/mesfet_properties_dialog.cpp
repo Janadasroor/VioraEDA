@@ -21,7 +21,11 @@ MesfetPropertiesDialog::MesfetPropertiesDialog(SchematicItem* item, QWidget* par
 
     m_modelNameEdit = new QLineEdit();
     m_modelNameEdit->setPlaceholderText("e.g. MyMesfet");
-    m_modelNameEdit->setText(item ? item->value().trimmed() : QString());
+    QString initialModel = item ? item->spiceModel().trimmed() : QString();
+    if (initialModel.isEmpty() && item) {
+        initialModel = item->value().trimmed();
+    }
+    m_modelNameEdit->setText(initialModel);
     if (m_modelNameEdit->text().isEmpty()) {
         m_modelNameEdit->setText("MyMesfet");
     }

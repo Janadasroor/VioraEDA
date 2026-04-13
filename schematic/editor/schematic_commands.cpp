@@ -364,6 +364,8 @@ void ChangePropertyCommand::undo() {
         m_item->setMpn(m_oldValue.toString());
     } else if (m_propertyName == "description") {
         m_item->setDescription(m_oldValue.toString());
+    } else if (m_propertyName == "spiceModel") {
+        m_item->setSpiceModel(m_oldValue.toString());
     } else if (m_propertyName == "netClass") {
         if (auto* netLabel = dynamic_cast<NetLabelItem*>(m_item)) {
             netLabel->setNetClassName(m_oldValue.toString());
@@ -475,6 +477,8 @@ void ChangePropertyCommand::redo() {
         m_item->setMpn(m_newValue.toString());
     } else if (m_propertyName == "description") {
         m_item->setDescription(m_newValue.toString());
+    } else if (m_propertyName == "spiceModel") {
+        m_item->setSpiceModel(m_newValue.toString());
     } else if (m_propertyName == "netClass") {
         if (auto* netLabel = dynamic_cast<NetLabelItem*>(m_item)) {
             netLabel->setNetClassName(m_newValue.toString());

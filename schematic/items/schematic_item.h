@@ -204,6 +204,8 @@ public:
     void setReferenceLabelPos(const QPointF& p);
     QPointF valueLabelPos() const;
     void setValueLabelPos(const QPointF& p);
+    class SchematicTextItem* referenceLabelItem() const { return m_refLabelItem; }
+    class SchematicTextItem* valueLabelItem() const { return m_valueLabelItem; }
 
     // Connectivity
     virtual QList<QPointF> connectionPoints() const { return QList<QPointF>(); }

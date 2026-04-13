@@ -149,8 +149,6 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/passive_model_properties_dialog.h
     schematic/dialogs/passive_model_picker_dialog.cpp
     schematic/dialogs/passive_model_picker_dialog.h
-    schematic/dialogs/component_label_properties_dialog.cpp
-    schematic/dialogs/component_label_properties_dialog.h
     schematic/dialogs/schematic_text_properties_dialog.cpp
     schematic/dialogs/schematic_text_properties_dialog.h
     schematic/dialogs/schematic_diff_dialog.cpp

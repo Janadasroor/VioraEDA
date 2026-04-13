@@ -218,8 +218,11 @@ void DiodePropertiesDialog::setupUI() {
 void DiodePropertiesDialog::loadValues() {
     if (!m_item) return;
 
-    // Load model name from component value
-    QString rawValue = m_item->value().trimmed();
+    // Prefer the explicit SPICE model, then fall back to the visible value text.
+    QString rawValue = m_item->spiceModel().trimmed();
+    if (rawValue.isEmpty()) {
+        rawValue = m_item->value().trimmed();
+    }
 
     // If value is just the device prefix letter (e.g. "D"), treat as no model
     bool hasModelName = !rawValue.isEmpty() && rawValue.length() > 1;
@@ -240,16 +243,21 @@ void DiodePropertiesDialog::loadValues() {
     };
 
     Defaults d = defaultsMap.value(m_diodeType, defaultsMap["silicon"]);
+    const SimModel* mdl = hasModelName ? ModelLibraryManager::instance().findModel(rawValue) : nullptr;
+    auto modelParam = [&](const std::string& key, const QString& fallback) -> QString {
+        if (!mdl) return fallback;
+        auto it = mdl->params.find(key);
+        if (it != mdl->params.end()) {
+            return QString::number(it->second, 'g', 12);
+        }
+        return fallback;
+    };
 
-    // Try to load from ModelLibraryManager if we have a real model name
-    if (hasModelName) {
-        fillFromModel(rawValue);
-    }
-
-    // paramExpressions override everything (from library model or user edits)
+    // paramExpressions override everything, then model library, then type defaults.
     auto pe = m_item->paramExpressions();
     auto loadParam = [&](QLineEdit* edit, const QString& key, const QString& typeDefault) {
-        QString val = pe.value(key, typeDefault).trimmed();
+        QString val = pe.value(key).trimmed();
+        if (val.isEmpty()) val = modelParam(key.section('.', 1).toStdString(), typeDefault);
         if (val.isEmpty()) val = typeDefault;
         edit->setText(val);
     };

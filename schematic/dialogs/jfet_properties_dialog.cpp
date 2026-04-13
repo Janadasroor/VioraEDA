@@ -143,14 +143,31 @@ void JfetPropertiesDialog::loadValues() {
     const bool pch = isPChannel();
     const QString defaultModel = pch ? "2N5460" : "2N3819";
 
-    QString modelName = m_item->value().trimmed();
+    QString modelName = m_item->spiceModel().trimmed();
+    if (modelName.isEmpty()) {
+        modelName = m_item->value().trimmed();
+    }
     if (modelName.isEmpty()) modelName = defaultModel;
     m_modelNameEdit->setText(modelName);
 
     const auto pe = m_item->paramExpressions();
+    const SimModel* mdl = ModelLibraryManager::instance().findModel(modelName);
+    auto modelParam = [&](const QString& key, const QString& fallback) {
+        if (!mdl) return fallback;
+        auto it = mdl->params.find(key.toStdString());
+        if (it != mdl->params.end()) {
+            return QString::number(it->second, 'g', 12);
+        }
+        for (const auto& kv : mdl->params) {
+            if (QString::fromStdString(kv.first).compare(key, Qt::CaseInsensitive) == 0) {
+                return QString::number(kv.second, 'g', 12);
+            }
+        }
+        return fallback;
+    };
     auto loadParam = [&](QLineEdit* edit, const QString& key, const QString& fallback) {
         QString v = pe.value(key).trimmed();
-        if (v.isEmpty()) v = fallback;
+        if (v.isEmpty()) v = modelParam(key.section('.', 1), fallback);
         edit->setText(v);
     };
 

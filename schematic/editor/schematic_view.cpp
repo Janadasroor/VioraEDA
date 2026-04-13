@@ -34,6 +34,7 @@
 #include <QDebug>
 #include <QGraphicsItem>
 #include "schematic_page_item.h"
+#include "../items/schematic_item_selection_utils.h"
 #include <QMenu>
 #include <QAction>
 #include <QWidgetAction>
@@ -971,13 +972,11 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
                 return;
             }
 
-            // Check if we clicked on a SymbolTextItem (component label like "M1" or "NMOS")
+            // Handle double-clicks on embedded symbol text that resolves to a component label.
             using namespace Flux::Item;
             if (auto* symbolText = dynamic_cast<SymbolTextItem*>(item)) {
-                // Find the parent GenericComponentItem
                 if (auto* parentComp = dynamic_cast<GenericComponentItem*>(symbolText->parentItem())) {
-                    // Determine if this is the reference label or value label.
-                    // SymbolTextItem is not a QObject, so use model text tokens as heuristic.
+                    // SymbolTextItem is not a QObject, so infer the label kind from the symbol token.
                     const QString textToken = symbolText->model().data.value("text").toString();
                     const QString upper = textToken.toUpper();
                     const bool isReference = upper.contains("REFERENCE") || upper.contains("REF");
@@ -1167,13 +1166,7 @@ void SchematicView::keyPressEvent(QKeyEvent *event) {
     if (event->key() == Qt::Key_Space) {
         // Rotate selection if tool didn't consume it
         if (!scene()->selectedItems().isEmpty()) {
-            QList<SchematicItem*> itemsToRotate;
-            for (auto item : scene()->selectedItems()) {
-                SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
-                if (sItem) {
-                    itemsToRotate.append(sItem);
-                }
-            }
+            QList<SchematicItem*> itemsToRotate = topLevelSelectedSchematicItems(scene());
             
             if (!itemsToRotate.isEmpty()) {
                 if (m_undoStack) {

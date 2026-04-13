@@ -41,6 +41,7 @@ void DiodeItem::buildPrimitives() {
 void DiodeItem::setValue(const QString& value) {
     if (m_value != value) {
         m_value = value;
+        m_spiceModel = value.trimmed();
         updateLabelText();
         buildPrimitives();
         update();

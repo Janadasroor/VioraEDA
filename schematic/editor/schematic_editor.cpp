@@ -25,6 +25,7 @@
 #include "../ui/simulation_panel.h"
 #include "../ui/schematic_minimap.h"
 #include "schematic_item.h"
+#include "../items/schematic_item_selection_utils.h"
 #include "schematic_page_item.h"
 #include <QDir>
 
@@ -421,24 +422,7 @@ bool SchematicEditor::handlePlacementModeEvent(QObject* watched, QEvent* event) 
 }
 
 QList<SchematicItem*> SchematicEditor::selectedSchematicItems() const {
-    if (!m_scene) return {};
-
-    QList<SchematicItem*> result;
-    QSet<SchematicItem*> seen;
-    for (QGraphicsItem* graphicsItem : m_scene->selectedItems()) {
-        SchematicItem* schematicItem = nullptr;
-        QGraphicsItem* current = graphicsItem;
-        while (current) {
-            schematicItem = dynamic_cast<SchematicItem*>(current);
-            if (schematicItem && !schematicItem->isSubItem()) break;
-            current = current->parentItem();
-        }
-        if (schematicItem && !seen.contains(schematicItem)) {
-            seen.insert(schematicItem);
-            result.append(schematicItem);
-        }
-    }
-    return result;
+    return topLevelSelectedSchematicItems(m_scene);
 }
 
 bool SchematicEditor::handleTransformAction(SchematicTool::TransformAction action) {

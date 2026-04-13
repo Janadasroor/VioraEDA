@@ -1,6 +1,7 @@
 #include "bjt_model_picker_dialog.h"
 
 #include "../../simulator/bridge/model_library_manager.h"
+#include "../../simulator/bridge/spice_model_search.h"
 #include "../../core/theme_manager.h"
 
 #include <QDialogButtonBox>
@@ -28,12 +29,6 @@ BjtModelPickerDialog::BjtModelPickerDialog(bool pnp, QWidget* parent)
     layout->addLayout(searchLayout);
 
     m_modelList = new QListWidget();
-    m_modelList->setAlternatingRowColors(true);
-    {
-        QPalette listPal = m_modelList->palette();
-        listPal.setColor(QPalette::HighlightedText, listPal.color(QPalette::Text));
-        m_modelList->setPalette(listPal);
-    }
     layout->addWidget(m_modelList);
 
     m_detailLabel = new QLabel("Select a model to see details");
@@ -69,12 +64,11 @@ BjtModelPickerDialog::BjtModelPickerDialog(bool pnp, QWidget* parent)
 }
 
 void BjtModelPickerDialog::loadModels() {
-    const auto allModels = ModelLibraryManager::instance().allModels();
     const QString wantedType = m_pnp ? "PNP" : "NPN";
+    const auto results = SpiceModelSearch::search("", wantedType);
 
-    for (const auto& mi : allModels) {
-        if (mi.type.compare(wantedType, Qt::CaseInsensitive) != 0) continue;
-
+    for (const auto& scored : results) {
+        const auto& mi = scored.info;
         QString params = mi.params.join(", ");
         if (params.length() > 120) params = params.left(117) + "...";
 
@@ -93,10 +87,35 @@ void BjtModelPickerDialog::loadModels() {
 }
 
 void BjtModelPickerDialog::filterModels(const QString& text) {
+    const QString wantedType = m_pnp ? "PNP" : "NPN";
+    const auto results = SpiceModelSearch::search(text, wantedType);
+
     for (int i = 0; i < m_modelList->count(); ++i) {
-        auto* item = m_modelList->item(i);
-        const bool match = text.isEmpty() || item->text().contains(text, Qt::CaseInsensitive);
-        item->setHidden(!match);
+        m_modelList->item(i)->setHidden(true);
+    }
+
+    QSet<QString> matchingNames;
+    for (const auto& scored : results) matchingNames.insert(scored.info.name);
+
+    int showIndex = 0;
+    for (const auto& scored : results) {
+        for (int i = 0; i < m_modelList->count(); ++i) {
+            auto* item = m_modelList->item(i);
+            if (item->data(Qt::UserRole).toString() == scored.info.name) {
+                item->setHidden(false);
+                m_modelList->takeItem(i);
+                m_modelList->insertItem(showIndex++, item);
+                if (showIndex == 1) m_modelList->setCurrentItem(item);
+                break;
+            }
+        }
+    }
+
+    auto* current = m_modelList->currentItem();
+    if (current) {
+        m_detailLabel->setText(current->data(Qt::UserRole + 1).toString());
+    } else {
+        m_detailLabel->setText(text.isEmpty() ? "Select a model to see details" : "No matching models");
     }
 }
 
