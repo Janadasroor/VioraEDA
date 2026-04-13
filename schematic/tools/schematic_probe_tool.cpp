@@ -15,6 +15,63 @@ SchematicProbeTool::SchematicProbeTool(const QString& toolName, ProbeKind kind)
 }
 
 namespace {
+SchematicItem* owningSchematicItem(QGraphicsItem* item) {
+    SchematicItem* lastSchematic = nullptr;
+    QGraphicsItem* current = item;
+    while (current) {
+        if (auto* schematic = dynamic_cast<SchematicItem*>(current)) {
+            lastSchematic = schematic;
+            if (!schematic->isSubItem()) {
+                return schematic;
+            }
+        }
+        current = current->parentItem();
+    }
+    return lastSchematic;
+}
+
+bool isProbeableSchematicComponent(SchematicItem* candidate) {
+    if (!candidate || candidate->isSubItem()) return false;
+    const auto type = candidate->itemType();
+    return type != SchematicItem::WireType &&
+           type != SchematicItem::LabelType &&
+           type != SchematicItem::NetLabelType &&
+           type != SchematicItem::JunctionType &&
+           type != SchematicItem::BusType &&
+           type != SchematicItem::NoConnectType &&
+           type != SchematicItem::SpiceDirectiveType &&
+           type != SchematicItem::SheetType;
+}
+
+SchematicItem* findProbeableComponentAt(SchematicView* view, const QPoint& viewPos, const QPointF& scenePos) {
+    if (!view || !view->scene()) return nullptr;
+
+    auto findFromItems = [](const QList<QGraphicsItem*>& items) -> SchematicItem* {
+        for (QGraphicsItem* it : items) {
+            SchematicItem* candidate = owningSchematicItem(it);
+            if (isProbeableSchematicComponent(candidate)) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    const QRect exactRect(viewPos.x() - 2, viewPos.y() - 2, 5, 5);
+    if (SchematicItem* candidate = findFromItems(view->items(exactRect))) {
+        return candidate;
+    }
+
+    constexpr qreal kBodyHitRadius = 8.0;
+    const QRectF sceneRect(scenePos.x() - kBodyHitRadius,
+                           scenePos.y() - kBodyHitRadius,
+                           kBodyHitRadius * 2.0,
+                           kBodyHitRadius * 2.0);
+    return findFromItems(view->scene()->items(sceneRect,
+                                              Qt::IntersectsItemBoundingRect,
+                                              Qt::DescendingOrder,
+                                              view->transform()));
+}
+
 QString markerKeyFor(const QString& netName, const QString& kindTag) {
     return (kindTag + ":" + netName).toUpper();
 }
@@ -274,6 +331,15 @@ void SchematicProbeTool::mousePressEvent(QMouseEvent* event) {
                 }
             }
             event->accept();
+        } else if (m_kind == ProbeKind::Current || m_kind == ProbeKind::Power) {
+            if (SchematicItem* compItem = findProbeableComponentAt(view(), event->pos(), scenePos)) {
+                const QString ref = compItem->reference().trimmed();
+                if (!ref.isEmpty()) {
+                    const QString kindTag = (m_kind == ProbeKind::Current) ? "I" : "P";
+                    Q_EMIT signalProbed(signalNameFor(ref, kindTag));
+                    event->accept();
+                }
+            }
         }
     }
 }

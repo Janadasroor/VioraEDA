@@ -533,6 +533,8 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
         // --- LTspice Style: Interactive Probing ---
         bool toolIsInstrument = m_currentTool && (m_currentTool->name().contains("meter", Qt::CaseInsensitive) || m_currentTool->name().contains("probe", Qt::CaseInsensitive));
         if (!toolIsInstrument && (m_simulationRunning || m_probingEnabled)) {
+            m_probeClickActive = true;
+
             // Detect wire/label under cursor
             bool isWireOrLabel = false;
             QString probedNet;
@@ -597,10 +599,10 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
             } else {
                 // Not over a wire/label, check for component body
                 SchematicItem* compItem = findProbeableComponentAt(this, event->pos(), scenePos);
-                const bool powerHeld = event->modifiers() & Qt::AltModifier;
+                const bool powerHeld = event->modifiers() & Qt::ShiftModifier;
                 const bool ctrlHeld = event->modifiers() & Qt::ControlModifier;
 
-                // Try voltage probe first (but not when Alt held = power probe intent)
+                // Try voltage probe first (but not when Shift held = power probe intent)
                 QString bodyNet;
                 if (!powerHeld && m_netManager) {
                     bodyNet = findNearbyProbeNet(this, m_netManager, event->pos(), scenePos);
@@ -662,6 +664,7 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                     // Clicked empty space while armed: cancel
                     m_probeStartNet.clear();
                     clearProbeStartMarker();
+                    m_probeReleaseCompletesDifferential = false;
                     setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
                 }
             }
@@ -816,7 +819,7 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
             } else {
                 // Not over a wire, check for component body (Current Probe)
                 if (hoveredComponent && !hoveredComponent->reference().trimmed().isEmpty()) {
-                    const bool powerHeld = event->modifiers() & Qt::AltModifier;
+                    const bool powerHeld = event->modifiers() & Qt::ShiftModifier;
                     setProbeCursorOverlay(powerHeld ? SchematicProbeTool::ProbeKind::Power
                                                     : SchematicProbeTool::ProbeKind::Current,
                                           mapToScene(event->pos()));
@@ -1638,6 +1641,7 @@ void SchematicView::handleProbeLongPress() {
     if (m_probePendingNet.isEmpty()) return;
     if (!m_probeStartNet.isEmpty()) return;
 
+    m_probeClickActive = true;
     m_probeStartNet = m_probePendingNet;
     m_probeStartPos = m_probePendingPos;
     m_probePendingNet.clear();
