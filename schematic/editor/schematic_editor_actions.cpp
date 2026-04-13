@@ -175,15 +175,6 @@ bool isModelBackedDeviceItem(const SchematicItem* item) {
            typeName.contains("mesfet") ||
            typeName.contains("bjt");
 }
-
-void openTextLabelPropertiesDialog(SchematicEditor* editor,
-                                   SchematicTextItem* labelItem,
-                                   QUndoStack* undoStack,
-                                   QGraphicsScene* scene) {
-    if (!editor || !labelItem || !undoStack || !scene) return;
-    SchematicTextPropertiesDialog dlg(labelItem, undoStack, scene, editor);
-    dlg.exec();
-}
 }
 
 static QString defaultPowerNetFromType(int powerType) {
@@ -964,18 +955,18 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 const bool isValueLabel = labelName.compare("ValueLabel", Qt::CaseInsensitive) == 0;
 
                 if (isReferenceLabel || isValueLabel) {
-                    openTextLabelPropertiesDialog(this, textItem, m_undoStack, m_scene);
+                    openTextLabelPropertiesDialog(textItem);
                     return;
                 }
             }
-            openTextLabelPropertiesDialog(this, textItem, m_undoStack, m_scene);
+            openTextLabelPropertiesDialog(textItem);
             return;
         }
     } else if (item->itemType() == SchematicItem::ComponentType) {
         if (auto* comp = dynamic_cast<GenericComponentItem*>(item)) {
             SchematicTextItem* labelItem = comp->referenceLabelItem();
             if (!labelItem) return;
-            openTextLabelPropertiesDialog(this, labelItem, m_undoStack, m_scene);
+            openTextLabelPropertiesDialog(labelItem);
             return;
         }
     } else if (item->itemTypeName() == "OscilloscopeInstrument") {
@@ -1417,7 +1408,14 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
     }
 }
 
-void SchematicEditor::onComponentLabelDoubleClicked(GenericComponentItem* component, bool isReferenceLabel) {
+void SchematicEditor::openTextLabelPropertiesDialog(SchematicTextItem* labelItem) {
+    if (!labelItem || !m_undoStack || !m_scene) return;
+
+    SchematicTextPropertiesDialog dlg(labelItem, m_undoStack, m_scene, this);
+    dlg.exec();
+}
+
+void SchematicEditor::onComponentTextLabelDoubleClicked(GenericComponentItem* component, bool isReferenceLabel) {
     if (!component) return;
 
     SchematicTextItem* labelItem = isReferenceLabel
@@ -1425,7 +1423,7 @@ void SchematicEditor::onComponentLabelDoubleClicked(GenericComponentItem* compon
         : component->valueLabelItem();
     if (!labelItem) return;
 
-    openTextLabelPropertiesDialog(this, labelItem, m_undoStack, m_scene);
+    openTextLabelPropertiesDialog(labelItem);
 }
 
 void SchematicEditor::onItemPlaced(SchematicItem* item) {

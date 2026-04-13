@@ -275,6 +275,14 @@ void SymbolPolygonItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*
 SymbolTextItem::SymbolTextItem(const Model::SymbolPrimitive& model, QGraphicsItem* parent)
     : SymbolPrimitiveItem(model, parent) {}
 
+bool SymbolTextItem::referencesReferenceField() const {
+    return m_model.data.value("text").toString().contains("${REFERENCE}", Qt::CaseInsensitive);
+}
+
+bool SymbolTextItem::referencesValueField() const {
+    return m_model.data.value("text").toString().contains("${VALUE}", Qt::CaseInsensitive);
+}
+
 QRectF SymbolTextItem::boundingRect() const {
     QString rawText = m_model.data.value("text").toString();
     QMap<QString, QString> vars;

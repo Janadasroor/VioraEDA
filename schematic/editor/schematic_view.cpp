@@ -976,13 +976,16 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent *event) {
             using namespace Flux::Item;
             if (auto* symbolText = dynamic_cast<SymbolTextItem*>(item)) {
                 if (auto* parentComp = dynamic_cast<GenericComponentItem*>(symbolText->parentItem())) {
-                    // SymbolTextItem is not a QObject, so infer the label kind from the symbol token.
-                    const QString textToken = symbolText->model().data.value("text").toString();
-                    const QString upper = textToken.toUpper();
-                    const bool isReference = upper.contains("REFERENCE") || upper.contains("REF");
-                    Q_EMIT componentLabelDoubleClicked(parentComp, isReference);
-                    event->accept();
-                    return;
+                    if (symbolText->referencesReferenceField()) {
+                        Q_EMIT componentTextLabelDoubleClicked(parentComp, true);
+                        event->accept();
+                        return;
+                    }
+                    if (symbolText->referencesValueField()) {
+                        Q_EMIT componentTextLabelDoubleClicked(parentComp, false);
+                        event->accept();
+                        return;
+                    }
                 }
             }
 

@@ -116,7 +116,7 @@ private Q_SLOTS:
     void updateCoordinates(QPointF pos);
     void onSelectionChanged();
     void onItemDoubleClicked(SchematicItem* item);
-    void onComponentLabelDoubleClicked(class GenericComponentItem* component, bool isReferenceLabel);
+    void onComponentTextLabelDoubleClicked(class GenericComponentItem* component, bool isReferenceLabel);
     void onItemPlaced(SchematicItem* item);
     void onSelectionDoubleClicked(const QList<SchematicItem*>& items);
     void openItemProperties(SchematicItem* item);
@@ -211,6 +211,7 @@ private:
     QToolButton *m_agentStatusBtn;
 
     void syncWsState();
+    void openTextLabelPropertiesDialog(class SchematicTextItem* labelItem);
 
     void setupCanvas();
     void createMenuBar();
