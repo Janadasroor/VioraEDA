@@ -107,6 +107,8 @@ public:
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget) override;
     
     void setSymbolContext(const QString& name, const QString& ref, const QString& val);
+    bool referencesReferenceField() const;
+    bool referencesValueField() const;
     void setKeepUpright(bool keep) { m_keepUpright = keep; update(); }
     bool keepUpright() const { return m_keepUpright; }
     void syncUprightTransform();
