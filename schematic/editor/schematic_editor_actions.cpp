@@ -67,7 +67,6 @@
 #include "../dialogs/mos_properties_dialog.h"
 #include "../dialogs/mesfet_properties_dialog.h"
 #include "../items/generic_component_item.h"
-#include "../dialogs/component_label_properties_dialog.h"
 #include "../items/voltage_controlled_switch_item.h"
 #include "../dialogs/oscilloscope_properties_dialog.h"
 #include "../dialogs/erc_rules_dialog.h"
@@ -157,6 +156,33 @@ void offsetItemJson(QJsonObject& itemJson, const QPointF& delta) {
     if (itemJson.contains("start_y")) itemJson["start_y"] = itemJson["start_y"].toDouble() + delta.y();
     if (itemJson.contains("end_x")) itemJson["end_x"] = itemJson["end_x"].toDouble() + delta.x();
     if (itemJson.contains("end_y")) itemJson["end_y"] = itemJson["end_y"].toDouble() + delta.y();
+}
+
+bool isModelBackedDeviceItem(const SchematicItem* item) {
+    if (!item) return false;
+
+    const QString typeName = item->itemTypeName().trimmed().toLower();
+    const QString prefix = item->referencePrefix().trimmed().toUpper();
+
+    return prefix == "D" || prefix == "Q" || prefix == "QN" || prefix == "QP" ||
+           prefix == "J" || prefix == "JN" || prefix == "JP" ||
+           prefix == "M" || prefix == "MN" || prefix == "MP" ||
+           prefix == "Z" ||
+           typeName.contains("diode") ||
+           typeName.contains("transistor") ||
+           typeName.contains("mos") ||
+           typeName.contains("jfet") ||
+           typeName.contains("mesfet") ||
+           typeName.contains("bjt");
+}
+
+void openTextLabelPropertiesDialog(SchematicEditor* editor,
+                                   SchematicTextItem* labelItem,
+                                   QUndoStack* undoStack,
+                                   QGraphicsScene* scene) {
+    if (!editor || !labelItem || !undoStack || !scene) return;
+    SchematicTextPropertiesDialog dlg(labelItem, undoStack, scene, editor);
+    dlg.exec();
 }
 }
 
@@ -932,14 +958,24 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
         return;
     } else if (item->itemType() == SchematicItem::LabelType) {
         if (auto* textItem = dynamic_cast<SchematicTextItem*>(item)) {
-            SchematicTextPropertiesDialog dlg(textItem, m_undoStack, m_scene, this);
-            dlg.exec();
+            if (textItem->isSubItem()) {
+                const QString labelName = textItem->name().trimmed();
+                const bool isReferenceLabel = labelName.compare("RefLabel", Qt::CaseInsensitive) == 0;
+                const bool isValueLabel = labelName.compare("ValueLabel", Qt::CaseInsensitive) == 0;
+
+                if (isReferenceLabel || isValueLabel) {
+                    openTextLabelPropertiesDialog(this, textItem, m_undoStack, m_scene);
+                    return;
+                }
+            }
+            openTextLabelPropertiesDialog(this, textItem, m_undoStack, m_scene);
             return;
         }
     } else if (item->itemType() == SchematicItem::ComponentType) {
         if (auto* comp = dynamic_cast<GenericComponentItem*>(item)) {
-            ComponentLabelPropertiesDialog dlg(comp, ComponentLabelPropertiesDialog::Reference, this);
-            dlg.exec();
+            SchematicTextItem* labelItem = comp->referenceLabelItem();
+            if (!labelItem) return;
+            openTextLabelPropertiesDialog(this, labelItem, m_undoStack, m_scene);
             return;
         }
     } else if (item->itemTypeName() == "OscilloscopeInstrument") {
@@ -1270,6 +1306,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             if (dlg.exec() == QDialog::Accepted) {
                 QJsonObject newState = item->toJson();
                 newState["value"] = dlg.modelName();
+                newState["spiceModel"] = dlg.modelName();
                 QJsonObject peObj;
                 const auto newPE = dlg.paramExpressions();
                 for (auto it = newPE.constBegin(); it != newPE.constEnd(); ++it) {
@@ -1298,6 +1335,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             if (dlg.exec() == QDialog::Accepted) {
                 QJsonObject newState = item->toJson();
                 newState["value"] = dlg.modelName();
+                newState["spiceModel"] = dlg.modelName();
                 newState["footprint"] = dlg.footprint();
                 QJsonObject peObj;
                 const auto newPE = dlg.paramExpressions();
@@ -1332,6 +1370,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             if (dlg.exec() == QDialog::Accepted) {
                 QJsonObject newState = item->toJson();
                 newState["value"] = dlg.modelName();
+                newState["spiceModel"] = dlg.modelName();
                 newState["footprint"] = dlg.footprint();
                 QJsonObject peObj;
                 const auto newPE = dlg.paramExpressions();
@@ -1380,11 +1419,13 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
 
 void SchematicEditor::onComponentLabelDoubleClicked(GenericComponentItem* component, bool isReferenceLabel) {
     if (!component) return;
-    ComponentLabelPropertiesDialog::LabelType type = isReferenceLabel
-        ? ComponentLabelPropertiesDialog::Reference
-        : ComponentLabelPropertiesDialog::Value;
-    ComponentLabelPropertiesDialog dlg(component, type, this);
-    dlg.exec();
+
+    SchematicTextItem* labelItem = isReferenceLabel
+        ? component->referenceLabelItem()
+        : component->valueLabelItem();
+    if (!labelItem) return;
+
+    openTextLabelPropertiesDialog(this, labelItem, m_undoStack, m_scene);
 }
 
 void SchematicEditor::onItemPlaced(SchematicItem* item) {

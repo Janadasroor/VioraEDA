@@ -1,6 +1,7 @@
 #include "diode_model_picker_dialog.h"
 #include "../items/schematic_item.h"
 #include "../../simulator/bridge/model_library_manager.h"
+#include "../../simulator/bridge/spice_model_search.h"
 #include "../../core/theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -62,12 +63,6 @@ DiodeModelPickerDialog::DiodeModelPickerDialog(SchematicItem* item, const QStrin
 
     // Model list
     m_modelList = new QListWidget();
-    m_modelList->setAlternatingRowColors(true);
-    {
-        QPalette listPal = m_modelList->palette();
-        listPal.setColor(QPalette::HighlightedText, listPal.color(QPalette::Text));
-        m_modelList->setPalette(listPal);
-    }
     layout->addWidget(m_modelList);
 
     // Detail label
@@ -105,6 +100,7 @@ DiodeModelPickerDialog::DiodeModelPickerDialog(SchematicItem* item, const QStrin
 void DiodeModelPickerDialog::loadModels() {
     const QString suffix = libSuffix(m_diodeType);
     const auto allModels = ModelLibraryManager::instance().allModels();
+    bool foundAny = false;
 
     for (const auto& mi : allModels) {
         if (mi.type != "Diode") continue;
@@ -113,6 +109,7 @@ void DiodeModelPickerDialog::loadModels() {
         const QString libName = QFileInfo(mi.libraryPath).fileName().toLower();
         if (!libName.contains(suffix)) continue;
 
+        foundAny = true;
         QString params = mi.params.join(", ");
         if (params.length() > 80) params = params.left(77) + "...";
 
@@ -124,7 +121,7 @@ void DiodeModelPickerDialog::loadModels() {
     }
 
     // If library-based filtering found nothing, fall back to all diode models
-    if (m_modelList->count() == 0) {
+    if (!foundAny) {
         for (const auto& mi : allModels) {
             if (mi.type != "Diode") continue;
             auto* item = new QListWidgetItem(mi.name);
@@ -141,10 +138,34 @@ void DiodeModelPickerDialog::loadModels() {
 }
 
 void DiodeModelPickerDialog::filterModels(const QString& text) {
+    const auto results = SpiceModelSearch::search(text, "Diode");
+
     for (int i = 0; i < m_modelList->count(); ++i) {
-        auto* item = m_modelList->item(i);
-        bool match = text.isEmpty() || item->text().contains(text, Qt::CaseInsensitive);
-        item->setHidden(!match);
+        m_modelList->item(i)->setHidden(true);
+    }
+
+    QSet<QString> matchingNames;
+    for (const auto& scored : results) matchingNames.insert(scored.info.name);
+
+    int showIndex = 0;
+    for (const auto& scored : results) {
+        for (int i = 0; i < m_modelList->count(); ++i) {
+            auto* item = m_modelList->item(i);
+            if (item->data(Qt::UserRole).toString() == scored.info.name) {
+                item->setHidden(false);
+                m_modelList->takeItem(i);
+                m_modelList->insertItem(showIndex++, item);
+                if (showIndex == 1) m_modelList->setCurrentItem(item);
+                break;
+            }
+        }
+    }
+
+    auto* current = m_modelList->currentItem();
+    if (current) {
+        m_detailLabel->setText(current->data(Qt::UserRole + 1).toString());
+    } else {
+        m_detailLabel->setText(text.isEmpty() ? "Select a model to see details" : "No matching models");
     }
 }
 

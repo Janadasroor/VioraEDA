@@ -27,6 +27,7 @@ public:
     
     virtual QString referencePrefix() const override { return m_symbol.referencePrefix(); }
     QString referenceDisplayText() const override;
+    void setValue(const QString& value) override;
     
     virtual void rebuildPrimitives() override;
     virtual SchematicItem* clone() const override;
@@ -49,6 +50,8 @@ public:
 protected:
     QList<SymbolPrimitive> resolvedPrimitives() const;
     void syncReadablePrimitiveText();
+    void refreshPrimitiveTextContexts();
+    bool valueRepresentsSpiceModel() const;
 
     SymbolDefinition m_symbol;
     QMap<int, int> m_pinModeOverrides; // pinNumber -> modeIndex (-1 = default)

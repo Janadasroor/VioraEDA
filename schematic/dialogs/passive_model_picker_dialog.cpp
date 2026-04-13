@@ -114,12 +114,6 @@ PassiveModelPickerDialog::PassiveModelPickerDialog(Kind kind, QWidget* parent)
     layout->addLayout(searchLayout);
 
     m_modelList = new QListWidget();
-    m_modelList->setAlternatingRowColors(true);
-    {
-        QPalette listPal = m_modelList->palette();
-        listPal.setColor(QPalette::HighlightedText, listPal.color(QPalette::Text));
-        m_modelList->setPalette(listPal);
-    }
     layout->addWidget(m_modelList);
 
     m_detailLabel = new QLabel("Select a model");

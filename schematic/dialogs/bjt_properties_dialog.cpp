@@ -187,9 +187,25 @@ void BjtPropertiesDialog::loadValues() {
     }
     m_modelNameEdit->setText(modelName);
 
+    const SimModel* mdl = ModelLibraryManager::instance().findModel(modelName);
+    if (mdl && m_typeCombo) {
+        if (mdl->type == SimComponentType::BJT_PNP) m_typeCombo->setCurrentText("PNP");
+        else if (mdl->type == SimComponentType::BJT_NPN) m_typeCombo->setCurrentText("NPN");
+    }
+
+    auto modelParam = [&](const QString& key, const QString& fallback) {
+        if (!mdl) return fallback;
+        for (const auto& kv : mdl->params) {
+            if (QString::fromStdString(kv.first).compare(key, Qt::CaseInsensitive) == 0) {
+                return QString::number(kv.second, 'g', 12);
+            }
+        }
+        return fallback;
+    };
+
     auto loadParam = [&](QLineEdit* edit, const QString& key, const QString& fallback) {
         QString v = pe.value(key).trimmed();
-        if (v.isEmpty()) v = fallback;
+        if (v.isEmpty()) v = modelParam(key.section('.', 1), fallback);
         edit->setText(v);
     };
 

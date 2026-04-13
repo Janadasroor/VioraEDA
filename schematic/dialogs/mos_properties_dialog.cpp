@@ -167,6 +167,11 @@ bool MosPropertiesDialog::isPmosSelected() const {
 void MosPropertiesDialog::loadValues() {
     if (!m_item) return;
 
+    qDebug() << "[MosPropertiesDialog::loadValues] item:" << m_item->reference()
+             << "spiceModel:" << m_item->spiceModel()
+             << "value:" << m_item->value()
+             << "itemType:" << m_item->itemTypeName();
+
     const auto pe = m_item->paramExpressions();
     const QString typeExpr = pe.value("mos.type").trimmed();
     const bool pmos = typeExpr.isEmpty() ? isPmos() : (typeExpr.compare("PMOS", Qt::CaseInsensitive) == 0);
@@ -185,13 +190,29 @@ void MosPropertiesDialog::loadValues() {
     }
     m_modelNameEdit->setText(modelName);
 
+    const SimModel* mdl = ModelLibraryManager::instance().findModel(modelName);
+    if (mdl && m_typeCombo) {
+        if (mdl->type == SimComponentType::MOSFET_PMOS) m_typeCombo->setCurrentText("PMOS");
+        else if (mdl->type == SimComponentType::MOSFET_NMOS) m_typeCombo->setCurrentText("NMOS");
+    }
+
+    auto modelParam = [&](const QString& key, const QString& fallback) {
+        if (!mdl) return fallback;
+        for (const auto& kv : mdl->params) {
+            if (QString::fromStdString(kv.first).compare(key, Qt::CaseInsensitive) == 0) {
+                return QString::number(kv.second, 'g', 12);
+            }
+        }
+        return fallback;
+    };
+
     auto loadParam = [&](QLineEdit* edit, const QString& key, const QString& fallback) {
         QString v = pe.value(key).trimmed();
-        if (v.isEmpty()) v = fallback;
+        if (v.isEmpty()) v = modelParam(key.section('.', 1), fallback);
         edit->setText(v);
     };
 
-    loadParam(m_vtoEdit, "mos.Vto", pmos ? "-2" : "2");
+    loadParam(m_vtoEdit, "mos.Vto", isPmosSelected() ? "-2" : "2");
     loadParam(m_kpEdit, "mos.Kp", "100u");
     loadParam(m_lambdaEdit, "mos.Lambda", "0.02");
     loadParam(m_rdEdit, "mos.Rd", "1");

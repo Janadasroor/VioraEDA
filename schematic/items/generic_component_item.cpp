@@ -17,6 +17,36 @@ QString unitSuffixForDisplay(int unit) {
     if (unit <= 26) return QString(QChar('A' + unit - 1));
     return QString::number(unit);
 }
+
+bool symbolValueRepresentsSpiceModel(const SymbolDefinition& symbol, const QString& currentRef) {
+    QString prefix;
+    const QString trimmedRef = currentRef.trimmed();
+    if (!trimmedRef.isEmpty()) {
+        for (QChar ch : trimmedRef) {
+            if (ch.isDigit()) break;
+            prefix.append(ch);
+        }
+    }
+    if (prefix.isEmpty()) {
+        prefix = symbol.referencePrefix().trimmed();
+    }
+    prefix = prefix.toUpper();
+    const QString symbolName = symbol.name().trimmed().toLower();
+
+    if (prefix == "D" || prefix == "Q" || prefix == "QN" || prefix == "QP" ||
+        prefix == "J" || prefix == "JN" || prefix == "JP" ||
+        prefix == "M" || prefix == "MN" || prefix == "MP" ||
+        prefix == "Z") {
+        return true;
+    }
+
+    return symbolName.contains("diode") ||
+           symbolName.contains("transistor") ||
+           symbolName.contains("mos") ||
+           symbolName.contains("jfet") ||
+           symbolName.contains("mesfet") ||
+           symbolName.contains("bjt");
+}
 }
 
 QList<SymbolPrimitive> GenericComponentItem::resolvedPrimitives() const {
@@ -73,6 +103,18 @@ void GenericComponentItem::setSymbol(const SymbolDefinition& symbol) {
     rebuildPrimitives();
     QRectF b = boundingRect();
     createLabels(b.topLeft() + QPointF(0, -5), b.bottomLeft() + QPointF(0, 15));
+    updateLabelText();
+    update();
+}
+
+void GenericComponentItem::setValue(const QString& value) {
+    if (m_value == value) return;
+
+    m_value = value;
+    if (valueRepresentsSpiceModel()) {
+        m_spiceModel = value.trimmed();
+    }
+    refreshPrimitiveTextContexts();
     updateLabelText();
     update();
 }
@@ -146,6 +188,9 @@ bool GenericComponentItem::fromJson(const QJsonObject& json) {
     if (m_symbol.isPowerSymbol()) {
         setExcludeFromPcb(true);
         setFootprint(QString());
+    }
+    if (m_spiceModel.trimmed().isEmpty() && valueRepresentsSpiceModel()) {
+        m_spiceModel = m_value.trimmed();
     }
     
     setPos(json["x"].toDouble(), json["y"].toDouble());
@@ -299,6 +344,18 @@ void GenericComponentItem::syncReadablePrimitiveText() {
             textItem->syncUprightTransform();
         }
     }
+}
+
+void GenericComponentItem::refreshPrimitiveTextContexts() {
+    for (auto* item : m_primitiveItems) {
+        if (auto* textItem = dynamic_cast<SymbolTextItem*>(item)) {
+            textItem->setSymbolContext(name(), reference(), value());
+        }
+    }
+}
+
+bool GenericComponentItem::valueRepresentsSpiceModel() const {
+    return symbolValueRepresentsSpiceModel(m_symbol, reference());
 }
 
 void GenericComponentItem::setPinMode(int pinNumber, int modeIndex) {

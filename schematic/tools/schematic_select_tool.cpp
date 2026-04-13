@@ -13,6 +13,7 @@
 #include "flux/core/net_manager.h"
 #include "flux/core/theme_manager.h"
 #include "schematic_item.h"
+#include "../items/schematic_item_selection_utils.h"
 #include "wire_item.h"
 #include "schematic_wire_utils.h"
 #include <limits>
@@ -232,6 +233,10 @@ bool hasExternalConnectionAtPoint(SchematicView* view,
     }
 
     return false;
+}
+
+QList<SchematicItem*> selectedTopLevelItems(SchematicView* view) {
+    return view ? topLevelSelectedSchematicItems(view->scene()) : QList<SchematicItem*>();
 }
 
 bool findExternalAnchorOnWire(SchematicView* view,
@@ -1035,14 +1040,11 @@ void SchematicSelectTool::mousePressEvent(QMouseEvent* event) {
                 !(event->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier))) {
 
                 // Capture initial positions for group move consistency
-                QList<QGraphicsItem*> selectedItems = view()->scene()->selectedItems();
-                for (QGraphicsItem* selItem : selectedItems) {
-                    SchematicItem* sItem = dynamic_cast<SchematicItem*>(selItem);
-                    if (sItem) {
-                        m_initialPositions[sItem] = sItem->pos();
-                        if (WireItem* w = dynamic_cast<WireItem*>(sItem)) {
-                            m_initialWirePoints[w] = w->points();
-                        }
+                const QList<SchematicItem*> selectedItems = selectedTopLevelItems(view());
+                for (SchematicItem* sItem : selectedItems) {
+                    m_initialPositions[sItem] = sItem->pos();
+                    if (WireItem* w = dynamic_cast<WireItem*>(sItem)) {
+                        m_initialWirePoints[w] = w->points();
                     }
                 }
 
@@ -1170,17 +1172,14 @@ void SchematicSelectTool::mousePressEvent(QMouseEvent* event) {
             m_topologyLockedWires.clear();
 
             // Capture initial positions of ALL selected items
-            QList<QGraphicsItem*> selectedItems = view()->scene()->selectedItems();
+            const QList<SchematicItem*> selectedItems = selectedTopLevelItems(view());
             bool selectedHasWire = false;
-            for (QGraphicsItem* selItem : selectedItems) {
-                SchematicItem* sItem = dynamic_cast<SchematicItem*>(selItem);
-                if (sItem) {
-                    m_initialPositions[sItem] = sItem->pos();
-                    if (sItem->itemType() == SchematicItem::WireType) {
-                        selectedHasWire = true;
-                        WireItem* wire = static_cast<WireItem*>(sItem);
-                        m_initialWirePoints[wire] = wire->points();
-                    }
+            for (SchematicItem* sItem : selectedItems) {
+                m_initialPositions[sItem] = sItem->pos();
+                if (sItem->itemType() == SchematicItem::WireType) {
+                    selectedHasWire = true;
+                    WireItem* wire = static_cast<WireItem*>(sItem);
+                    m_initialWirePoints[wire] = wire->points();
                 }
             }
             m_rigidGroupMove = (selectedItems.size() > 1 && selectedHasWire);
@@ -1720,12 +1719,11 @@ void SchematicSelectTool::mouseMoveEvent(QMouseEvent* event) {
                     }
                 }
             } else {
-                QList<QGraphicsItem*> selectedItems = view()->scene()->selectedItems();
-                for (QGraphicsItem* item : selectedItems) {
-                    if (m_segmentDragActive && item == m_segmentWire) continue;
-                    if (m_vertexDragActive && item == m_vertexWire) continue;
-                    SchematicItem* sItem = dynamic_cast<SchematicItem*>(item);
-                    if (!sItem || !m_initialPositions.contains(sItem)) continue;
+                const QList<SchematicItem*> selectedItems = selectedTopLevelItems(view());
+                for (SchematicItem* sItem : selectedItems) {
+                    if (m_segmentDragActive && sItem == m_segmentWire) continue;
+                    if (m_vertexDragActive && sItem == m_vertexWire) continue;
+                    if (!m_initialPositions.contains(sItem)) continue;
                     if (sItem->itemType() == SchematicItem::WireType) {
                         WireItem* wire = static_cast<WireItem*>(sItem);
                         if (m_initialWirePoints.contains(wire)) {
@@ -1785,22 +1783,20 @@ void SchematicSelectTool::mouseMoveEvent(QMouseEvent* event) {
                         sItem->setPos(sItem->pos() + sceneDelta);
                     }
                 } else {
-                    QList<QGraphicsItem*> selectedItems = view()->scene()->selectedItems();
-                    for (QGraphicsItem* item : selectedItems) {
-                        if (m_segmentDragActive && item == m_segmentWire) continue;
-                        if (m_vertexDragActive && item == m_vertexWire) continue;
-                        if (SchematicItem* sItem = dynamic_cast<SchematicItem*>(item)) {
-                            if (sItem->itemType() == SchematicItem::LabelType ||
-                                sItem->itemType() == SchematicItem::NetLabelType) {
-                                if (QGraphicsItem* parent = sItem->parentItem()) {
-                                    const QPointF initialScene = parent->mapToScene(sItem->pos());
-                                    const QPointF targetScene = initialScene + sceneDelta;
-                                    sItem->setPos(parent->mapFromScene(targetScene));
-                                    continue;
-                                }
+                    const QList<SchematicItem*> selectedItems = selectedTopLevelItems(view());
+                    for (SchematicItem* sItem : selectedItems) {
+                        if (m_segmentDragActive && sItem == m_segmentWire) continue;
+                        if (m_vertexDragActive && sItem == m_vertexWire) continue;
+                        if (sItem->itemType() == SchematicItem::LabelType ||
+                            sItem->itemType() == SchematicItem::NetLabelType) {
+                            if (QGraphicsItem* parent = sItem->parentItem()) {
+                                const QPointF initialScene = parent->mapToScene(sItem->pos());
+                                const QPointF targetScene = initialScene + sceneDelta;
+                                sItem->setPos(parent->mapFromScene(targetScene));
+                                continue;
                             }
                         }
-                        item->setPos(item->pos() + sceneDelta);
+                        sItem->setPos(sItem->pos() + sceneDelta);
                     }
                 }
             }
@@ -2198,12 +2194,7 @@ void SchematicSelectTool::keyPressEvent(QKeyEvent* event) {
 
     // Ctrl+R: Rotate selected items
     if (event->key() == Qt::Key_R && (event->modifiers() & Qt::ControlModifier)) {
-        QList<SchematicItem*> selectedItems;
-        for (QGraphicsItem* item : view()->scene()->selectedItems()) {
-            if (SchematicItem* sItem = dynamic_cast<SchematicItem*>(item)) {
-                selectedItems.append(sItem);
-            }
-        }
+        QList<SchematicItem*> selectedItems = topLevelSelectedSchematicItems(view()->scene());
         
         if (!selectedItems.isEmpty() && view()->undoStack()) {
             if (QUndoCommand* command = createItemTransformCommand(
