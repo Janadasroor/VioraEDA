@@ -4,9 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-PYTHON_ROOT = Path(__file__).resolve().parents[2]
-if str(PYTHON_ROOT) not in sys.path:
-    sys.path.insert(0, str(PYTHON_ROOT))
+from ai_pipeline.config import _ensure_python_root_in_syspath
+_ensure_python_root_in_syspath()
 
 from ai_pipeline.api.ml_dataset_api import SimulationDatasetService, _expand_parameter_values, _format_spice_number
 

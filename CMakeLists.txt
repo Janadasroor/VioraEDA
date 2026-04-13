@@ -125,6 +125,7 @@ if(BUILD_VIOSPICE_CLI)
         FluxFootprints
         VioraPCBCore
     )
+    target_compile_definitions(vio_cmd PRIVATE HAVE_FLUXSCRIPT)
 
 
     if(VIOSPICE_ENGINE_FOUND)

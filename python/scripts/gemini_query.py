@@ -12,18 +12,16 @@ import random
 import time
 import re
 
-# Add ai_pipeline to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from ai_pipeline.config import _ensure_python_root_in_syspath, ENV_GEMINI_API_KEY
+_ensure_python_root_in_syspath()
+
 try:
     from ai_pipeline.ai_tools.tools import ToolRegistry, get_tools_schema
     from ai_pipeline.services.project_context.retriever import ProjectContextRetriever
-    from ai_pipeline.agents.specialized.simulation_agent import SimulationAgent
 except ImportError:
-    # Fallback if structure is different
     ToolRegistry = None
     get_tools_schema = None
     ProjectContextRetriever = None
-    SimulationAgent = None
 
 def _is_retryable_error(exc):
     message = str(exc).lower()

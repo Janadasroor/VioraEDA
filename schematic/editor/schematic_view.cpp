@@ -49,6 +49,7 @@
 #include <QKeySequence>
 #include "flux/core/net_manager.h"
 #include <QTimer>
+#include <QApplication>
 #include <QGraphicsPixmapItem>
 #include <QGraphicsEllipseItem>
 #include <QJsonObject>
@@ -221,6 +222,9 @@ SchematicView::SchematicView(QWidget *parent)
     m_autoScrollTimer = new QTimer(this);
     connect(m_autoScrollTimer, &QTimer::timeout, this, &SchematicView::handleAutoScroll);
     m_autoScrollDelta = QPoint(0, 0);
+    m_probeLongPressTimer = new QTimer(this);
+    m_probeLongPressTimer->setSingleShot(true);
+    connect(m_probeLongPressTimer, &QTimer::timeout, this, &SchematicView::handleProbeLongPress);
 
     setDragMode(QGraphicsView::NoDrag);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
@@ -316,6 +320,9 @@ void SchematicView::setCurrentTool(SchematicTool* tool) {
         clearProbeStartMarker();
         m_probeStartNet.clear();
     }
+    if (m_probeLongPressTimer) m_probeLongPressTimer->stop();
+    m_probePendingNet.clear();
+    m_probeReleaseCompletesDifferential = false;
 
     // Clear any cursor override left by previous tool (view + viewport can differ).
     unsetCursor();
@@ -574,12 +581,15 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                     // --- First click with Ctrl: arm differential probe ---
                     m_probeStartNet = probedNet;
                     m_probeStartPos = scenePos;
+                    m_probeReleaseCompletesDifferential = false;
                     showProbeStartMarker(scenePos);
-                    // Switch to black probe to signal "waiting for second net"
-                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, scenePos);
+                    // Switch to the differential-voltage probe to signal "waiting for second net"
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::DifferentialVoltage, scenePos);
                 } else {
-                    // --- Normal click: single probe ---
-                    Q_EMIT netProbed(QString("V(%1)").arg(probedNet));
+                    // --- Potential single probe; long-press upgrades to differential probe ---
+                    m_probePendingNet = probedNet;
+                    m_probePendingPos = scenePos;
+                    if (m_probeLongPressTimer) m_probeLongPressTimer->start(300);
                     setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
                 }
                 event->accept();
@@ -620,12 +630,15 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                     } else if (ctrlHeld) {
                         m_probeStartNet = bodyNet;
                         m_probeStartPos = scenePos;
+                        m_probeReleaseCompletesDifferential = false;
                         showProbeStartMarker(scenePos);
-                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, scenePos);
+                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::DifferentialVoltage, scenePos);
                         event->accept();
                         return;
                     } else {
-                        Q_EMIT netProbed(QString("V(%1)").arg(bodyNet));
+                        m_probePendingNet = bodyNet;
+                        m_probePendingPos = scenePos;
+                        if (m_probeLongPressTimer) m_probeLongPressTimer->start(300);
                     }
                     setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
                     event->accept();
@@ -787,12 +800,12 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
 
             if (isWireOrLabel) {
                 // If differential mode is armed (Ctrl+Click waiting for second net),
-                // show the black probe to clearly indicate second-net capture mode
+                // show the differential-voltage probe to indicate second-net capture mode.
                 if (!m_probeStartNet.isEmpty()) {
                     QString currentNet;
                     if (m_netManager) currentNet = m_netManager->findNetAtPoint(mapToScene(event->pos()));
                     if (!currentNet.isEmpty() && currentNet != m_probeStartNet) {
-                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, mapToScene(event->pos()));
+                        setProbeCursorOverlay(SchematicProbeTool::ProbeKind::DifferentialVoltage, mapToScene(event->pos()));
                     } else {
                         setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, mapToScene(event->pos()));
                     }
@@ -809,8 +822,9 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event) {
                                           mapToScene(event->pos()));
                     probeCursorActive = true;
                 } else if (!m_probeStartNet.isEmpty()) {
-                    // Still show black probe in "armed" mode so user knows they need to click a wire
-                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Current, mapToScene(event->pos()));
+                    // Still show the differential-voltage probe in armed mode so the user
+                    // knows they need to click the second wire/net.
+                    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::DifferentialVoltage, mapToScene(event->pos()));
                     probeCursorActive = true;
                 } else {
                     clearProbeCursorOverlay();
@@ -904,6 +918,45 @@ void SchematicView::mouseReleaseEvent(QMouseEvent *event) {
     m_probeClickActive = false;
 
     if (event->button() == Qt::LeftButton) {
+        if (m_currentTool && m_currentTool->name() == "Select" && (m_simulationRunning || m_probingEnabled)) {
+            QPointF scenePos = mapToScene(event->pos());
+
+            if (m_probeLongPressTimer && m_probeLongPressTimer->isActive() && !m_probePendingNet.isEmpty()) {
+                m_probeLongPressTimer->stop();
+                Q_EMIT netProbed(QString("V(%1)").arg(m_probePendingNet));
+                setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
+                m_probePendingNet.clear();
+                m_probeReleaseCompletesDifferential = false;
+                event->accept();
+                return;
+            }
+
+            if (m_probeReleaseCompletesDifferential && !m_probeStartNet.isEmpty()) {
+                QString endNet;
+                if (m_netManager) {
+                    endNet = findNearbyProbeNet(this, m_netManager, event->pos(), scenePos);
+                    if (endNet.isEmpty()) {
+                        if (SchematicItem* compItem = findProbeableComponentAt(this, event->pos(), scenePos)) {
+                            endNet = findNearbyComponentPinNet(compItem, m_netManager, scenePos);
+                        }
+                    }
+                }
+
+                if (!endNet.isEmpty() && endNet != m_probeStartNet) {
+                    Q_EMIT netProbed(QString("V(%1,%2)").arg(m_probeStartNet, endNet));
+                } else {
+                    Q_EMIT netProbed(QString("V(%1)").arg(m_probeStartNet));
+                }
+
+                m_probeStartNet.clear();
+                clearProbeStartMarker();
+                m_probeReleaseCompletesDifferential = false;
+                setProbeCursorOverlay(SchematicProbeTool::ProbeKind::Voltage, scenePos);
+                event->accept();
+                return;
+            }
+        }
+
         stopAutoScroll();
         if (m_currentTool && m_currentTool->name() == "Select") {
             QPointF scenePos = mapToScene(event->pos());
@@ -1579,6 +1632,20 @@ void SchematicView::scrollContentsBy(int dx, int dy) {
     QGraphicsView::scrollContentsBy(dx, dy);
     Q_EMIT transformationChanged();
 }
+
+void SchematicView::handleProbeLongPress() {
+    if (!(QApplication::mouseButtons() & Qt::LeftButton)) return;
+    if (m_probePendingNet.isEmpty()) return;
+    if (!m_probeStartNet.isEmpty()) return;
+
+    m_probeStartNet = m_probePendingNet;
+    m_probeStartPos = m_probePendingPos;
+    m_probePendingNet.clear();
+    m_probeReleaseCompletesDifferential = true;
+    showProbeStartMarker(m_probeStartPos);
+    setProbeCursorOverlay(SchematicProbeTool::ProbeKind::DifferentialVoltage, m_probeStartPos);
+}
+
 void SchematicView::drawForeground(QPainter *painter, const QRectF &rect) {
     if (m_heatmapEnabled) {
         painter->save();

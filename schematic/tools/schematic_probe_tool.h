@@ -15,6 +15,7 @@ public:
 
     enum class ProbeKind {
         Voltage,
+        DifferentialVoltage,
         Current,
         Power
     };

@@ -1,8 +1,17 @@
+"""
+VioSpice ML Dataset API — stdlib HTTP server + service layer.
+
+All utility logic (SPICE formatting, waveform manipulation, measure
+evaluation, constraints, derived labels, sampling, schematic path
+traversal) lives in ``ai_pipeline.utils.*`` so this module stays focused
+on orchestration and HTTP transport.
+"""
+
+from __future__ import annotations
+
 import argparse
 import json
-import math
 import os
-import random
 import shutil
 import subprocess
 import threading
@@ -18,6 +27,30 @@ from tempfile import mkdtemp
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
+from ai_pipeline.config import DEFAULT_ML_API_HOST, DEFAULT_ML_API_PORT, resolve_vio_cmd, repo_root
+from ai_pipeline.utils.measure_utils import (
+    apply_derived_labels,
+    compute_measure,
+    evaluate_result_filters,
+    filter_combos_by_constraints,
+    select_combos,
+    assign_split_names,
+)
+from ai_pipeline.utils.schematic_utils import apply_target_value
+from ai_pipeline.utils.spice_format import format_generated_value, format_spice_number, parse_spice_number
+from ai_pipeline.utils.waveform_utils import (
+    collect_waveforms,
+    crop_xy,
+    decimate_xy,
+    match_waveform,
+    pseudo_waveform_from_scalar,
+    waveform_stats,
+)
+
+
+# ---------------------------------------------------------------------------
+# Re-exported helpers for test / external callers
+# ---------------------------------------------------------------------------
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -39,40 +72,6 @@ def _slugify(value: Any) -> str:
 
 def _deep_copy_json(value: Any) -> Any:
     return json.loads(json.dumps(value))
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
-def resolve_vio_cmd(explicit_path: Optional[str] = None) -> str:
-    candidates: List[str] = []
-    if explicit_path:
-        candidates.append(os.path.abspath(explicit_path))
-
-    repo_root = _repo_root()
-    for rel in (
-        "build/vio-cmd",
-        "build-debug/vio-cmd",
-        "build-asan/vio-cmd",
-        "build/dev-debug/vio-cmd",
-        "build/flux-cmd",
-        "build-debug/flux-cmd",
-        "build-asan/flux-cmd",
-        "build/dev-debug/flux-cmd",
-    ):
-        candidates.append(str(repo_root / rel))
-
-    candidates.extend(["vio-cmd", "flux-cmd"])
-
-    for candidate in candidates:
-        if os.path.isabs(candidate) and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-        resolved = shutil.which(candidate)
-        if resolved:
-            return resolved
-
-    return candidates[0]
 
 
 @dataclass

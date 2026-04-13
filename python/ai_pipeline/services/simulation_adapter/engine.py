@@ -1,48 +1,17 @@
 import subprocess
 import json
 import os
-import sys
 import shutil
 import re
 
-class SimulationAdapter:
-    def __init__(self, flux_cmd_path=None):
-        repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
-        )
-        def repo_path(*parts):
-            return os.path.join(repo_root, *parts)
+from ai_pipeline.config import LOG_FILE_PATH, resolve_vio_cmd
 
-        # Resolve CLI path relative to project root with sensible fallbacks.
-        candidates = []
-        if flux_cmd_path:
-            candidates.append(os.path.abspath(flux_cmd_path))
-        candidates.extend([
-            repo_path("build", "vio-cmd"),
-            repo_path("build-debug", "vio-cmd"),
-            repo_path("build-asan", "vio-cmd"),
-            repo_path("build", "dev-debug", "vio-cmd"),
-            repo_path("build", "flux-cmd"),
-            repo_path("build-debug", "flux-cmd"),
-            repo_path("build-asan", "flux-cmd"),
-            repo_path("build", "dev-debug", "flux-cmd"),
-            "vio-cmd",
-            "flux-cmd",
-        ])
-        self.flux_cmd_path = self._resolve_cli_path(candidates)
+
+class SimulationAdapter:
+    def __init__(self, vio_cmd_path=None):
+        self.vio_cmd_path = resolve_vio_cmd(vio_cmd_path)
         self.last_results = None
         self.last_error = ""
-
-    @staticmethod
-    def _resolve_cli_path(candidates):
-        for p in candidates:
-            if os.path.isabs(p) and os.path.isfile(p) and os.access(p, os.X_OK):
-                return p
-            if not os.path.isabs(p):
-                resolved = shutil.which(p)
-                if resolved:
-                    return resolved
-        return candidates[0] if candidates else "vio-cmd"
 
     def list_nodes(self, schematic_path):
         """Returns a list of all nodes/signals available in the schematic."""
@@ -61,7 +30,7 @@ class SimulationAdapter:
             return []
 
         cmd = [
-            self.flux_cmd_path,
+            self.vio_cmd_path,
             "schematic-netlist",
             schematic_path,
             "--format",
@@ -96,17 +65,17 @@ class SimulationAdapter:
             return None
 
         if not (
-            (os.path.isabs(self.flux_cmd_path) and os.path.isfile(self.flux_cmd_path) and os.access(self.flux_cmd_path, os.X_OK))
-            or shutil.which(self.flux_cmd_path)
+            (os.path.isabs(self.vio_cmd_path) and os.path.isfile(self.vio_cmd_path) and os.access(self.vio_cmd_path, os.X_OK))
+            or shutil.which(self.vio_cmd_path)
         ):
             self.last_error = (
-                f"Simulation CLI not found: '{self.flux_cmd_path}'. Build `vio-cmd` "
+                f"Simulation CLI not found: '{self.vio_cmd_path}'. Build `vio-cmd` "
                 "or add it to PATH."
             )
             return None
 
         cmd = [
-            self.flux_cmd_path,
+            self.vio_cmd_path,
             "simulate",
             schematic_path,
             "--analysis", analysis_type,
@@ -116,13 +85,13 @@ class SimulationAdapter:
             cmd.extend(["--stop", stop_time, "--step", step_size])
 
         try:
-            with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+            with open(LOG_FILE_PATH, "a", encoding="utf-8") as log:
                 log.write(f"\n--- Simulation Run: {analysis_type} ---\n")
                 log.write(f"Cmd: {' '.join(cmd)}\n")
-            
+
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+
+            with open(LOG_FILE_PATH, "a", encoding="utf-8") as log:
                 log.write(f"Return code: {result.returncode}\n")
                 log.write(f"Stdout length: {len(result.stdout)}\n")
                 if result.stderr:
@@ -147,7 +116,7 @@ class SimulationAdapter:
                 try:
                     json_data = output[json_start : json_end + 1]
                     self.last_results = json.loads(json_data)
-                    with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+                    with open(LOG_FILE_PATH, "a", encoding="utf-8") as log:
                         waves = self.last_results.get("waveforms", [])
                         nodes = self.last_results.get("nodeVoltages", {})
                         log.write(f"Parsed success. Waveforms: {len(waves)}, Nodes: {len(nodes)}\n")
@@ -156,7 +125,7 @@ class SimulationAdapter:
                     return self.last_results
                 except json.JSONDecodeError as e:
                     self.last_error = f"Failed to parse JSON: {str(e)}"
-                    with open("/tmp/viospice_ai.log", "a", encoding="utf-8") as log:
+                    with open(LOG_FILE_PATH, "a", encoding="utf-8") as log:
                         log.write(f"JSON Parse Error: {str(e)}\n")
             
             self.last_error = "Simulation output did not contain valid JSON."

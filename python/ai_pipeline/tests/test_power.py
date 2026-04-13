@@ -1,12 +1,11 @@
 import unittest
+
 import numpy as np
-import os
-import sys
 
-# Ensure parent directory is in path for relative imports if run as script
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from ai_pipeline.config import _ensure_python_root_in_syspath
+_ensure_python_root_in_syspath()
 
-from python.ai_pipeline.services.power_metrics.compute import compute_average_power
+from ai_pipeline.services.power_metrics.compute import compute_average_power
 
 class TestPowerMetrics(unittest.TestCase):
     def test_constant_power(self):

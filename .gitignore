@@ -93,5 +93,6 @@ test_netlist.json
 *.pcb
 TESTING.md
 /tmp/*
+/todo
 /viora-3d-editor/
  
