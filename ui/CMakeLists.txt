@@ -13,6 +13,8 @@ list(APPEND FLUXUI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/python_console_widget.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/python_executor.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/python_executor.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/python_hooks.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/python_hooks.cpp"
 )
 
 add_library(FluxUI STATIC ${FLUXUI_SOURCES})
@@ -32,5 +34,6 @@ endif()
 set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/ui_command_server.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/python_executor.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/python_hooks.cpp"
     PROPERTIES SKIP_AUTOUIC ON
 )
