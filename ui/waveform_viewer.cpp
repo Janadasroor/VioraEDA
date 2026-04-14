@@ -977,6 +977,56 @@ void WaveformViewer::appendPoints(const QString& name, const std::vector<double>
     }
 }
 
+bool WaveformViewer::openExpressionDialogForSignal(const QString& name) {
+    if (name.isEmpty() || !m_signals.contains(name)) return false;
+
+    QStringList signalNames;
+    for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
+        signalNames << it.key();
+    }
+
+    const QColor existingColor = m_signals[name].customColor;
+    WaveformExpressionDialog dlg(name, signalNames, existingColor, name, this);
+    if (dlg.exec() != QDialog::Accepted) return false;
+
+    onExpressionSubmitted(dlg.expression(), dlg.signalColor(), name);
+    return true;
+}
+
+bool WaveformViewer::renameSignal(const QString& oldName, const QString& newName) {
+    if (oldName.isEmpty() || newName.isEmpty() || oldName == newName) return false;
+    if (!m_signals.contains(oldName) || m_signals.contains(newName)) return false;
+
+    SignalData data = m_signals.take(oldName);
+    data.name = newName;
+    m_signals.insert(newName, data);
+
+    for (int i = 0; i < m_nodeList->count(); ++i) {
+        QListWidgetItem* item = m_nodeList->item(i);
+        if (item && item->text() == oldName) {
+            item->setText(newName);
+            break;
+        }
+    }
+
+    if (m_activeSeriesName == oldName) {
+        m_activeSeriesName = newName;
+    }
+    if (m_activeCursorSeries == oldName) {
+        m_activeCursorSeries = newName;
+    }
+
+    updatePlot(false);
+    return true;
+}
+
+bool WaveformViewer::setSignalColor(const QString& name, const QColor& color) {
+    if (name.isEmpty() || !m_signals.contains(name) || !color.isValid()) return false;
+    m_signals[name].customColor = color;
+    updatePlot(false);
+    return true;
+}
+
 void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
     const Qt::CheckState targetState = checked ? Qt::Checked : Qt::Unchecked;
     for (int i = 0; i < m_nodeList->count(); ++i) {
@@ -2517,13 +2567,7 @@ void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
 
     // Expression
     if (chosen == exprAct) {
-        QStringList signalNames;
-        for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it)
-            signalNames << it.key();
-        QColor existingColor = sig.customColor;
-        WaveformExpressionDialog dlg(actualName, signalNames, existingColor, actualName, this);
-        if (dlg.exec() == QDialog::Accepted)
-            onExpressionSubmitted(dlg.expression(), dlg.signalColor(), actualName);
+        openExpressionDialogForSignal(actualName);
     }
 }
 

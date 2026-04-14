@@ -117,6 +117,9 @@ public:
     void importSignals(const QList<SignalExport>& signalExports);
     bool getSignalData(const QString& name, QVector<double>& time, QVector<double>& values);
     QStringList getSignalNames() const;
+    bool openExpressionDialogForSignal(const QString& name);
+    bool renameSignal(const QString& oldName, const QString& newName);
+    bool setSignalColor(const QString& name, const QColor& color);
     int focusedPaneIndex() const;
     int paneCount() const { return m_panes.size(); }
     QString currentSignalName() const;

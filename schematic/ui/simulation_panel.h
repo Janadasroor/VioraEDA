@@ -142,6 +142,7 @@ private Q_SLOTS:
     void onMeasAdd();
     void onMeasRemove();
     void onMeasFunctionChanged(int index);
+    void onSignalListContextMenuRequested(const QPoint& pos);
 
 private:
     void setupUI();
@@ -190,6 +191,7 @@ private:
     bool shouldUseOpenGLRendering() const;
     bool shouldUseAntialiasing() const;
     int standardChartPointBudget() const;
+    void syncSignalListFromWaveformViewer();
 
     QGraphicsScene* m_scene = nullptr;
     SchematicEditor* m_editor = nullptr;

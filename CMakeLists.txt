@@ -55,6 +55,11 @@ if(VIOSPICE_ENABLE_NANOBIND)
         simulator/core/sim_math.h
         simulator/core/sim_expression.h
         simulator/core/sim_meas_evaluator.h
+        simulator/core/sim_meas_evaluator.cpp
+        simulator/core/sim_model_parser.h
+        simulator/core/sim_model_parser.cpp
+        simulator/core/raw_data_parser.h
+        simulator/core/raw_data_parser.cpp
     )
     target_include_directories(FluxSolverCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/simulator)
     set_target_properties(FluxSolverCore PROPERTIES
@@ -67,18 +72,19 @@ if(VIOSPICE_ENABLE_NANOBIND)
     target_compile_definitions(FluxSolverCore PRIVATE FLUX_SOLVER_HEADLESS)
 
     # Python binding module
-    nanobind_add_module(vspice MODULE LTO NOMINSIZE
+    nanobind_add_module(vspice_core MODULE LTO NOMINSIZE
         bindings/bindings_core.cpp
     )
-    target_include_directories(vspice PRIVATE
+    target_include_directories(vspice_core PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/simulator
         ${CMAKE_CURRENT_SOURCE_DIR}/simulator/core
         ${CMAKE_CURRENT_SOURCE_DIR}/bindings
     )
-    target_link_libraries(vspice PRIVATE FluxSolverCore)
-    set_target_properties(vspice PROPERTIES
-        OUTPUT_NAME "vspice"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python"
+    target_link_libraries(vspice_core PRIVATE FluxSolverCore)
+    # Output as "_core" inside the vspice/ Python package
+    set_target_properties(vspice_core PROPERTIES
+        OUTPUT_NAME "_core"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/vspice"
         AUTOMOC OFF
         AUTOUIC OFF
         AUTORCC OFF
@@ -227,6 +233,9 @@ if(BUILD_VIOSPICE_APP)
     endif()
 
     vioraeda_configure_app_target(viospice)
+
+    # Disable AUTOUIC for files that include headers without .ui files
+    set_source_files_properties(main.cpp PROPERTIES SKIP_AUTOUIC ON)
 
     set_target_properties(viospice PROPERTIES
         WIN32_EXECUTABLE TRUE

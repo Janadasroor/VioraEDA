@@ -1,29 +1,29 @@
 #ifndef RAW_DATA_PARSER_H
 #define RAW_DATA_PARSER_H
 
-#include <QString>
-#include <QStringList>
-#include <QVector>
-#include <QJsonObject>
-#include <QJsonArray>
+#include <string>
+#include <vector>
 #include "sim_results.h"
 
+// Forward-declare for Qt overload
+class QString;
+
 struct RawData {
-    QStringList varNames;
+    std::vector<std::string> varNames;
     SimAnalysisType analysisType = SimAnalysisType::OP;
     int numVariables = 0;
     int numPoints = 0;
-    QVector<double> x;
-    QVector<QVector<double>> y;
-    QVector<QVector<double>> yPhase;
-    QVector<bool> hasPhase;
+    std::vector<double> x;
+    std::vector<std::vector<double>> y;
+    std::vector<std::vector<double>> yPhase;
+    std::vector<bool> hasPhase;
 
     SimResults toSimResults() const;
 };
 
 class RawDataParser {
 public:
-    static bool loadRawAscii(const QString& path, RawData* out, QString* error = nullptr);
+    static bool loadRawAscii(const std::string& path, RawData* out, std::string* error = nullptr);
 };
 
 #endif // RAW_DATA_PARSER_H

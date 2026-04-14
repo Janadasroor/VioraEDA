@@ -54,6 +54,9 @@
 #include <QTabWidget>
 #include <QScrollArea>
 #include <QFileDialog>
+#include <QMenu>
+#include <QColorDialog>
+#include <QInputDialog>
 #include <QtConcurrent>
 #include <QFutureWatcher>
 #include <QShortcut>
@@ -1503,6 +1506,127 @@ void SimulationPanel::onClearFocusedPaneProbes() {
     }
 }
 
+void SimulationPanel::syncSignalListFromWaveformViewer() {
+    if (!m_signalList || !m_waveformViewer) return;
+
+    const QList<WaveformViewer::SignalExport> exports = m_waveformViewer->exportSignals();
+    QSet<QString> exportedNames;
+    for (const auto& sig : exports) exportedNames.insert(sig.name);
+
+    m_signalList->blockSignals(true);
+
+    for (int i = m_signalList->count() - 1; i >= 0; --i) {
+        QListWidgetItem* item = m_signalList->item(i);
+        if (!item) continue;
+        if (!exportedNames.contains(item->text())) {
+            delete m_signalList->takeItem(i);
+        }
+    }
+
+    for (const auto& sig : exports) {
+        QListWidgetItem* item = nullptr;
+        for (int i = 0; i < m_signalList->count(); ++i) {
+            if (m_signalList->item(i)->text() == sig.name) {
+                item = m_signalList->item(i);
+                break;
+            }
+        }
+        if (!item) {
+            item = new QListWidgetItem(sig.name);
+            m_signalList->addItem(item);
+        }
+
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        item->setCheckState(sig.checked ? Qt::Checked : Qt::Unchecked);
+        item->setForeground(sig.customColor.isValid() ? sig.customColor : QColor("#eeeeee"));
+    }
+
+    const QString currentSignal = m_waveformViewer->currentSignalName();
+    if (!currentSignal.isEmpty()) {
+        for (int i = 0; i < m_signalList->count(); ++i) {
+            QListWidgetItem* item = m_signalList->item(i);
+            if (item && item->text() == currentSignal) {
+                m_signalList->setCurrentItem(item);
+                break;
+            }
+        }
+    }
+
+    m_signalList->blockSignals(false);
+}
+
+void SimulationPanel::onSignalListContextMenuRequested(const QPoint& pos) {
+    if (!m_signalList || !m_waveformViewer) return;
+
+    QListWidgetItem* item = m_signalList->itemAt(pos);
+    if (!item) return;
+
+    const QString signalName = item->text();
+    m_signalList->setCurrentItem(item);
+    m_waveformViewer->setCurrentSignal(signalName);
+
+    auto isBaseProbeName = [](const QString& name) -> bool {
+        static const QRegularExpression re("^[VIP]\\([^)]+\\)$", QRegularExpression::CaseInsensitiveOption);
+        return re.match(name).hasMatch();
+    };
+
+    QMenu menu(this);
+    QAction* mathAct = menu.addAction("Math Equation...");
+    QAction* renameAct = menu.addAction("Rename...");
+    renameAct->setEnabled(!isBaseProbeName(signalName));
+    QAction* colorAct = menu.addAction("Color...");
+    menu.addSeparator();
+    QAction* toggleAct = menu.addAction(item->checkState() == Qt::Checked ? "Hide" : "Show");
+    QAction* removeAct = menu.addAction("Remove");
+
+    QAction* chosen = menu.exec(m_signalList->viewport()->mapToGlobal(pos));
+    if (!chosen) return;
+
+    bool changed = false;
+
+    if (chosen == mathAct) {
+        changed = m_waveformViewer->openExpressionDialogForSignal(signalName);
+    } else if (chosen == renameAct) {
+        bool ok = false;
+        const QString newName = QInputDialog::getText(
+            this,
+            "Rename Trace",
+            "Trace name:",
+            QLineEdit::Normal,
+            signalName,
+            &ok
+        ).trimmed();
+        if (ok && !newName.isEmpty() && newName != signalName) {
+            changed = m_waveformViewer->renameSignal(signalName, newName);
+        }
+    } else if (chosen == colorAct) {
+        QColor startColor = item->foreground().color();
+        if (!startColor.isValid() || startColor == QColor("#eeeeee")) {
+            startColor = QColor(Qt::white);
+        }
+        const QColor color = QColorDialog::getColor(startColor, this, "Trace Color");
+        if (color.isValid()) {
+            changed = m_waveformViewer->setSignalColor(signalName, color);
+        }
+    } else if (chosen == toggleAct) {
+        const bool visible = (item->checkState() == Qt::Checked);
+        item->setCheckState(visible ? Qt::Unchecked : Qt::Checked);
+        return;
+    } else if (chosen == removeAct) {
+        if (isBaseProbeName(signalName)) {
+            removeProbe(signalName);
+        } else {
+            m_waveformViewer->removeSignal(signalName);
+            changed = true;
+        }
+    }
+
+    if (!changed) return;
+
+    syncSignalListFromWaveformViewer();
+    m_waveformViewer->updatePlot(true);
+}
+
 void SimulationPanel::clearAllProbesPreserveX() {
     if (m_waveformViewer) {
         double minX = 0.0, maxX = 0.0;
@@ -2335,6 +2459,7 @@ void SimulationPanel::setupUI() {
         "QListWidget::item { padding: 4px; border-bottom: 1px solid %2; }"
         "QListWidget::item:selected { background: %3; color: white; }"
     ).arg(bg, borderColor, accent));
+    m_signalList->setContextMenuPolicy(Qt::CustomContextMenu);
     sidebarLayout->addWidget(m_signalList, 1);
 
     QLabel* measurementsLabel = new QLabel("MEASUREMENTS");
@@ -2676,6 +2801,8 @@ void SimulationPanel::setupUI() {
             }
         }
     });
+    connect(m_signalList, &QListWidget::customContextMenuRequested,
+            this, &SimulationPanel::onSignalListContextMenuRequested);
     connect(m_steppedMeasSeriesCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
         m_selectedSteppedMeasurement = text;
         if (m_hasLastResults) {
@@ -3415,7 +3542,7 @@ void SimulationPanel::onSimulationFinished() {
 void SimulationPanel::plotResultsFromRaw(const QString& path) {
     RawData rawData;
     QString error;
-    if (!RawDataParser::loadRawAscii(path, &rawData, &error)) {
+    if (!RawDataParser::loadRawAscii(path.toStdString(), &rawData)) {
         m_logOutput->append("Error: " + error);
         return;
     }

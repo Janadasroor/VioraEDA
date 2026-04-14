@@ -1320,7 +1320,7 @@ bool runGenerateReport(const QString& schematicPath, const QString& outPath, con
     if (!rawFilePath.isEmpty()) {
         RawData data;
         QString error;
-        if (RawDataParser::loadRawAscii(rawFilePath, &data, &error)) {
+        if (RawDataParser::loadRawAscii(rawFilePath.toStdString(), &data)) {
             SimResults results = data.toSimResults();
             generator.setSimulationResults(results);
             
@@ -2407,7 +2407,7 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
         if (exportRequested && okResult) {
             RawData data;
             QString err;
-            if (RawDataParser::loadRawAscii(rawPath, &data, &err)) {
+            if (RawDataParser::loadRawAscii(rawPath.toStdString(), &data)) {
                 QStringList signalNames = parser.values("signal");
                 if (signalNames.isEmpty()) {
                     for (int i = 1; i < data.varNames.size(); ++i) signalNames << data.varNames[i];
@@ -2613,7 +2613,7 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
     if (okResult && runAssertions) {
         RawData data;
         QString err;
-        if (RawDataParser::loadRawAscii(rawPath, &data, &err)) {
+        if (RawDataParser::loadRawAscii(rawPath.toStdString(), &data)) {
             const QVector<int> rangeIndices = filteredIndices(data, tStart, tEnd);
             for (const auto& expr : assertExprs) {
                 QRegularExpression re(R"(^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$)");
@@ -2711,7 +2711,7 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
     if (exportRequested) {
         RawData data;
         QString err;
-        if (!RawDataParser::loadRawAscii(rawPath, &data, &err)) {
+        if (!RawDataParser::loadRawAscii(rawPath.toStdString(), &data)) {
             std::cerr << "Error: " << err.toStdString() << std::endl;
             return false;
         }
@@ -3097,7 +3097,7 @@ bool runNetlistToSchematic(const QString& filePath, const QCommandLineParser& pa
 bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
     RawData data;
     QString error;
-    if (!RawDataParser::loadRawAscii(filePath, &data, &error)) {
+    if (!RawDataParser::loadRawAscii(filePath.toStdString(), &data)) {
         std::cerr << "Error: " << error.toStdString() << std::endl;
         return false;
     }
@@ -3169,7 +3169,7 @@ bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
 bool runRawExport(const QString& filePath, const QCommandLineParser& parser) {
     RawData data;
     QString error;
-    if (!RawDataParser::loadRawAscii(filePath, &data, &error)) {
+    if (!RawDataParser::loadRawAscii(filePath.toStdString(), &data)) {
         std::cerr << "Error: " << error.toStdString() << std::endl;
         return false;
     }
@@ -4063,7 +4063,7 @@ int main(int argc, char *argv[]) {
         
         QObject::connect(&sm, &SimulationManager::rawResultsReady, [&](const QString& path) {
             RawData rd;
-            if (RawDataParser::loadRawAscii(path, &rd, &lastError)) {
+            if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
                 // Simplified SimResults conversion for CLI
                 results.analysisType = t;
                 for (int i = 0; i < rd.varNames.size(); ++i) {
