@@ -44,6 +44,16 @@ endif()
 option(VIOSPICE_ENABLE_NANOBIND "Build Python bindings via nanobind" ON)
 if(VIOSPICE_ENABLE_NANOBIND)
     find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+
+    # Also embed Python in the main app (Phase 4 — Blender-style integration)
+    find_package(Python3 3.10 COMPONENTS Development QUIET)
+    if(Python3_FOUND)
+        add_compile_definitions(HAVE_PYTHON)
+        message(STATUS "Embedded Python enabled: ${Python3_INCLUDE_DIRS}")
+    else()
+        message(STATUS "Embedded Python DISABLED (Python3 development files not found)")
+    endif()
+
     add_subdirectory(ext/nanobind)
 
     # Headless solver library (zero Qt, shared by simulator and Python bindings)
@@ -202,6 +212,7 @@ if(BUILD_VIOSPICE_APP)
     # Main executable
     qt_add_executable(viospice
         main.cpp
+        core/python_embed.cpp
         resources/resources.qrc
     )
 
@@ -230,6 +241,12 @@ if(BUILD_VIOSPICE_APP)
             BUILD_RPATH_USE_ORIGIN TRUE
             INSTALL_RPATH "$ORIGIN/../lib"
         )
+    endif()
+
+    # Link embedded Python runtime (Phase 4)
+    if(Python3_FOUND)
+        target_link_libraries(viospice PRIVATE Python3::Python)
+        target_include_directories(viospice PRIVATE ${Python3_INCLUDE_DIRS})
     endif()
 
     vioraeda_configure_app_target(viospice)
