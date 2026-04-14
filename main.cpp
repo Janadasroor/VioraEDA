@@ -6,6 +6,7 @@
 #include "schematic/ui/netlist_editor.h"
 #include "ui/csv_viewer.h"
 #include "ui/project_manager.h"
+#include "ui/ui_command_server.h"
 #include "symbols/symbol_editor.h"
 #include "schematic/factories/schematic_item_registry.h"
 #include "schematic/tools/schematic_tool_registry_builtin.h"
@@ -30,6 +31,7 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QTimer>
 #include <QFuture>
+#include <QMessageBox>
 
 int main(int argc, char *argv[])
 {
@@ -217,6 +219,32 @@ int main(int argc, char *argv[])
 
         QMetaObject::invokeMethod(qApp, [startMainApp, splash]() {
             startMainApp(splash);
+
+            // Start UI Command Server for Python integration
+            auto& uiServer = UICommandServer::instance();
+            if (uiServer.start(18790)) {
+                qDebug() << "UI Command Server started on port 18790 — Python scripts can connect via vspice.ui";
+
+                // Connect UI hooks
+                uiServer.setShowMessageFn([](const QString& title, const QString& text) {
+                    QMessageBox::information(nullptr, title, text);
+                });
+
+                uiServer.setGetSchematicContextFn([]() -> QVariantMap {
+                    QVariantMap ctx;
+                    ctx["has_schematic"] = false;
+                    ctx["message"] = "Schematic context integration pending";
+                    return ctx;
+                });
+
+                uiServer.setRunPythonCodeFn([](const QString& code) -> QVariantMap {
+                    QVariantMap result;
+                    result["ok"] = true;
+                    result["message"] = "Python code execution via external client (code not executed in GUI process)";
+                    result["code_length"] = code.length();
+                    return result;
+                });
+            }
 
             QtConcurrent::run([]() {
                 ModelLibraryManager::instance().reload();

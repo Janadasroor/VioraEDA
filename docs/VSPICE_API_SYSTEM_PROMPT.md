@@ -306,19 +306,67 @@ for comp in nl.components:
 
 ## What `vspice` CANNOT Do (Yet)
 
-The `vspice` module provides **data structures and parsers only**. It does not
-yet include the actual ngspice solver engine or simulation execution. The
-following are NOT available in `vspice`:
+The `vspice` module provides **data structures, parsers, and a simulation runner**.
+The following are NOT available in `vspice`:
 
-- ❌ Running actual circuit simulations
-- ❌ Connecting to ngspice shared library
-- ❌ Creating .raw waveform files
-- ❌ FFT functions (available in C++ but not yet bound)
+- ❌ Direct ngspice shared library linking (uses `vio-cmd` subprocess)
+- ❌ Creating .raw waveform files directly
+- ❌ Zero-copy NumPy views for waveform data (uses lists)
 
-To run actual simulations, use one of:
-1. The existing `python/ai_pipeline/api/ml_dataset_api.py` FastAPI service
-2. The `vio-cmd` CLI tool via subprocess
-3. The MCP server (`python/scripts/viospice_mcp_server.py`)
+## Running Simulations
+
+### `run_simulation(netlist_text, analysis, stop_time, step_time, vio_cmd_path, timeout_seconds)`
+
+Run a SPICE netlist simulation. Shells out to `vio-cmd` and parses the `.raw` results.
+
+```python
+# DC Operating Point
+netlist = '''* Voltage Divider
+V1 in 0 DC 5
+R1 in out 1k
+R2 out 0 2k
+.op
+.end'''
+
+r = vspice.run_simulation(netlist, 'op', vio_cmd_path='build/vio-cmd')
+# Returns: dict with keys ok, analysis, waveforms, node_voltages, branch_currents, [error]
+
+if r['ok']:
+    print(r['node_voltages'])  # {'OUT': 3.333, 'IN': 5.0}
+    print(r['branch_currents'])  # {'V1': -0.00167}
+
+# Transient analysis
+r2 = vspice.run_simulation(netlist, 'tran', '10m', '100u')
+if r2['ok']:
+    for wf in r2['waveforms']:
+        print(f"{wf['name']}: {len(wf['x'])} points")
+        # wf has keys: name, x (list[float]), y (list[float]), [phase]
+
+# AC analysis
+ac_netlist = '* RC Filter\nV1 1 0 AC 1\nR1 1 2 10k\nC1 2 0 0.01u\n.ac dec 100 10 1e6\n.end'
+r3 = vspice.run_simulation(ac_netlist, 'ac')
+```
+
+### Return format
+
+```python
+{
+    'ok': True,
+    'analysis': 'op',  # or 'tran', 'ac', 'dc'
+    'waveforms': [
+        {'name': 'V(OUT)', 'x': [0.0, ...], 'y': [3.33, ...]},
+        {'name': 'I(V1)', 'x': [0.0, ...], 'y': [-0.00167, ...]},
+    ],
+    'node_voltages': {'OUT': 3.333, 'IN': 5.0},  # OP only
+    'branch_currents': {'V1': -0.00167},          # OP only
+}
+
+# On failure:
+{
+    'ok': False,
+    'error': 'description of what went wrong',
+}
+```
 
 ---
 

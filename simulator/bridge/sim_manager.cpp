@@ -1059,7 +1059,7 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
         watcher->setFuture(QtConcurrent::run([path, netlistText, analysisType]() {
             RawData rd;
             QString err;
-            if (RawDataParser::loadRawAscii(path, &rd, &err)) {
+            if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
                 SimResults simResults = rd.toSimResults();
                 evaluateMeasStatementsIntoResults(netlistText, analysisType, &simResults);
                 evaluateNetStatementsIntoResults(netlistText, analysisType, &simResults);
@@ -1301,7 +1301,7 @@ void SimManager::parseRawResultsFile(const QString& path, const QString& netlist
     watcher->setFuture(QtConcurrent::run([path, netlistText, analysisType]() {
         RawData rd;
         QString err;
-        if (RawDataParser::loadRawAscii(path, &rd, &err)) {
+        if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
             SimResults simResults = rd.toSimResults();
             evaluateMeasStatementsIntoResults(netlistText, analysisType, &simResults);
             evaluateNetStatementsIntoResults(netlistText, analysisType, &simResults);

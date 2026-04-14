@@ -1816,7 +1816,7 @@ void SpiceDirectiveNetlistTest::boostConverterFeedbackDoesNotRunAway() {
 
     RawData data;
     QString parseError;
-    QVERIFY2(RawDataParser::loadRawAscii(rawPath, &data, &parseError), qPrintable(parseError));
+    QVERIFY2(RawDataParser::loadRawAscii(rawPath.toStdString(), &data), qPrintable(parseError));
 
     const auto signalIndex = [&](const QString& name) {
         for (int i = 0; i < data.varNames.size(); ++i) {

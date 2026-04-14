@@ -16,6 +16,8 @@
 #include <nanobind/stl/map.h>
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/complex.h>
+#include <nanobind/stl/function.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/trampoline.h>
 
@@ -23,6 +25,18 @@
 #include "sim_results.h"
 #include "sim_netlist.h"
 #include "sim_math.h"
+#include "sim_model_parser.h"
+#include "sim_meas_evaluator.h"
+#include "raw_data_parser.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <unistd.h>
 
 namespace nb = nanobind;
 
@@ -49,7 +63,7 @@ static std::tuple<double, bool> parse_spice_number(const std::string& text) {
     return {value, ok};
 }
 
-NB_MODULE(vspice, m) {
+NB_MODULE(_core, m) {
     // -----------------------------------------------------------------------
     // Module docstring
     // -----------------------------------------------------------------------
@@ -531,4 +545,456 @@ Returns (value: float, ok: bool).
                    " comps=" + std::to_string(n.components().size()) +
                    " models=" + std::to_string(n.models().size()) + ">";
         });
+
+    // -----------------------------------------------------------------------
+    // MeasFunction enum
+    // -----------------------------------------------------------------------
+    nb::enum_<MeasFunction>(m, "MeasFunction")
+        .value("FIND", MeasFunction::FIND)
+        .value("DERIV", MeasFunction::DERIV)
+        .value("PARAM", MeasFunction::PARAM)
+        .value("MAX", MeasFunction::MAX)
+        .value("MIN", MeasFunction::MIN)
+        .value("PP", MeasFunction::PP)
+        .value("AVG", MeasFunction::AVG)
+        .value("RMS", MeasFunction::RMS)
+        .value("N", MeasFunction::N)
+        .value("INTEG", MeasFunction::INTEG)
+        .value("MIN_AT", MeasFunction::MIN_AT)
+        .value("MAX_AT", MeasFunction::MAX_AT)
+        .value("FIRST", MeasFunction::FIRST)
+        .value("LAST", MeasFunction::LAST)
+        .value("DUTY", MeasFunction::DUTY)
+        .value("SLEWRATE", MeasFunction::SLEWRATE)
+        .value("SLEWRATE_FALL", MeasFunction::SLEWRATE_FALL)
+        .value("SLEWRATE_RISE", MeasFunction::SLEWRATE_RISE)
+        .value("FREQ", MeasFunction::FREQ)
+        .value("PERIOD", MeasFunction::PERIOD)
+        .value("TRIG_TARG", MeasFunction::TRIG_TARG)
+        .value("Unknown", MeasFunction::Unknown);
+
+    // -----------------------------------------------------------------------
+    // MeasTrigger
+    // -----------------------------------------------------------------------
+    nb::class_<MeasTrigger>(m, "MeasTrigger")
+        .def(nb::init<>())
+        .def_rw("signal", &MeasTrigger::signal)
+        .def_rw("lhs_expr", &MeasTrigger::lhsExpr)
+        .def_rw("rhs_expr", &MeasTrigger::rhsExpr)
+        .def_rw("value", &MeasTrigger::value)
+        .def_rw("index", &MeasTrigger::index)
+        .def_rw("rising", &MeasTrigger::rising)
+        .def_rw("use_rise_fall", &MeasTrigger::useRiseFall)
+        .def_rw("use_cross", &MeasTrigger::useCross)
+        .def_rw("use_last", &MeasTrigger::useLast)
+        .def_rw("td", &MeasTrigger::td)
+        .def_rw("cross", &MeasTrigger::cross);
+
+    // -----------------------------------------------------------------------
+    // MeasStatement
+    // -----------------------------------------------------------------------
+    nb::class_<MeasStatement>(m, "MeasStatement")
+        .def(nb::init<>())
+        .def_rw("analysis_type", &MeasStatement::analysisType)
+        .def_rw("name", &MeasStatement::name)
+        .def_rw("function", &MeasStatement::function)
+        .def_rw("signal", &MeasStatement::signal)
+        .def_rw("expr", &MeasStatement::expr)
+        .def_rw("has_at", &MeasStatement::hasAt)
+        .def_rw("at", &MeasStatement::at)
+        .def_rw("has_when", &MeasStatement::hasWhen)
+        .def_rw("when", &MeasStatement::when)
+        .def_rw("trig", &MeasStatement::trig)
+        .def_rw("targ", &MeasStatement::targ)
+        .def_rw("has_trig_targ", &MeasStatement::hasTrigTarg)
+        .def_rw("has_from", &MeasStatement::hasFrom)
+        .def_rw("has_to", &MeasStatement::hasTo)
+        .def_rw("from", &MeasStatement::from)
+        .def_rw("to", &MeasStatement::to)
+        .def_rw("line_number", &MeasStatement::lineNumber)
+        .def_rw("source_name", &MeasStatement::sourceName)
+        .def("__repr__", [](const MeasStatement& s) {
+            return "<MeasStatement '" + s.name + "' func=" + std::to_string(static_cast<int>(s.function)) + ">";
+        });
+
+    // -----------------------------------------------------------------------
+    // MeasResult
+    // -----------------------------------------------------------------------
+    nb::class_<MeasResult>(m, "MeasResult")
+        .def(nb::init<>())
+        .def_rw("name", &MeasResult::name)
+        .def_rw("value", &MeasResult::value)
+        .def_rw("valid", &MeasResult::valid)
+        .def_rw("quantity_label", &MeasResult::quantityLabel)
+        .def_rw("display_unit", &MeasResult::displayUnit)
+        .def_rw("error", &MeasResult::error)
+        .def("__repr__", [](const MeasResult& r) {
+            std::string tag = r.valid ? std::to_string(r.value) : "INVALID";
+            return "<MeasResult '" + r.name + "' " + tag +
+                   (r.valid ? "" : " error='" + r.error + "'") + ">";
+        });
+
+    // -----------------------------------------------------------------------
+    // SimMeasEvaluator
+    // -----------------------------------------------------------------------
+    m.def("meas_parse",
+          [](const std::string& line, int line_number, const std::string& source_name) -> std::tuple<MeasStatement, bool> {
+              MeasStatement stmt;
+              bool ok = SimMeasEvaluator::parse(line, line_number, source_name, stmt);
+              return {stmt, ok};
+          },
+          nb::arg("line"), nb::arg("line_number") = 0, nb::arg("source_name") = "",
+          R"(Parse a .meas statement line.
+
+Returns (MeasStatement, ok: bool).
+)");
+
+    m.def("meas_evaluate",
+          [](const std::vector<MeasStatement>& statements,
+             const SimResults& results,
+             const std::string& analysis_type) -> std::vector<MeasResult> {
+              return SimMeasEvaluator::evaluate(statements, results, analysis_type);
+          },
+          nb::arg("statements"), nb::arg("results"), nb::arg("analysis_type"),
+          R"(Evaluate .meas statements against simulation results.
+
+Only evaluates statements matching the given analysis type (e.g. 'tran', 'ac').
+Returns a list of MeasResult.
+)");
+
+    // -----------------------------------------------------------------------
+    // SimParseDiagnosticSeverity enum
+    // -----------------------------------------------------------------------
+    nb::enum_<SimParseDiagnosticSeverity>(m, "SimParseDiagnosticSeverity")
+        .value("Info", SimParseDiagnosticSeverity::Info)
+        .value("Warning", SimParseDiagnosticSeverity::Warning)
+        .value("Error", SimParseDiagnosticSeverity::Error);
+
+    // -----------------------------------------------------------------------
+    // SimParseDiagnostic
+    // -----------------------------------------------------------------------
+    nb::class_<SimParseDiagnostic>(m, "SimParseDiagnostic")
+        .def(nb::init<>())
+        .def_rw("severity", &SimParseDiagnostic::severity)
+        .def_rw("line", &SimParseDiagnostic::line)
+        .def_rw("source", &SimParseDiagnostic::source)
+        .def_rw("message", &SimParseDiagnostic::message)
+        .def_rw("text", &SimParseDiagnostic::text)
+        .def("__repr__", [](const SimParseDiagnostic& d) {
+            return "<Diagnostic L" + std::to_string(d.line) + " " + d.message + ">";
+        });
+
+    // -----------------------------------------------------------------------
+    // SimModelParseOptions
+    // -----------------------------------------------------------------------
+    nb::class_<SimModelParseOptions>(m, "SimModelParseOptions")
+        .def(nb::init<>())
+        .def_rw("source_name", &SimModelParseOptions::sourceName)
+        .def_rw("active_lib_section", &SimModelParseOptions::activeLibSection)
+        .def_rw("strict", &SimModelParseOptions::strict);
+
+    // -----------------------------------------------------------------------
+    // SimModelParser
+    // -----------------------------------------------------------------------
+    nb::class_<SimModelParser>(m, "SimModelParser")
+        .def_static("parse_model_line",
+            [](const std::string& line,
+               int line_number,
+               const std::string& source_name) -> std::tuple<bool, std::map<std::string, SimModel>, std::vector<SimParseDiagnostic>> {
+                SimNetlist tmp;
+                std::map<std::string, SimModel> models;
+                std::vector<SimParseDiagnostic> diags;
+                bool ok = SimModelParser::parseModelLine(tmp, models, line, line_number, source_name, &diags);
+                return {ok, models, diags};
+            },
+            nb::arg("line"),
+            nb::arg("line_number") = 0, nb::arg("source_name") = "",
+            "Parse a single .model line. Returns (ok, models_dict, diagnostics).")
+        .def_static("parse_library",
+            [](SimNetlist& netlist,
+               const std::string& content,
+               const SimModelParseOptions& options) -> std::tuple<bool, std::vector<SimParseDiagnostic>> {
+                std::vector<SimParseDiagnostic> diags;
+                bool ok = SimModelParser::parseLibrary(netlist, content, options, &diags);
+                return {ok, diags};
+            },
+            nb::arg("netlist"), nb::arg("content"), nb::arg("options") = SimModelParseOptions(),
+            R"(Parse a SPICE library string containing .model, .subckt, and other definitions.
+
+Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
+)");
+
+    // -----------------------------------------------------------------------
+    // Simulation Runner — shells out to vio-cmd netlist-run + parses .raw
+    // -----------------------------------------------------------------------
+    m.def("run_simulation",
+          [](const std::string& netlist_text,
+             const std::string& analysis,
+             const std::string& stop_time,
+             const std::string& step_time,
+             const std::string& vio_cmd_path,
+             int timeout_seconds) -> nb::dict {
+              nb::dict result;
+
+              // Write netlist to temp file
+              char tmpfile[] = "/tmp/vspice_XXXXXX.cir";
+              int fd = mkstemps(tmpfile, 4);
+              if (fd < 0) { result["ok"] = false; result["error"] = "Failed to create temp file"; return result; }
+              ssize_t written = write(fd, netlist_text.data(), netlist_text.size());
+              if (written < 0) { close(fd); unlink(tmpfile); result["ok"] = false; result["error"] = "Failed to write temp file"; return result; }
+              close(fd);
+
+              // Derive raw file path (vio-cmd creates same_basename.raw)
+              // tmpfile is "/tmp/vspice_XXXXXX.cir" -> raw is "/tmp/vspice_XXXXXX.raw"
+              std::string raw_path = tmpfile;
+              size_t dotPos = raw_path.rfind('.');
+              if (dotPos != std::string::npos) raw_path.resize(dotPos);
+              raw_path += ".raw";
+
+              // Find vio-cmd
+              std::string cmd = vio_cmd_path;
+              if (cmd.empty()) {
+                  FILE* which = popen("which vio-cmd 2>/dev/null", "r");
+                  if (which) {
+                      char buf[1024];
+                      if (fgets(buf, sizeof(buf), which)) {
+                          cmd = buf;
+                          size_t nl = cmd.find('\n');
+                          if (nl != std::string::npos) cmd.resize(nl);
+                      }
+                      pclose(which);
+                  }
+                  if (cmd.empty()) {
+                      const char* paths[] = { "build/vio-cmd", "build-debug/vio-cmd", "build-asan/vio-cmd", nullptr };
+                      for (int i = 0; paths[i]; ++i) {
+                          FILE* test = fopen(paths[i], "r");
+                          if (test) { fclose(test); cmd = paths[i]; break; }
+                      }
+                  }
+                  if (cmd.empty()) {
+                      unlink(tmpfile);
+                      result["ok"] = false;
+                      result["error"] = "vio-cmd not found. Install it or pass vio_cmd_path.";
+                      return result;
+                  }
+              }
+
+              // Build command
+              std::ostringstream oss;
+              oss << cmd << " netlist-run " << tmpfile << " --json";
+              if (!analysis.empty()) oss << " --analysis " << analysis;
+              if (!stop_time.empty()) oss << " --stop " << stop_time;
+              if (!step_time.empty()) oss << " --step " << step_time;
+              if (timeout_seconds > 0) oss << " --timeout " << timeout_seconds;
+              oss << " 2>/dev/null";
+
+              // Execute
+              FILE* pipe = popen(oss.str().c_str(), "r");
+              if (!pipe) {
+                  unlink(tmpfile); unlink(raw_path.c_str());
+                  result["ok"] = false; result["error"] = "Failed to execute vio-cmd";
+                  return result;
+              }
+              std::string vio_out;
+              char buf[4096];
+              while (fgets(buf, sizeof(buf), pipe)) vio_out += buf;
+              int rc = pclose(pipe);
+
+              unlink(tmpfile);
+
+              if (rc != 0) {
+                  result["ok"] = false;
+                  result["error"] = "vio-cmd returned non-zero exit code";
+                  result["vio_output"] = vio_out;
+                  return result;
+              }
+
+              // Parse the .raw file if it exists
+              RawData raw;
+              std::string raw_error;
+              bool has_raw = RawDataParser::loadRawAscii(raw_path, &raw, &raw_error);
+              unlink(raw_path.c_str());
+
+              if (!has_raw) {
+                  result["ok"] = false;
+                  result["error"] = "Simulation ran but no results: " + raw_error;
+                  return result;
+              }
+
+              // Convert to structured result
+              result["ok"] = true;
+              result["analysis"] = analysis.empty() ? "op" : analysis;
+
+              // Time/frequency axis
+              std::vector<double> axis;
+              if (!raw.x.empty()) axis = raw.x;
+
+              // Waveforms
+              nb::list waveforms;
+              for (size_t i = 1; i < raw.varNames.size(); ++i) {
+                  nb::dict wf;
+                  wf["name"] = raw.varNames[i];
+                  wf["x"] = nb::cast(axis);
+                  if (i - 1 < raw.y.size()) {
+                      wf["y"] = nb::cast(std::vector<double>(raw.y[i-1].begin(), raw.y[i-1].end()));
+                  }
+                  if (i - 1 < raw.yPhase.size() && raw.hasPhase.size() > i-1 && raw.hasPhase[i-1]) {
+                      wf["phase"] = nb::cast(std::vector<double>(raw.yPhase[i-1].begin(), raw.yPhase[i-1].end()));
+                  }
+                  waveforms.append(wf);
+              }
+              result["waveforms"] = waveforms;
+
+              // OP results (first point only)
+              if (raw.numPoints == 1) {
+                  nb::dict node_voltages;
+                  nb::dict branch_currents;
+                  for (size_t i = 1; i < raw.varNames.size(); ++i) {
+                      std::string name = raw.varNames[i];
+                      double val = (i - 1 < raw.y.size() && !raw.y[i-1].empty()) ? raw.y[i-1][0] : 0.0;
+                      // Extract node/branch from V(name) or I(name)
+                      if (name.size() > 2 && name[1] == '(' && name.back() == ')') {
+                          std::string inner = name.substr(2, name.size() - 3);
+                          if (name[0] == 'V' || name[0] == 'v') node_voltages[inner.c_str()] = val;
+                          else if (name[0] == 'I' || name[0] == 'i') branch_currents[inner.c_str()] = val;
+                      }
+                  }
+                  result["node_voltages"] = node_voltages;
+                  result["branch_currents"] = branch_currents;
+              }
+
+              return result;
+          },
+          nb::arg("netlist_text"),
+          nb::arg("analysis") = "op",
+          nb::arg("stop_time") = "",
+          nb::arg("step_time") = "",
+          nb::arg("vio_cmd_path") = "",
+          nb::arg("timeout_seconds") = 60,
+          R"(Run a SPICE netlist simulation via vio-cmd and parse results.
+
+Args:
+    netlist_text: SPICE netlist as a string
+    analysis: 'op', 'tran', 'ac', or 'dc'
+    stop_time: Stop time for transient (e.g. '10m')
+    step_time: Step size for transient (e.g. '100u')
+    vio_cmd_path: Path to vio-cmd binary (auto-detected if empty)
+    timeout_seconds: Max simulation time
+
+Returns:
+    dict with keys:
+        ok: bool — whether simulation succeeded
+        analysis: str
+        waveforms: list[dict] — each with name, x, y, [phase]
+        node_voltages: dict[str, float] — for OP analysis
+        branch_currents: dict[str, float] — for OP analysis
+        error: str — on failure
+)");
+
+    // -----------------------------------------------------------------------
+    // Callback Bridge — C++ can invoke Python functions
+    // -----------------------------------------------------------------------
+
+    // Global callback registry
+    static std::map<std::string, nb::callable> g_callbacks;
+    static std::mutex g_cb_mutex;
+
+    m.def("register_callback",
+          [](const std::string& name, nb::callable callback) {
+              std::lock_guard<std::mutex> lock(g_cb_mutex);
+              g_callbacks[name] = std::move(callback);
+          },
+          nb::arg("name"), nb::arg("callback"),
+          R"(Register a Python callable by name.
+
+The callback can later be invoked by C++ code (e.g., when a menu item
+is clicked or a simulation finishes).
+
+Example:
+    vspice.register_callback("on_sim_done", lambda: print("Done!"))
+)");
+
+    m.def("unregister_callback",
+          [](const std::string& name) {
+              std::lock_guard<std::mutex> lock(g_cb_mutex);
+              g_callbacks.erase(name);
+          },
+          nb::arg("name"),
+          "Remove a previously registered callback.");
+
+    m.def("invoke_callback",
+          [](const std::string& name, nb::tuple args, nb::dict kwargs) -> nb::object {
+              std::lock_guard<std::mutex> lock(g_cb_mutex);
+              auto it = g_callbacks.find(name);
+              if (it == g_callbacks.end()) {
+                  throw std::runtime_error("Callback not found: " + name);
+              }
+              return it->second(*args, **kwargs);
+          },
+          nb::arg("name"), nb::arg("args") = nb::make_tuple(), nb::arg("kwargs") = nb::dict(),
+          R"(Invoke a registered Python callback by name.
+
+This is primarily used internally by C++ code (e.g., when a menu item
+triggers). But you can also call it manually.
+)");
+
+    m.def("list_callbacks",
+          []() -> std::vector<std::string> {
+              std::lock_guard<std::mutex> lock(g_cb_mutex);
+              std::vector<std::string> names;
+              for (const auto& [k, v] : g_callbacks) names.push_back(k);
+              return names;
+          },
+          "Return a list of registered callback names.");
+
+    // -----------------------------------------------------------------------
+    // CallbackHandle — a lightweight wrapper that C++ code can store
+    // -----------------------------------------------------------------------
+    struct CallbackHandle {
+        std::string name;
+        bool exists() const {
+            std::lock_guard<std::mutex> lock(g_cb_mutex);
+            return g_callbacks.find(name) != g_callbacks.end();
+        }
+        nb::object operator()(nb::tuple args, nb::dict kwargs) const {
+            std::lock_guard<std::mutex> lock(g_cb_mutex);
+            auto it = g_callbacks.find(name);
+            if (it == g_callbacks.end()) {
+                throw std::runtime_error("Callback not found: " + name);
+            }
+            return it->second(*args, **kwargs);
+        }
+    };
+
+    nb::class_<CallbackHandle>(m, "CallbackHandle")
+        .def_rw("name", &CallbackHandle::name)
+        .def("exists", &CallbackHandle::exists,
+             "Check if the callback still exists.")
+        .def("invoke",
+             [](CallbackHandle& self, nb::tuple args, nb::dict kwargs) {
+                 return self(args, kwargs);
+             },
+             nb::arg("args") = nb::make_tuple(), nb::arg("kwargs") = nb::dict(),
+             "Invoke the callback with given arguments.")
+        .def("__call__",
+             [](CallbackHandle& self, nb::tuple args, nb::dict kwargs) {
+                 return self(args, kwargs);
+             },
+             nb::arg("args") = nb::make_tuple(), nb::arg("kwargs") = nb::dict(),
+             "Allow calling the handle directly: handle(arg1, arg2)")
+        .def("__repr__",
+             [](const CallbackHandle& h) {
+                 return "<CallbackHandle '" + h.name + "'>";
+             });
+
+    m.def("get_callback_handle",
+          [](const std::string& name) -> std::optional<CallbackHandle> {
+              std::lock_guard<std::mutex> lock(g_cb_mutex);
+              if (g_callbacks.find(name) == g_callbacks.end()) {
+                  return std::nullopt;
+              }
+              return CallbackHandle{name};
+          },
+          nb::arg("name"),
+          "Get a CallbackHandle for a registered callback (or None if not found).");
 }

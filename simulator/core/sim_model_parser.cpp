@@ -2,14 +2,11 @@
 #include "sim_value_parser.h"
 #include "sim_meas_evaluator.h"
 
-#include <QString>
-#include <QRegularExpression>
-#include <QDebug>
-
 #include <sstream>
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <regex>
 
 namespace {
 
@@ -84,41 +81,71 @@ std::string stripParensComma(std::string s) {
     return s;
 }
 
-bool parseNumeric(const std::string& text, double& out) {
-    return SimValueParser::parseSpiceNumber(QString::fromStdString(text), out);
+static bool parseNumeric(const std::string& text, double& out) {
+    return SimValueParser::parseSpiceNumber(text, out);
 }
 
-QString sanitizeMeasName(const QString& raw) {
-    QString s = raw;
-    s.replace(QRegularExpression("[^A-Za-z0-9_]"), "_");
-    s.replace(QRegularExpression("_+"), "_");
-    s.remove(QRegularExpression("^_+"));
-    s.remove(QRegularExpression("_+$"));
-    return s.isEmpty() ? QString("m") : s.left(48);
+std::string sanitizeMeasName(const std::string& raw) {
+    std::string s;
+    s.reserve(raw.size());
+    for (char c : raw) {
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '_')
+            s += c;
+        else
+            s += '_';
+    }
+    // Collapse multiple underscores
+    std::string collapsed;
+    collapsed.reserve(s.size());
+    for (char c : s) {
+        if (c == '_' && !collapsed.empty() && collapsed.back() == '_') continue;
+        collapsed += c;
+    }
+    // Strip leading/trailing underscores
+    size_t first = collapsed.find_first_not_of('_');
+    if (first == std::string::npos) return "m";
+    size_t last = collapsed.find_last_not_of('_');
+    std::string result = collapsed.substr(first, last - first + 1);
+    if (result.empty()) return "m";
+    if (result.size() > 48) result.resize(48);
+    return result;
+}
+
+std::string trimStr(const std::string& s) {
+    const size_t first = s.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    const size_t last = s.find_last_not_of(" \t\r\n");
+    return s.substr(first, last - first + 1);
 }
 
 bool convertMeanToMeasLine(const std::string& meanLine, int lineNo, std::string& outMeasLine) {
-    const QString qLine = QString::fromStdString(meanLine).trimmed();
-    static const QRegularExpression re(
-        "^\\s*\\.mean\\s+(?:(avg|max|min|rms)\\s+)?([^\\s]+)(?:\\s+from\\s*=\\s*([^\\s]+))?(?:\\s+to\\s*=\\s*([^\\s]+))?\\s*$",
-        QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch m = re.match(qLine);
-    if (!m.hasMatch()) return false;
+    const std::string trimmed = trimStr(meanLine);
+    static const std::regex re(
+        "^\\.mean\\s+(?:(avg|max|min|rms)\\s+)?([^\\s]+)(?:\\s+from\\s*=\\s*([^\\s]+))?(?:\\s+to\\s*=\\s*([^\\s]+))?\\s*$",
+        std::regex_constants::icase);
+    std::smatch m;
+    if (!std::regex_match(trimmed, m, re)) return false;
 
-    const QString mode = m.captured(1).isEmpty() ? QString("avg") : m.captured(1).toLower();
-    const QString signal = m.captured(2).trimmed();
-    const QString from = m.captured(3).trimmed();
-    const QString to = m.captured(4).trimmed();
-    if (signal.isEmpty()) return false;
+    std::string mode = m[1].matched ? m[1].str() : "avg";
+    std::string signal = trimStr(m[2].str());
+    std::string from = m[3].matched ? trimStr(m[3].str()) : "";
+    std::string to = m[4].matched ? trimStr(m[4].str()) : "";
+    if (signal.empty()) return false;
 
-    const QString name = QString("mean_%1_%2_l%3")
-        .arg(mode, sanitizeMeasName(signal))
-        .arg(lineNo);
+    // Lowercase mode
+    std::transform(mode.begin(), mode.end(), mode.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-    QString meas = QString(".meas tran %1 %2 %3").arg(name, mode, signal);
-    if (!from.isEmpty()) meas += QString(" from=%1").arg(from);
-    if (!to.isEmpty()) meas += QString(" to=%1").arg(to);
-    outMeasLine = meas.toStdString();
+    std::string sanitizedName = sanitizeMeasName(signal);
+    char buf[256];
+    snprintf(buf, sizeof(buf), "mean_%s_%s_l%d", mode.c_str(), sanitizedName.c_str(), lineNo);
+    std::string name(buf);
+
+    std::ostringstream oss;
+    oss << ".meas tran " << name << " " << mode << " " << signal;
+    if (!from.empty()) oss << " from=" << from;
+    if (!to.empty()) oss << " to=" << to;
+    outMeasLine = oss.str();
     return true;
 }
 

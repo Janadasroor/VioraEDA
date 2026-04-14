@@ -1,274 +1,310 @@
 #include "raw_data_parser.h"
-#include <QFile>
-#include <QTextStream>
-#include <QRegularExpression>
-#include <QDebug>
-#include <QLocale>
-#include <cmath>
+
 #include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
 
 namespace {
+
+std::string toUpper(std::string_view s) {
+    std::string out(s.size(), '\0');
+    std::transform(s.begin(), s.end(), out.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return out;
+}
+
+std::string trim(const std::string& s) {
+    auto start = s.begin();
+    while (start != s.end() && std::isspace(static_cast<unsigned char>(*start))) ++start;
+    auto end = s.end();
+    while (end != start && std::isspace(static_cast<unsigned char>(*(end - 1)))) --end;
+    return std::string(start, end);
+}
+
+std::string toLower(std::string_view s) {
+    std::string out(s.size(), '\0');
+    std::transform(s.begin(), s.end(), out.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return out;
+}
+
 std::string normalizeWaveformName(const std::string& rawName) {
-    const QString q = QString::fromStdString(rawName).trimmed();
-    if (q.isEmpty()) return rawName;
+    std::string name = trim(rawName);
+    if (name.empty()) return rawName;
 
     // Handle v1#branch -> I(V1)
-    static const QRegularExpression branchRe(
-        "^\\s*([A-Za-z0-9_.$:+-]+)\\s*#\\s*branch\\s*$",
-        QRegularExpression::CaseInsensitiveOption);
-    if (const auto m = branchRe.match(q); m.hasMatch()) {
-        return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
+    size_t hashPos = name.find('#');
+    if (hashPos != std::string::npos) {
+        std::string before = name.substr(0, hashPos);
+        return "I(" + toUpper(before) + ")";
     }
 
-    static const QRegularExpression wrapperRe(
-        "^(v|i)\\s*\\(\\s*(.+)\\s*\\)$",
-        QRegularExpression::CaseInsensitiveOption);
-    
-    auto match = wrapperRe.match(q);
-    if (!match.hasMatch()) {
-        // If no wrapper, just return uppercase for consistency if it looks like a net
-        return q.toUpper().toStdString();
+    // Handle V(net) or I(net) wrappers
+    if (name.size() >= 4 && (name[1] == '(') && name.back() == ')') {
+        char type = std::toupper(static_cast<unsigned char>(name[0]));
+        std::string inner = toUpper(name.substr(2, name.size() - 3));
+        return std::string(1, type) + "(" + inner + ")";
     }
 
-    QString type = match.captured(1).toUpper(); // V or I
-    QString content = match.captured(2).trimmed();
-
-    // Handle device currents: @r1[i] -> I(R1)
-    static const QRegularExpression deviceCurrentRe(
-        "^@\\s*([A-Za-z0-9_.$:+-]+)\\s*\\[\\s*i[a-z]*\\s*\\]$",
-        QRegularExpression::CaseInsensitiveOption);
-    if (const auto m = deviceCurrentRe.match(content); m.hasMatch()) {
-        return QString("I(%1)").arg(m.captured(1).toUpper()).toStdString();
-    }
-
-    // Handle generic wrappers: v(net1) -> V(NET1)
-    return QString("%1(%2)").arg(type, content.toUpper()).toStdString();
+    return toUpper(name);
 }
-} // namespace
 
-bool RawDataParser::loadRawAscii(const QString& path, RawData* out, QString* error) {
+// Tokenize a line into whitespace-separated tokens
+std::vector<std::string> tokenize(std::string_view line) {
+    std::vector<std::string> tokens;
+    size_t i = 0;
+    while (i < line.size()) {
+        while (i < line.size() && std::isspace(static_cast<unsigned char>(line[i]))) ++i;
+        if (i == line.size()) break;
+        size_t start = i;
+        while (i < line.size() && !std::isspace(static_cast<unsigned char>(line[i]))) ++i;
+        tokens.emplace_back(line.substr(start, i - start));
+    }
+    return tokens;
+}
+
+bool parseDouble(std::string_view sv, double& out) {
+    std::string str(sv);
+    size_t pos = 0;
+    try {
+        out = std::stod(str, &pos);
+        while (pos < str.size() && std::isspace(static_cast<unsigned char>(str[pos]))) ++pos;
+        return pos == str.size();
+    } catch (...) {
+        return false;
+    }
+}
+
+} // anonymous namespace
+
+bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::string* error) {
     if (!out) return false;
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
+
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
         if (error) *error = "Could not open raw file: " + path;
         return false;
     }
 
-    QByteArray allData = file.readAll();
+    std::ostringstream ss;
+    ss << file.rdbuf();
+    std::string allData = ss.str();
     file.close();
 
-    if (allData.isEmpty()) {
+    if (allData.empty()) {
         if (error) *error = "Raw file is empty: " + path;
         return false;
     }
 
-    const char* dataPtr = allData.constData();
+    const char* dataPtr = allData.data();
     const char* endPtr = dataPtr + allData.size();
 
-    auto readLine = [&]() -> QByteArray {
+    auto readLine = [&]() -> std::string {
         const char* start = dataPtr;
         while (dataPtr < endPtr && *dataPtr != '\n' && *dataPtr != '\r') {
             dataPtr++;
         }
-        QByteArray line(start, dataPtr - start);
-        // Skip \r\n or \n\r or just \n
+        std::string line(start, dataPtr - start);
         if (dataPtr < endPtr && *dataPtr == '\r') dataPtr++;
         if (dataPtr < endPtr && *dataPtr == '\n') dataPtr++;
-        return line.trimmed();
+        return trim(line);
     };
 
     bool collectingData = false;
-    bool isBinary = false;
     bool isComplex = false;
+    bool isBinaryFormat = false;
     int numVariables = 0;
     int numPoints = 0;
-    QStringList varNames;
+    std::vector<std::string> varNames;
+
+    RawData data;
 
     while (dataPtr < endPtr) {
-        QByteArray line = readLine();
-        if (line.isEmpty()) continue;
+        std::string line = readLine();
+        if (line.empty()) continue;
 
-        if (line.startsWith("No. Variables:")) {
-            numVariables = line.mid(14).trimmed().toInt();
-        } else if (line.startsWith("No. Points:")) {
-            numPoints = line.mid(11).trimmed().toInt();
-        } else if (line.startsWith("Command:")) {
-            QString cmd = QString::fromLatin1(line.mid(8)).trimmed().toLower();
-            if (cmd.contains("tran")) out->analysisType = SimAnalysisType::Transient;
-            else if (cmd.contains("ac")) out->analysisType = SimAnalysisType::AC;
-            else if (cmd.contains("dc")) out->analysisType = SimAnalysisType::DC;
-            else if (cmd.contains("op")) out->analysisType = SimAnalysisType::OP;
-            else if (cmd.contains("noise")) out->analysisType = SimAnalysisType::Noise;
-        } else if (line.startsWith("Title:")) {
-            QString title = QString::fromLatin1(line.mid(6)).trimmed().toLower();
-            if (out->analysisType == SimAnalysisType::OP) { // Fallback if Command missing
-                if (title.contains("transient")) out->analysisType = SimAnalysisType::Transient;
-                else if (title.contains("ac analysis")) out->analysisType = SimAnalysisType::AC;
-                else if (title.contains("dc transfer")) out->analysisType = SimAnalysisType::DC;
+        if (line.rfind("No. Variables:", 0) == 0) {
+            try { numVariables = std::stoi(trim(line.substr(14))); } catch (...) { numVariables = 0; }
+        } else if (line.rfind("No. Points:", 0) == 0) {
+            try { numPoints = std::stoi(trim(line.substr(11))); } catch (...) { numPoints = 0; }
+        } else if (line.rfind("Command:", 0) == 0) {
+            std::string cmd = toLower(trim(line.substr(8)));
+            if (cmd.find("tran") != std::string::npos) data.analysisType = SimAnalysisType::Transient;
+            else if (cmd.find("ac") != std::string::npos) data.analysisType = SimAnalysisType::AC;
+            else if (cmd.find("dc") != std::string::npos) data.analysisType = SimAnalysisType::DC;
+            else if (cmd.find("op") != std::string::npos) data.analysisType = SimAnalysisType::OP;
+            else if (cmd.find("noise") != std::string::npos) data.analysisType = SimAnalysisType::Noise;
+        } else if (line.rfind("Title:", 0) == 0) {
+            std::string title = toLower(trim(line.substr(6)));
+            if (data.analysisType == SimAnalysisType::OP) {
+                if (title.find("transient") != std::string::npos) data.analysisType = SimAnalysisType::Transient;
+                else if (title.find("ac analysis") != std::string::npos) data.analysisType = SimAnalysisType::AC;
+                else if (title.find("dc transfer") != std::string::npos) data.analysisType = SimAnalysisType::DC;
             }
-        } else if (line.startsWith("Flags:")) {
-            const QString flags = QString::fromLatin1(line).toLower();
-            if (flags.contains("complex")) isComplex = true;
-        } else if (line.startsWith("Variables:")) {
+        } else if (line.rfind("Flags:", 0) == 0) {
+            std::string flags = toLower(line);
+            if (flags.find("complex") != std::string::npos) isComplex = true;
+        } else if (line.rfind("Variables:", 0) == 0) {
             for (int i = 0; i < numVariables; ++i) {
-                QByteArray vLine = readLine();
-                QStringList parts = QString::fromLatin1(vLine).split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                std::string vLine = readLine();
+                auto parts = tokenize(vLine);
                 if (parts.size() >= 2) {
-                    varNames << QString::fromStdString(normalizeWaveformName(parts[1].toStdString()));
+                    varNames.push_back(normalizeWaveformName(parts[1]));
                 } else if (parts.size() == 1 && i == 0) {
-                    varNames << "time";
+                    varNames.push_back("time");
                 }
             }
-        } else if (line.startsWith("Values:")) {
+        } else if (line.rfind("Values:", 0) == 0) {
             collectingData = true;
-            isBinary = false;
             break;
-        } else if (line.startsWith("Binary:")) {
+        } else if (line.rfind("Binary:", 0) == 0) {
+            // Binary format: raw doubles after the "Binary:\n" marker
+            // Each point has numVariables doubles (index, var1, var2, ...)
             collectingData = true;
-            isBinary = true;
-            qDebug() << "RawDataParser: Using binary parsing mode";
+            isBinaryFormat = true;
             break;
         }
     }
 
-    if (!collectingData || varNames.isEmpty() || numVariables <= 0 || numVariables > 100000 || numPoints < 0 || numPoints > 100000000) {
-        if (error) *error = QString("Raw file has invalid or excessive metadata: Vars=%1, Points=%2").arg(numVariables).arg(numPoints);
+    if (!collectingData || varNames.empty() || numVariables <= 0 || numVariables > 100000 || numPoints < 0 || numPoints > 100000000) {
+        if (error) {
+            std::ostringstream oss;
+            oss << "Raw file had invalid or excessive metadata: Vars=" << numVariables << ", Points=" << numPoints;
+            *error = oss.str();
+        }
         return false;
     }
 
-    RawData data;
     data.numVariables = numVariables;
     data.numPoints = numPoints;
-    data.varNames = varNames;
-    
+    data.varNames = std::move(varNames);
+
     try {
         if (numPoints > 0) {
             data.x.reserve(numPoints);
             data.y.resize(numVariables - 1);
             data.yPhase.resize(numVariables - 1);
             data.hasPhase.resize(numVariables - 1, false);
-            for (int i = 0; i < data.y.size(); ++i) data.y[i].reserve(numPoints);
-            for (int i = 0; i < data.yPhase.size(); ++i) data.yPhase[i].reserve(numPoints);
+            for (int i = 0; i < (int)data.y.size(); ++i) data.y[i].reserve(numPoints);
+            for (int i = 0; i < (int)data.yPhase.size(); ++i) data.yPhase[i].reserve(numPoints);
 
-            if (isBinary) {
-                qint64 totalDoubles = (qint64)numPoints * numVariables;
-                if (isComplex) {
-                    // Complex data uses real+imag for each variable, including x.
-                    totalDoubles = (qint64)numPoints * numVariables * 2;
-                }
-                qint64 remainingBytes = endPtr - dataPtr;
-                if (remainingBytes >= totalDoubles * (qint64)sizeof(double)) {
-                    for (int p = 0; p < numPoints; ++p) {
-                        double val;
-                        if (isComplex) {
-                            double re = 0.0, im = 0.0;
-                            memcpy(&re, dataPtr, sizeof(double)); dataPtr += sizeof(double);
-                            memcpy(&im, dataPtr, sizeof(double)); dataPtr += sizeof(double);
-                            data.x.push_back(re); // freq/time is typically real
-                            for (int v = 1; v < numVariables; ++v) {
-                                memcpy(&re, dataPtr, sizeof(double)); dataPtr += sizeof(double);
-                                memcpy(&im, dataPtr, sizeof(double)); dataPtr += sizeof(double);
-                                const double mag = std::hypot(re, im);
-                                const double phase = std::atan2(im, re) * 180.0 / std::acos(-1.0);
-                                data.y[v - 1].push_back(mag);
-                                data.yPhase[v - 1].push_back(phase);
-                                data.hasPhase[v - 1] = true;
-                            }
-                        } else {
-                            memcpy(&val, dataPtr, sizeof(double));
-                            dataPtr += sizeof(double);
-                            data.x.push_back(val);
-                            for (int v = 1; v < numVariables; ++v) {
-                                memcpy(&val, dataPtr, sizeof(double));
-                                dataPtr += sizeof(double);
-                                data.y[v - 1].push_back(val);
-                            }
-                        }
+            if (isBinaryFormat) {
+                // Binary format: each point starts with an index double,
+                // followed by numVariables-1 signal doubles.
+                // For non-complex, each variable is 1 double.
+                // For complex, each variable is 2 doubles (real + imag).
+                size_t doublesPerPoint = (size_t)numVariables;
+                if (isComplex) doublesPerPoint *= 2;
+                size_t expectedBytes = (size_t)numPoints * doublesPerPoint * sizeof(double);
+                size_t availableBytes = endPtr - dataPtr;
+
+                if (availableBytes < expectedBytes) {
+                    if (error) {
+                        std::ostringstream oss;
+                        oss << "Binary data truncated: expected " << expectedBytes
+                            << " bytes, got " << availableBytes;
+                        *error = oss.str();
                     }
-                } else {
-                    if (error) *error = QString("Raw file binary payload is incomplete: %1 (Expected %2 bytes, got %3)").arg(path).arg(totalDoubles * sizeof(double)).arg(remainingBytes);
                     return false;
                 }
-            } else {
-                static const QRegularExpression spaceRe("\\s+");
-                auto getNextToken = [&]() -> QByteArray {
-                    while (dataPtr < endPtr) {
-                        const char* start = dataPtr;
-                        while (dataPtr < endPtr && !isspace(*dataPtr)) dataPtr++;
-                        QByteArray word(start, dataPtr - start);
-                        while (dataPtr < endPtr && isspace(*dataPtr)) dataPtr++;
-                        if (!word.isEmpty()) return word;
-                    }
-                    return {};
-                };
 
-                auto parseToken = [&](const QByteArray& token, double& magOut, double& phaseOut, bool& isComplexOut) {
-                    const QString raw = QString::fromLatin1(token).trimmed();
-                    if (raw.isEmpty()) return false;
-
-                    QString t = raw;
-                    if (t.startsWith('(') && t.endsWith(')')) {
-                        t = t.mid(1, t.size() - 2).trimmed();
-                    }
-
-                    if (t.contains(',')) {
-                        const QStringList parts = t.split(',', Qt::SkipEmptyParts);
-                        if (parts.size() >= 2) {
-                            bool ok1 = false, ok2 = false;
-                            const double re = QLocale::c().toDouble(parts[0].trimmed(), &ok1);
-                            const double im = QLocale::c().toDouble(parts[1].trimmed(), &ok2);
-                            if (ok1 && ok2) {
-                                magOut = std::hypot(re, im);
-                                phaseOut = std::atan2(im, re) * 180.0 / std::acos(-1.0);
-                                isComplexOut = true;
-                                return true;
-                            }
-                        }
-                    }
-
-                    bool ok = false;
-                    const double val = QLocale::c().toDouble(t, &ok);
-                    if (!ok) return false;
-                    magOut = val;
-                    phaseOut = 0.0;
-                    isComplexOut = false;
-                    return true;
-                };
-
+                const double* ptr = reinterpret_cast<const double*>(dataPtr);
                 for (int p = 0; p < numPoints; ++p) {
-                    // In Values: format, the first variable is prefixed by an index
-                    getNextToken(); // skip index
-                    {
-                        const QByteArray xTok = getNextToken();
-                        const QString raw = QString::fromLatin1(xTok).trimmed();
-                        double xVal = 0.0;
-                        bool ok = false;
-                        if (raw.contains(',')) {
-                            const QStringList parts = raw.split(',', Qt::SkipEmptyParts);
-                            if (!parts.isEmpty()) {
-                                xVal = QLocale::c().toDouble(parts[0].trimmed(), &ok);
-                            }
-                        } else {
-                            xVal = QLocale::c().toDouble(raw, &ok);
-                        }
-                        data.x.push_back(ok ? xVal : 0.0);
-                    }
+                    // First double is the index (time/frequency)
+                    data.x.push_back(*ptr++);
+
                     for (int v = 1; v < numVariables; ++v) {
-                        const QByteArray tok = getNextToken();
-                        double mag = 0.0;
-                        double phase = 0.0;
-                        bool isComplexOut = false;
-                        if (!parseToken(tok, mag, phase, isComplexOut)) {
-                            mag = 0.0;
-                            phase = 0.0;
-                            isComplexOut = false;
+                        if (isComplex) {
+                            double re = *ptr++;
+                            double im = *ptr++;
+                            double mag = std::hypot(re, im);
+                            double phase = std::atan2(im, re) * 180.0 / std::acos(-1.0);
+                            data.y[v - 1].push_back(mag);
+                            data.yPhase[v - 1].push_back(phase);
+                            data.hasPhase[v - 1] = true;
+                        } else {
+                            data.y[v - 1].push_back(*ptr++);
                         }
-                        data.y[v - 1].push_back(mag);
-                        data.yPhase[v - 1].push_back(phase);
-                        if (isComplexOut) data.hasPhase[v - 1] = true;
                     }
                 }
+            } else {
+            std::vector<std::string> allTokens;
+            {
+                while (dataPtr < endPtr) {
+                    const char* start = dataPtr;
+                    while (dataPtr < endPtr && !std::isspace(static_cast<unsigned char>(*dataPtr))) dataPtr++;
+                    if (dataPtr > start) {
+                        allTokens.emplace_back(start, dataPtr - start);
+                    }
+                    while (dataPtr < endPtr && std::isspace(static_cast<unsigned char>(*dataPtr))) dataPtr++;
+                }
             }
+
+            size_t tokenIdx = 0;
+            auto parseComplexToken = [&](const std::string& token, double& mag, double& phase, bool& isComplex) -> bool {
+                std::string t = token;
+                if (t.size() >= 2 && t.front() == '(' && t.back() == ')') {
+                    t = t.substr(1, t.size() - 2);
+                }
+
+                size_t commaPos = t.find(',');
+                if (commaPos != std::string::npos) {
+                    std::string reStr = trim(t.substr(0, commaPos));
+                    std::string imStr = trim(t.substr(commaPos + 1));
+                    double reVal = 0.0, imVal = 0.0;
+                    if (parseDouble(reStr, reVal) && parseDouble(imStr, imVal)) {
+                        mag = std::hypot(reVal, imVal);
+                        phase = std::atan2(imVal, reVal) * 180.0 / std::acos(-1.0);
+                        isComplex = true;
+                        return true;
+                    }
+                }
+
+                double val;
+                if (parseDouble(t, val)) {
+                    mag = val;
+                    phase = 0.0;
+                    isComplex = false;
+                    return true;
+                }
+                return false;
+            };
+
+            for (int p = 0; p < numPoints; ++p) {
+                if (tokenIdx >= allTokens.size()) break;
+                tokenIdx++; // skip index
+
+                // X value
+                if (tokenIdx < allTokens.size()) {
+                    std::string xTok = allTokens[tokenIdx++];
+                    double xVal = 0.0;
+                    size_t commaPos = xTok.find(',');
+                    if (commaPos != std::string::npos) {
+                        std::string reStr = trim(xTok.substr(0, commaPos));
+                        parseDouble(reStr, xVal);
+                    } else {
+                        parseDouble(xTok, xVal);
+                    }
+                    data.x.push_back(xVal);
+                }
+
+                for (int v = 1; v < numVariables; ++v) {
+                    double mag = 0.0, phase = 0.0;
+                    bool isComplexVal = false;
+                    if (tokenIdx < allTokens.size()) {
+                        parseComplexToken(allTokens[tokenIdx++], mag, phase, isComplexVal);
+                    }
+                    data.y[v - 1].push_back(mag);
+                    data.yPhase[v - 1].push_back(phase);
+                    if (isComplexVal) data.hasPhase[v - 1] = true;
+                }
+            }
+            } // end if (isBinaryFormat) ... else
         }
     } catch (const std::bad_alloc&) {
         if (error) *error = "Memory allocation failed for simulation results.";
@@ -282,10 +318,10 @@ bool RawDataParser::loadRawAscii(const QString& path, RawData* out, QString* err
 SimResults RawData::toSimResults() const {
     SimResults res;
     res.analysisType = analysisType;
-    res.xAxisName = varNames.isEmpty() ? "time" : varNames[0].toStdString();
+    res.xAxisName = varNames.empty() ? "time" : varNames[0];
 
-    if (!varNames.isEmpty()) {
-        const QString axisName = varNames[0].trimmed().toUpper();
+    if (!varNames.empty()) {
+        std::string axisName = toUpper(trim(varNames[0]));
         if (axisName == "TIME" && res.analysisType == SimAnalysisType::OP && numPoints > 1) {
             res.analysisType = SimAnalysisType::Transient;
         } else if ((axisName == "FREQ" || axisName == "FREQUENCY") && res.analysisType == SimAnalysisType::OP && numPoints > 1) {
@@ -293,79 +329,35 @@ SimResults RawData::toSimResults() const {
         }
     }
 
-    // Auto-detect S-Parameter analysis from vector names if it was labeled as AC
-    if (res.analysisType == SimAnalysisType::AC) {
-        for (const auto& name : varNames) {
-            QString ln = name.toLower();
-            if (ln == "s11" || ln == "s21" || ln == "s12" || ln == "s22" ||
-                ln == "s_1_1" || ln == "s_2_1" || ln == "s_1_2" || ln == "s_2_2" ||
-                ln.startsWith("s(") || ln.startsWith("s[") || ln.startsWith("s_") ||
-                ln.contains("(1,1)") || ln.contains("(2,1)")) {
-                res.analysisType = SimAnalysisType::SParameter;
-                break;
-            }
-        }
-    }
-    
-    // Debug: print all vector names
-    qDebug() << "[RawDataParser] Analysis type:" << static_cast<int>(res.analysisType) << "Vectors:" << varNames;
-    
     if (numPoints <= 0) return res;
 
     std::vector<double> stdX(x.begin(), x.end());
 
-    // Pre-allocate S-parameter results if this is an S-parameter analysis
-    if (res.analysisType == SimAnalysisType::SParameter) {
-        res.sParameterResults.resize(numPoints);
-        for (int p = 0; p < numPoints; ++p) {
-            res.sParameterResults[p].frequency = stdX[p];
-        }
-    }
-
-    for (int i = 1; i < varNames.size(); ++i) {
-        const std::string rawName = varNames[i].toStdString();
+    for (size_t i = 1; i < varNames.size(); ++i) {
+        const std::string& rawName = varNames[i];
         const std::string name = normalizeWaveformName(rawName);
         SimWaveform w;
         w.name = name;
         w.xData = stdX;
-        
+
         if (i - 1 < y.size()) {
             w.yData = std::vector<double>(y[i - 1].begin(), y[i - 1].end());
             if (i - 1 < yPhase.size() && i - 1 < hasPhase.size() && hasPhase[i - 1]) {
-                const std::vector<double> phase = std::vector<double>(yPhase[i - 1].begin(), yPhase[i - 1].end());
-                w.yPhase = phase;
-
-                // If S-Parameter analysis, also populate the structured sParameterResults
-                if (analysisType == SimAnalysisType::SParameter) {
-                    auto updateS = [&](std::complex<double> SParameterPoint::*ptr) {
-                        for (int p = 0; p < numPoints; ++p) {
-                            double mag = w.yData[p];
-                            double rad = phase[p] * M_PI / 180.0;
-                            (res.sParameterResults[p].*ptr) = std::polar(mag, rad);
-                        }
-                    };
-
-                    const QString qName = QString::fromStdString(name).toLower();
-                    if (qName == "s11" || qName == "s(1,1)" || qName == "s_1_1") updateS(&SParameterPoint::s11);
-                    else if (qName == "s12" || qName == "s(1,2)" || qName == "s_1_2") updateS(&SParameterPoint::s12);
-                    else if (qName == "s21" || qName == "s(2,1)" || qName == "s_2_1") updateS(&SParameterPoint::s21);
-                    else if (qName == "s22" || qName == "s(2,2)" || qName == "s_2_2") updateS(&SParameterPoint::s22);
-                }
+                w.yPhase = std::vector<double>(yPhase[i - 1].begin(), yPhase[i - 1].end());
             }
         }
         res.waveforms.push_back(std::move(w));
 
-        // For OP analysis, also populate nodeVoltages/branchCurrents
-        if (numPoints == 1) {
-            double val = y[i-1].isEmpty() ? 0.0 : y[i-1][0];
-            if (QString::fromStdString(w.name).startsWith("V(", Qt::CaseInsensitive)) {
-                QString node = QString::fromStdString(w.name).mid(2);
-                if (node.endsWith(")")) node.chop(1);
-                res.nodeVoltages[node.toStdString()] = val;
-            } else if (QString::fromStdString(w.name).startsWith("I(", Qt::CaseInsensitive)) {
-                QString branch = QString::fromStdString(w.name).mid(2);
-                if (branch.endsWith(")")) branch.chop(1);
-                res.branchCurrents[branch.toStdString()] = val;
+        if (numPoints == 1 && i - 1 < y.size()) {
+            double val = y[i-1].empty() ? 0.0 : y[i-1][0];
+            if (name.size() > 2 && name.substr(0, 2) == "V(") {
+                std::string node = name.substr(2);
+                if (!node.empty() && node.back() == ')') node.pop_back();
+                res.nodeVoltages[node] = val;
+            } else if (name.size() > 2 && name.substr(0, 2) == "I(") {
+                std::string branch = name.substr(2);
+                if (!branch.empty() && branch.back() == ')') branch.pop_back();
+                res.branchCurrents[branch] = val;
             }
         }
     }
@@ -384,7 +376,6 @@ SimResults::Snapshot SimResults::interpolateAt(double t) const {
         } else if (t >= wave.xData.back()) {
             val = wave.yData.back();
         } else {
-            // Binary search for interval
             auto it = std::lower_bound(wave.xData.begin(), wave.xData.end(), t);
             size_t i1 = std::distance(wave.xData.begin(), it);
             if (i1 == 0) {
@@ -397,7 +388,6 @@ SimResults::Snapshot SimResults::interpolateAt(double t) const {
                 double x1 = wave.xData[i1];
                 double y0 = wave.yData[i0];
                 double y1 = wave.yData[i1];
-                
                 if (std::abs(x1 - x0) < 1e-18) {
                     val = y0;
                 } else {
@@ -407,7 +397,6 @@ SimResults::Snapshot SimResults::interpolateAt(double t) const {
             }
         }
 
-        // Map to Snapshot
         if (wave.name.size() > 3 && (wave.name.substr(0, 2) == "V(" || wave.name.substr(0, 2) == "v(")) {
             std::string node = wave.name.substr(2, wave.name.size() - 3);
             snap.nodeVoltages[node] = val;

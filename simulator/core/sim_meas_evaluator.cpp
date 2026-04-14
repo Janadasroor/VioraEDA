@@ -2,8 +2,6 @@
 #include "sim_value_parser.h"
 #include "sim_expression.h"
 
-#include <QString>
-
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -12,8 +10,6 @@
 #include <map>
 
 namespace {
-
-QString qFromStd(const std::string& s) { return QString::fromStdString(s); }
 
 const std::vector<double>* commonXAxis(const SimResults& results);
 
@@ -93,7 +89,7 @@ std::string lowerCopy(const std::string& s) {
 }
 
 bool parseSpiceNum(const std::string& s, double& out) {
-    return SimValueParser::parseSpiceNumber(qFromStd(s), out);
+    return SimValueParser::parseSpiceNumber(s, out);
 }
 
 std::string trimCopy(const std::string& s) {
