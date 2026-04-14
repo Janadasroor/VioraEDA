@@ -55,6 +55,7 @@ private Q_SLOTS:
     void openPluginsManager();
     void openSpiceModelManager();
     void launchOpenCode();
+    void showPythonConsole();
     void importLtspiceBatch();
     void importKicadBatch();
     void importLtspiceDiodeModels();
@@ -119,6 +120,9 @@ private:
     QList<LauncherTile*> m_launcherTiles;   // Design + Utility tiles
     QList<LauncherTile*> m_importTiles;     // Import tiles
     CollapsibleSection* m_importSection;    // Collapsible import section
+
+    // Python Console Dock
+    class QDockWidget* m_pythonConsole = nullptr;
 
     // Current project state
     QStringList m_workspaceFolders;

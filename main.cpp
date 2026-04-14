@@ -21,7 +21,6 @@
 
 
 #include <QApplication>
-#include <QIcon>
 #include <QDebug>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -33,63 +32,20 @@
 #include <QFuture>
 #include <QMessageBox>
 
-// ---------------------------------------------------------------------------
-// Embedded Python — initialized at startup so `import vspice` works inside
-// the GUI process (Blender-style integration).
-// ---------------------------------------------------------------------------
-#ifdef HAVE_PYTHON
-#include <Python.h>
-
-static void initEmbeddedPython() {
-    // Prevent signal handlers from interfering with Qt
-    PyConfig config;
-    PyConfig_InitIsolatedConfig(&config);
-
-    // Use system Python — not isolated, so site-packages (numpy, etc.) work
-    config.site_import = 1;
-    config.user_site_directory = 1;
-    config.write_bytecode = 0;  // Don't write .pyc in app dirs
-
-    PyStatus status = Py_InitializeFromConfig(&config);
-    if (PyStatus_Exception(status)) {
-        qWarning() << "Embedded Python failed to initialize:"
-                   << PyStatus_IsError(status) ? "error" : "exit";
-        PyConfig_Clear(&config);
-        return;
-    }
-    PyConfig_Clear(&config);
-
-    // Ensure the vspice package is on the path
-    // The .so lives in build/python/vspice/_core.so; the .py files are in
-    // python/vspice/ (symlinked to user site-packages).
-    PyRun_SimpleString(
-        "import sys, os\n"
-        "# Add project python/ directory so 'import vspice' works\n"
-        "_p = os.path.expanduser('~/.local/lib/python3.12/site-packages')\n"
-        "if _p not in sys.path:\n"
-        "    sys.path.insert(0, _p)\n"
-    );
-
-    qDebug() << "Embedded Python initialized — `import vspice` available from within the app";
-}
-
-static void shutdownEmbeddedPython() {
-    if (Py_IsInitialized()) {
-        Py_Finalize();
-    }
-}
-#else
-static void initEmbeddedPython() {}
-static void shutdownEmbeddedPython() {}
-#endif
+// External Python embedding functions (defined in core/python_embed.cpp)
+extern void initEmbeddedPython();
+extern void shutdownEmbeddedPython();
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
 
+    // Initialize embedded Python (Blender-style — `import vspice` works inside the app)
+    initEmbeddedPython();
+
     // Initialize global theme
     ThemeManager::instance();
-    
+
     // Initialize FluxScript Simulation Bridge
     initializeFluxSimBridge();
     FluxScriptEngine::instance().initialize();
@@ -303,5 +259,10 @@ int main(int argc, char *argv[])
         }, Qt::QueuedConnection);
     });
 
-    return a.exec();
+    int exitCode = a.exec();
+
+    // Clean up embedded Python runtime
+    shutdownEmbeddedPython();
+
+    return exitCode;
 }

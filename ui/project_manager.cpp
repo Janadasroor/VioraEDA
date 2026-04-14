@@ -4,6 +4,7 @@
 #include "template_gallery_widget.h"
 #include "../core/ui/project_audit_dialog.h"
 #include "schematic_editor.h"
+#include "python_console_widget.h"
 #include "symbol_editor.h"
 #include "calculator_dialog.h"
 #include "spice_model_manager_dialog.h"
@@ -1700,6 +1701,8 @@ void ProjectManager::createMenuBar() {
     toolsMenu->addSeparator();
     toolsMenu->addAction("💻 OpenCode AI (Ctrl+Shift+O)", QKeySequence("Ctrl+Shift+O"), this, &ProjectManager::launchOpenCode);
     toolsMenu->addSeparator();
+    toolsMenu->addAction("🐍 Python Console", QKeySequence("Ctrl+Shift+P"), this, &ProjectManager::showPythonConsole);
+    toolsMenu->addSeparator();
     QMenu* importersMenu = toolsMenu->addMenu("Importers");
     importersMenu->addAction("LTspice Batch Symbols...", QKeySequence(), this, &ProjectManager::importLtspiceBatch);
     importersMenu->addAction("KiCad Batch Symbols (.kicad_sym)...", QKeySequence(), this, &ProjectManager::importKicadBatch);
@@ -2803,6 +2806,25 @@ void ProjectManager::launchOpenCode() {
 
     QProcess::startDetached(appPath);
     statusBar()->showMessage("Launched OpenCode Desktop", 3000);
+}
+
+void ProjectManager::showPythonConsole() {
+    // Find or create the Python console dock
+    if (!m_pythonConsole) {
+        m_pythonConsole = new QDockWidget("Python Console", this);
+        m_pythonConsole->setObjectName("PythonConsoleDock");
+        m_pythonConsole->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable |
+                                      QDockWidget::DockWidgetClosable);
+        m_pythonConsole->setMinimumSize(400, 300);
+
+        PythonConsoleWidget* console = new PythonConsoleWidget(m_pythonConsole);
+        m_pythonConsole->setWidget(console);
+
+        addDockWidget(Qt::BottomDockWidgetArea, m_pythonConsole);
+    }
+
+    m_pythonConsole->show();
+    m_pythonConsole->raise();
 }
 
 void ProjectManager::refreshFeatureDependentUi() {
