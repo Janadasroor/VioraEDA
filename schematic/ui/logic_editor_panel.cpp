@@ -191,9 +191,8 @@ void LogicEditorPanel::setupUi() {
     toolLayout->addWidget(m_engineLabel);
 
     m_engineCombo = new QComboBox();
-    m_engineCombo->addItem("Legacy Python", static_cast<int>(SmartSignalItem::EngineType::Python));
     m_engineCombo->addItem("FluxScript JIT", static_cast<int>(SmartSignalItem::EngineType::FluxScript));
-    m_engineCombo->setStyleSheet("background: #252526; color: #cccccc; border: 1px solid #3e3e42; padding: 4px 10px; border-radius: 4px; min-width: 150px;");
+    m_engineCombo->setEnabled(false);  // Only one engine — no choice to make
     toolLayout->addWidget(m_engineCombo);
 
     connect(m_engineCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LogicEditorPanel::onEngineChanged);
@@ -457,29 +456,9 @@ void LogicEditorPanel::onExplorerItemClicked(QListWidgetItem* item) {
     }
 }
 
-void LogicEditorPanel::onEngineChanged(int index) {
-    if (!m_targetBlock) return;
-    
-    auto newEngine = static_cast<SmartSignalItem::EngineType>(m_engineCombo->currentData().toInt());
-    if (newEngine == m_targetBlock->engineType()) return;
-
-    // Save current code to the OLD engine slot before switching
-    if (m_targetBlock->engineType() == SmartSignalItem::EngineType::Python) {
-        m_targetBlock->setPythonCode(m_editor->toPlainText());
-    } else {
-        m_targetBlock->setFluxCode(m_editor->toPlainText());
-    }
-
-    m_targetBlock->setEngineType(newEngine);
-    
-    // Load code from the NEW engine slot
-    m_editor->setPlainText(newEngine == SmartSignalItem::EngineType::Python ? 
-                          m_targetBlock->pythonCode() : m_targetBlock->fluxCode());
-    
-    updateEditorKeywords();
-    updatePreview();
-    
-    m_statusLabel->setText(QString("Switched to %1 Engine").arg(index == 0 ? "Python" : "FluxScript"));
+void LogicEditorPanel::onEngineChanged(int /* index */) {
+    // Only FluxScript is available — no engine switching.
+    // This slot exists for UI signal compatibility.
 }
 
 void LogicEditorPanel::setTargetBlock(SmartSignalItem* item) {
@@ -492,17 +471,16 @@ void LogicEditorPanel::setTargetBlock(SmartSignalItem* item) {
     saveCurrentToBlock();
 
     m_targetBlock = item;
-    refreshExplorer(); 
-    
+    refreshExplorer();
+
     if (m_targetBlock) {
         setWindowTitle("viospice Logic IDE - [" + m_targetBlock->reference() + "]");
-        
+
         m_engineCombo->blockSignals(true);
-        m_engineCombo->setCurrentIndex(m_targetBlock->engineType() == SmartSignalItem::EngineType::Python ? 0 : 1);
+        m_engineCombo->setCurrentIndex(0);  // Always FluxScript
         m_engineCombo->blockSignals(false);
 
-        m_editor->setPlainText(m_targetBlock->engineType() == SmartSignalItem::EngineType::Python ?
-                              m_targetBlock->pythonCode() : m_targetBlock->fluxCode());
+        m_editor->setPlainText(m_targetBlock->fluxCode());
         
         // Populate Pins
         m_pinMapper->setPins(m_targetBlock->inputPins(), m_targetBlock->outputPins());
@@ -697,19 +675,12 @@ void LogicEditorPanel::refreshSnapshots() {
 void LogicEditorPanel::saveCurrentToBlock() {
     if (m_targetBlock && m_editor) {
         bool changed = false;
-        
-        // Save Code
+
+        // Save Code — always to FluxScript (Python is external orchestration)
         QString currentCode = m_editor->toPlainText();
-        if (m_targetBlock->engineType() == SmartSignalItem::EngineType::Python) {
-            if (currentCode != m_targetBlock->pythonCode()) {
-                m_targetBlock->setPythonCode(currentCode);
-                changed = true;
-            }
-        } else {
-            if (currentCode != m_targetBlock->fluxCode()) {
-                m_targetBlock->setFluxCode(currentCode);
-                changed = true;
-            }
+        if (currentCode != m_targetBlock->fluxCode()) {
+            m_targetBlock->setFluxCode(currentCode);
+            changed = true;
         }
 
         // Save Pins
