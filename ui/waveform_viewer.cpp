@@ -556,6 +556,7 @@ void WaveformViewer::setupUi() {
     m_nodeList = new QListWidget(this);
     m_nodeList->setSelectionMode(QAbstractItemView::MultiSelection);
     m_nodeList->setFixedWidth(120);
+    m_nodeList->setContextMenuPolicy(Qt::CustomContextMenu);
 
     connect(m_nodeList, &QListWidget::itemSelectionChanged, this, &WaveformViewer::onNodeSelected);
     connect(m_nodeList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item){
@@ -563,6 +564,8 @@ void WaveformViewer::setupUi() {
         updatePlot(false);
     });
     connect(m_nodeList, &QListWidget::itemClicked, this, &WaveformViewer::onNodeClicked);
+    connect(m_nodeList, &QListWidget::customContextMenuRequested,
+            this, &WaveformViewer::onNodeListContextMenuRequested);
     
     mainArea->addWidget(m_nodeList);
 
@@ -2495,6 +2498,31 @@ void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
         return;
     }
 
+    showSignalContextMenu(actualName, QCursor::pos());
+}
+
+void WaveformViewer::onNodeListContextMenuRequested(const QPoint &pos) {
+    if (!m_nodeList) return;
+    QListWidgetItem* item = m_nodeList->itemAt(pos);
+    if (!item) return;
+
+    m_nodeList->setCurrentItem(item);
+    showSignalContextMenu(item->text(), m_nodeList->viewport()->mapToGlobal(pos));
+}
+
+void WaveformViewer::showSignalContextMenu(const QString& seriesName, const QPoint& globalPos) {
+    QString actualName = seriesName;
+    if (!m_signals.contains(actualName)) {
+        for (auto it = m_signals.constBegin(); it != m_signals.constEnd(); ++it) {
+            if (it.key().compare(seriesName, Qt::CaseInsensitive) == 0) {
+                actualName = it.key();
+                break;
+            }
+        }
+    }
+
+    if (!m_signals.contains(actualName)) return;
+
     auto &sig = m_signals[actualName];
 
     QMenu menu;
@@ -2534,7 +2562,7 @@ void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
     menu.addSeparator();
     QAction *exprAct = menu.addAction("Expression...");
 
-    QAction *chosen = menu.exec(QCursor::pos());
+    QAction *chosen = menu.exec(globalPos);
     if (!chosen) return;
 
     // Handle color

@@ -145,6 +145,7 @@ private Q_SLOTS:
     void toggleCrosshair();
     void updateCursors();
     void onNodeClicked(QListWidgetItem *item);
+    void onNodeListContextMenuRequested(const QPoint &pos);
     void updateZoomAnalysis();
     void onSubtractRequested();
     void onFftRequested();
@@ -237,6 +238,7 @@ private:
     QVector<double> computeDerivative(const QVector<double>& time, const QVector<double>& values);
     QVector<double> computeIntegral(const QVector<double>& time, const QVector<double>& values);
     void scheduleVisibleRangeRefresh();
+    void showSignalContextMenu(const QString& seriesName, const QPoint& globalPos);
 
     bool m_preserveXRangeOnce = false;
     double m_preserveXMin = 0.0;

@@ -15,7 +15,7 @@ SmartSignalItem::SmartSignalItem(QPointF pos, QGraphicsItem* parent)
     m_outputPins << "Out1";
     m_pythonCode = "class SmartSignal:\n    def update(self, t, inputs):\n        return inputs.get('In1', 0.0)";
     m_fluxCode = "def update(t) {\n    return V(\"In1\");\n}";
-    m_engineType = EngineType::Python;
+    m_engineType = EngineType::FluxScript;
     
     setReference("SB1");
     setName("Smart Block");
@@ -152,7 +152,7 @@ QJsonObject SmartSignalItem::toJson() const {
     j["type"] = itemTypeName();
     j["pythonCode"] = m_pythonCode;
     j["fluxCode"] = m_fluxCode;
-    j["engineType"] = (m_engineType == EngineType::FluxScript) ? "flux" : "python";
+    j["engineType"] = "flux";  // FluxScript only — Python is external orchestration
 
     
     QJsonArray inArray;
@@ -200,7 +200,7 @@ bool SmartSignalItem::fromJson(const QJsonObject& json) {
     SchematicItem::fromJson(json);
     m_pythonCode = json["pythonCode"].toString();
     m_fluxCode = json["fluxCode"].toString();
-    m_engineType = (json["engineType"].toString() == "flux") ? EngineType::FluxScript : EngineType::Python;
+    m_engineType = EngineType::FluxScript;  // Always FluxScript — Python is external
 
     
     m_inputPins.clear();

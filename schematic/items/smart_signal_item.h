@@ -5,12 +5,15 @@
 #include <QStringList>
 
 /**
- * @brief A programmable signal block defined by embedded Python logic.
+ * @brief A programmable signal block defined by embedded FluxScript logic.
+ * Python is the external orchestration layer (vspice API); behavioral sources
+ * inside the schematic use FluxScript (LLVM JIT) exclusively.
  */
 class SmartSignalItem : public SchematicItem {
 public:
+    // Behavioral source engine — FluxScript only.
+    // Python scripts interact with the simulator via the vspice API, not in-simulation.
     enum class EngineType {
-        Python,
         FluxScript
     };
 
@@ -88,7 +91,7 @@ private:
 
     QString m_pythonCode;
     QString m_fluxCode;
-    EngineType m_engineType = EngineType::Python;
+    EngineType m_engineType = EngineType::FluxScript;
     QStringList m_inputPins;
     QStringList m_outputPins;
     QMap<QString, double> m_parameters;

@@ -61,11 +61,10 @@ struct SimComponentInstance {
     std::string subcircuitName; // Link to a SimSubcircuit
     int vIdx = -1; // Branch current index in MNA solver
 
-    // Scripted/Programmable Logic (Phase 3.3)
-    enum class ScriptEngine { Python, FluxScript };
-    ScriptEngine engine = ScriptEngine::Python;
-    std::string pythonScript;
-    std::string fluxScript; 
+    // Scripted/Programmable Logic — FluxScript only (LLVM JIT).
+    // Python is the external orchestration layer (vspice._core / vspice.ui),
+    // NOT an in-simulation engine. Behavioral sources use FluxScript exclusively.
+    std::string fluxScript;
     std::vector<std::string> inputPinNames;
     std::vector<std::string> outputPinNames;
 
