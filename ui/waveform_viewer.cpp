@@ -2560,7 +2560,7 @@ void WaveformViewer::showSignalContextMenu(const QString& seriesName, const QPoi
     }
 
     menu.addSeparator();
-    QAction *exprAct = menu.addAction("Expression...");
+    QAction *exprAct = menu.addAction("Math Equation...");
 
     QAction *chosen = menu.exec(globalPos);
     if (!chosen) return;

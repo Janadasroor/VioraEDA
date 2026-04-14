@@ -18,7 +18,7 @@
 #include "pcb/factories/pcb_item_registry.h"
 #include "pcb/tools/pcb_tool_registry_builtin.h"
 #include "footprints/footprint_library.h"
-
+#include "simulator/bridge/sim_manager.h"
 
 #include <QApplication>
 #include <QDebug>
@@ -35,6 +35,11 @@
 // External Python embedding functions (defined in core/python_embed.cpp)
 extern void initEmbeddedPython();
 extern void shutdownEmbeddedPython();
+
+// Event hooks system (defined in ui/python_hooks.cpp)
+extern "C" {
+#include "ui/python_hooks.h"
+}
 
 int main(int argc, char *argv[])
 {
@@ -258,6 +263,29 @@ int main(int argc, char *argv[])
             });
         }, Qt::QueuedConnection);
     });
+
+    // Wire up event hooks to simulator and editor signals
+    QObject::connect(&SimManager::instance(), &SimManager::simulationFinished,
+                     [](const SimResults& results) {
+                         QJsonObject obj;
+                         obj["type"] = "simulation_finished";
+                         obj["analysis"] = static_cast<int>(results.analysisType);
+                         obj["waveform_count"] = static_cast<int>(results.waveforms.size());
+                         obj["node_count"] = static_cast<int>(results.nodeVoltages.size());
+                         QJsonDocument doc(obj);
+                         QByteArray json = doc.toJson(QJsonDocument::Compact);
+                         py_hooks_fire("simulation_finished", json.constData());
+                     });
+
+    QObject::connect(&SimManager::instance(), &SimManager::errorOccurred,
+                     [](const QString& msg) {
+                         QJsonObject obj;
+                         obj["type"] = "simulation_error";
+                         obj["message"] = msg;
+                         QJsonDocument doc(obj);
+                         QByteArray json = doc.toJson(QJsonDocument::Compact);
+                         py_hooks_fire("simulation_error", json.constData());
+                     });
 
     int exitCode = a.exec();
 
