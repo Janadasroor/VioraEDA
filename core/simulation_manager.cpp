@@ -728,12 +728,78 @@ int SimulationManager::cbBGThreadRunning(bool finished, int id, void* userData) 
 void SimulationManager::handleSimulationFinished(const QString& rawPath) {
     m_bufferTimer->stop();
     processBufferedData(); // Flush remaining
+
 #ifdef HAVE_NGSPICE
     if (m_bgRunIssued && !m_lastLoadFailed && !rawPath.isEmpty()) {
-        ngSpice_Command((char*)"set filetype=binary");
-        const QString writeCmd = "write " + rawPath;
-        ngSpice_Command(writeCmd.toLatin1().data());
-        Q_EMIT rawResultsReady(rawPath);
+        qDebug() << "[SimulationManager] handleSimulationFinished: rawPath=" << rawPath
+                 << "bgRunIssued=" << m_bgRunIssued
+                 << "lastLoadFailed=" << m_lastLoadFailed;
+
+        // IMPORTANT: Do NOT emit simulationFinished() yet!
+        // We need to write the raw file first, otherwise the UI clears the viewer
+        // before data is available for probing.
+        
+        // ngspice needs time to finalize internal data structures after bg_halt.
+        QTimer::singleShot(200, this, [this, rawPath]() {
+            if (rawPath.isEmpty()) {
+                qWarning() << "[SimulationManager] rawPath is empty!";
+                Q_EMIT simulationFinished(); // Still emit so UI knows we're done
+                return;
+            }
+
+            qDebug() << "[SimulationManager] Attempting to write raw file:" << rawPath;
+
+            ngSpice_Command((char*)"set filetype=binary");
+            const QString writeCmd = "write " + rawPath;
+            ngSpice_Command(writeCmd.toLatin1().data());
+
+            // Give ngspice time to write
+            QThread::msleep(200);
+
+            // Verify the raw file was actually written
+            if (QFile::exists(rawPath)) {
+                qint64 size = QFileInfo(rawPath).size();
+                qDebug() << "[SimulationManager] Raw file written:" << rawPath << "size=" << size;
+                if (size > 0) {
+                    Q_EMIT rawResultsReady(rawPath);
+                } else {
+                    qWarning() << "[SimulationManager] Raw file is empty!";
+                }
+            } else {
+                qWarning() << "[SimulationManager] Raw file NOT created:" << rawPath;
+                
+                // Try to list what files exist in the directory
+                QFileInfo fi(rawPath);
+                QDir dir(fi.absolutePath());
+                qDebug() << "[SimulationManager] Directory contents:" << dir.entryList();
+                
+                // Try alternative: write to temp location
+                const QString tempPath = QDir::tempPath() + "/" + fi.completeBaseName() + ".raw";
+                qDebug() << "[SimulationManager] Trying alternate write to:" << tempPath;
+                
+                ngSpice_Command((QString("write " + tempPath)).toLatin1().data());
+                QThread::msleep(200);
+                
+                if (QFile::exists(tempPath) && QFileInfo(tempPath).size() > 0) {
+                    QFile::remove(rawPath);
+                    QFile::copy(tempPath, rawPath);
+                    QFile::remove(tempPath);
+                    qDebug() << "[SimulationManager] Alternate write succeeded, copied to:" << rawPath;
+                    Q_EMIT rawResultsReady(rawPath);
+                } else {
+                    qWarning() << "[SimulationManager] Alternate write also failed";
+                }
+            }
+            
+            // NOW emit simulationFinished - raw file is ready for probing
+            Q_EMIT simulationFinished();
+        });
+        return; // Don't emit simulationFinished() here - it's in the timer callback
+    } else {
+        qDebug() << "[SimulationManager] Skipping raw file write:"
+                 << "bgRunIssued=" << m_bgRunIssued
+                 << "lastLoadFailed=" << m_lastLoadFailed
+                 << "rawPath=" << rawPath;
     }
 #endif
     m_bgRunIssued = false;

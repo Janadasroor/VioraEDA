@@ -1,6 +1,7 @@
 #include "push_button_item.h"
 #include "../editor/schematic_editor.h"
 #include "../ui/simulation_panel.h"
+#include "../../core/simulation_manager.h"
 #include <QApplication>
 #include <QPainter>
 #include <QJsonObject>
@@ -14,6 +15,14 @@ void triggerInteractiveSimulationUpdateIfNeeded() {
     if (cfg.type == SimAnalysisType::Transient || cfg.type == SimAnalysisType::RealTime) {
         editor->getSimulationPanel()->onRunSimulation();
     }
+}
+
+void updatePushButtonRealTime(const QString& ref, bool pressed) {
+    // Use real-time update instead of full simulation restart
+    // This preserves simulation state (capacitor voltages, inductor currents)
+    auto& sim = SimulationManager::instance();
+    double resistance = pressed ? 0.001 : 1e12;
+    sim.alterSwitchResistance(ref.startsWith("R") ? ref : "R" + ref, resistance);
 }
 }
 
@@ -30,7 +39,7 @@ void PushButtonItem::onInteractivePress(const QPointF&) {
     setValue("0.001"); // Closed resistance
     setParamExpression("resistance", "0.001");
     Q_EMIT interactiveStateChanged();
-    triggerInteractiveSimulationUpdateIfNeeded();
+    updatePushButtonRealTime(reference(), m_isPressed);
     update();
 }
 
@@ -39,7 +48,7 @@ void PushButtonItem::onInteractiveRelease(const QPointF&) {
     setValue("1e12"); // Open resistance
     setParamExpression("resistance", "1e12");
     Q_EMIT interactiveStateChanged();
-    triggerInteractiveSimulationUpdateIfNeeded();
+    updatePushButtonRealTime(reference(), m_isPressed);
     update();
 }
 
