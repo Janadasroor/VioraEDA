@@ -35,6 +35,9 @@ void InductorItem::buildPrimitives() {
     // Pins
     m_primitives.push_back(std::make_unique<CirclePrimitive>(QPointF(-60, 0), 3.75, true));
     m_primitives.push_back(std::make_unique<CirclePrimitive>(QPointF(60, 0), 3.75, true));
+    
+    // Phase dot
+    m_primitives.push_back(std::make_unique<CirclePrimitive>(QPointF(-50, -15), 3.0, false));
 }
 
 void InductorItem::setValue(const QString& value) {

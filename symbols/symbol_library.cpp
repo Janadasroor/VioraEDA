@@ -1472,6 +1472,7 @@ void SymbolLibraryManager::createDefaultBuiltInLibrary() {
     inductor.addPrimitive(SymbolPrimitive::createLine(QPointF(30, 0), QPointF(40, 0)));
     inductor.addPrimitive(SymbolPrimitive::createPin(QPointF(-40, 0), 1, "1"));
     inductor.addPrimitive(SymbolPrimitive::createPin(QPointF(40, 0), 2, "2"));
+    inductor.addPrimitive(SymbolPrimitive::createCircle(QPointF(-33, -10), 2.0, false));
     inductor.primitives()[inductor.primitives().size()-2].data["orientation"] = "Right";
     inductor.primitives().last().data["orientation"] = "Left";
     inductor.primitives()[inductor.primitives().size()-2].data["length"] = 10.0;
