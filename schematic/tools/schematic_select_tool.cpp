@@ -1894,6 +1894,22 @@ void SchematicSelectTool::mouseReleaseEvent(QMouseEvent* event) {
     }
     
     if (m_isDragging && (!m_initialPositions.isEmpty() || !m_initialWirePoints.isEmpty())) {
+        // Quantize moved schematic items back to the editor grid before reconnecting
+        // attached wires so pin-aligned connections follow the final snapped position.
+        if (view()) {
+            for (auto it = m_initialPositions.begin(); it != m_initialPositions.end(); ++it) {
+                SchematicItem* item = it.key();
+                if (!item) continue;
+                if (item->itemType() == SchematicItem::WireType) continue;
+                if (item->isSubItem()) continue;
+
+                const QPointF snappedPos = view()->snapToGrid(item->pos());
+                if (snappedPos != item->pos()) {
+                    item->setPos(snappedPos);
+                }
+            }
+        }
+
         // --- FINAL CONNECTION RECONCILIATION ---
         // Skip all auto-reconcile/orthogonal cleanup when rigid group move is active.
         if (!m_rigidGroupMove && !m_attachedWires.isEmpty()) {
