@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Janada Sroor
 
 #include "waveform_expression_dialog.h"
+#include "core/theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -17,48 +18,43 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
 {
     setWindowTitle("Waveform Expression");
     setMinimumWidth(480);
-    setStyleSheet(R"(
-        QDialog { background: #f8fafc; }
-        QLabel { color: #111827; }
-        QLineEdit {
-            background: #ffffff;
-            color: #111827;
-            border: 1px solid #cbd5f5;
-            border-radius: 6px;
-            padding: 6px 8px;
-            font-family: 'Courier New';
+    
+    // Apply current theme
+    if (ThemeManager::theme()) {
+        ThemeManager::theme()->applyToWidget(this);
+    }
+    
+    // Connect to theme changes
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this]() {
+        if (ThemeManager::theme()) {
+            ThemeManager::theme()->applyToWidget(this);
         }
-        QLineEdit:focus { border: 1px solid #2563eb; }
-        QPushButton {
-            background: #f1f5f9;
-            color: #0f172a;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            padding: 4px 10px;
-        }
-        QPushButton:hover { background: #e2e8f0; }
-        QComboBox {
-            background: #ffffff;
-            color: #0f172a;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            padding: 4px 8px;
-        }
-    )");
+    });
     
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     
+    PCBTheme* theme = ThemeManager::theme();
+    
     m_netLabel = new QLabel(QString("Net: <b>%1</b>").arg(netName));
-    m_netLabel->setStyleSheet("color: #0f172a; font-size: 12px; padding: 6px 8px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px;");
+    if (theme) {
+        m_netLabel->setStyleSheet(QString("color: %1; font-size: 12px; padding: 6px 8px; background: %2; border: 1px solid %3; border-radius: 6px;")
+            .arg(theme->textColor().name())
+            .arg(theme->panelBackground().lighter(105).name())
+            .arg(theme->panelBorder().name()));
+    }
     mainLayout->addWidget(m_netLabel);
     
     QLabel *hintLabel = new QLabel("Use V/I/P(net) syntax. Functions: derivative(), integral(). Example: V(N001)*2+derivative(V(N002))");
-    hintLabel->setStyleSheet("color: #6b7280; font-size: 10px;");
+    if (theme) {
+        hintLabel->setStyleSheet(QString("color: %1; font-size: 10px;").arg(theme->textSecondary().name()));
+    }
     mainLayout->addWidget(hintLabel);
     
     QHBoxLayout *exprLayout = new QHBoxLayout();
     QLabel *exprLabel = new QLabel("Expression:");
-    exprLabel->setStyleSheet("color: #374151;");
+    if (theme) {
+        exprLabel->setStyleSheet(QString("color: %1;").arg(theme->textColor().name()));
+    }
     exprLayout->addWidget(exprLabel);
     
     m_expressionEdit = new QLineEdit();
@@ -71,13 +67,17 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
     
     QHBoxLayout *opLayout = new QHBoxLayout();
     QLabel *opLabel = new QLabel("Insert:");
-    opLabel->setStyleSheet("color: #6b7280;");
+    if (theme) {
+        opLabel->setStyleSheet(QString("color: %1;").arg(theme->textSecondary().name()));
+    }
     opLayout->addWidget(opLabel);
     
     QStringList ops = {"+", "-", "*", "/", "V(", ")"};
     for (const QString &op : ops) {
         QPushButton *btn = new QPushButton(op);
-        btn->setMaximumWidth(40);
+        btn->setMinimumWidth(45);
+        btn->setMaximumWidth(55);
+        btn->setStyleSheet("QPushButton { padding: 4px 8px; }");
         connect(btn, &QPushButton::clicked, this, [this, op]() { insertOperator(op); });
         opLayout->addWidget(btn);
     }
@@ -98,7 +98,9 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
     
     QHBoxLayout *colorLayout = new QHBoxLayout();
     QLabel *colorLabel = new QLabel("Color:");
-    colorLabel->setStyleSheet("color: #374151;");
+    if (theme) {
+        colorLabel->setStyleSheet(QString("color: %1;").arg(theme->textColor().name()));
+    }
     colorLayout->addWidget(colorLabel);
     
     QColor defaultColor = existingColor.isValid() ? existingColor : QColor(0, 120, 215);
@@ -113,7 +115,9 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
     
     QHBoxLayout *scaleLayout = new QHBoxLayout();
     QLabel *scaleLabel = new QLabel("Scale:");
-    scaleLabel->setStyleSheet("color: #374151;");
+    if (theme) {
+        scaleLabel->setStyleSheet(QString("color: %1;").arg(theme->textColor().name()));
+    }
     scaleLayout->addWidget(scaleLabel);
     
     QMap<QString, QString> scaleOps = {
@@ -121,8 +125,9 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
     };
     for (auto it = scaleOps.begin(); it != scaleOps.end(); ++it) {
         QPushButton *btn = new QPushButton(it.key());
-        btn->setMaximumWidth(50);
-        btn->setStyleSheet("QPushButton { background: #f1f5f9; color: #374151; border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; } QPushButton:hover { background: #e2e8f0; }");
+        btn->setMinimumWidth(50);
+        btn->setMaximumWidth(65);
+        btn->setStyleSheet("QPushButton { padding: 4px 8px; }");
         connect(btn, &QPushButton::clicked, this, [this, op = it.value()]() {
             QString expr = m_expressionEdit->text();
             if (expr.isEmpty()) return;
@@ -147,8 +152,9 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
     }
     
     QPushButton *derivBtn = new QPushButton("d/dt");
-    derivBtn->setMaximumWidth(50);
-    derivBtn->setStyleSheet("QPushButton { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 4px; padding: 4px 8px; } QPushButton:hover { background: #fde68a; }");
+    derivBtn->setMinimumWidth(55);
+    derivBtn->setMaximumWidth(70);
+    derivBtn->setStyleSheet("QPushButton { padding: 4px 8px; }");
     connect(derivBtn, &QPushButton::clicked, this, [this]() {
         QString sel = m_expressionEdit->selectedText();
         if (!sel.isEmpty()) {
@@ -163,8 +169,9 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
     scaleLayout->addWidget(derivBtn);
     
     QPushButton *integBtn = new QPushButton("\u222b dt");
-    integBtn->setMaximumWidth(50);
-    integBtn->setStyleSheet("QPushButton { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; border-radius: 4px; padding: 4px 8px; } QPushButton:hover { background: #bfdbfe; }");
+    integBtn->setMinimumWidth(55);
+    integBtn->setMaximumWidth(70);
+    integBtn->setStyleSheet("QPushButton { padding: 4px 8px; }");
     connect(integBtn, &QPushButton::clicked, this, [this]() {
         QString sel = m_expressionEdit->selectedText();
         if (!sel.isEmpty()) {
@@ -182,15 +189,24 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
     mainLayout->addLayout(scaleLayout);
     
     m_previewLabel = new QLabel("Preview:");
-    m_previewLabel->setStyleSheet("color: #6b7280; font-size: 10px; font-family: 'Courier New';");
+    if (theme) {
+        m_previewLabel->setStyleSheet(QString("color: %1; font-size: 10px; font-family: 'Courier New';").arg(theme->textSecondary().name()));
+    }
     mainLayout->addWidget(m_previewLabel);
     
     connect(m_expressionEdit, &QLineEdit::textChanged, this, &WaveformExpressionDialog::onExpressionChanged);
     
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     buttonBox->button(QDialogButtonBox::Ok)->setText("Plot");
-    buttonBox->button(QDialogButtonBox::Ok)->setStyleSheet("QPushButton { background: #2563eb; color: #ffffff; border: 1px solid #1d4ed8; padding: 6px 16px; border-radius: 6px; } QPushButton:hover { background: #1d4ed8; }");
-    buttonBox->button(QDialogButtonBox::Cancel)->setStyleSheet("QPushButton { background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 6px; } QPushButton:hover { background: #f1f5f9; }");
+    if (theme) {
+        // Style OK button with accent color
+        buttonBox->button(QDialogButtonBox::Ok)->setStyleSheet(QString(
+            "QPushButton { background: %1; color: #ffffff; border: 1px solid %2; padding: 6px 16px; border-radius: 6px; }"
+            "QPushButton:hover { background: %3; }"
+        ).arg(theme->accentColor().name())
+         .arg(theme->accentColor().darker(110).name())
+         .arg(theme->accentHover().name()));
+    }
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     mainLayout->addWidget(buttonBox);
@@ -200,7 +216,12 @@ WaveformExpressionDialog::WaveformExpressionDialog(const QString &netName, const
 
 void WaveformExpressionDialog::onExpressionChanged() {
     QString expr = m_expressionEdit->text();
-    m_previewLabel->setText(QString("Expression: <span style='color:#ffff00;'>%1</span>").arg(expr.isEmpty() ? "(empty)" : expr));
+    PCBTheme* theme = ThemeManager::theme();
+    
+    QString exprColor = theme ? theme->accentColor().name() : "#2563eb";
+    QString secondaryColor = theme ? theme->textSecondary().name() : "#6b7280";
+    
+    m_previewLabel->setText(QString("Expression: <span style='color:%1;'>%2</span>").arg(exprColor).arg(expr.isEmpty() ? "(empty)" : expr));
     
     QRegularExpression re("V\\(([^)]+)\\)", QRegularExpression::CaseInsensitiveOption);
     QRegularExpressionMatchIterator it = re.globalMatch(expr);
@@ -210,8 +231,8 @@ void WaveformExpressionDialog::onExpressionChanged() {
         found.append(match.captured(1));
     }
     if (!found.isEmpty()) {
-        m_previewLabel->setText(QString("Expression: <span style='color:#ffff00;'>%1</span> <span style='color:#888;'>(signals: %2)</span>")
-            .arg(expr).arg(found.join(", ")));
+        m_previewLabel->setText(QString("Expression: <span style='color:%1;'>%2</span> <span style='color:%3;'>(signals: %4)</span>")
+            .arg(exprColor).arg(expr).arg(secondaryColor).arg(found.join(", ")));
     }
     
     m_netLabel->setText(QString("Net: <b>%1</b>").arg(expr.isEmpty() ? m_netName : expr));

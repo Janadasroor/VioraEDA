@@ -203,17 +203,32 @@ protected:
         if (currentFileInfo.isDir()) {
             QString dirName = currentFileInfo.fileName();
             if (dirName == ".trash" || dirName == ".git" || dirName == "build" || dirName == "cmake" || dirName == "CMakeFiles" || dirName == "_deps") return false;
+            
+            // For directories: if there's an active search, show those that match or have children that match
+            if (filterRegularExpression().isValid() && !filterRegularExpression().pattern().isEmpty()) {
+                // Qt will automatically show parent directories if children match
+                return true;
+            }
             return true; 
         }
         
         QString fileName = fs->data(index).toString().toLower();
+        
+        // If there's an active search filter, show any file that matches
+        if (filterRegularExpression().isValid() && !filterRegularExpression().pattern().isEmpty()) {
+            return fileName.contains(filterRegularExpression());
+        }
+        
+        // Default view: only show known project files
         return fileName.endsWith(".sch") || fileName.endsWith(".sym") ||
                fileName.endsWith(".flxsch") ||
                fileName.endsWith(".cir") || fileName.endsWith(".spice") || fileName.endsWith(".net") ||
                fileName.endsWith(".lib") || fileName.endsWith(".sclib") ||
                fileName.endsWith(".png") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") ||
                fileName.endsWith(".bmp") || fileName.endsWith(".svg") || fileName.endsWith(".gif") ||
-               fileName.contains(filterRegularExpression());
+               fileName.endsWith(".md") || fileName.endsWith(".txt") || fileName.endsWith(".json") ||
+               fileName.endsWith(".flux") || fileName.endsWith(".viosym") || fileName.endsWith(".kicad_sch") ||
+               fileName.endsWith(".schdoc") || fileName.endsWith(".model") || fileName.endsWith(".webp");
     }
 };
 

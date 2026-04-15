@@ -819,18 +819,26 @@ void SchematicEditor::createToolBar() {
     
     mainToolbar->addSeparator();
     
+    PCBTheme* theme = ThemeManager::theme();
+    bool isLight = theme && theme->type() == PCBTheme::Light;
+    
     QLabel* filterLabel = new QLabel(" Filter: ");
-    filterLabel->setStyleSheet("font-size: 11px; color: #6b7280;");
+    filterLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(theme ? theme->textSecondary().name() : "#6b7280"));
     mainToolbar->addWidget(filterLabel);
 
     QComboBox* filterCombo = new QComboBox();
     filterCombo->addItems({"All", "Components Only", "Wires Only"});
     filterCombo->setToolTip("Selection Filter");
-    filterCombo->setStyleSheet(
-        "QComboBox { background: #ffffff; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 4px; font-size: 11px; min-width: 100px; }"
+    filterCombo->setStyleSheet(QString(
+        "QComboBox { background: %1; border: 1px solid %2; border-radius: 4px; padding: 2px 4px; font-size: 11px; min-width: 100px; color: %3; }"
         "QComboBox::drop-down { border: none; }"
-        "QComboBox::down-arrow { image: url(:/icons/arrow_down.svg); width: 10px; }"
-    );
+        "QComboBox::down-arrow { image: url(:/icons/arrow_down.svg); width: 10px; %4 }"
+        "QComboBox QAbstractItemView { background: %1; color: %3; border: 1px solid %2; }"
+    )
+        .arg(theme ? (isLight ? "#ffffff" : theme->panelBackground().name()) : "#ffffff")
+        .arg(theme ? theme->panelBorder().name() : "#d1d5db")
+        .arg(theme ? theme->textColor().name() : "#111827")
+        .arg(isLight ? "" : "background: transparent;"));
     connect(filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
         m_view->setSelectionFilter(static_cast<SchematicView::SelectionFilter>(index));
         statusBar()->showMessage(QString("Selection filter: %1").arg(
