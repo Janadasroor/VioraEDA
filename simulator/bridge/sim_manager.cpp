@@ -727,8 +727,11 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
         }
     });
     connect(&liveSim, &SimulationManager::rawResultsReady, this, [this](const QString& rawPath) {
-        if ((m_lastConfig.type == SimAnalysisType::RealTime || m_lastConfig.type == SimAnalysisType::Transient) &&
-            m_control && !m_ngspiceProcess) {
+        const bool sharedTransientRun =
+            (m_lastConfig.type == SimAnalysisType::RealTime || m_lastConfig.type == SimAnalysisType::Transient) &&
+            !m_ngspiceProcess &&
+            (!m_sharedNetlistPath.isEmpty() || m_control || m_stopRequested);
+        if (sharedTransientRun) {
             parseRawResultsFile(rawPath, m_activeNetlistText, SimAnalysisType::Transient);
         }
     });
@@ -1219,6 +1222,7 @@ void SimManager::runRealTime(QGraphicsScene* scene, NetManager* netMgr, int inte
 }
 
 void SimManager::stopRealTime() {
+    const bool sharedRunActive = (m_control && !m_ngspiceProcess);
     m_stopRequested = true;
     m_paused = false;
     if (m_control) {
@@ -1233,7 +1237,9 @@ void SimManager::stopRealTime() {
     }
     m_rtScene = nullptr;
     m_rtNetMgr = nullptr;
-    cleanupSimulation();
+    if (!sharedRunActive) {
+        cleanupSimulation();
+    }
     Q_EMIT simulationPaused(false);
     Q_EMIT simulationStopped();
 }
@@ -1280,11 +1286,6 @@ void SimManager::parseRawResultsFile(const QString& path, const QString& netlist
         const auto result = watcher->result();
         watcher->deleteLater();
         m_resultsPending = false;
-
-        if (m_stopRequested) {
-            cleanupSimulation();
-            return;
-        }
 
         if (result.first) {
             Q_EMIT simulationFinished(result.second);
@@ -1334,6 +1335,7 @@ bool SimManager::isRunning() const {
 }
 
 void SimManager::stopAll() {
+    const bool sharedRunActive = (m_control && !m_ngspiceProcess);
     m_stopRequested = true;
     m_paused = false;
     if (m_control) {
@@ -1350,7 +1352,9 @@ void SimManager::stopAll() {
     }
     m_rtScene = nullptr;
     m_rtNetMgr = nullptr;
-    cleanupSimulation();
+    if (!sharedRunActive) {
+        cleanupSimulation();
+    }
     Q_EMIT simulationPaused(false);
     Q_EMIT simulationStopped();
     Q_EMIT logMessage("Simulation stopped.");
