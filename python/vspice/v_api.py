@@ -443,12 +443,14 @@ class _OperatorNamespace:
 
     def __init__(self, prefix: str):
         self._prefix = prefix
+        # Capture reference to the module-level registry at creation time
+        import vspice.v_api as _mod
+        self._registry = _mod._op_registry
 
     def __getattr__(self, name: str) -> Any:
         full_id = f"{self._prefix}.{name}" if self._prefix else name
-        from vspice._internal import _op_registry
-        if full_id in _op_registry:
-            return _op_registry[full_id]
+        if full_id in self._registry:
+            return self._registry[full_id]
         # Try deeper nesting
         return _OperatorNamespace(full_id)
 
@@ -481,8 +483,11 @@ addons = _AddonManager()
 ops = _OperatorRegistry()
 """Operator registry — programmatic GUI actions."""
 
-# Re-export handlers from vspice
-from vspice._core import handlers  # noqa: E402
+# Re-export handlers from vspice (if _core is available)
+try:
+    from vspice._core import handlers  # noqa: E402
+except ImportError:
+    handlers = None  # Will be set by __init__.py after loading
 
 
 # ─── Help ─────────────────────────────────────────────────────────

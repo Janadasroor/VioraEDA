@@ -33,18 +33,27 @@ char* py_executor_execute(const char* code, int* out_is_error) {
     static bool autoImportDone = false;
     if (!autoImportDone) {
         PyObject* mainDict = PyModule_GetDict(PyImport_AddModule("__main__"));
-        // Try to import vspice as v — ignore errors if vspice isn't available
+        // Try to import vspice as v — report errors for debugging
+        // IMPORTANT: We must explicitly set 'v', 'gemini', 'term' in __main__.__dict__
+        // because `import x as y` inside a script scope doesn't populate __main__
         PyRun_String(
+            "import sys, __main__\n"
             "try:\n"
             "    import vspice\n"
-            "    import vspice.v as v\n"
-            "    v.handlers = vspice.handlers\n"
+            "    import vspice.v as _v\n"
+            "    _v.handlers = vspice.handlers\n"
+            "    # Expose in __main__ namespace\n"
+            "    __main__.__dict__['v'] = _v\n"
+            "    __main__.__dict__['vspice'] = vspice\n"
             "    # Expose gemini terminal at module level\n"
-            "    if hasattr(vspice.v, 'gemini') and vspice.v.gemini is not None:\n"
-            "        gemini = vspice.v.gemini\n"
-            "        term = gemini\n"
+            "    if hasattr(_v, 'gemini') and _v.gemini is not None:\n"
+            "        __main__.__dict__['gemini'] = _v.gemini\n"
+            "        __main__.__dict__['term'] = _v.gemini\n"
             "except Exception as _v_err:\n"
-            "    pass\n",
+            "    print(f'[vspice] Auto-import warning: {_v_err}', file=sys.stderr)\n"
+            "    import traceback\n"
+            "    traceback.print_exc(file=sys.stderr)\n"
+            "del sys, __main__\n",
             Py_file_input, mainDict, mainDict
         );
         PyErr_Clear();
