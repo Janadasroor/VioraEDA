@@ -1,6 +1,21 @@
 #include "push_button_item.h"
+#include "../editor/schematic_editor.h"
+#include "../ui/simulation_panel.h"
+#include <QApplication>
 #include <QPainter>
 #include <QJsonObject>
+
+namespace {
+void triggerInteractiveSimulationUpdateIfNeeded() {
+    auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
+    if (!editor || !editor->getSimulationPanel()) return;
+
+    const auto cfg = editor->getSimulationPanel()->getAnalysisConfig();
+    if (cfg.type == SimAnalysisType::Transient || cfg.type == SimAnalysisType::RealTime) {
+        editor->getSimulationPanel()->onRunSimulation();
+    }
+}
+}
 
 PushButtonItem::PushButtonItem(QPointF pos, QGraphicsItem *parent) : SchematicItem(parent) {
     setPos(pos);
@@ -15,6 +30,7 @@ void PushButtonItem::onInteractivePress(const QPointF&) {
     setValue("0.001"); // Closed resistance
     setParamExpression("resistance", "0.001");
     Q_EMIT interactiveStateChanged();
+    triggerInteractiveSimulationUpdateIfNeeded();
     update();
 }
 
@@ -23,6 +39,7 @@ void PushButtonItem::onInteractiveRelease(const QPointF&) {
     setValue("1e12"); // Open resistance
     setParamExpression("resistance", "1e12");
     Q_EMIT interactiveStateChanged();
+    triggerInteractiveSimulationUpdateIfNeeded();
     update();
 }
 

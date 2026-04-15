@@ -2,7 +2,7 @@
  * @file python_executor.cpp
  * @brief Python execution helper — compiled without Qt headers.
  *
- * Captures output by temporarily replacing sys.stdout at the C level.
+ * Redirects sys.stdout at the C level using PySys_SetObject for reliable capture.
  */
 
 #ifdef HAVE_PYTHON
@@ -21,26 +21,39 @@ extern "C" {
 
 char* py_executor_execute(const char* code, int* out_is_error) {
     *out_is_error = 0;
-    
+
     if (!Py_IsInitialized()) {
         *out_is_error = 1;
         return strdup("Error: Python runtime not initialized.");
     }
 
     PyGILState_STATE gstate = PyGILState_Ensure();
-    
-    // Get sys module
-    PyObject* sysModule = PyImport_ImportModule("sys");
-    if (!sysModule) {
-        PyGILState_Release(gstate);
-        *out_is_error = 1;
-        return strdup("Error: Cannot import sys.");
+
+    // Auto-import vspice as v on first execution
+    static bool autoImportDone = false;
+    if (!autoImportDone) {
+        PyObject* mainDict = PyModule_GetDict(PyImport_AddModule("__main__"));
+        // Try to import vspice as v — ignore errors if vspice isn't available
+        PyRun_String(
+            "try:\n"
+            "    import vspice\n"
+            "    import vspice.v as v\n"
+            "    v.handlers = vspice.handlers\n"
+            "    # Expose gemini terminal at module level\n"
+            "    if hasattr(vspice.v, 'gemini') and vspice.v.gemini is not None:\n"
+            "        gemini = vspice.v.gemini\n"
+            "        term = gemini\n"
+            "except Exception as _v_err:\n"
+            "    pass\n",
+            Py_file_input, mainDict, mainDict
+        );
+        PyErr_Clear();
+        autoImportDone = true;
     }
-    
+
     // Create StringIO for capture
     PyObject* ioModule = PyImport_ImportModule("io");
     if (!ioModule) {
-        Py_DECREF(sysModule);
         PyGILState_Release(gstate);
         *out_is_error = 1;
         return strdup("Error: Cannot import io.");
@@ -49,7 +62,6 @@ char* py_executor_execute(const char* code, int* out_is_error) {
     PyObject* stringIOClass = PyObject_GetAttrString(ioModule, "StringIO");
     Py_DECREF(ioModule);
     if (!stringIOClass) {
-        Py_DECREF(sysModule);
         PyGILState_Release(gstate);
         *out_is_error = 1;
         return strdup("Error: Cannot get StringIO.");
@@ -58,48 +70,54 @@ char* py_executor_execute(const char* code, int* out_is_error) {
     PyObject* capture = PyObject_CallObject(stringIOClass, NULL);
     Py_DECREF(stringIOClass);
     if (!capture) {
-        Py_DECREF(sysModule);
         PyGILState_Release(gstate);
         *out_is_error = 1;
         return strdup("Error: Cannot create StringIO.");
     }
     
     // Save original stdout
-    PyObject* origStdout = PyObject_GetAttrString(sysModule, "stdout");
-    Py_INCREF(origStdout);
+    PyObject* origStdout = PySys_GetObject("stdout");
+    Py_XINCREF(origStdout);
     
-    // Replace sys.stdout with our StringIO
-    PyObject_SetAttrString(sysModule, "stdout", capture);
-    // Also replace sys.stderr
-    PyObject_SetAttrString(sysModule, "stderr", capture);
+    // Redirect stdout at system level
+    PySys_SetObject("stdout", capture);
     
     // Execute user code
     PyObject* mainDict = PyModule_GetDict(PyImport_AddModule("__main__"));
-    PyObject* result = PyRun_String(code, Py_single_input, mainDict, mainDict);
+    
+    // Try eval first (expressions like 2+2)
+    PyObject* result = PyRun_String(code, Py_eval_input, mainDict, mainDict);
     int hadError = 0;
     if (!result) {
-        // Try as multi-line input
         PyErr_Clear();
+        // Try exec (statements like print("hi"))
         result = PyRun_String(code, Py_file_input, mainDict, mainDict);
         if (!result) {
             PyErr_Print();
             hadError = 1;
         }
     } else {
-        // For single expressions, print the result
-        PyObject* repr = PyObject_Repr(result);
-        if (repr) {
-            PyObject* printFunc = PyObject_GetAttrString(PyImport_AddModule("builtins"), "print");
-            if (printFunc) {
-                PyObject_CallFunctionObjArgs(printFunc, repr, NULL);
-                Py_DECREF(printFunc);
+        // Expression succeeded — print repr to our captured stdout
+        // But skip None (e.g., print() calls, assignments)
+        if (result != Py_None) {
+            PyObject* repr = PyObject_Repr(result);
+            if (repr) {
+                PyObject* writeMethod = PyObject_GetAttrString(capture, "write");
+                if (writeMethod) {
+                    PyObject* arg = PyUnicode_FromFormat("%s\n", PyUnicode_AsUTF8(repr));
+                    if (arg) {
+                        PyObject_CallFunctionObjArgs(writeMethod, arg, NULL);
+                        Py_DECREF(arg);
+                    }
+                    Py_DECREF(writeMethod);
+                }
+                Py_DECREF(repr);
             }
-            Py_DECREF(repr);
         }
     }
     Py_XDECREF(result);
     
-    // Capture output
+    // Get captured output
     char* output = NULL;
     PyObject* getvalue = PyObject_GetAttrString(capture, "getvalue");
     if (getvalue) {
@@ -115,10 +133,8 @@ char* py_executor_execute(const char* code, int* out_is_error) {
     }
     
     // Restore original stdout
-    PyObject_SetAttrString(sysModule, "stdout", origStdout);
-    PyObject_SetAttrString(sysModule, "stderr", origStdout);
-    Py_DECREF(origStdout);
-    Py_DECREF(sysModule);
+    PySys_SetObject("stdout", origStdout);
+    Py_XDECREF(origStdout);
     Py_DECREF(capture);
     
     if (!output) {

@@ -110,6 +110,7 @@ Q_SIGNALS:
     void timeSnapshotReady(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& branchCurrents);
     void probeRequested();
     void placementToolRequested(const QString& toolName);
+    void analysisModeChanged();
     void simulationTargetRequested(const QString& targetType, const QString& targetId);
     void overlayVisibilityChanged(bool showVoltage, bool showCurrent);
     void clearOverlaysRequested();

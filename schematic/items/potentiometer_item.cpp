@@ -1,9 +1,24 @@
 #include "potentiometer_item.h"
+#include "../editor/schematic_editor.h"
+#include "../ui/simulation_panel.h"
+#include <QApplication>
 #include "../../simulator/core/sim_value_parser.h"
 #include <QPainter>
 #include <QJsonObject>
 #include <QGraphicsSceneMouseEvent>
 #include <cmath>
+
+namespace {
+void triggerInteractiveSimulationUpdateIfNeeded() {
+    auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
+    if (!editor || !editor->getSimulationPanel()) return;
+
+    const auto cfg = editor->getSimulationPanel()->getAnalysisConfig();
+    if (cfg.type == SimAnalysisType::Transient || cfg.type == SimAnalysisType::RealTime) {
+        editor->getSimulationPanel()->onRunSimulation();
+    }
+}
+}
 
 PotentiometerItem::PotentiometerItem(QPointF pos, QGraphicsItem *parent) : SchematicItem(parent) {
     setPos(pos);
@@ -32,6 +47,7 @@ void PotentiometerItem::setWiperPosition(double pos) {
     setParamExpression("r_lower", QString::number(r2));
 
     Q_EMIT interactiveStateChanged();
+    triggerInteractiveSimulationUpdateIfNeeded();
     update();
 }
 

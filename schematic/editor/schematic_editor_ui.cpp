@@ -63,6 +63,7 @@ using Flux::Model::SymbolPrimitive;
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QVBoxLayout>
 #include <QTemporaryFile>
 #include <QTextStream>
 #include <QPointer>
@@ -110,6 +111,55 @@ QIcon SchematicEditor::getThemeIcon(const QString& path) {
 
 void SchematicEditor::refreshOscilloscopeDockContent() {
     if (!m_oscilloscopeDock || !m_simulationPanel) return;
+
+    if (m_simulationPanel->isRealTimeMode()) {
+        QWidget* targetWidget = m_interactiveModeNoticeWidget;
+        if (!targetWidget) {
+            auto* container = new QWidget(m_oscilloscopeDock);
+            container->setObjectName("InteractiveModeOscilloscopeNotice");
+            auto* layout = new QVBoxLayout(container);
+            layout->setContentsMargins(28, 28, 28, 28);
+            layout->setSpacing(14);
+
+            auto* title = new QLabel("Place an oscilloscope instrument", container);
+            title->setStyleSheet("QLabel { font-size: 18px; font-weight: 700; }");
+            title->setAlignment(Qt::AlignCenter);
+            layout->addStretch();
+            layout->addWidget(title);
+
+            auto* body = new QLabel(
+                "Interactive mode uses oscilloscope instruments on the schematic canvas.\n"
+                "Place an oscilloscope instrument to view live signals.",
+                container);
+            body->setWordWrap(true);
+            body->setAlignment(Qt::AlignCenter);
+            body->setStyleSheet("QLabel { font-size: 13px; color: palette(mid); }");
+            layout->addWidget(body);
+
+            auto* placeScopeBtn = new QPushButton(getThemeIcon(":/icons/tool_oscilloscope.svg"), "Place Oscilloscope", container);
+            placeScopeBtn->setMinimumHeight(36);
+            placeScopeBtn->setCursor(Qt::PointingHandCursor);
+            placeScopeBtn->setStyleSheet(
+                "QPushButton { font-weight: 600; padding: 6px 16px; }"
+            );
+            connect(placeScopeBtn, &QPushButton::clicked, this, [this]() {
+                if (!m_view) return;
+                m_view->setCurrentTool("Oscilloscope Instrument");
+                ensureProbeToolConnected();
+                statusBar()->showMessage("Placement tool active: Oscilloscope Instrument", 4000);
+            });
+            layout->addWidget(placeScopeBtn, 0, Qt::AlignHCenter);
+            layout->addStretch();
+
+            m_interactiveModeNoticeWidget = container;
+            targetWidget = container;
+        }
+
+        if (m_oscilloscopeDock->widget() != targetWidget) {
+            m_oscilloscopeDock->setWidget(targetWidget);
+        }
+        return;
+    }
 
     const bool showFullPanel = ConfigManager::instance()
                                    .toolProperty("SimulationPanel", "showFullPanelInDock", false)
@@ -1652,6 +1702,8 @@ void SchematicEditor::createDockWidgets() {
                 this, &SchematicEditor::onOverlayVisibilityChanged, Qt::UniqueConnection);
         connect(m_simulationPanel, &SimulationPanel::clearOverlaysRequested,
                 this, &SchematicEditor::onClearSimulationOverlays, Qt::UniqueConnection);
+        connect(m_simulationPanel, &SimulationPanel::analysisModeChanged,
+                this, &SchematicEditor::refreshOscilloscopeDockContent, Qt::UniqueConnection);
 
         refreshOscilloscopeDockContent();
     }
