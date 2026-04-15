@@ -1577,7 +1577,8 @@ void SchematicEditor::onPlaceSymbolInSchematic(const SymbolDefinition& symbol) {
     if (!m_scene || !m_view) return;
 
     // Calculate center of current view
-    QPointF center = m_view->mapToScene(m_view->viewport()->rect().center());
+    const QPointF center = m_view->mapToScene(m_view->viewport()->rect().center());
+    const QPointF snappedCenter = m_view->snapToGrid(center);
 
     // Create the item
     auto* item = new GenericComponentItem(symbol);
@@ -1585,7 +1586,7 @@ void SchematicEditor::onPlaceSymbolInSchematic(const SymbolDefinition& symbol) {
     const UnitPlacement placement = pickNextUnitPlacement(m_scene, symbol, fallbackRef);
     item->setReference(placement.baseRef);
     item->setUnit(placement.unit);
-    item->setPos(center);
+    item->setPos(snappedCenter);
 
     // Use undo stack for the addition
     m_undoStack->push(new AddItemCommand(m_scene, item));
