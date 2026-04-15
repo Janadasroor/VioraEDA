@@ -1,6 +1,7 @@
 #include "switch_item.h"
 #include "../editor/schematic_editor.h"
 #include "../ui/simulation_panel.h"
+#include "../../core/simulation_manager.h"
 #include <QApplication>
 #include <QPainter>
 #include <QJsonObject>
@@ -14,6 +15,12 @@ void triggerInteractiveSimulationUpdateIfNeeded() {
     if (cfg.type == SimAnalysisType::Transient || cfg.type == SimAnalysisType::RealTime) {
         editor->getSimulationPanel()->onRunSimulation();
     }
+}
+
+void updateSwitchRealTime(const QString& switchRef, bool open, double vt, double vh) {
+    // Try real-time update first (no restart)
+    auto& sim = SimulationManager::instance();
+    sim.alterSwitch(switchRef, open, vt, vh);
 }
 }
 
@@ -37,7 +44,15 @@ void SwitchItem::onInteractiveClick(const QPointF&) {
     setOpen(!m_isOpen);
 
     Q_EMIT interactiveStateChanged();
-    triggerInteractiveSimulationUpdateIfNeeded();
+
+    // Use real-time switch update instead of full simulation restart
+    // This preserves simulation state (capacitor voltages, inductor currents)
+    double vtVal = 0.5, vhVal = 0.1;
+    bool okVt = false, okVh = false;
+    vtVal = m_vt.toDouble(&okVt);
+    vhVal = m_vh.toDouble(&okVh);
+    updateSwitchRealTime(reference(), m_isOpen, vtVal, vhVal);
+
     update();
 }
 

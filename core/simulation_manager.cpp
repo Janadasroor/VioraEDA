@@ -441,6 +441,69 @@ void SimulationManager::sendInternalCommand(const QString& command) {
 #endif
 }
 
+// --- Real-Time Switch Control ---
+
+void SimulationManager::alterSwitch(const QString& switchRef, bool open, double vt, double vh) {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized) return;
+
+    // VioSpice implements switches as resistors, not voltage-controlled switches.
+    // Netlist generator creates: R<ref> n1 n2 <value>
+    //   Open state:  1e12 ohms (high resistance)
+    //   Closed state: 0.001 ohms (low resistance)
+    QString rName = switchRef;
+    if (!rName.startsWith("R", Qt::CaseInsensitive)) rName = "R" + rName;
+
+    double resistance = open ? 1e12 : 0.001;
+    alterSwitchResistance(rName, resistance);
+#endif
+}
+
+void SimulationManager::alterSwitchResistance(const QString& resistorName, double resistance) {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized) return;
+
+    // Use bg_halt -> alter -> bg_run cycle for mid-simulation switch change
+    // This preserves simulation state (capacitor voltages, inductor currents)
+
+    // 1. Halt the simulation
+    sendInternalCommand("bg_halt");
+
+    // Small delay to ensure simulation has stopped
+    QThread::msleep(10);
+
+    // 2. Alter the resistor value
+    // ngspice syntax: alter Rname R=value
+    QString cmd = QString("alter %1 R=%2").arg(resistorName, QString::number(resistance, 'g', 12));
+    ngSpice_Command(cmd.toLatin1().data());
+
+    // 3. Resume simulation
+    sendInternalCommand("bg_resume");
+#endif
+}
+
+void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, double voltage) {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized) return;
+
+    // Use bg_halt -> alter -> bg_run cycle for voltage-controlled switches
+    // (for advanced users who use .model SW with VSWITCH)
+
+    // 1. Halt the simulation
+    sendInternalCommand("bg_halt");
+
+    // Small delay to ensure simulation has stopped
+    QThread::msleep(10);
+
+    // 2. Alter the control voltage source
+    QString cmd = QString("alter %1 DC=%2").arg(controlSourceName, QString::number(voltage, 'g', 12));
+    ngSpice_Command(cmd.toLatin1().data());
+
+    // 3. Resume simulation
+    sendInternalCommand("bg_resume");
+#endif
+}
+
 void SimulationManager::processBufferedData() {
     std::vector<SimDataPoint> batch;
     std::vector<QString> logBatch;

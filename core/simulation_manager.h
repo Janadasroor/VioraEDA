@@ -37,6 +37,15 @@ public:
     void setParameter(const QString& name, double value);
     void sendInternalCommand(const QString& command);
 
+    // --- Real-Time Switch Control ---
+    // Toggles a switch mid-simulation without restart.
+    // Uses bg_halt -> alter -> bg_run cycle.
+    // For resistor-based switches (default): alters resistance value
+    // For voltage-controlled switches: alters control voltage
+    void alterSwitch(const QString& switchRef, bool open, double vt = 0.5, double vh = 0.1);
+    void alterSwitchResistance(const QString& resistorName, double resistance);
+    void alterSwitchVoltage(const QString& controlSourceName, double voltage);
+
 
 Q_SIGNALS:
     void outputReceived(const QString& text);
