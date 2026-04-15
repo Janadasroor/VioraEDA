@@ -8,7 +8,6 @@
 #include <functional>
 #include <vector>
 #include <mutex>
-#include <map>
 
 #ifdef HAVE_NGSPICE
 #include <ngspice/sharedspice.h>
@@ -39,20 +38,11 @@ public:
     void sendInternalCommand(const QString& command);
 
     // --- Real-Time Switch Control ---
-    // Phase 1: Toggle switch mid-simulation using bg_halt/alter/bg_resume cycle
+    // Uses bg_halt → alter R=value → bg_resume cycle for mid-simulation toggling.
+    // Preserves simulation state (capacitor voltages, inductor currents).
     void alterSwitch(const QString& switchRef, bool open, double vt = 0.5, double vh = 0.1);
     void alterSwitchResistance(const QString& resistorName, double resistance);
     void alterSwitchVoltage(const QString& controlSourceName, double voltage);
-
-    // Phase 2: Real-time callback registration (zero latency, no pause)
-    // Registers the GetSwitchData callback with ngspice.
-    // After this, switch clicks instantly affect simulation at every timestep.
-    void registerSwitchCallback();
-
-    // Update switch resistance in real-time (Phase 2)
-    // Thread-safe: can be called from GUI thread while simulation runs
-    void setSwitchResistance(const QString& name, double resistance);
-    double getSwitchResistance(const QString& name) const;
 
 
 Q_SIGNALS:
@@ -111,17 +101,10 @@ private:
     std::vector<QByteArray> m_circStorage;
     std::vector<char*> m_circPtrs;
 
-    // Phase 2: Thread-safe switch state storage for real-time callback
-    std::map<std::string, double> m_switchResistances;
-    std::mutex m_switchMutex;
-
     // Callbacks from ngspice (static because they are C function pointers)
     static int cbSendChar(char* output, int id, void* userData);
     static int cbSendStat(char* stat, int id, void* userData);
     static int cbControlledExit(int status, bool immediate, bool quit, int id, void* userData);
-
-    // Phase 2: Interactive switch callback (called by ngspice during simulation)
-    static int cbGetSwitchData(double* resistance, const char* name, int ident, void* userData);
 
 #ifdef HAVE_NGSPICE
     static int cbSendData(pvecvaluesall vecArray, int numStructs, int id, void* userData);
