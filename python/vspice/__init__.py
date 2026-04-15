@@ -9,9 +9,10 @@ Core features:
   - Netlist builder (SimNetlist, SimComponentInstance, SimModel)
   - Simulation runner (run_simulation via vio-cmd subprocess)
   - Event hooks (@handlers.simulation_finished, etc.)
+  - bpy-like API via ``import vspice.v as v`` (or just ``import v`` in console)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Import all symbols from the nanobind extension
 from vspice._core import *  # noqa: F401,F403
@@ -43,6 +44,9 @@ class _Handlers:
     Available hooks:
         simulation_finished — fired when a simulation completes successfully
         simulation_error    — fired when a simulation fails
+        schematic_changed   — fired when the schematic is modified
+        project_opened      — fired when a project is opened
+        project_saved       — fired when a project is saved
     """
 
     @staticmethod
@@ -60,12 +64,44 @@ class _Handlers:
         return func
 
     @staticmethod
+    def schematic_changed(func):
+        """Register a handler for schematic_changed events."""
+        from vspice._core import register_callback
+        register_callback("schematic_changed", func)
+        return func
+
+    @staticmethod
+    def project_opened(func):
+        """Register a handler for project_opened events."""
+        from vspice._core import register_callback
+        register_callback("project_opened", func)
+        return func
+
+    @staticmethod
+    def project_saved(func):
+        """Register a handler for project_saved events."""
+        from vspice._core import register_callback
+        register_callback("project_saved", func)
+        return func
+
+    @staticmethod
     def list():
         """List all events that have handlers registered."""
         from vspice._core import list_callbacks
         return list_callbacks()
 
 handlers = _Handlers()
+
+# ---------------------------------------------------------------------------
+# bpy-like API (v module)
+# ---------------------------------------------------------------------------
+
+# Import the v API and also expose it at package level so users can do
+# ``import vspice as v`` or, in the embedded console, just ``v.help()``.
+from vspice import v_api as v  # noqa: F401,E402
+
+# Also add v.handlers as an alias to our handlers above (for consistency)
+v.handlers = handlers  # noqa: E402
 
 # UI Proxy (optional — requires websocket-client)
 try:

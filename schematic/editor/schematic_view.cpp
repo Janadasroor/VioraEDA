@@ -80,6 +80,13 @@ SchematicItem* owningSchematicItem(QGraphicsItem* item) {
 
 bool isProbeableSchematicComponent(SchematicItem* candidate) {
     if (!candidate || candidate->isSubItem()) return false;
+    if (candidate->isInteractive()) return false;
+
+    const QString typeName = candidate->itemTypeName();
+    if (typeName == "TuningSlider" || typeName.endsWith("Instrument")) {
+        return false;
+    }
+
     const auto type = candidate->itemType();
     return type != SchematicItem::WireType &&
            type != SchematicItem::LabelType &&

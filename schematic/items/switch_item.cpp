@@ -1,6 +1,21 @@
 #include "switch_item.h"
+#include "../editor/schematic_editor.h"
+#include "../ui/simulation_panel.h"
+#include <QApplication>
 #include <QPainter>
 #include <QJsonObject>
+
+namespace {
+void triggerInteractiveSimulationUpdateIfNeeded() {
+    auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
+    if (!editor || !editor->getSimulationPanel()) return;
+
+    const auto cfg = editor->getSimulationPanel()->getAnalysisConfig();
+    if (cfg.type == SimAnalysisType::Transient || cfg.type == SimAnalysisType::RealTime) {
+        editor->getSimulationPanel()->onRunSimulation();
+    }
+}
+}
 
 SwitchItem::SwitchItem(QPointF pos, QGraphicsItem *parent) : SchematicItem(parent) {
     setExcludeFromPcb(true); // Switches are excluded from PCB by default
@@ -22,6 +37,7 @@ void SwitchItem::onInteractiveClick(const QPointF&) {
     setOpen(!m_isOpen);
 
     Q_EMIT interactiveStateChanged();
+    triggerInteractiveSimulationUpdateIfNeeded();
     update();
 }
 

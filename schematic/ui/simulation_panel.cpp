@@ -2850,6 +2850,7 @@ void SimulationPanel::onViewNetlist() {
 
 void SimulationPanel::onAnalysisChanged(int index) {
     SimManager::instance().stopRealTime();
+    Q_EMIT analysisModeChanged();
 
     QFormLayout* layout = qobject_cast<QFormLayout*>(m_param1->parentWidget()->layout());
     if (!layout) return;
@@ -3121,6 +3122,8 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
         m_analysisType->setCurrentIndex(idx);
     }
 
+    Q_EMIT analysisModeChanged();
+
     // Only set raw numeric fields if we don't have a command text to parse from.
     // This avoids losing precision/suffixes during the switch.
     if (cfg.commandText.isEmpty()) {
@@ -3218,6 +3221,15 @@ void SimulationPanel::cancelPendingRun() {
 }
 
 void SimulationPanel::onRunSimulation() {
+    if (SimManager::instance().isRunning()) {
+        m_acceptRealTimeStream = false;
+        m_isSimInitiator = false;
+        if (g_liveStreamOwner == this) {
+            g_liveStreamOwner.clear();
+        }
+        SimManager::instance().stopAll();
+    }
+
     m_logOutput->clear();
     if (m_issueList) m_issueList->clear();
     m_logBuffer.clear();
