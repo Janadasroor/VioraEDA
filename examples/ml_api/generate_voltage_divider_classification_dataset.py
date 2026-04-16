@@ -7,7 +7,7 @@ from typing import Dict, List
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-VIO_CMD = REPO_ROOT / "build" / "vio-cmd"
+VIORA = REPO_ROOT / "build" / "viora"
 OUTPUT_PATH = Path("/tmp/viospice-datasets/voltage_divider_classifier.jsonl")
 NETLIST_DIR = Path("/tmp/viospice-netlists/voltage_divider_classifier")
 VIN_VALUES = [1.8, 3.3, 5.0, 12.0]
@@ -26,7 +26,7 @@ def _spice_resistance(value_ohms: int) -> str:
 
 def _run_netlist(netlist_path: Path) -> Dict[str, object]:
     result = subprocess.run(
-        [str(VIO_CMD), "netlist-run", str(netlist_path), "--json", "--stats"],
+        [str(VIORA), "netlist-run", str(netlist_path), "--json", "--stats"],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
@@ -152,8 +152,15 @@ def build_record(index: int, total: int, vin_dc: float, r1_ohms: int, r2_ohms: i
 
 
 def main() -> None:
-    if not VIO_CMD.exists():
-        raise SystemExit(f"vio-cmd not found: {VIO_CMD}")
+    if not VIORA.exists():
+        # Fallback to vio-cmd for transition period if necessary, 
+        # but the task is to prioritize viora.
+        old_viora = VIORA.parent / "vio-cmd"
+        if old_viora.exists():
+            global VIORA
+            VIORA = old_viora
+        else:
+            raise SystemExit(f"viora not found: {VIORA}")
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     NETLIST_DIR.mkdir(parents=True, exist_ok=True)

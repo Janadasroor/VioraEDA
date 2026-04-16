@@ -36,14 +36,16 @@ def fail(msg, **extra):
 
 def cli():
     for item in [
+        ROOT / "build" / "viora",
+        ROOT / "build-debug" / "viora",
+        ROOT / "build-asan" / "viora",
+        ROOT / "build" / "dev-debug" / "viora",
         ROOT / "build" / "vio-cmd",
         ROOT / "build-debug" / "vio-cmd",
-        ROOT / "build-asan" / "vio-cmd",
-        ROOT / "build" / "dev-debug" / "vio-cmd",
     ]:
         if item.exists():
             return str(item)
-    return "vio-cmd"
+    return "viora"
 
 
 def py():
@@ -270,7 +272,7 @@ TOOLS = {
         "inputSchema": {"type": "object", "properties": {"port": {"type": "integer"}}, "additionalProperties": False},
     },
     "viospice_netlist_run": {
-        "description": "Run a VioSpice netlist or schematic simulation with vio-cmd netlist-run.",
+        "description": "Run a VioSpice netlist or schematic simulation with viora netlist-run.",
         "inputSchema": {
             "type": "object",
             "properties": {

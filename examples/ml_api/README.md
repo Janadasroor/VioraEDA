@@ -12,7 +12,7 @@ This folder contains runnable request templates and a minimal Python client for 
 - `pytorch_dataset.py`: loads generated JSONL into a simple PyTorch-compatible dataset
 - `train_regressor.py`: end-to-end PyTorch regression example over generated JSONL
 - `train_regressor_notebook.ipynb`: notebook version of the regression example
-- `generate_voltage_divider_classification_dataset.py`: generates a real circuit-backed classification dataset with `vio-cmd netlist-run`
+- `generate_voltage_divider_classification_dataset.py`: generates a real circuit-backed classification dataset with `viora netlist-run`
 - `train_classifier.py`: end-to-end PyTorch classification example over generated JSONL
 
 ## cURL examples

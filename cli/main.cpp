@@ -196,8 +196,8 @@ static bool resolveBaseSignalIndex(const RawData& data, const QString& name, int
     const QString trimmed = name.trimmed();
     if (trimmed.isEmpty()) return true;
     int idx = -1;
-    for (int i = 0; i < data.varNames.size(); ++i) {
-        if (data.varNames[i].compare(trimmed, Qt::CaseInsensitive) == 0) { idx = i; break; }
+    for (int i = 0; i < (int)data.varNames.size(); ++i) {
+        if (QString::fromStdString(data.varNames[i]).compare(trimmed, Qt::CaseInsensitive) == 0) { idx = i; break; }
     }
     if (idx < 1) {
         if (error) *error = QString("Base signal not found (or invalid): %1").arg(trimmed);
@@ -298,7 +298,7 @@ static QJsonObject rawToJson(const RawData& data, const QStringList& signalNames
 static QString rawToCsv(const RawData& data, const QStringList& signalNames, const QVector<int>& indices, int maxPoints, double tStart, double tEnd, int baseSignalIndex = -1) {
     QString out;
     QTextStream stream(&out);
-    stream << data.varNames[0];
+    stream << QString::fromStdString(data.varNames[0]);
     for (const auto& sig : signalNames) stream << "," << sig;
     stream << "\n";
     int baseSignal = baseSignalIndex;
@@ -331,7 +331,7 @@ static QVector<SignalStats> computeSignalStats(const RawData& data, const QStrin
     stats.reserve(indices.size());
     for (int i = 0; i < indices.size(); ++i) {
         const auto& vec = data.y[indices[i]];
-        if (vec.isEmpty()) continue;
+        if (vec.empty()) continue;
         SignalStats s;
         s.name = signalNames[i];
         double sum = 0.0;
@@ -851,7 +851,7 @@ bool renderSymbolToPng(const SymbolDefinition& symbol, const QString& outPath, b
 
 bool runSymbolRender(const QStringList& args, const QCommandLineParser& parser) {
     if (args.size() < 3) {
-        std::cerr << "Usage: vio-cmd symbol-render <file.viosym> <out.png>" << std::endl;
+        std::cerr << "Usage: viora symbol-render <file.viosym> <out.png>" << std::endl;
         return false;
     }
     const QString filePath = args.at(1);
@@ -903,7 +903,7 @@ bool runSymbolRender(const QStringList& args, const QCommandLineParser& parser) 
 
 bool runSymbolList(const QStringList& args) {
     if (args.size() < 2) {
-        std::cerr << "Usage: vio-cmd symbol-list <folder|library.sclib>" << std::endl;
+        std::cerr << "Usage: viora symbol-list <folder|library.sclib>" << std::endl;
         return false;
     }
     const QString path = args.at(1);
@@ -974,7 +974,7 @@ bool runSymbolList(const QStringList& args) {
 
 bool runSymbolExport(const QStringList& args) {
     if (args.size() < 4) {
-        std::cerr << "Usage: vio-cmd symbol-export <symbolName> <library.sclib> <out.viosym>" << std::endl;
+        std::cerr << "Usage: viora symbol-export <symbolName> <library.sclib> <out.viosym>" << std::endl;
         return false;
     }
     const QString symName = args.at(1);
@@ -1015,7 +1015,7 @@ bool runSymbolExport(const QStringList& args) {
 
 bool runSymbolImport(const QStringList& args, const QCommandLineParser& parser) {
     if (args.size() < 3) {
-        std::cerr << "Usage: vio-cmd symbol-import <input.asy|input.kicad_sym> <out.viosym|out.sclib> [--name SYMBOL]" << std::endl;
+        std::cerr << "Usage: viora symbol-import <input.asy|input.kicad_sym> <out.viosym|out.sclib> [--name SYMBOL]" << std::endl;
         return false;
     }
 
@@ -1113,7 +1113,7 @@ bool runSymbolImport(const QStringList& args, const QCommandLineParser& parser) 
 
 bool runLibraryIndex(const QStringList& args, const QCommandLineParser& parser) {
     if (args.size() < 2) {
-        std::cerr << "Usage: vio-cmd library-index <folder>" << std::endl;
+        std::cerr << "Usage: viora library-index <folder>" << std::endl;
         return false;
     }
     const QString root = args.at(1);
@@ -1445,7 +1445,7 @@ bool runShareSchematic(const QString& schematicPath, const QCommandLineParser& p
 
 bool runSymbolQuery(const QStringList& args) {
     if (args.size() < 2) {
-        std::cerr << "Usage: vio-cmd symbol-query <file.viosym>" << std::endl;
+        std::cerr << "Usage: viora symbol-query <file.viosym>" << std::endl;
         return false;
     }
     const QString filePath = args.at(1);
@@ -1519,7 +1519,7 @@ bool runSymbolQuery(const QStringList& args) {
 
 bool runSymbolValidate(const QStringList& args) {
     if (args.size() < 2) {
-        std::cerr << "Usage: vio-cmd symbol-validate <file.viosym>" << std::endl;
+        std::cerr << "Usage: viora symbol-validate <file.viosym>" << std::endl;
         return false;
     }
     const QString filePath = args.at(1);
@@ -1872,7 +1872,7 @@ bool runSchematicBom(const QString& filePath) {
 
 bool runSchematicDiff(const QStringList& args) {
     if (args.size() < 3) {
-        std::cerr << "Usage: vio-cmd schematic-diff <a.flxsch> <b.flxsch>" << std::endl;
+        std::cerr << "Usage: viora schematic-diff <a.flxsch> <b.flxsch>" << std::endl;
         return false;
     }
     const QString aPath = args.at(1);
@@ -2136,7 +2136,7 @@ bool runSchematicProbe(const QString& filePath, const QCommandLineParser& parser
 
 bool runNetlistCompare(const QStringList& args, const QCommandLineParser& parser) {
     if (args.size() < 3) {
-        std::cerr << "Usage: vio-cmd netlist-compare <file.flxsch> <external.net>" << std::endl;
+        std::cerr << "Usage: viora netlist-compare <file.flxsch> <external.net>" << std::endl;
         return false;
     }
     const QString schematicPath = args.at(1);
@@ -2410,12 +2410,20 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
             if (RawDataParser::loadRawAscii(rawPath.toStdString(), &data)) {
                 QStringList signalNames = parser.values("signal");
                 if (signalNames.isEmpty()) {
-                    for (int i = 1; i < data.varNames.size(); ++i) signalNames << data.varNames[i];
+                    for (int i = 1; i < (int)data.varNames.size(); ++i) {
+                        signalNames << QString::fromStdString(data.varNames[i]);
+                    }
                 }
                 QVector<int> indices;
                 bool ok = true;
                 for (const auto& sig : signalNames) {
-                    const int idx = data.varNames.indexOf(sig);
+                    int idx = -1;
+                    for (int j = 0; j < (int)data.varNames.size(); ++j) {
+                        if (QString::fromStdString(data.varNames[j]) == sig) {
+                            idx = j;
+                            break;
+                        }
+                    }
                     if (idx < 1) { ok = false; break; }
                     indices << (idx - 1);
                 }
@@ -2454,14 +2462,17 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                             measArr.append(m);
                             continue;
                         }
-                        const int varIndex = findVarIndex(data.varNames, req.signalName);
+                        QStringList varNames;
+                        for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+                        const int varIndex = findVarIndex(varNames, req.signalName);
                         if (varIndex < 0) {
                             m["error"] = "Signal not found";
                             measArr.append(m);
                             continue;
                         }
                         if (req.type == MeasureType::At) {
-                            const int idx = nearestIndex(data.x, req.atTime);
+                            QVector<double> xData = QVector<double>(data.x.begin(), data.x.end());
+                            const int idx = nearestIndex(xData, req.atTime);
                             if (idx < 0) {
                                 m["error"] = "No samples";
                             } else if (varIndex == 0) {
@@ -2538,7 +2549,9 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                             continue;
                         }
                         
-                        const int varIndex = findVarIndex(data.varNames, req.signalName);
+                        QStringList varNames;
+                        for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+                        const int varIndex = findVarIndex(varNames, req.signalName);
                         if (varIndex < 0) {
                             a["error"] = "Signal not found: " + req.signalName;
                             a["ok"] = false;
@@ -2550,7 +2563,8 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                         double actualVal = 0.0;
                         bool valOk = false;
                         if (req.type == MeasureType::At) {
-                            const int idx = nearestIndex(data.x, req.atTime);
+                            QVector<double> xData = QVector<double>(data.x.begin(), data.x.end());
+                            const int idx = nearestIndex(xData, req.atTime);
                             if (idx >= 0) {
                                 actualVal = (varIndex == 0) ? data.x[idx] : data.y[varIndex - 1][idx];
                                 valOk = true;
@@ -2638,7 +2652,9 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                     continue;
                 }
                 
-                const int varIndex = findVarIndex(data.varNames, req.signalName);
+                QStringList varNames;
+                for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+                const int varIndex = findVarIndex(varNames, req.signalName);
                 if (varIndex < 0) {
                     std::cerr << "Assertion Error: Signal not found: " << req.signalName.toStdString() << std::endl;
                     allAssertsPassed = false;
@@ -2648,7 +2664,8 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                 double actualVal = 0.0;
                 bool valOk = false;
                 if (req.type == MeasureType::At) {
-                    const int idx = nearestIndex(data.x, req.atTime);
+                    QVector<double> xData = QVector<double>(data.x.begin(), data.x.end());
+                    const int idx = nearestIndex(xData, req.atTime);
                     if (idx >= 0) {
                         actualVal = (varIndex == 0) ? data.x[idx] : data.y[varIndex - 1][idx];
                         valOk = true;
@@ -2717,11 +2734,19 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
         }
         QStringList signalNames = parser.values("signal");
         if (signalNames.isEmpty()) {
-            for (int i = 1; i < data.varNames.size(); ++i) signalNames << data.varNames[i];
+            for (int i = 1; i < (int)data.varNames.size(); ++i) {
+                signalNames << QString::fromStdString(data.varNames[i]);
+            }
         }
         QVector<int> indices;
         for (const auto& sig : signalNames) {
-            const int idx = data.varNames.indexOf(sig);
+            int idx = -1;
+            for (int j = 0; j < (int)data.varNames.size(); ++j) {
+                if (QString::fromStdString(data.varNames[j]) == sig) {
+                    idx = j;
+                    break;
+                }
+            }
             if (idx < 1) {
                 std::cerr << "Error: Signal not found: " << sig.toStdString() << std::endl;
                 return false;
@@ -2744,13 +2769,16 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                     std::cerr << expr.toStdString() << " error=" << perr.toStdString() << std::endl;
                     continue;
                 }
-                const int varIndex = findVarIndex(data.varNames, req.signalName);
+                QStringList varNames;
+                for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+                const int varIndex = findVarIndex(varNames, req.signalName);
                 if (varIndex < 0) {
                     std::cerr << expr.toStdString() << " error=Signal not found" << std::endl;
                     continue;
                 }
                 if (req.type == MeasureType::At) {
-                    const int idx = nearestIndex(data.x, req.atTime);
+                    QVector<double> xData = QVector<double>(data.x.begin(), data.x.end());
+                    const int idx = nearestIndex(xData, req.atTime);
                     if (idx < 0) {
                         std::cerr << expr.toStdString() << " error=No samples" << std::endl;
                     } else if (varIndex == 0) {
@@ -2797,14 +2825,17 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                     measArr.append(m);
                     continue;
                 }
-                const int varIndex = findVarIndex(data.varNames, req.signalName);
+                QStringList varNames;
+                for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+                const int varIndex = findVarIndex(varNames, req.signalName);
                 if (varIndex < 0) {
                     m["error"] = "Signal not found";
                     measArr.append(m);
                     continue;
                 }
                 if (req.type == MeasureType::At) {
-                    const int idx = nearestIndex(data.x, req.atTime);
+                    QVector<double> xData = QVector<double>(data.x.begin(), data.x.end());
+                    const int idx = nearestIndex(xData, req.atTime);
                     if (idx < 0) m["error"] = "No samples";
                     else if (varIndex == 0) m["value"] = data.x[idx];
                     else m["value"] = data.y[varIndex - 1][idx];
@@ -2849,14 +2880,17 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                     measArr.append(m);
                     continue;
                 }
-                const int varIndex = findVarIndex(data.varNames, req.signalName);
+                QStringList varNames;
+                for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+                const int varIndex = findVarIndex(varNames, req.signalName);
                 if (varIndex < 0) {
                     m["error"] = "Signal not found";
                     measArr.append(m);
                     continue;
                 }
                 if (req.type == MeasureType::At) {
-                    const int idx = nearestIndex(data.x, req.atTime);
+                    QVector<double> xData = QVector<double>(data.x.begin(), data.x.end());
+                    const int idx = nearestIndex(xData, req.atTime);
                     if (idx < 0) m["error"] = "No samples";
                     else if (varIndex == 0) m["value"] = data.x[idx];
                     else m["value"] = data.y[varIndex - 1][idx];
@@ -2929,14 +2963,17 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
                             measArr.append(m);
                             continue;
                         }
-                        const int varIndex = findVarIndex(data.varNames, req.signalName);
+                        QStringList varNames;
+                        for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+                        const int varIndex = findVarIndex(varNames, req.signalName);
                         if (varIndex < 0) {
                             m["error"] = "Signal not found";
                             measArr.append(m);
                             continue;
                         }
                         if (req.type == MeasureType::At) {
-                            const int idx = nearestIndex(data.x, req.atTime);
+                            QVector<double> xData = QVector<double>(data.x.begin(), data.x.end());
+                            const int idx = nearestIndex(xData, req.atTime);
                             if (idx < 0) m["error"] = "No samples";
                             else if (varIndex == 0) m["value"] = data.x[idx];
                             else m["value"] = data.y[varIndex - 1][idx];
@@ -3105,7 +3142,8 @@ bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
     if (parser.isSet("summary")) {
         int voltageCount = 0;
         int currentCount = 0;
-        for (const auto& name : data.varNames) {
+        for (const auto& vn : data.varNames) {
+            QString name = QString::fromStdString(vn);
             if (name.compare("time", Qt::CaseInsensitive) == 0) continue;
             if (name.startsWith("i(", Qt::CaseInsensitive)) currentCount++;
             else voltageCount++;
@@ -3132,8 +3170,8 @@ bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
     const QString baseSignalName = parser.value("base-signal").trimmed();
     if (!baseSignalName.isEmpty()) {
         int idx = -1;
-        for (int i = 0; i < data.varNames.size(); ++i) {
-            if (data.varNames[i].compare(baseSignalName, Qt::CaseInsensitive) == 0) {
+        for (int i = 0; i < (int)data.varNames.size(); ++i) {
+            if (QString::fromStdString(data.varNames[i]).compare(baseSignalName, Qt::CaseInsensitive) == 0) {
                 idx = i;
                 break;
             }
@@ -3151,7 +3189,7 @@ bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
         out["variables"] = data.numVariables;
         out["points"] = data.numPoints;
         QJsonArray names;
-        for (const auto& name : data.varNames) names.append(name);
+        for (const auto& vn : data.varNames) names.append(QString::fromStdString(vn));
         out["varNames"] = names;
         printJsonValue(out);
         return true;
@@ -3160,8 +3198,8 @@ bool runRawInfo(const QString& filePath, const QCommandLineParser& parser) {
     std::cout << "File: " << filePath.toStdString() << std::endl;
     std::cout << "Variables: " << data.numVariables << std::endl;
     std::cout << "Points: " << data.numPoints << std::endl;
-    for (const auto& name : data.varNames) {
-        std::cout << "  " << name.toStdString() << std::endl;
+    for (const auto& vn : data.varNames) {
+        std::cout << "  " << vn << std::endl;
     }
     return true;
 }
@@ -3185,7 +3223,9 @@ bool runRawExport(const QString& filePath, const QCommandLineParser& parser) {
     QStringList signalNames = parser.values("signal");
     const QString signalRegex = parser.value("signal-regex").trimmed();
     if (signalNames.isEmpty()) {
-        for (int i = 1; i < data.varNames.size(); ++i) signalNames << data.varNames[i];
+        for (int i = 1; i < (int)data.varNames.size(); ++i) {
+            signalNames << QString::fromStdString(data.varNames[i]);
+        }
     }
     if (!signalRegex.isEmpty()) {
         QRegularExpression re(signalRegex);
@@ -3206,7 +3246,13 @@ bool runRawExport(const QString& filePath, const QCommandLineParser& parser) {
 
     QVector<int> indices;
     for (const auto& sig : signalNames) {
-        const int idx = data.varNames.indexOf(sig);
+        int idx = -1;
+        for (int i = 0; i < (int)data.varNames.size(); ++i) {
+            if (QString::fromStdString(data.varNames[i]) == sig) {
+                idx = i;
+                break;
+            }
+        }
         if (idx < 1) {
             std::cerr << "Error: Signal not found: " << sig.toStdString() << std::endl;
             return false;
@@ -3415,7 +3461,7 @@ void printSchema(const QString& command) {
 
 bool runPluginPack(const QStringList& args) {
     if (args.size() < 4) {
-        std::cerr << "Usage: vio-cmd plugin-pack <manifest.json> <artifact-file> <output.fluxplugin>" << std::endl;
+        std::cerr << "Usage: viora plugin-pack <manifest.json> <artifact-file> <output.fluxplugin>" << std::endl;
         return false;
     }
 
@@ -3490,7 +3536,7 @@ bool runPluginPack(const QStringList& args) {
 
 bool runPluginInspect(const QStringList& args) {
     if (args.size() < 2) {
-        std::cerr << "Usage: vio-cmd plugin-inspect <package.fluxplugin>" << std::endl;
+        std::cerr << "Usage: viora plugin-inspect <package.fluxplugin>" << std::endl;
         return false;
     }
     const QString packagePath = args.at(1);
@@ -3630,7 +3676,7 @@ QJsonObject resultsToJson(const SimResults& results) {
 } // namespace
 
 static void printGeneralHelp() {
-    std::cout << "Usage: vio-cmd <command> [file] [options]\n\n";
+    std::cout << "Usage: viora <command> [file] [options]\n\n";
     std::cout << "Common commands:\n";
     std::cout << "  flux              FluxScript SPICE integration\n";
     std::cout << "  schematic-query <file.flxsch>\n";
@@ -3645,15 +3691,15 @@ static void printGeneralHelp() {
     std::cout << "  symbol-list <folder|library.sclib>\n";
     std::cout << "  symbol-validate <file.viosym>\n";
     std::cout << "\nTips:\n";
-    std::cout << "  Use \"vio-cmd help <command>\" for command-specific help.\n";
+    std::cout << "  Use \"viora help <command>\" for command-specific help.\n";
     std::cout << "  Use --json for machine-readable output.\n";
 }
 
 static void printCommandHelp(const QString& command) {
     if (command == "flux") {
-        std::cout << "vio-cmd flux - FluxScript SPICE Integration\n";
+        std::cout << "viora flux - FluxScript SPICE Integration\n";
         std::cout << "\n";
-        std::cout << "Usage: vio-cmd flux <subcommand> [options] [file.flux]\n";
+        std::cout << "Usage: viora flux <subcommand> [options] [file.flux]\n";
         std::cout << "\n";
         std::cout << "Subcommands:\n";
         std::cout << "  run <file.flux>     Compile and run FluxScript file\n";
@@ -3662,10 +3708,10 @@ static void printCommandHelp(const QString& command) {
         std::cout << "  repl                Interactive REPL mode\n";
         std::cout << "\n";
         std::cout << "Examples:\n";
-        std::cout << "  vio-cmd flux run circuit.flux\n";
-        std::cout << "  vio-cmd flux compile circuit.flux -o circuit.cir\n";
-        std::cout << "  vio-cmd flux eval \"sin(pi/2)\"\n";
-        std::cout << "  vio-cmd flux repl\n";
+        std::cout << "  viora flux run circuit.flux\n";
+        std::cout << "  viora flux compile circuit.flux -o circuit.cir\n";
+        std::cout << "  viora flux eval \"sin(pi/2)\"\n";
+        std::cout << "  viora flux repl\n";
         return;
     }
 
@@ -3734,7 +3780,7 @@ int main(int argc, char *argv[]) {
     // We run with offscreen platform to keep it CLI-friendly
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication app(argc, argv);
-    QApplication::setApplicationName("vio-cmd");
+    QApplication::setApplicationName("viora");
     QCoreApplication::setApplicationVersion("1.0");
 
     QCommandLineParser parser;
@@ -4066,21 +4112,21 @@ int main(int argc, char *argv[]) {
             if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
                 // Simplified SimResults conversion for CLI
                 results.analysisType = t;
-                for (int i = 0; i < rd.varNames.size(); ++i) {
+                for (int i = 0; i < (int)rd.varNames.size(); ++i) {
                     if (i == 0) continue; // skip time/frequency
                     SimWaveform wave;
-                    wave.name = rd.varNames[i].toStdString();
+                    wave.name = rd.varNames[i];
                     wave.xData = std::vector<double>(rd.x.begin(), rd.x.end());
                     wave.yData = std::vector<double>(rd.y[i-1].begin(), rd.y[i-1].end());
                     results.waveforms.push_back(wave);
                     
                     // Populate summaries for AI context (use first point for non-OP as a "current state" hint)
-                    if (!rd.y[i-1].isEmpty()) {
+                    if (!rd.y[i-1].empty()) {
                         QString qName = QString::fromStdString(wave.name);
                         if (qName.startsWith("V(", Qt::CaseInsensitive)) {
-                             results.nodeVoltages[rd.varNames[i].mid(2, rd.varNames[i].size() - 3).toStdString()] = rd.y[i-1][0];
+                             results.nodeVoltages[qName.mid(2, qName.size() - 3).toStdString()] = rd.y[i-1][0];
                         } else if (qName.startsWith("I(", Qt::CaseInsensitive)) {
-                             results.branchCurrents[rd.varNames[i].mid(2, rd.varNames[i].size() - 3).toStdString()] = rd.y[i-1][0];
+                             results.branchCurrents[qName.mid(2, qName.size() - 3).toStdString()] = rd.y[i-1][0];
                         }
                     }
                 }
@@ -4142,7 +4188,7 @@ int main(int argc, char *argv[]) {
         return 1;
         #else
         if (args.size() < 3) {
-            std::cerr << "Usage: vio-cmd render <file.pcb> <output.png>" << std::endl;
+            std::cerr << "Usage: viora render <file.pcb> <output.png>" << std::endl;
             return 1;
         }
         QString output = args.at(2);
@@ -4175,19 +4221,19 @@ int main(int argc, char *argv[]) {
         #endif
     } else if (command == "schematic-render") {
         if (args.size() < 3) {
-            std::cerr << "Usage: vio-cmd schematic-render <file.flxsch> <out.png>" << std::endl;
+            std::cerr << "Usage: viora schematic-render <file.flxsch> <out.png>" << std::endl;
             return 1;
         }
         return runSchematicRender(filePath, args.at(2), parser) ? 0 : 1;
     } else if (command == "generate-report") {
         if (args.size() < 3) {
-            std::cerr << "Usage: vio-cmd generate-report <file.flxsch> <out.html> [--title 'My Design'] [--author 'John Doe']" << std::endl;
+            std::cerr << "Usage: viora generate-report <file.flxsch> <out.html> [--title 'My Design'] [--author 'John Doe']" << std::endl;
             return 1;
         }
         return runGenerateReport(filePath, args.at(2), parser) ? 0 : 1;
     } else if (command == "share") {
         if (args.size() < 2) {
-            std::cerr << "Usage: vio-cmd share <file.flxsch> [--title 'My Circuit'] [--description 'Description'] [--upload] [--copy] [--server <url>]" << std::endl;
+            std::cerr << "Usage: viora share <file.flxsch> [--title 'My Circuit'] [--description 'Description'] [--upload] [--copy] [--server <url>]" << std::endl;
             return 1;
         }
         return runShareSchematic(args.at(1), parser) ? 0 : 1;
@@ -4443,7 +4489,7 @@ int main(int argc, char *argv[]) {
 
     } else if (command == "process") {
         if (args.size() < 3) {
-            std::cerr << "Usage: vio-cmd process <file.sch|.pcb> <script.json> [output.file]" << std::endl;
+            std::cerr << "Usage: viora process <file.sch|.pcb> <script.json> [output.file]" << std::endl;
             return 1;
         }
         
@@ -4502,7 +4548,7 @@ int main(int argc, char *argv[]) {
         }
     } else if (command == "python") {
         if (args.size() < 2) {
-            std::cerr << "Usage: vio-cmd python <script.py> [args...]" << std::endl;
+            std::cerr << "Usage: viora python <script.py> [args...]" << std::endl;
             return 1;
         }
 

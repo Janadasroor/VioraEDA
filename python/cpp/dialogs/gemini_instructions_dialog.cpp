@@ -287,18 +287,25 @@ void GeminiInstructionsDialog::onAddSkillClicked() {
     QString name = QInputDialog::getText(this, "New Skill", "Enter skill name (e.g. SMPSExpert):");
     if (name.isEmpty()) return;
     
-    name = name.trimmed().replace(" ", "-"); // Use hyphens for folder names
+    name = name.trimmed().replace(" ", "-"); 
     
     QString path;
     if (m_projectCombo->currentIndex() == 0) {
         path = getGlobalSkillsPath();
     } else {
-        path = getSkillsPathForProject(getSelectedProjectPath());
+        QString projectPath = getSelectedProjectPath();
+        if (projectPath.isEmpty()) {
+            QMessageBox::warning(this, "Error", "Selected project path is invalid.");
+            return;
+        }
+        path = getSkillsPathForProject(projectPath);
     }
 
     if (path.isEmpty()) return;
     
     QDir skillDir(path + "/" + name);
+    qDebug() << "[GeminiInstructionsDialog] Creating skill at:" << skillDir.absolutePath();
+
     if (skillDir.exists()) {
         QMessageBox::warning(this, "Error", "Skill already exists.");
         return;
@@ -312,8 +319,14 @@ void GeminiInstructionsDialog::onAddSkillClicked() {
             out << "## Description\nExpertise in " << name << ".\n\n";
             out << "## System Prompt\nYou are an expert in...\n";
             file.close();
+            qDebug() << "[GeminiInstructionsDialog] SKILL.md created successfully.";
+        } else {
+            qDebug() << "[GeminiInstructionsDialog] Failed to create SKILL.md:" << file.errorString();
         }
         refreshSkillList();
+    } else {
+        qDebug() << "[GeminiInstructionsDialog] Failed to create directory path:" << skillDir.absolutePath();
+        QMessageBox::critical(this, "Error", "Failed to create skill directory structure.");
     }
 }
 

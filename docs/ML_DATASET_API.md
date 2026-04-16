@@ -6,7 +6,7 @@ This API exposes VioSpice simulation runs as training-ready dataset records so M
 
 - source schematic path and simulation configuration
 - generated schematic netlist in JSON form
-- simulator-native result JSON from `vio-cmd simulate --json`
+- simulator-native result JSON from `viora simulate --json`
 - optional decimated raw waveforms extracted from the returned signals
 - optional signal statistics computed by the API
 - optional measurement expressions computed by the API
@@ -21,7 +21,7 @@ python3 python/scripts/ml_dataset_api.py --port 8787
 Optional:
 
 ```bash
-python3 python/scripts/ml_dataset_api.py --port 8787 --cli-path ./build/vio-cmd
+python3 python/scripts/ml_dataset_api.py --port 8787 --cli-path ./build/viora
 ```
 
 ## FastAPI Packaging
@@ -72,7 +72,7 @@ Authentication and rate limiting:
 
 ### `GET /api/ml/health`
 
-Returns service status and the resolved `vio-cmd` path.
+Returns service status and the resolved `viora` path.
 
 ### `POST /api/ml/simulate`
 
@@ -144,7 +144,7 @@ Each line in the output JSONL file is a self-contained training record.
 
 ### `POST /api/ml/examples/voltage-divider-classification`
 
-Generates a ready-to-train classification dataset from real `vio-cmd netlist-run` voltage-divider simulations.
+Generates a ready-to-train classification dataset from real `viora netlist-run` voltage-divider simulations.
 
 Example request:
 

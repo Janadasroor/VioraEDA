@@ -725,14 +725,14 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
 )");
 
     // -----------------------------------------------------------------------
-    // Simulation Runner — shells out to vio-cmd netlist-run + parses .raw
+    // Simulation Runner — shells out to viora netlist-run + parses .raw
     // -----------------------------------------------------------------------
     m.def("run_simulation",
           [](const std::string& netlist_text,
              const std::string& analysis,
              const std::string& stop_time,
              const std::string& step_time,
-             const std::string& vio_cmd_path,
+             const std::string& viora_path,
              int timeout_seconds) -> nb::dict {
               nb::dict result;
 
@@ -744,17 +744,17 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
               if (written < 0) { close(fd); unlink(tmpfile); result["ok"] = false; result["error"] = "Failed to write temp file"; return result; }
               close(fd);
 
-              // Derive raw file path (vio-cmd creates same_basename.raw)
+              // Derive raw file path (viora creates same_basename.raw)
               // tmpfile is "/tmp/vspice_XXXXXX.cir" -> raw is "/tmp/vspice_XXXXXX.raw"
               std::string raw_path = tmpfile;
               size_t dotPos = raw_path.rfind('.');
               if (dotPos != std::string::npos) raw_path.resize(dotPos);
               raw_path += ".raw";
 
-              // Find vio-cmd
-              std::string cmd = vio_cmd_path;
+              // Find viora
+              std::string cmd = viora_path;
               if (cmd.empty()) {
-                  FILE* which = popen("which vio-cmd 2>/dev/null", "r");
+                  FILE* which = popen("which viora 2>/dev/null", "r");
                   if (which) {
                       char buf[1024];
                       if (fgets(buf, sizeof(buf), which)) {
@@ -765,7 +765,7 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
                       pclose(which);
                   }
                   if (cmd.empty()) {
-                      const char* paths[] = { "build/vio-cmd", "build-debug/vio-cmd", "build-asan/vio-cmd", nullptr };
+                      const char* paths[] = { "build/viora", "build-debug/viora", "build-asan/viora", nullptr };
                       for (int i = 0; paths[i]; ++i) {
                           FILE* test = fopen(paths[i], "r");
                           if (test) { fclose(test); cmd = paths[i]; break; }
@@ -774,7 +774,7 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
                   if (cmd.empty()) {
                       unlink(tmpfile);
                       result["ok"] = false;
-                      result["error"] = "vio-cmd not found. Install it or pass vio_cmd_path.";
+                      result["error"] = "viora not found. Install it or pass viora_path.";
                       return result;
                   }
               }
@@ -792,7 +792,7 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
               FILE* pipe = popen(oss.str().c_str(), "r");
               if (!pipe) {
                   unlink(tmpfile); unlink(raw_path.c_str());
-                  result["ok"] = false; result["error"] = "Failed to execute vio-cmd";
+                  result["ok"] = false; result["error"] = "Failed to execute viora";
                   return result;
               }
               std::string vio_out;
@@ -804,8 +804,8 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
 
               if (rc != 0) {
                   result["ok"] = false;
-                  result["error"] = "vio-cmd returned non-zero exit code";
-                  result["vio_output"] = vio_out;
+                  result["error"] = "viora returned non-zero exit code";
+                  result["viora_output"] = vio_out;
                   return result;
               }
 
@@ -869,16 +869,16 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
           nb::arg("analysis") = "op",
           nb::arg("stop_time") = "",
           nb::arg("step_time") = "",
-          nb::arg("vio_cmd_path") = "",
+          nb::arg("viora_path") = "",
           nb::arg("timeout_seconds") = 60,
-          R"(Run a SPICE netlist simulation via vio-cmd and parse results.
+          R"(Run a SPICE netlist simulation via viora and parse results.
 
 Args:
     netlist_text: SPICE netlist as a string
     analysis: 'op', 'tran', 'ac', or 'dc'
     stop_time: Stop time for transient (e.g. '10m')
     step_time: Step size for transient (e.g. '100u')
-    vio_cmd_path: Path to vio-cmd binary (auto-detected if empty)
+    viora_path: Path to viora binary (auto-detected if empty)
     timeout_seconds: Max simulation time
 
 Returns:

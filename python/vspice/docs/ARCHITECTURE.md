@@ -28,7 +28,7 @@ FluxScript (LLVM JIT — in-simulation engine only)
 |---|---|---|
 | `vspice._core` (nanobind) | Circuit building, simulation, parsing | C++ ↔ Python |
 | `vspice.ui` (WebSocket) | GUI integration, menus, messages | Python → Qt |
-| `vspice.run_simulation()` | Runs SPICE via `vio-cmd` subprocess | C++ → ngspice |
+| `vspice.run_simulation()` | Runs SPICE via `viora` subprocess | C++ → ngspice |
 | FluxScript (JIT) | Behavioral sources inside simulation | FluxScript → LLVM → native |
 
 ## Module Structure

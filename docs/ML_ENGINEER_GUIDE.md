@@ -245,7 +245,7 @@ When complete, the job record includes the final result payload.
 
 ## 7. Generate a ready-made classification dataset
 
-If you want a real labeled dataset immediately, use the built-in voltage-divider classification endpoint. It runs `vio-cmd netlist-run` across a parameter grid and writes JSONL records with `labels.class_id`.
+If you want a real labeled dataset immediately, use the built-in voltage-divider classification endpoint. It runs `viora netlist-run` across a parameter grid and writes JSONL records with `labels.class_id`.
 
 ```bash
 curl -X POST http://localhost:8790/api/ml/examples/voltage-divider-classification \
@@ -321,7 +321,7 @@ python3 examples/ml_api/generate_voltage_divider_classification_dataset.py
 python3 examples/ml_api/train_classifier.py
 ```
 
-The classification example generates a real voltage-divider dataset with `vio-cmd netlist-run`, assigns `labels.class_id` from the simulated `vout_ratio`, and then trains on that JSONL.
+The classification example generates a real voltage-divider dataset with `viora netlist-run`, assigns `labels.class_id` from the simulated `vout_ratio`, and then trains on that JSONL.
 
 Notebook version:
 

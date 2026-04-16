@@ -7,7 +7,7 @@ Core features:
   - Simulation results container
   - SPICE model parser and .meas evaluator
   - Netlist builder (SimNetlist, SimComponentInstance, SimModel)
-  - Simulation runner (run_simulation via vio-cmd subprocess)
+  - Simulation runner (run_simulation via viora subprocess)
   - Event hooks (@handlers.simulation_finished, etc.)
   - bpy-like API via ``import vspice.v as v`` (or just ``import v`` in console)
 """

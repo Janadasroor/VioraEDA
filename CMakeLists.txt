@@ -170,13 +170,13 @@ endif()
 option(BUILD_VIOSPICE_CLI "Build the CLI tool" ON)
 if(BUILD_VIOSPICE_CLI)
     # CLI tool
-    qt_add_executable(vio_cmd
+    qt_add_executable(viora
         cli/main.cpp
         cli/flux_command.cpp
         resources/resources.qrc
     )
 
-    target_link_libraries(vio_cmd PRIVATE
+    target_link_libraries(viora PRIVATE
         FluxSchematicUI
         FluxSchematicCore
         FluxSymbols
@@ -188,23 +188,29 @@ if(BUILD_VIOSPICE_CLI)
         FluxFootprints
         VioraPCBCore
     )
-    target_compile_definitions(vio_cmd PRIVATE HAVE_FLUXSCRIPT)
+    target_compile_definitions(viora PRIVATE HAVE_FLUXSCRIPT)
 
 
     if(VIOSPICE_ENGINE_FOUND)
-        target_link_libraries(vio_cmd PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
-        target_include_directories(vio_cmd PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
-        # Set rpath so vio-cmd finds VioMATRIXC's libngspice at runtime
+        target_link_libraries(viora PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
+        target_include_directories(viora PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
+        # Set rpath so viora finds VioMATRIXC's libngspice at runtime
         get_filename_component(_engine_lib_dir "${VIOSPICE_ENGINE_LIBRARY}" DIRECTORY)
-        set_target_properties(vio_cmd PROPERTIES
+        set_target_properties(viora PROPERTIES
             BUILD_RPATH "${_engine_lib_dir}"
             BUILD_RPATH_USE_ORIGIN TRUE
             INSTALL_RPATH "$ORIGIN/../lib"
         )
     endif()
 
-    vioraeda_configure_app_target(vio_cmd)
-    set_target_properties(vio_cmd PROPERTIES OUTPUT_NAME "vio-cmd")
+    vioraeda_configure_app_target(viora)
+    
+    # Automatically link viora CLI globally in user's local bin after every build
+    add_custom_command(TARGET viora POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$ENV{HOME}/.local/bin"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink "$<TARGET_FILE:viora>" "$ENV{HOME}/.local/bin/viora"
+        COMMENT "Linking viora CLI to ~/.local/bin/viora"
+    )
 endif()
 
 option(BUILD_VIOSPICE_APP "Build the desktop application" ON)

@@ -98,7 +98,7 @@ In `core/simulation_manager.cpp`:
 
 ## 4. Build System & Linking Fixes
 
-Fixed runtime linking issues where `vio-cmd` and `viospice` were loading the system `libngspice.so` (which lacked VioMATRIXC patches) instead of the local build.
+Fixed runtime linking issues where `viora` and `viospice` were loading the system `libngspice.so` (which lacked VioMATRIXC patches) instead of the local build.
 
 ### Changes
 *   **CMakeLists.txt**: Added `BUILD_RPATH` and `INSTALL_RPATH` properties to targets.

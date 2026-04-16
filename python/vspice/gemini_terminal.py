@@ -100,7 +100,7 @@ class AITagParser:
 class VspiceToolExecutor:
     """Execute simulation and editor tools via the vspice Python API.
 
-    This bypasses subprocess calls to vio-cmd and uses the nanobind
+    This bypasses subprocess calls to viora and uses the nanobind
     vspice module directly for faster, in-process execution.
     """
 
