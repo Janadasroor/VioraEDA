@@ -4,8 +4,8 @@ import QtQuick.Layouts
 
 Rectangle {
     id: root
-    width: 400
-    height: 600
+    implicitWidth: 400
+    implicitHeight: 600
     color: "#0a0f18" // Deep base background
 
     // Top Navigation/Header
@@ -23,9 +23,9 @@ Rectangle {
         width: parent.width
         anchors.top: header.bottom
         anchors.bottom: composer.top
-        anchors.topMargin: 10
-        anchors.bottomMargin: 10
-        spacing: 15
+        anchors.topMargin: 4
+        anchors.bottomMargin: 4
+        spacing: 8
         clip: true
         
         model: (geminiBridge && geminiBridge.messages) ? geminiBridge.messages : []

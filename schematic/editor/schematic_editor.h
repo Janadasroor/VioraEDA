@@ -145,6 +145,7 @@ private Q_SLOTS:
     void onSwitchToPCBEditor();
     void onOpenGeminiAI();
     void onShowHelp();
+    void onShowShortcuts();
     void onShowDeveloperHelp();
     void onProjectAudit();
     void onOpenCommandPalette();

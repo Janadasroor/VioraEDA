@@ -25,7 +25,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QProgressBar>
-#include "../../python/flux_script_manager.h"
+#include "../../python/cpp/core/flux_script_manager.h"
 
 namespace {
 

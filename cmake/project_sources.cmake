@@ -509,6 +509,8 @@ set(UI_SOURCES
     ui/schematic_timeline_view.h
     ui/branch_comparison_dialog.cpp
     ui/branch_comparison_dialog.h
+    ui/shortcuts_dialog.cpp
+    ui/shortcuts_dialog.h
 
     core/ui/project_audit_dialog.cpp
     ui/calculator_dialog.cpp

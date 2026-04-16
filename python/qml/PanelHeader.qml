@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: headerRoot
@@ -76,14 +77,14 @@ Rectangle {
 
             // New Chat (+)
             HeaderButton {
-                text: "+"
+                iconSource: "qrc:/icons/tool_new.svg"
                 toolTip: "New Conversation"
                 onClicked: if (typeof geminiBridge !== "undefined" && geminiBridge) geminiBridge.clearHistory()
             }
 
             // History (Clock-ish)
             HeaderButton {
-                text: "🕒"
+                iconSource: "qrc:/icons/tool_refresh.svg"
                 toolTip: "History"
                 onClicked: {
                     if (typeof geminiBridge !== "undefined" && geminiBridge && typeof geminiBridge.showHistory === "function") {
@@ -98,6 +99,7 @@ Rectangle {
                 toolTip: "More Options"
                 onClicked: moreMenu.open()
             }
+// ... (rest of Menu)
 
             // Activity Dashboard (📊)
             HeaderButton {
@@ -211,6 +213,7 @@ Rectangle {
     component HeaderButton : Button {
         property string toolTip: ""
         property color fontColor: "#94a3b8"
+        property string iconSource: ""
         
         id: btn
         font.pixelSize: 16
@@ -223,12 +226,27 @@ Rectangle {
             radius: 6
         }
 
-        contentItem: Text {
-            text: btn.text
-            color: btn.hovered ? "white" : btn.fontColor
-            font: btn.font
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
+        contentItem: Item {
+            Image {
+                anchors.centerIn: parent
+                source: btn.iconSource
+                width: 18; height: 18
+                visible: btn.iconSource !== ""
+                cache: true
+                asynchronous: true
+                layer.enabled: true
+                layer.effect: ColorOverlay { color: btn.hovered ? "white" : btn.fontColor }
+            }
+
+            Text {
+                anchors.centerIn: parent
+                text: btn.text
+                color: btn.hovered ? "white" : btn.fontColor
+                font: btn.font
+                visible: btn.iconSource === ""
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
         }
 
         ToolTip.visible: hovered && toolTip !== ""

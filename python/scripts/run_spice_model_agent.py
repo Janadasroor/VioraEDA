@@ -6,6 +6,11 @@ import argparse
 from google import genai
 from google.genai import types
 
+# Manually ensure the python root is in sys.path before importing ai_pipeline
+_py_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _py_root not in sys.path:
+    sys.path.insert(0, _py_root)
+
 from ai_pipeline.config import _ensure_python_root_in_syspath, ENV_GEMINI_API_KEY, ENV_OCTOPART_API_KEY
 _ensure_python_root_in_syspath()
 

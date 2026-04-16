@@ -19,7 +19,7 @@
 #include <functional>
 #include "models/symbol_definition.h"
 #include "symbol_editor_view.h"
-#include "../python/gemini_panel.h"
+#include "../python/cpp/gemini/gemini_panel.h"
 #include "ui/symbol_preview_widget.h"
 
 using Flux::Model::SymbolDefinition;

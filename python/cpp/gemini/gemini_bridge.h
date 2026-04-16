@@ -70,7 +70,9 @@ public:
     void setZoomFactor(double zoom);
 
     Q_INVOKABLE void copyToClipboard(const QString& text);
+    Q_INVOKABLE QString getImageFromClipboard();
     Q_INVOKABLE void sendMessage(const QString& text);
+    Q_INVOKABLE void sendMessageWithImage(const QString& text, const QString& imageBase64);
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void stopRun();
     Q_INVOKABLE void refreshModels();
@@ -83,6 +85,7 @@ public:
     Q_INVOKABLE void resetZoom();
     Q_INVOKABLE void exportChat();
     Q_INVOKABLE void clearToolCalls();
+    Q_INVOKABLE QStringList findFiles(const QString& query);
 
 Q_SIGNALS:
     void messagesChanged();
@@ -102,6 +105,7 @@ Q_SIGNALS:
     
     // Internal signals to trigger logic in GeminiPanel
     void sendMessageRequested(const QString& text);
+    void sendMessageWithImageRequested(const QString& text, const QString& imageBase64);
     void stopRequested();
     void refreshModelsRequested();
     void clearHistoryRequested();

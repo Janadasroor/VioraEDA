@@ -5,7 +5,7 @@
 #include "../items/smart_signal_item.h"
 #include "../../core/config_manager.h"
 #include "../../core/flux_python.h"
-#include "../../python/flux_script_manager.h"
+#include "../../python/cpp/core/flux_script_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -41,7 +41,7 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include "visual_pin_mapper.h"
-#include "../../python/gemini_panel.h"
+#include "../../python/cpp/gemini/gemini_panel.h"
 #include <QFileSystemWatcher>
 
 LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)

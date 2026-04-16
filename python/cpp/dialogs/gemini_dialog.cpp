@@ -1,5 +1,5 @@
 #include "gemini_dialog.h"
-#include "gemini_panel.h"
+#include "../gemini/gemini_panel.h"
 #include <QVBoxLayout>
 
 GeminiDialog::GeminiDialog(QGraphicsScene* scene, QWidget* parent) 

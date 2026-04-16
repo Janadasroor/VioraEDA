@@ -1,5 +1,5 @@
 #include "ai_datasheet_import_dialog.h"
-#include "../../python/flux_script_manager.h"
+#include "../../python/cpp/core/flux_script_manager.h"
 #include "../models/symbol_primitive.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>

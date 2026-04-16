@@ -5,7 +5,7 @@ import QtQuick.Layouts
 Item {
     id: root
     width: parent ? parent.width : 300
-    height: cardContainer.height + 20
+    height: cardContainer.height + 4
 
     // Explicitly use modelData for reliable role mapping from QVariantMap
     readonly property bool isUser: (modelData && modelData.role === "user")
@@ -27,32 +27,34 @@ Item {
     Rectangle {
         id: cardContainer
         width: Math.min(parent.width * 0.9, 600)
-        height: contentColumn.implicitHeight + (isUser ? 20 : 32)
-        anchors.horizontalCenter: isUser ? undefined : parent.horizontalCenter
-        anchors.right: isUser ? parent.right : undefined
-        anchors.rightMargin: isUser ? 10 : 0
-        anchors.left: isUser ? undefined : parent.left
-        anchors.leftMargin: isUser ? 0 : 10
+        height: contentColumn.implicitHeight + (isUser ? 12 : 8)
+        anchors.left: parent.left
+        anchors.leftMargin: 10
         
-        radius: 12
+        radius: 6
         clip: true
-        color: isUser ? "#2563eb" : (isAction ? "#1e293b" : "#111a2e")
-        border.color: isUser ? "transparent" : "#334155"
-        border.width: 1
+        color: {
+            if (isUser) {
+                return (typeof geminiBridge !== "undefined" && geminiBridge && geminiBridge.glassBackground) ? geminiBridge.glassBackground : "rgba(15, 23, 42, 0.95)";
+            }
+            return "transparent"; // AI response is direct text
+        }
+        border.color: isUser ? "#334155" : "transparent"
+        border.width: isUser ? 1 : 0
 
         ColumnLayout {
             id: contentColumn
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: isUser ? 10 : 16
-            spacing: isUser ? 8 : 12
+            anchors.margins: isUser ? 8 : 4
+            spacing: 4
 
             RowLayout {
                 id: headerRow
                 Layout.fillWidth: true
                 spacing: 8
-                visible: !isAction && !isUser
+                visible: false // Hidden: Remove Viora AI title and profile
                 
                 Rectangle {
                     width: 24; height: 24; radius: 12
@@ -122,6 +124,17 @@ Item {
                 id: partsContainer
                 Layout.fillWidth: true
                 spacing: 12
+
+                // User-attached image
+                Image {
+                    visible: modelData.image !== undefined && modelData.image !== ""
+                    source: modelData.image ? "data:image/png;base64," + modelData.image : ""
+                    Layout.maximumWidth: parent.width * 0.8
+                    Layout.preferredHeight: 200
+                    fillMode: Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignLeft
+                    cache: true
+                }
 
                 Repeater {
                     model: messageParts
@@ -214,7 +227,8 @@ Item {
             font.family: "Inter, Segoe UI, sans-serif"
             font.pixelSize: 14 * (typeof geminiBridge !== "undefined" ? geminiBridge.zoomFactor : 1.0)
             wrapMode: Text.Wrap
-            textFormat: Text.RichText
+            textFormat: isUser ? Text.RichText : Text.MarkdownText
+            horizontalAlignment: Text.AlignLeft
         }
     }
 
