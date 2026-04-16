@@ -1561,7 +1561,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="VioSpice ML dataset API")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind")
     parser.add_argument("--port", type=int, default=8787, help="Port to bind")
-    parser.add_argument("--cli-path", help="Explicit path to vio-cmd or flux-cmd")
+    parser.add_argument("--cli-path", help="Explicit path to viora or flux-cmd")
     args = parser.parse_args()
     run_server(args.host, args.port, args.cli_path)
 

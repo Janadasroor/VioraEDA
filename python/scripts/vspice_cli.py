@@ -19,17 +19,18 @@ import sys
 from pathlib import Path
 
 
-def resolve_vio_cmd():
-    """Find the vio-cmd binary."""
+def resolve_viora():
+    """Find the viora binary."""
     candidates = []
     # Build tree paths
     for rel in [
-        "build/vio-cmd", "build-debug/vio-cmd", "build-asan/vio-cmd",
-        "build/dev-debug/vio-cmd",
+        "build/viora", "build-debug/viora", "build-asan/viora",
+        "build/dev-debug/viora",
+        "build/vio-cmd", "build-debug/vio-cmd",
     ]:
         candidates.append(Path(__file__).resolve().parent / rel)
         candidates.append(Path(__file__).resolve().parent.parent / rel)
-    candidates.extend(["vio-cmd"])
+    candidates.extend(["viora", "vio-cmd"])
 
     for c in candidates:
         c = str(c)
@@ -44,13 +45,13 @@ def resolve_vio_cmd():
 
 
 def cmd_netlist_run(args):
-    """Run a SPICE netlist through vio-cmd."""
-    vio_cmd = args.vio_cmd or resolve_vio_cmd()
-    if not vio_cmd:
-        print("Error: vio-cmd not found. Build it first or pass --vio-cmd.", file=sys.stderr)
+    """Run a SPICE netlist through viora."""
+    viora = args.viora or resolve_viora()
+    if not viora:
+        print("Error: viora not found. Build it first or pass --viora.", file=sys.stderr)
         sys.exit(1)
 
-    cmd = [vio_cmd, "netlist-run", args.file]
+    cmd = [viora, "netlist-run", args.file]
     if args.analysis:
         cmd += ["--analysis", args.analysis]
     if args.stop:
@@ -139,12 +140,12 @@ def cmd_parse_meas(args):
 
 def cmd_netlist_info(args):
     """Show info about a netlist file."""
-    vio_cmd = args.vio_cmd or resolve_vio_cmd()
-    if not vio_cmd:
-        print("Error: vio-cmd not found.", file=sys.stderr)
+    viora = args.viora or resolve_viora()
+    if not viora:
+        print("Error: viora not found.", file=sys.stderr)
         sys.exit(1)
 
-    cmd = [vio_cmd, "schematic-netlist", args.file, "--format", "json"]
+    cmd = [viora, "schematic-netlist", args.file, "--format", "json"]
     if args.analysis:
         cmd += ["--analysis", args.analysis]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -157,12 +158,12 @@ def cmd_netlist_info(args):
 
 def cmd_raw_info(args):
     """Inspect a .raw waveform file."""
-    vio_cmd = args.vio_cmd or resolve_vio_cmd()
-    if not vio_cmd:
-        print("Error: vio-cmd not found.", file=sys.stderr)
+    viora = args.viora or resolve_viora()
+    if not viora:
+        print("Error: viora not found.", file=sys.stderr)
         sys.exit(1)
 
-    cmd = [vio_cmd, "raw-info", args.file, "--json"]
+    cmd = [viora, "raw-info", args.file, "--json"]
     if args.summary:
         cmd += ["--summary"]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -175,12 +176,12 @@ def cmd_raw_info(args):
 
 def cmd_raw_export(args):
     """Export signals from a .raw file."""
-    vio_cmd = args.vio_cmd or resolve_vio_cmd()
-    if not vio_cmd:
-        print("Error: vio-cmd not found.", file=sys.stderr)
+    viora = args.viora or resolve_viora()
+    if not viora:
+        print("Error: viora not found.", file=sys.stderr)
         sys.exit(1)
 
-    cmd = [vio_cmd, "raw-export", args.file]
+    cmd = [viora, "raw-export", args.file]
     if args.format:
         cmd += ["--format", args.format]
     if args.out:
@@ -239,7 +240,7 @@ Examples:
   %(prog)s python-api
         """
     )
-    parser.add_argument("--vio-cmd", help="Path to vio-cmd binary")
+    parser.add_argument("--viora", help="Path to viora binary")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress non-essential output")
 
     sub = parser.add_subparsers(dest="command", required=True)

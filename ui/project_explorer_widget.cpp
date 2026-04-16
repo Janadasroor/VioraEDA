@@ -200,9 +200,12 @@ protected:
         }
 
         QFileInfo currentFileInfo(path);
+        QString fileName = currentFileInfo.fileName();
+
         if (currentFileInfo.isDir()) {
-            QString dirName = currentFileInfo.fileName();
-            if (dirName == ".trash" || dirName == ".git" || dirName == "build" || dirName == "cmake" || dirName == "CMakeFiles" || dirName == "_deps") return false;
+            if (fileName == ".viora") return true; // Explicitly allow .viora
+            if (fileName.startsWith(".") && fileName != ".viora") return false; // Hide other dot-folders (.git, .trash, etc)
+            if (fileName == "build" || fileName == "cmake" || fileName == "CMakeFiles" || fileName == "_deps") return false;
             
             // For directories: if there's an active search, show those that match or have children that match
             if (filterRegularExpression().isValid() && !filterRegularExpression().pattern().isEmpty()) {
@@ -212,15 +215,18 @@ protected:
             return true; 
         }
         
-        QString fileName = fs->data(index).toString().toLower();
+        // Skip hidden files unless they are inside .viora (like SKILL.md)
+        if (fileName.startsWith(".") && !path.contains("/.viora/")) return false;
+
+        QString fileNameLower = fileName.toLower();
         
         // If there's an active search filter, show any file that matches
         if (filterRegularExpression().isValid() && !filterRegularExpression().pattern().isEmpty()) {
-            return fileName.contains(filterRegularExpression());
+            return fileNameLower.contains(filterRegularExpression());
         }
         
         // Default view: only show known project files
-        return fileName.endsWith(".sch") || fileName.endsWith(".sym") ||
+        return fileNameLower.endsWith(".sch") || fileNameLower.endsWith(".sym") ||
                fileName.endsWith(".flxsch") ||
                fileName.endsWith(".cir") || fileName.endsWith(".spice") || fileName.endsWith(".net") ||
                fileName.endsWith(".lib") || fileName.endsWith(".sclib") ||
@@ -237,7 +243,7 @@ ProjectExplorerWidget::ProjectExplorerWidget(QWidget *parent)
 {
     m_model = new QFileSystemModel(this);
     m_model->setReadOnly(true);
-    m_model->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot);
+    m_model->setFilter(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden);
     
     m_proxyModel = new FileFilterProxyModel(this);
     m_proxyModel->setSourceModel(m_model);
@@ -496,9 +502,9 @@ void ProjectExplorerWidget::onContextMenuRequested(const QPoint& pos) {
                 // Remove stale output so we can detect fresh creation
                 QFile::remove(outPath);
 
-                QString cliPath = QCoreApplication::applicationDirPath() + "/vio-cmd";
+                QString cliPath = QCoreApplication::applicationDirPath() + "/viora";
                 if (!QFile::exists(cliPath)) {
-                    cliPath = "vio-cmd";
+                    cliPath = "viora";
                 }
 
                 QProcess proc;

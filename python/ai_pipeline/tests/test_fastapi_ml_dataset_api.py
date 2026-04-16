@@ -16,7 +16,7 @@ class FastApiMlDatasetApiTest(unittest.TestCase):
     def test_create_app_exposes_expected_routes(self):
         from ai_pipeline.api.fastapi_ml_dataset_api import create_app
 
-        app = create_app(cli_path="build/vio-cmd")
+        app = create_app(cli_path="build/viora")
         paths = {route.path for route in app.routes}
         self.assertIn("/api/ml/health", paths)
         self.assertIn("/api/ml/simulate", paths)

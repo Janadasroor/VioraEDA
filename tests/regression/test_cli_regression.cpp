@@ -10,7 +10,7 @@
 #include <stdexcept>
 
 #ifndef VIO_CMD_PATH
-#define VIO_CMD_PATH "vio-cmd"
+#define VIO_CMD_PATH "viora"
 #endif
 
 namespace {

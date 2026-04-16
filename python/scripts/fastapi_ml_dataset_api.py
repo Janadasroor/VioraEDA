@@ -25,7 +25,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="VioSpice ML dataset FastAPI service")
     parser.add_argument("--host", default=DEFAULT_ML_API_HOST, help="Host to bind")
     parser.add_argument("--port", type=int, default=DEFAULT_ML_API_PORT, help="Port to bind")
-    parser.add_argument("--cli-path", help="Explicit path to vio-cmd binary")
+    parser.add_argument("--cli-path", help="Explicit path to viora binary")
     parser.add_argument("--job-store", help="Path to persistent async job store JSON file")
     parser.add_argument("--api-key", help="Require this API key via X-API-Key header")
     parser.add_argument(

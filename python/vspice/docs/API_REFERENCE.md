@@ -23,7 +23,7 @@ r = vspice.run_simulation(
     '.op\n'
     '.end',
     'op',
-    vio_cmd_path='build/vio-cmd'
+    viora_path='build/viora'
 )
 print(r['node_voltages'])  # {'OUT': 3.333}
 ```
@@ -142,9 +142,9 @@ cfg.abs_tol = 1e-6
 
 ### Simulation
 
-#### `run_simulation(netlist_text, analysis, stop_time, step_time, vio_cmd_path, timeout_seconds) -> dict`
+#### `run_simulation(netlist_text, analysis, stop_time, step_time, viora_path, timeout_seconds) -> dict`
 
-Run a SPICE netlist simulation via `vio-cmd` subprocess, parsing the raw binary output.
+Run a SPICE netlist simulation via `viora` subprocess, parsing the raw binary output.
 
 ```python
 r = vspice.run_simulation(
@@ -157,7 +157,7 @@ r = vspice.run_simulation(
     analysis='op',
     stop_time='',
     step_time='',
-    vio_cmd_path='build/vio-cmd',
+    viora_path='build/viora',
     timeout_seconds=60
 )
 

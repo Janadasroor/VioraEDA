@@ -35,25 +35,25 @@ def _ensure_python_root_in_syspath() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Vio-Cmd / Flux-Cmd CLI resolution  (single source of truth)
+# Viora / Vio-Cmd / Flux-Cmd CLI resolution  (single source of truth)
 # ---------------------------------------------------------------------------
 
-_VIO_CMD_CANDIDATES_REL: List[str] = [
+_VIORA_CANDIDATES_REL: List[str] = [
+    "build/viora",
+    "build-debug/viora",
+    "build-asan/viora",
+    "build/dev-debug/viora",
     "build/vio-cmd",
     "build-debug/vio-cmd",
-    "build-asan/vio-cmd",
-    "build/dev-debug/vio-cmd",
     "build/flux-cmd",
     "build-debug/flux-cmd",
-    "build-asan/flux-cmd",
-    "build/dev-debug/flux-cmd",
 ]
 
-_VIO_CMD_NAMES: List[str] = ["vio-cmd", "flux-cmd"]
+_VIORA_NAMES: List[str] = ["viora", "vio-cmd", "flux-cmd"]
 
 
-def resolve_vio_cmd(explicit_path: Optional[str] = None) -> str:
-    """Find the VioSpice CLI binary.
+def resolve_viora(explicit_path: Optional[str] = None) -> str:
+    """Find the Viora (VioSpice) CLI binary.
 
     Checks *explicit_path*, then relative build-tree candidates, then PATH.
     Returns the first viable candidate (even if not executable) so that the
@@ -64,10 +64,10 @@ def resolve_vio_cmd(explicit_path: Optional[str] = None) -> str:
         candidates.append(os.path.abspath(explicit_path))
 
     root = repo_root()
-    for rel in _VIO_CMD_CANDIDATES_REL:
+    for rel in _VIORA_CANDIDATES_REL:
         candidates.append(str(root / rel))
 
-    candidates.extend(_VIO_CMD_NAMES)
+    candidates.extend(_VIORA_NAMES)
 
     for candidate in candidates:
         if os.path.isabs(candidate) and os.path.isfile(candidate) and os.access(candidate, os.X_OK):

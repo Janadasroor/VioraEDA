@@ -18,7 +18,7 @@ if(BUILD_VIOSPICE_CLI)
     )
 
     vioraeda_configure_cli_target(test_regression_cli)
-    target_compile_definitions(test_regression_cli PRIVATE VIO_CMD_PATH=\"$<TARGET_FILE:vio_cmd>\")
+    target_compile_definitions(test_regression_cli PRIVATE VIO_CMD_PATH=\"$<TARGET_FILE:viora>\")
 
     add_test(
         NAME regression.cli

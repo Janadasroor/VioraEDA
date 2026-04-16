@@ -5,9 +5,9 @@
  
  static void printCommandHelp(const QString& command) {
 +    if (command == "flux") {
-+        std::cout << "vio-cmd flux - FluxScript SPICE Integration\n";
++        std::cout << "viora flux - FluxScript SPICE Integration\n";
 +        std::cout << "\n";
-+        std::cout << "Usage: vio-cmd flux <subcommand> [options] [file.flux]\n";
++        std::cout << "Usage: viora flux <subcommand> [options] [file.flux]\n";
 +        std::cout << "\n";
 +        std::cout << "Subcommands:\n";
 +        std::cout << "  run <file.flux>     Compile and run FluxScript file\n";
@@ -16,10 +16,10 @@
 +        std::cout << "  repl                Interactive REPL mode\n";
 +        std::cout << "\n";
 +        std::cout << "Examples:\n";
-+        std::cout << "  vio-cmd flux run circuit.flux\n";
-+        std::cout << "  vio-cmd flux compile circuit.flux -o circuit.cir\n";
-+        std::cout << "  vio-cmd flux eval \"sin(pi/2)\"\n";
-+        std::cout << "  vio-cmd flux repl\n";
++        std::cout << "  viora flux run circuit.flux\n";
++        std::cout << "  viora flux compile circuit.flux -o circuit.cir\n";
++        std::cout << "  viora flux eval \"sin(pi/2)\"\n";
++        std::cout << "  viora flux repl\n";
 +        return;
 +    }
 +

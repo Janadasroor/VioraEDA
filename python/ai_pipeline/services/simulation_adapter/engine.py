@@ -4,12 +4,12 @@ import os
 import shutil
 import re
 
-from ai_pipeline.config import LOG_FILE_PATH, resolve_vio_cmd
+from ai_pipeline.config import LOG_FILE_PATH, resolve_viora
 
 
 class SimulationAdapter:
-    def __init__(self, vio_cmd_path=None):
-        self.vio_cmd_path = resolve_vio_cmd(vio_cmd_path)
+    def __init__(self, viora_path=None):
+        self.viora_path = resolve_viora(viora_path)
         self.last_results = None
         self.last_error = ""
 
@@ -30,7 +30,7 @@ class SimulationAdapter:
             return []
 
         cmd = [
-            self.vio_cmd_path,
+            self.viora_path,
             "schematic-netlist",
             schematic_path,
             "--format",
@@ -65,17 +65,17 @@ class SimulationAdapter:
             return None
 
         if not (
-            (os.path.isabs(self.vio_cmd_path) and os.path.isfile(self.vio_cmd_path) and os.access(self.vio_cmd_path, os.X_OK))
-            or shutil.which(self.vio_cmd_path)
+            (os.path.isabs(self.viora_path) and os.path.isfile(self.viora_path) and os.access(self.viora_path, os.X_OK))
+            or shutil.which(self.viora_path)
         ):
             self.last_error = (
-                f"Simulation CLI not found: '{self.vio_cmd_path}'. Build `vio-cmd` "
+                f"Simulation CLI not found: '{self.viora_path}'. Build `viora` "
                 "or add it to PATH."
             )
             return None
 
         cmd = [
-            self.vio_cmd_path,
+            self.viora_path,
             "simulate",
             schematic_path,
             "--analysis", analysis_type,

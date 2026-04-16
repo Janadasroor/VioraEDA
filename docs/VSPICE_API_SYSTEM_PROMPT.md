@@ -309,15 +309,15 @@ for comp in nl.components:
 The `vspice` module provides **data structures, parsers, and a simulation runner**.
 The following are NOT available in `vspice`:
 
-- ❌ Direct ngspice shared library linking (uses `vio-cmd` subprocess)
+- ❌ Direct ngspice shared library linking (uses `viora` subprocess)
 - ❌ Creating .raw waveform files directly
 - ❌ Zero-copy NumPy views for waveform data (uses lists)
 
 ## Running Simulations
 
-### `run_simulation(netlist_text, analysis, stop_time, step_time, vio_cmd_path, timeout_seconds)`
+### `run_simulation(netlist_text, analysis, stop_time, step_time, viora_path, timeout_seconds)`
 
-Run a SPICE netlist simulation. Shells out to `vio-cmd` and parses the `.raw` results.
+Run a SPICE netlist simulation. Shells out to `viora` and parses the `.raw` results.
 
 ```python
 # DC Operating Point
@@ -328,7 +328,7 @@ R2 out 0 2k
 .op
 .end'''
 
-r = vspice.run_simulation(netlist, 'op', vio_cmd_path='build/vio-cmd')
+r = vspice.run_simulation(netlist, 'op', viora_path='build/viora')
 # Returns: dict with keys ok, analysis, waveforms, node_voltages, branch_currents, [error]
 
 if r['ok']:

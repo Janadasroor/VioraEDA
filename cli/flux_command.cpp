@@ -26,7 +26,7 @@ int FluxCommand::run(const QStringList& args, const QCommandLineParser& globalPa
     
     // Add a dummy executable name so the first real argument isn't skipped
     QStringList argsWithExec;
-    argsWithExec << "vio-cmd flux" << args;
+    argsWithExec << "viora flux" << args;
     
     parser.addPositionalArgument("subcommand", 
         "Subcommand: run, compile, eval, repl", "<subcommand>");
@@ -441,9 +441,9 @@ int FluxCommand::runSimulation(const QString& inputFile,
 }
 
 void FluxCommand::printHelp() {
-    std::cout << "vio-cmd flux - FluxScript SPICE Integration\n";
+    std::cout << "viora flux - FluxScript SPICE Integration\n";
     std::cout << "\n";
-    std::cout << "Usage: vio-cmd flux <subcommand> [options] [file.flux]\n";
+    std::cout << "Usage: viora flux <subcommand> [options] [file.flux]\n";
     std::cout << "\n";
     std::cout << "Subcommands:\n";
     std::cout << "  run <file.flux>     Compile and run FluxScript file\n";
@@ -461,10 +461,10 @@ void FluxCommand::printHelp() {
     std::cout << "  -h, --help          Show help\n";
     std::cout << "\n";
     std::cout << "Examples:\n";
-    std::cout << "  vio-cmd flux run circuit.flux\n";
-    std::cout << "  vio-cmd flux compile circuit.flux --out circuit.cir\n";
-    std::cout << "  vio-cmd flux eval \"sin(pi/2)\"\n";
-    std::cout << "  vio-cmd flux repl\n";
+    std::cout << "  viora flux run circuit.flux\n";
+    std::cout << "  viora flux compile circuit.flux --out circuit.cir\n";
+    std::cout << "  viora flux eval \"sin(pi/2)\"\n";
+    std::cout << "  viora flux repl\n";
 }
 
 void FluxCommand::printReplHelp() {
