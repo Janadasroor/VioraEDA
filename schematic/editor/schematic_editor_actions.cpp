@@ -27,6 +27,7 @@
 #include "../ui/library_browser_dialog.h"
 #include "../../ui/help_window.h"
 #include "../../ui/developer_help_window.h"
+#include "../../ui/shortcuts_dialog.h"
 #include "../../core/ui/project_audit_dialog.h"
 #include "../dialogs/power_nets_manager_dialog.h"
 #include "../dialogs/component_properties_dialog.h"
@@ -2019,6 +2020,11 @@ void SchematicEditor::onShowDeveloperHelp() {
     DeveloperHelpWindow* devHelp = new DeveloperHelpWindow();
     devHelp->setAttribute(Qt::WA_DeleteOnClose);
     devHelp->show();
+}
+
+void SchematicEditor::onShowShortcuts() {
+    ShortcutsDialog dlg(this);
+    dlg.exec();
 }
 
 void SchematicEditor::onProjectAudit() {

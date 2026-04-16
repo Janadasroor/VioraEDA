@@ -6,6 +6,11 @@
 #include <QDebug>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QDir>
+#include <QDirIterator>
+#include <QMimeData>
+#include <QBuffer>
+#include <QImage>
 
 GeminiBridge::GeminiBridge(QObject* parent) : QObject(parent) {
     m_currentModel = ConfigManager::instance().geminiChatModel();
@@ -68,6 +73,11 @@ void GeminiBridge::setCurrentMode(const QString& mode) {
 void GeminiBridge::sendMessage(const QString& text) {
     qDebug() << "[GeminiBridge] sendMessage:" << text;
     Q_EMIT sendMessageRequested(text);
+}
+
+void GeminiBridge::sendMessageWithImage(const QString& text, const QString& imageBase64) {
+    qDebug() << "[GeminiBridge] sendMessageWithImage:" << text << " (image attached)";
+    Q_EMIT sendMessageWithImageRequested(text, imageBase64);
 }
 
 void GeminiBridge::clearHistory() {
@@ -163,6 +173,29 @@ void GeminiBridge::copyToClipboard(const QString& text) {
     }
 }
 
+QString GeminiBridge::getImageFromClipboard() {
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (!clipboard) return QString();
+
+    const QMimeData *mimeData = clipboard->mimeData();
+    if (mimeData && mimeData->hasImage()) {
+        QImage image = qvariant_cast<QImage>(mimeData->imageData());
+        if (!image.isNull()) {
+            // Scale down if too large to save tokens/bandwidth (max 1024 width)
+            if (image.width() > 1024) {
+                image = image.scaledToWidth(1024, Qt::SmoothTransformation);
+            }
+
+            QByteArray ba;
+            QBuffer buffer(&ba);
+            buffer.open(QIODevice::WriteOnly);
+            image.save(&buffer, "PNG");
+            return QString::fromLatin1(ba.toBase64());
+        }
+    }
+    return QString();
+}
+
 void GeminiBridge::showInstructions() {
     Q_EMIT showInstructionsRequested();
 }
@@ -219,4 +252,47 @@ void GeminiBridge::clearToolCalls() {
         m_toolCalls.clear();
         Q_EMIT toolCallsChanged();
     }
+}
+
+QStringList GeminiBridge::findFiles(const QString& query) {
+    QStringList results;
+    QStringList workspaces = ConfigManager::instance().workspaceFolders();
+    
+    if (workspaces.isEmpty()) {
+        // Fallback to current path if no workspace is defined, 
+        // but typically VioSpice has at least one workspace open.
+        workspaces << QDir::currentPath();
+    }
+
+    int count = 0;
+    const int maxResults = 10;
+
+    for (const QString& wsPath : workspaces) {
+        QDir dir(wsPath);
+        if (!dir.exists()) continue;
+
+        QDirIterator it(dir.absolutePath(), QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext() && count < maxResults) {
+            QString filePath = it.next();
+            QString fileName = it.fileName();
+            
+            // Skip hidden folders and common noise
+            if (filePath.contains("/.git/") || filePath.contains("/node_modules/") || 
+                filePath.contains("/build/") || filePath.contains("/__pycache__/") ||
+                fileName.startsWith(".")) {
+                continue;
+            }
+
+            if (query.isEmpty() || fileName.contains(query, Qt::CaseInsensitive)) {
+                // If it's already in results, skip
+                if (!results.contains(fileName)) {
+                    results << fileName;
+                    count++;
+                }
+            }
+        }
+        if (count >= maxResults) break;
+    }
+    
+    return results;
 }

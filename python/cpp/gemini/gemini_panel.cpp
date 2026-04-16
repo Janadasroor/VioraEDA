@@ -1,6 +1,6 @@
 #include "gemini_panel.h"
-#include "gemini_instructions_dialog.h"
-#include "flux_script_manager.h"
+#include "../dialogs/gemini_instructions_dialog.h"
+#include "../core/flux_script_manager.h"
 #include "config_manager.h"
 #include "theme_manager.h"
 #include "gemini_bridge.h"
@@ -39,6 +39,8 @@
 #include <QAction>
 #include <QFileDialog>
 #include <QTextStream>
+#include <QTemporaryFile>
+#include <QDirIterator>
 
 namespace {
 QString compactErrorSummary(const QString& raw, int maxLen = 180) {
@@ -87,42 +89,51 @@ QString sanitizeAgentTextChunk(QString text) {
 QVariantList parseMessageParts(const QString& text) {
     QVariantList parts;
     const static QRegularExpression codeRe("```(\\w*)\\n?(.*?)(?:\\n?```|$)", QRegularExpression::DotMatchesEverythingOption);
-    
+    const static QRegularExpression atRe(R"(@(\w+[\w\.]*))");
+
     int lastPos = 0;
     auto iter = codeRe.globalMatch(text);
     while (iter.hasNext()) {
         auto match = iter.next();
-        
+
         // Text part before code
-        QString preText = text.mid(lastPos, match.capturedStart() - lastPos).trimmed();
+        QString preText = text.mid(lastPos, match.capturedStart() - lastPos);
         if (!preText.isEmpty()) {
+            // Highlight @mentions in preText
+            QString highlighted = preText;
+            highlighted.replace(atRe, R"(<font color="#10b981">@\1</font>)");
+
             QVariantMap part;
             part["type"] = "text";
-            part["content"] = preText;
+            part["content"] = highlighted;
             parts.append(part);
         }
-        
+
         // Code part
         QVariantMap codePart;
         codePart["type"] = "code";
         codePart["language"] = match.captured(1).isEmpty() ? "text" : match.captured(1);
-        codePart["content"] = match.captured(2).trimmed();
+        codePart["content"] = match.captured(2);
         parts.append(codePart);
-        
+
         lastPos = match.capturedEnd();
-    }
-    
-    // Remaining text
-    QString postText = text.mid(lastPos).trimmed();
-    if (!postText.isEmpty() || (parts.isEmpty() && !text.isEmpty())) {
+        }
+
+        // Remaining text
+        QString postText = text.mid(lastPos);
+        if (!postText.isEmpty() || (parts.isEmpty() && !text.isEmpty())) {
+        // Highlight @mentions in postText
+        QString highlighted = postText;
+        highlighted.replace(atRe, R"(<font color="#10b981">@\1</font>)");
+
         QVariantMap part;
         part["type"] = "text";
-        part["content"] = postText;
+        part["content"] = highlighted;
         parts.append(part);
-    }
-    
+        }
     return parts;
 }
+
 } // namespace
 
 GeminiPanel::~GeminiPanel() {
@@ -179,7 +190,12 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
     mainLayout->addWidget(m_quickWidget);
 
     // Setup bridge connections
-    connect(m_bridge, &GeminiBridge::sendMessageRequested, this, &GeminiPanel::onBridgeSendMessage);
+    connect(m_bridge, &GeminiBridge::sendMessageRequested, this, [this](const QString& text){
+        onBridgeSendMessage(text);
+    });
+    connect(m_bridge, &GeminiBridge::sendMessageWithImageRequested, this, [this](const QString& text, const QString& image){
+        onBridgeSendMessage(text, image);
+    });
     connect(m_bridge, &GeminiBridge::stopRequested, this, &GeminiPanel::onBridgeStopRequest);
     connect(m_bridge, &GeminiBridge::refreshModelsRequested, this, &GeminiPanel::onBridgeRefreshModelsRequest);
     connect(m_bridge, &GeminiBridge::clearHistoryRequested, this, &GeminiPanel::clearHistory);
@@ -232,9 +248,9 @@ void GeminiPanel::setUndoStack(QUndoStack* stack) {
     m_undoStack = stack;
 }
 
-void GeminiPanel::onBridgeSendMessage(const QString& text) {
-    qDebug() << "[GeminiPanel] onBridgeSendMessage:" << text;
-    
+void GeminiPanel::onBridgeSendMessage(const QString& text, const QString& imageBase64) {
+    qDebug() << "[GeminiPanel] onBridgeSendMessage:" << text << (imageBase64.isEmpty() ? "" : "(image)");
+
     // Update title if this is likely the start of a conversation
     if (m_bridge && m_bridge->conversationTitle() == "VIORA AI") {
         QString title = text;
@@ -248,13 +264,12 @@ void GeminiPanel::onBridgeSendMessage(const QString& text) {
         return;
     }
 
-    if (m_bridge && m_bridge->currentMode().toLower() == "cmd") {
+    if (m_bridge && m_bridge->currentMode().toLower() == "cmd" && imageBase64.isEmpty()) {
         parseAndExecuteCommandModeInput(text);
     } else {
-        askPrompt(text, true);
+        askPrompt(text, true, imageBase64);
     }
 }
-
 void GeminiPanel::onBridgeStopRequest() {
     qDebug() << "[GeminiPanel] onBridgeStopRequest";
     if (m_process && m_process->state() != QProcess::NotRunning) {
@@ -347,8 +362,8 @@ void GeminiPanel::clearHistory() {
     appendSystemNote("[SYSTEM] New conversation started.");
 }
 
-void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
-    qDebug() << "[GeminiPanel] askPrompt:" << text;
+void GeminiPanel::askPrompt(const QString& text, bool includeContext, const QString& imageBase64) {
+    qDebug() << "[GeminiPanel] askPrompt:" << text << (imageBase64.isEmpty() ? "" : "(image)");
     if (m_isWorking) {
         qDebug() << "[GeminiPanel] askPrompt: Busy (m_isWorking is true)";
         return;
@@ -364,6 +379,9 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     entry["role"] = "user";
     entry["content"] = text;
     entry["parts"] = parseMessageParts(text);
+    if (!imageBase64.isEmpty()) {
+        entry["image"] = imageBase64;
+    }
     entry["timestamp"] = nowTimeChip();
     m_history.append(entry);
     syncHistoryToBridge();
@@ -375,21 +393,47 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext) {
     QStringList args;
     args << text;
     
+    if (!imageBase64.isEmpty()) {
+        args << "--image" << imageBase64;
+    }
+
     const QString selectedModel = m_bridge ? m_bridge->currentModel() : "gemini-2.0-flash";
     if (!selectedModel.isEmpty()) args << "--model" << selectedModel;
 
     QString instructions = gatherInstructions();
+    QString fileContext = gatherFileMentionsContext(text);
+    if (!fileContext.isEmpty()) {
+        if (!instructions.isEmpty()) instructions += "\n\n";
+        instructions += fileContext;
+    }
+    
     if (!instructions.isEmpty()) args << "--instructions" << instructions;
 
     if (!m_history.isEmpty()) {
+        // Implement history sliding window (limit to last 50 messages to keep context manageable)
+        const int maxHistory = 50;
+        int startIndex = qMax(0, m_history.size() - maxHistory);
+        
         QJsonArray histArray;
-        for (const auto& m : m_history) {
+        for (int i = startIndex; i < m_history.size(); ++i) {
+            const auto& m = m_history[i];
             QJsonObject obj;
             obj["role"] = m["role"].toString();
-            obj["text"] = m["content"].toString(); // gemini_query expects 'text'
+            obj["text"] = m["content"].toString();
             histArray.append(obj);
         }
-        args << "--history" << QJsonDocument(histArray).toJson(QJsonDocument::Compact);
+
+        // Use a temporary file to pass history to avoid OS command-line length limits
+        QTemporaryFile* histFile = new QTemporaryFile(this);
+        if (histFile->open()) {
+            histFile->write(QJsonDocument(histArray).toJson(QJsonDocument::Compact));
+            histFile->close();
+            // We pass the path to the script. The script should read it.
+            args << "--history-file" << histFile->fileName();
+            // histFile will be deleted when this GeminiPanel is destroyed, 
+            // but we want it to persist while the process is running.
+            // Since we're using a single m_process, we can manage it there.
+        }
     }
 
     if (m_process) {
@@ -878,12 +922,54 @@ QString GeminiPanel::gatherSchematicContext() const {
     
     QString context = "CURRENT SCHEMATIC CONTEXT (SPICE NETLIST):\n";
     context += "This is a netlist representation of the user's active schematic tab.\n";
-    context += "Use this to understand what components are present and how they are connected.\n\n";
     context += netlist;
-    
     return context;
 }
 
+QString GeminiPanel::gatherFileMentionsContext(const QString& text) const {
+        static const QRegularExpression atRe(R"(@(\w+[\w\.]*))");
+        auto iter = atRe.globalMatch(text);
+
+        QString context;
+        QSet<QString> processedFiles;
+        QStringList workspaces = ConfigManager::instance().workspaceFolders();
+        if (workspaces.isEmpty()) workspaces << QDir::currentPath();
+
+        while (iter.hasNext()) {
+            auto match = iter.next();
+            QString fileName = match.captured(1);
+            if (processedFiles.contains(fileName)) continue;
+            processedFiles.insert(fileName);
+
+            // Find file in workspace
+            QString foundPath;
+            for (const QString& wsPath : workspaces) {
+                QDirIterator it(wsPath, QDir::Files, QDirIterator::Subdirectories);
+                while (it.hasNext()) {
+                    QString path = it.next();
+                    if (it.fileName().toLower() == fileName.toLower()) {
+                        foundPath = path;
+                        break;
+                    }
+                }
+                if (!foundPath.isEmpty()) break;
+            }
+
+            if (!foundPath.isEmpty()) {
+                QFile file(foundPath);
+                if (file.open(QIODevice::ReadOnly)) {
+                    QString content = QString::fromUtf8(file.readAll());
+                    // Limit content size to prevent context overflow (max 20KB per file)
+                    if (content.length() > 20000) content = content.left(20000) + "\n... [File Truncated]";
+
+                    if (!context.isEmpty()) context += "\n\n";
+                    context += QString("--- FILE CONTENT: %1 ---\n%2\n--------------------------").arg(fileName, content);
+                }
+            }
+        }
+
+        return context;
+    }
 
 void GeminiPanel::loadHistory() {
     QString historyDir = QDir::homePath() + "/.viospice/gemini/history";

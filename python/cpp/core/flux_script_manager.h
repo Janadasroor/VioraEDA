@@ -19,6 +19,7 @@ public:
 
     static QString getFluxExecutable();
     static QString getPythonExecutable();
+    static QString getPythonRoot();
     static QProcessEnvironment getConfiguredEnvironment();
     static QString getScriptsDir();
 

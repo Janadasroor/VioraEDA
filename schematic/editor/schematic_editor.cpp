@@ -225,12 +225,12 @@ SchematicEditor::SchematicEditor(QWidget *parent)
         m_sourceControlDock->raise();
     }
 
-    // Never auto-open the Gemini dock from restored window state. The panel is
-    // expensive and currently unsafe to initialize during editor startup.
-    if (m_geminiDock) {
-        m_geminiDock->hide();
-    }
+    // Allow Gemini dock visibility to be restored from saved state if it exists.
+    // The panel itself will still only initialize when the dock is actually shown.
     m_allowGeminiDockInit = true;
+    if (m_geminiDock && m_geminiDock->isVisible()) {
+        ensureGeminiPanelInitialized();
+    }
     
     // Theme and grid
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, &SchematicEditor::applyTheme);

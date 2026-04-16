@@ -115,8 +115,22 @@ QString FluxScriptManager::getPythonExecutable() {
     return QStringLiteral("python3");
 }
 
+QString FluxScriptManager::getPythonRoot() {
+    return QDir(getScriptsDir()).absoluteFilePath("..");
+}
+
 QProcessEnvironment FluxScriptManager::getConfiguredEnvironment() {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    
+    // Set PYTHONPATH so scripts can find ai_pipeline and vspice modules
+    QString pyRoot = getPythonRoot();
+    QString currentPath = env.value("PYTHONPATH");
+    if (currentPath.isEmpty()) {
+        env.insert("PYTHONPATH", pyRoot);
+    } else {
+        env.insert("PYTHONPATH", pyRoot + ":" + currentPath);
+    }
+
     QString geminiKey = ConfigManager::instance().geminiApiKey();
     if (!geminiKey.isEmpty()) {
         env.insert("GEMINI_API_KEY", geminiKey);

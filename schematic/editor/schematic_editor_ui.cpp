@@ -5,7 +5,7 @@
 #include "schematic_file_io.h"
 #include "../analysis/schematic_erc.h"
 #include "theme_manager.h"
-#include "../../python/gemini_panel.h"
+#include "../../python/cpp/gemini/gemini_panel.h"
 #include "../../core/config_manager.h"
 #include "schematic_commands.h"
 #include "spice_directive_classifier.h"
@@ -665,6 +665,7 @@ void SchematicEditor::createToolBar() {
     QMenu* helpMenu = mainAppMenu->addMenu("&Help");
     helpMenu->addAction(createComponentIcon("About"), "About viospice", QKeySequence(), this, &SchematicEditor::onAbout);
     helpMenu->addAction("Help & Guides", QKeySequence::HelpContents, this, &SchematicEditor::onShowHelp);
+    helpMenu->addAction("Keyboard Shortcuts", QKeySequence("Ctrl+Shift+K"), this, &SchematicEditor::onShowShortcuts);
     helpMenu->addAction("Developer Documentation", QKeySequence("Ctrl+Shift+F1"), this, &SchematicEditor::onShowDeveloperHelp);
     helpMenu->addSeparator();
     helpMenu->addAction("Project Health Audit...", QKeySequence(), this, &SchematicEditor::onProjectAudit);
@@ -1353,7 +1354,7 @@ void SchematicEditor::createDockWidgets() {
 
     m_componentDock->setWidget(m_componentsPanel);
     m_componentDock->setMinimumWidth(260);
-    m_componentDock->setMaximumWidth(400);
+    m_componentDock->setMaximumWidth(800);
     addDockWidget(Qt::LeftDockWidgetArea, m_componentDock);
 
     // === Project Explorer Dock ===

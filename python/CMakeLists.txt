@@ -1,16 +1,16 @@
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Quick QuickWidgets)
 
 add_library(FluxScriptManager STATIC
-    flux_script_manager.cpp
-    flux_script_manager.h
-    gemini_dialog.cpp
-    gemini_dialog.h
-    gemini_bridge.cpp
-    gemini_bridge.h
-    gemini_panel.cpp
-    gemini_panel.h
-    gemini_instructions_dialog.cpp
-    gemini_instructions_dialog.h
+    cpp/core/flux_script_manager.cpp
+    cpp/core/flux_script_manager.h
+    cpp/dialogs/gemini_dialog.cpp
+    cpp/dialogs/gemini_dialog.h
+    cpp/gemini/gemini_bridge.cpp
+    cpp/gemini/gemini_bridge.h
+    cpp/gemini/gemini_panel.cpp
+    cpp/gemini/gemini_panel.h
+    cpp/dialogs/gemini_instructions_dialog.cpp
+    cpp/dialogs/gemini_instructions_dialog.h
 )
 
 target_link_libraries(FluxScriptManager PRIVATE 
@@ -22,6 +22,9 @@ target_link_libraries(FluxScriptManager PRIVATE
 
 target_include_directories(FluxScriptManager PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/gemini
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/dialogs
     ${CMAKE_CURRENT_SOURCE_DIR}/../core
     ${CMAKE_CURRENT_SOURCE_DIR}/../schematic/io
     ${CMAKE_CURRENT_SOURCE_DIR}/../schematic/items

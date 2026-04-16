@@ -36,7 +36,7 @@ public:
     void loadHistoryFromFile(const QString& filePath);
     QString mode() const { return m_mode; }
 
-    void askPrompt(const QString& prompt, bool includeContext = true);
+    void askPrompt(const QString& prompt, bool includeContext = true, const QString& imageBase64 = QString());
     void askSmartProbe(const QString& prompt,
                       std::function<void(const QString& chunk)> onChunk,
                       std::function<void()> onDone);
@@ -71,7 +71,7 @@ private Q_SLOTS:
     void onCopyPromptClicked();
 
     // Bridge Slots (connected to QML signals)
-    void onBridgeSendMessage(const QString& text);
+    void onBridgeSendMessage(const QString& text, const QString& imageBase64 = QString());
     void onBridgeStopRequest();
     void onBridgeRefreshModelsRequest();
     void onBridgeCloseRequest();
@@ -150,6 +150,7 @@ private:
 
     QString gatherInstructions() const;
     QString gatherSchematicContext() const;
+    QString gatherFileMentionsContext(const QString& text) const;
 };
 
 #endif // GEMINI_PANEL_H

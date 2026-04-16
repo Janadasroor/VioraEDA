@@ -12,6 +12,11 @@ import random
 import time
 import re
 
+# Manually ensure the python root is in sys.path before importing ai_pipeline
+_py_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _py_root not in sys.path:
+    sys.path.insert(0, _py_root)
+
 from ai_pipeline.config import _ensure_python_root_in_syspath, ENV_GEMINI_API_KEY
 _ensure_python_root_in_syspath()
 
@@ -504,6 +509,7 @@ if __name__ == "__main__":
     parser.add_argument("prompt", nargs="?", default="Hello!")
     parser.add_argument("--context", help="Context in JSON format")
     parser.add_argument("--history", help="Conversation history in JSON format", default="")
+    parser.add_argument("--history-file", help="Path to conversation history JSON file", default="")
     parser.add_argument("--image", help="Base64 encoded PNG image", default="")
     parser.add_argument("--project_path", help="Current schematic/project file path", default="")
     parser.add_argument("--mode", default="schematic")
@@ -512,6 +518,15 @@ if __name__ == "__main__":
     parser.add_argument("--instructions", help="Custom system instructions", default="")
     parser.add_argument("--list-models", action="store_true")
     args = parser.parse_args()
+
+    # Load history from file if provided, otherwise from command line
+    history_json = args.history
+    if args.history_file and os.path.exists(args.history_file):
+        try:
+            with open(args.history_file, 'r') as f:
+                history_json = f.read()
+        except Exception as e:
+            print(f"Error reading history file: {e}", file=sys.stderr)
 
     if args.list_models:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -526,4 +541,4 @@ if __name__ == "__main__":
             print(f"Error fetching models: {e}", file=sys.stderr)
             sys.exit(1)
 
-    generate(args.prompt, args.context, args.mode, args.history, args.instructions, args.image, args.project_path, args.retries, args.model)
+    generate(args.prompt, args.context, args.mode, history_json, args.instructions, args.image, args.project_path, args.retries, args.model)
