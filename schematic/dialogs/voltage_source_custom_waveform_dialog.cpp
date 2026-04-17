@@ -15,12 +15,13 @@
 #include <QPainterPath>
 #include <QMouseEvent>
 #include <QtMath>
+#include <cmath>
 #include "../../simulator/core/sim_value_parser.h"
 
 class VoltageSourceCustomWaveformDialog::WaveformDrawWidget : public QWidget {
 public:
     explicit WaveformDrawWidget(QWidget* parent = nullptr)
-        : QWidget(parent), m_drawing(false) {
+        : QWidget(parent), m_drawing(false), m_snapToGrid(false), m_stepMode(false) {
         setMinimumSize(360, 180);
         setMouseTracking(true);
         setFocusPolicy(Qt::StrongFocus);
@@ -31,7 +32,16 @@ public:
         update();
     }
 
+    void setPoints(const QVector<QPointF>& points) {
+        m_points = points;
+        update();
+    }
+
     QVector<QPointF> points() const { return m_points; }
+
+    void setSnapToGrid(bool enabled) { m_snapToGrid = enabled; }
+    void setStepMode(bool enabled) { m_stepMode = enabled; }
+    bool isStepMode() const { return m_stepMode; }
 
 protected:
     void mousePressEvent(QMouseEvent* event) override {
@@ -60,12 +70,13 @@ protected:
 
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
         p.fillRect(rect(), QColor("#0f1115"));
 
         // grid
         p.setPen(QColor(255, 255, 255, 20));
-        const int gridX = 8;
-        const int gridY = 4;
+        const int gridX = 20;
+        const int gridY = 10;
         for (int i = 1; i < gridX; ++i) {
             int x = rect().left() + i * rect().width() / gridX;
             p.drawLine(x, rect().top(), x, rect().bottom());
@@ -87,7 +98,15 @@ protected:
             QPainterPath path;
             path.moveTo(toWidget(m_points.first()));
             for (int i = 1; i < m_points.size(); ++i) {
-                path.lineTo(toWidget(m_points[i]));
+                if (m_stepMode && i > 0) {
+                    // Draw step: horizontal then vertical
+                    QPointF p1 = toWidget(m_points[i-1]);
+                    QPointF p2 = toWidget(m_points[i]);
+                    path.lineTo(p2.x(), p1.y());
+                    path.lineTo(p2.x(), p2.y());
+                } else {
+                    path.lineTo(toWidget(m_points[i]));
+                }
             }
             p.drawPath(path);
         } else if (m_points.size() == 1) {
@@ -97,14 +116,33 @@ protected:
             QPointF wp = toWidget(m_points.first());
             p.drawEllipse(wp, 2.5, 2.5);
         }
+        
+        // Impossible wave indicator (mouse position if moving backwards)
+        if (m_drawing && !m_points.isEmpty()) {
+            QPointF n = toNormalized(mapFromGlobal(QCursor::pos()));
+            if (n.x() < m_points.last().x()) {
+                p.setPen(Qt::red);
+                p.drawText(mapFromGlobal(QCursor::pos()) + QPoint(10, -10), "Invalid: Backwards");
+            }
+        }
     }
 
 private:
     void addPoint(const QPoint& pos) {
         QPointF n = toNormalized(pos);
+        
+        if (m_snapToGrid) {
+            n.setX(qRound(n.x() * 20.0) / 20.0);
+            n.setY(qRound(n.y() * 10.0) / 10.0);
+        }
+
         if (!m_points.isEmpty()) {
             QPointF last = m_points.last();
-            if (qAbs(last.x() - n.x()) < 0.002 && qAbs(last.y() - n.y()) < 0.002) {
+            // STRICT RULE: Monotonicity (No backwards time travel)
+            if (n.x() < last.x()) {
+                return;
+            }
+            if (qAbs(last.x() - n.x()) < 0.001 && qAbs(last.y() - n.y()) < 0.001) {
                 return;
             }
         }
@@ -116,7 +154,6 @@ private:
         if (width() <= 1 || height() <= 1) return QPointF(0.0, 0.0);
         double x = qBound(0.0, (pos.x() - rect().left()) / double(rect().width()), 1.0);
         double y = qBound(0.0, (pos.y() - rect().top()) / double(rect().height()), 1.0);
-        // y: top = +1, bottom = -1
         double yn = 1.0 - 2.0 * y;
         return QPointF(x, yn);
     }
@@ -129,6 +166,8 @@ private:
 
     QVector<QPointF> m_points;
     bool m_drawing;
+    bool m_snapToGrid;
+    bool m_stepMode;
 };
 
 VoltageSourceCustomWaveformDialog::VoltageSourceCustomWaveformDialog(QWidget* parent)
@@ -148,12 +187,59 @@ void VoltageSourceCustomWaveformDialog::setDefaultSavePath(const QString& dirPat
 void VoltageSourceCustomWaveformDialog::setupUi() {
     auto* mainLayout = new QVBoxLayout(this);
 
-    auto* header = new QLabel("Draw one waveform period (left to right).");
+    auto* header = new QLabel("Draw one waveform period (left to right) or use tools below.");
     header->setStyleSheet("color: #e5e7eb; font-weight: 600;");
     mainLayout->addWidget(header);
 
+    // Toolbar for advanced tools
+    auto* toolLayout = new QHBoxLayout();
+    
+    auto* sineBtn = new QPushButton("Sine");
+    auto* squareBtn = new QPushButton("Square");
+    auto* triBtn = new QPushButton("Triangle");
+    auto* sawBtn = new QPushButton("Sawtooth");
+    
+    toolLayout->addWidget(sineBtn);
+    toolLayout->addWidget(squareBtn);
+    toolLayout->addWidget(triBtn);
+    toolLayout->addWidget(sawBtn);
+    toolLayout->addSpacing(10);
+    
+    auto* smoothBtn = new QPushButton("Smooth");
+    auto* noiseBtn = new QPushButton("Noise");
+    auto* invertBtn = new QPushButton("Invert");
+    
+    toolLayout->addWidget(smoothBtn);
+    toolLayout->addWidget(noiseBtn);
+    toolLayout->addWidget(invertBtn);
+    toolLayout->addSpacing(20);
+
+    auto* snapCheck = new QCheckBox("Snap");
+    auto* stepCheck = new QCheckBox("Step Mode");
+    toolLayout->addWidget(snapCheck);
+    toolLayout->addWidget(stepCheck);
+    toolLayout->addStretch();
+    
+    mainLayout->addLayout(toolLayout);
+
     m_drawWidget = new WaveformDrawWidget();
     mainLayout->addWidget(m_drawWidget, 1);
+
+    connect(snapCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        if (m_drawWidget) m_drawWidget->setSnapToGrid(checked);
+    });
+    connect(stepCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        if (m_drawWidget) m_drawWidget->setStepMode(checked);
+    });
+
+    auto* formulaLayout = new QHBoxLayout();
+    formulaLayout->addWidget(new QLabel("Equation f(x):"));
+    m_formulaEdit = new QLineEdit();
+    m_formulaEdit->setPlaceholderText("e.g. sin(2*pi*x) + 0.5*sin(6*pi*x)");
+    formulaLayout->addWidget(m_formulaEdit, 1);
+    auto* applyFormulaBtn = new QPushButton("Apply");
+    formulaLayout->addWidget(applyFormulaBtn);
+    mainLayout->addLayout(formulaLayout);
 
     auto* controlLayout = new QGridLayout();
     controlLayout->addWidget(new QLabel("Period [s]:"), 0, 0);
@@ -208,6 +294,172 @@ void VoltageSourceCustomWaveformDialog::setupUi() {
         QString path = QFileDialog::getSaveFileName(this, "Save PWL File", suggested, "PWL Files (*.pwl *.txt *.csv *.dat);;All Files (*)");
         if (!path.isEmpty() && m_filePathEdit) m_filePathEdit->setText(path);
     });
+
+    connect(sineBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplySine);
+    connect(squareBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplySquare);
+    connect(triBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplyTriangle);
+    connect(sawBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplySawtooth);
+    connect(smoothBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplySmooth);
+    connect(noiseBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplyNoise);
+    connect(invertBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplyInvert);
+    connect(applyFormulaBtn, &QPushButton::clicked, this, &VoltageSourceCustomWaveformDialog::onApplyFormula);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplySine() {
+    QVector<QPointF> points;
+    const int count = 100;
+    for (int i = 0; i <= count; ++i) {
+        double x = double(i) / count;
+        points.append(QPointF(x, std::sin(2.0 * M_PI * x)));
+    }
+    m_drawWidget->setPoints(points);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplySquare() {
+    QVector<QPointF> points;
+    points.append(QPointF(0, 1));
+    points.append(QPointF(0.499, 1));
+    points.append(QPointF(0.5, -1));
+    points.append(QPointF(0.999, -1));
+    points.append(QPointF(1.0, 1));
+    m_drawWidget->setPoints(points);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplyTriangle() {
+    QVector<QPointF> points;
+    points.append(QPointF(0, 0));
+    points.append(QPointF(0.25, 1));
+    points.append(QPointF(0.75, -1));
+    points.append(QPointF(1.0, 0));
+    m_drawWidget->setPoints(points);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplySawtooth() {
+    QVector<QPointF> points;
+    points.append(QPointF(0, -1));
+    points.append(QPointF(0.999, 1));
+    points.append(QPointF(1.0, -1));
+    m_drawWidget->setPoints(points);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplySmooth() {
+    QVector<QPointF> points = m_drawWidget->points();
+    if (points.size() < 3) return;
+    QVector<QPointF> next;
+    next.append(points.first());
+    for (int i = 1; i < points.size() - 1; ++i) {
+        double avgY = (points[i-1].y() + points[i].y() + points[i+1].y()) / 3.0;
+        next.append(QPointF(points[i].x(), avgY));
+    }
+    next.append(points.last());
+    m_drawWidget->setPoints(next);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplyNoise() {
+    QVector<QPointF> points = m_drawWidget->points();
+    for (auto& p : points) {
+        p.setY(p.y() + (double(std::rand()) / RAND_MAX - 0.5) * 0.1);
+    }
+    m_drawWidget->setPoints(points);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplyInvert() {
+    QVector<QPointF> points = m_drawWidget->points();
+    for (auto& p : points) {
+        p.setY(-p.y());
+    }
+    m_drawWidget->setPoints(points);
+}
+
+void VoltageSourceCustomWaveformDialog::onApplyFormula() {
+    QString formula = m_formulaEdit->text().trimmed();
+    if (formula.isEmpty()) return;
+    QVector<QPointF> points;
+    const int count = 200;
+    for (int i = 0; i <= count; ++i) {
+        double x = double(i) / count;
+        points.append(QPointF(x, evaluateFormula(formula, x)));
+    }
+    m_drawWidget->setPoints(points);
+}
+
+double VoltageSourceCustomWaveformDialog::evaluateFormula(const QString& formula, double x) {
+    // Basic expression evaluation.
+    // Replace 'x' with current value and 'pi' with M_PI
+    QString expr = formula.toLower();
+    expr.replace("pi", QString::number(M_PI, 'g', 15));
+    
+    // For simplicity, we just handle a few common functions via string replacement 
+    // and then use a very simple evaluator or just handle the common ones here.
+    // In a real application, we'd use a math library.
+    
+    // Since we don't have a full evaluator, let's at least support basic sin/cos/x.
+    // If it's just "sin(2*pi*x)", we can do it.
+    
+    // Actually, I'll implement a tiny recursive descent parser for: +, -, *, /, (), x, sin, cos, exp, log, sqrt
+    
+    struct Parser {
+        QString s;
+        int pos = 0;
+        double x_val;
+
+        double parseExpression() {
+            double res = parseTerm();
+            while (pos < s.length()) {
+                if (s[pos] == '+') { pos++; res += parseTerm(); }
+                else if (s[pos] == '-') { pos++; res -= parseTerm(); }
+                else break;
+            }
+            return res;
+        }
+
+        double parseTerm() {
+            double res = parseFactor();
+            while (pos < s.length()) {
+                if (s[pos] == '*') { pos++; res *= parseFactor(); }
+                else if (s[pos] == '/') { 
+                    pos++; 
+                    double d = parseFactor();
+                    res = (d != 0) ? res / d : 0;
+                }
+                else break;
+            }
+            return res;
+        }
+
+        double parseFactor() {
+            if (pos >= s.length()) return 0;
+            if (s[pos] == '(') {
+                pos++;
+                double res = parseExpression();
+                if (pos < s.length() && s[pos] == ')') pos++;
+                return res;
+            }
+            if (s[pos] == '-') { pos++; return -parseFactor(); }
+            
+            if (s[pos].isDigit() || s[pos] == '.') {
+                int start = pos;
+                while (pos < s.length() && (s[pos].isDigit() || s[pos] == '.' || s[pos] == 'e')) pos++;
+                return s.mid(start, pos - start).toDouble();
+            }
+
+            if (s.mid(pos).startsWith("x")) { pos++; return x_val; }
+            if (s.mid(pos).startsWith("sin(")) { pos += 4; double v = std::sin(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
+            if (s.mid(pos).startsWith("cos(")) { pos += 4; double v = std::cos(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
+            if (s.mid(pos).startsWith("exp(")) { pos += 4; double v = std::exp(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
+            if (s.mid(pos).startsWith("log(")) { pos += 4; double v = std::log(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
+            if (s.mid(pos).startsWith("sqrt(")) { pos += 5; double v = std::sqrt(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
+            if (s.mid(pos).startsWith("tan(")) { pos += 4; double v = std::tan(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
+
+            pos++;
+            return 0;
+        }
+    };
+
+    Parser p;
+    p.s = expr.replace(" ", "");
+    p.x_val = x;
+    return p.parseExpression();
 }
 
 void VoltageSourceCustomWaveformDialog::onClear() {
@@ -286,6 +538,9 @@ QString VoltageSourceCustomWaveformDialog::buildPwlPoints() const {
             if (x <= points[i].x()) {
                 const QPointF a = points[i - 1];
                 const QPointF b = points[i];
+                if (m_drawWidget && m_drawWidget->isStepMode()) {
+                    return a.y(); // Constant until next step (Zero-order hold)
+                }
                 double t = (b.x() - a.x()) <= 0.0 ? 0.0 : (x - a.x()) / (b.x() - a.x());
                 return a.y() + t * (b.y() - a.y());
             }

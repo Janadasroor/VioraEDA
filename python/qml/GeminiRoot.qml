@@ -35,10 +35,19 @@ Rectangle {
             onShowDashboardRequested: dashboard.visible = true
         }
         
-        // Auto-scroll to bottom on new items
+        // Auto-scroll to bottom on new items or content updates
         onCountChanged: {
             if (count > 0) {
-                positionViewAtEnd();
+                Qt.callLater(positionViewAtEnd)
+            }
+        }
+        
+        onContentHeightChanged: {
+            // Keep at bottom if we were already at or very near the bottom
+            // This threshold (100px) allows for small gaps but keeps autoscroll active
+            var threshold = 100
+            if (contentHeight > height && (contentY + height >= contentHeight - threshold)) {
+                Qt.callLater(positionViewAtEnd)
             }
         }
 

@@ -1347,6 +1347,13 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
                     return out;
                 }
             }
+            
+            // Optimization: If 'rest' already looks like expanded PWL (starts with PWL and contains 
+            // many tokens or newlines), don't try to inline it again.
+            if (rest.startsWith("PWL", Qt::CaseInsensitive) && (rest.contains('\n') || rest.split(' ').size() > 10)) {
+                return out;
+            }
+
             const QString normalizedRest = inlinePwlFileIfNeeded(rest, projectDir, warnings);
             out = prefix + normalizedRest;
         }
@@ -2360,11 +2367,23 @@ QString inlinePwlFileIfNeeded(const QString& value, const QString& projectDir, Q
     const QString v = value.trimmed();
     if (!v.contains("PWL", Qt::CaseInsensitive)) return value;
 
-    QRegularExpression re(R"(^PWL\s*(?:\((.*)\)|(.*))$)", QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch fullMatch = re.match(v);
-    if (!fullMatch.hasMatch()) return value;
+    QString body;
+    QString tail;
 
-    const QString body = !fullMatch.captured(1).isNull() && !fullMatch.captured(1).isEmpty() ? fullMatch.captured(1).trimmed() : fullMatch.captured(2).trimmed();
+    // Regex to match PWL(...) and capture the inside, also allowing trailing params
+    QRegularExpression re(R"(^PWL\s*\((.*)\)\s*(.*)$)", QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+    const QRegularExpressionMatch fullMatch = re.match(v);
+    if (fullMatch.hasMatch()) {
+        body = fullMatch.captured(1).trimmed();
+        tail = fullMatch.captured(2).trimmed();
+    } else {
+        // Try without parentheses: PWL 0 0 1 1 ...
+        QRegularExpression re2(R"(^PWL\s+(.*)$)", QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+        const QRegularExpressionMatch match2 = re2.match(v);
+        if (!match2.hasMatch()) return value;
+        body = match2.captured(1).trimmed();
+    }
+
     QStringList tokens = tokenizePwlBody(body);
     if (tokens.isEmpty()) return value;
 
@@ -2398,14 +2417,16 @@ QString inlinePwlFileIfNeeded(const QString& value, const QString& projectDir, Q
     for (const PwlPoint& point : points) {
         flatTokens << formatPwlTimeText(point) << point.value;
     }
-    return QString("PWL(%1)").arg(flatTokens.join(' '));
+    
+    QString result = QString("PWL(%1)").arg(flatTokens.join(' '));
+    if (!tail.isEmpty()) result += " " + tail;
+    return result;
 }
 
-QString formatPwlValueForNetlist(const QString& value, int maxLen = 140) {
+QString formatPwlValueForNetlist(const QString& value, int maxLen = 120) {
     const QString v = value.trimmed();
     
     // If it contains FILE or WAVEFILE, we don't want to mess with wrapping 
-    // as it might break the path or syntax (important for our native VioMATRIXC support)
     if (v.contains("FILE", Qt::CaseInsensitive) || v.contains("WAVEFILE", Qt::CaseInsensitive)) {
         return v;
     }
@@ -2420,35 +2441,41 @@ QString formatPwlValueForNetlist(const QString& value, int maxLen = 140) {
     int openIdx = inside.indexOf('(');
     if (openIdx < 0) return value;
 
-    const QString head = inside.left(openIdx + 1); // "PWL("
+    const QString head = "PWL(";
     const QString body = inside.mid(openIdx + 1, inside.length() - openIdx - 2);
 
-    // If it's a simple FILE spec, don't wrap it to avoid corrupting the path or syntax
-    if (body.contains("FILE", Qt::CaseInsensitive)) {
-        return v;
+    // Split body into tokens and filter out existing continuation characters
+    QStringList rawTokens = body.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    QStringList tokens;
+    for (const QString& t : rawTokens) {
+        if (t != "+") tokens << t;
     }
-
-    QStringList tokens = body.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    
     if (tokens.isEmpty()) return value;
 
-    QStringList lines;
-    QString current = head;
-    for (const QString& token : tokens) {
-        const int extra = token.length() + 1;
-        if (current.length() + extra > maxLen && current != head) {
-            lines << current.trimmed();
-            current = "+ " + token;
+    QString result = head;
+    
+    // Try to keep time/value pairs on the same line
+    for (int i = 0; i < tokens.size(); i += 2) {
+        QString pair = tokens[i];
+        if (i + 1 < tokens.size()) pair += " " + tokens[i+1];
+        
+        const int extra = pair.length() + 1;
+        // Check if adding this pair would exceed maxLen
+        // We look at the length of the LAST line of 'result'
+        int lastLineLen = result.length() - result.lastIndexOf('\n') - 1;
+        if (lastLineLen > 0 && lastLineLen + extra > maxLen) {
+            result += "\n+ " + pair;
         } else {
-            if (!current.endsWith("(") && !current.endsWith("+ ")) current += " ";
-            current += token;
+            if (!result.endsWith("(") && !result.endsWith("+ ")) result += " ";
+            result += pair;
         }
     }
 
-    current += ")";
-    if (!tail.isEmpty()) current += " " + tail;
-    lines << current.trimmed();
+    result += ")";
+    if (!tail.isEmpty()) result += " " + tail;
 
-    return lines.join("\n");
+    return result;
 }
 
 QString currentSaveVectorForRef(const QString& spiceRef) {
@@ -2495,7 +2522,7 @@ static VoltageParasitics stripVoltageParasitics(const QString& value) {
         out.cpar = cparMatch.captured(1).trimmed();
         out.value.remove(cparRe);
     }
-    out.value = out.value.simplified();
+    out.value = out.value.trimmed();
     return out;
 }
 
@@ -4864,14 +4891,15 @@ QString SpiceNetlistGenerator::generateCompatibilityLayer(const QString& rawNetl
     QString processed = rawNetlist;
     processed = processed.trimmed();
 
-    QStringList lines = processed.split('\n', Qt::SkipEmptyParts);
+    // Split by newline and handle potential different newline formats
+    QStringList lines = processed.split(QRegularExpression("[\r\n]+"), Qt::SkipEmptyParts);
     QStringList outLines;
     QStringList warnings;
 
     for (QString line : lines) {
-        line = line.trimmed();
-        if (line.isEmpty() || line.startsWith('*') || line.startsWith(';') || line.startsWith('#')) {
-            outLines << line;
+        QString trimmed = line.trimmed();
+        if (trimmed.isEmpty() || trimmed.startsWith('*') || trimmed.startsWith(';') || trimmed.startsWith('#') || trimmed.startsWith('+')) {
+            outLines << line; // Keep continuation lines as-is, don't try to rewrite them
             continue;
         }
 

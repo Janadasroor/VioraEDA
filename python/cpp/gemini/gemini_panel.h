@@ -53,6 +53,7 @@ Q_SIGNALS:
     void itemsHighlighted(const QStringList& references);
     void snippetGenerated(const QString& jsonSnippet);
     void netlistGenerated(const QString& netlistText);
+    void fileOpenRequested(const QString& path);
     void runSimulationRequested();
     void runERCRequested();
     void plotSignalRequested(const QString& signalName);
@@ -152,6 +153,9 @@ private:
     QString gatherInstructions() const;
     QString gatherSchematicContext() const;
     QString gatherFileMentionsContext(const QString& text) const;
+
+private:
+    int m_lastProcessedTagPos = 0;
 };
 
 #endif // GEMINI_PANEL_H

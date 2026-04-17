@@ -19,6 +19,7 @@ public:
     void clearAIAnnotation();
     void hideOverlay();
     void refreshTheme();
+    QString currentAIAnnotation() const { return m_aiLabel->text(); }
 
     double opacity() const { return m_opacity; }
     void setOpacity(double opacity);

@@ -9,7 +9,7 @@ class QCommandLineParser;
 namespace VioSpice {
 
 /**
- * @brief FluxScript integration command for vio-cmd CLI
+ * @brief FluxScript integration command for viora CLI
  * 
  * Provides subcommands for:
  * - run: Compile and run FluxScript files

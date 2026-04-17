@@ -1262,13 +1262,16 @@ void SchematicEditor::ensureGeminiPanelInitialized() {
     });
     connect(m_geminiPanel, &GeminiPanel::netlistGenerated, this, [this](const QString& netlist) {
         if (!m_scene) return;
+        
+        // 1. Create a NEW tab for the generated circuit
+        onNewSchematic();
+        
+        // 2. Convert netlist to the NEW active scene
         QTemporaryFile tempFile;
         if (tempFile.open()) {
             QTextStream out(&tempFile);
             out << netlist;
             tempFile.close();
-
-            m_scene->clear();
             NetlistToSchematic::convertToScene(tempFile.fileName(), m_scene);
 
             if (m_netManager) {
@@ -1278,9 +1281,10 @@ void SchematicEditor::ensureGeminiPanelInitialized() {
                 m_scene->setSceneRect(m_scene->itemsBoundingRect().marginsAdded(QMarginsF(50, 50, 50, 50)));
                 m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
             }
-            statusBar()->showMessage("AI Schematic generated successfully!", 5000);
+            statusBar()->showMessage("AI Schematic generated successfully in new tab!", 5000);
         }
     });
+    connect(m_geminiPanel, &GeminiPanel::fileOpenRequested, this, &SchematicEditor::openFile);
 
     m_geminiPanel->setContextProvider([this]() {
         QJsonObject ctx = SchematicFileIO::serializeSceneToJson(m_scene);
