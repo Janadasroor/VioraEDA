@@ -74,33 +74,34 @@ QString nowTimeChip() {
 
 QString sanitizeAgentTextChunk(QString text) {
     // Hide content of all metadata tags during streaming so they don't leak into the chat bubble
-    // Using (</TAG>|$) allows the parser to aggressively strip streaming tags that aren't yet closed.
-    static const QStringList metadataTags = {"THOUGHT", "USAGE", "SNIPPET", "SUGGESTION", "ACTION"};
+    static const QStringList metadataTags = {"THOUGHT", "USAGE", "SNIPPET", "SUGGESTION", "ACTION", "TOOL_CALL", "TOOL_RESULT"};
     for (const auto& tag : metadataTags) {
-        text.remove(QRegularExpression(QString("<%1>.*?(</%1>|$)").arg(tag), 
+        text.remove(QRegularExpression(QString("<%1>.*?(</%1>|$)").arg(tag),
             QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption));
     }
-    
+
     // For HIGHLIGHT (component markers), keep the content but strip the structural tags
     text.remove(QRegularExpression(R"(</?HIGHLIGHT>)", QRegularExpression::CaseInsensitiveOption));
-    
+
     return text.trimmed();
 }
 
 QVariantList parseMessageParts(const QString& text) {
     QVariantList parts;
-    const static QRegularExpression codeRe("```(\\w*)\\n?(.*?)(?:\\n?```|$)", QRegularExpression::DotMatchesEverythingOption);
+
+    // Combined regex to find Code Blocks, Tool Calls, Tool Results, Actions, and Snippets
+    const static QRegularExpression masterRe("(```(\\w*)\\n?(.*?)(?:\\n?```|$)|<TOOL_CALL>(.*?)</TOOL_CALL>|<TOOL_RESULT>(.*?)</TOOL_RESULT>|<ACTION>(.*?)</ACTION>|<SNIPPET>(.*?)</SNIPPET>)", 
+                                           QRegularExpression::DotMatchesEverythingOption);
     const static QRegularExpression atRe(R"(@(\w+[\w\.]*))");
 
     int lastPos = 0;
-    auto iter = codeRe.globalMatch(text);
+    auto iter = masterRe.globalMatch(text);
     while (iter.hasNext()) {
         auto match = iter.next();
 
-        // Text part before code
+        // Text part before the match
         QString preText = text.mid(lastPos, match.capturedStart() - lastPos);
         if (!preText.isEmpty()) {
-            // Highlight @mentions in preText
             QString highlighted = preText;
             highlighted.replace(atRe, R"(<font color="#10b981">@\1</font>)");
 
@@ -110,20 +111,50 @@ QVariantList parseMessageParts(const QString& text) {
             parts.append(part);
         }
 
-        // Code part
-        QVariantMap codePart;
-        codePart["type"] = "code";
-        codePart["language"] = match.captured(1).isEmpty() ? "text" : match.captured(1);
-        codePart["content"] = match.captured(2);
-        parts.append(codePart);
-
-        lastPos = match.capturedEnd();
+        QString fullMatch = match.captured(0);
+        if (match.captured(1).startsWith("```")) {
+            // Code block
+            QVariantMap codePart;
+            codePart["type"] = "code";
+            codePart["language"] = match.captured(2).isEmpty() ? "text" : match.captured(2);
+            codePart["content"] = match.captured(3);
+            parts.append(codePart);
+        } else if (fullMatch.startsWith("<TOOL_CALL>")) {
+            QJsonDocument doc = QJsonDocument::fromJson(match.captured(4).toUtf8());
+            if (doc.isObject()) {
+                QVariantMap toolPart;
+                toolPart["type"] = "tool_call";
+                toolPart["name"] = doc.object()["name"].toString();
+                toolPart["args"] = doc.object()["args"].toVariant();
+                parts.append(toolPart);
+            }
+        } else if (fullMatch.startsWith("<TOOL_RESULT>")) {
+            QJsonDocument doc = QJsonDocument::fromJson(match.captured(5).toUtf8());
+            if (doc.isObject()) {
+                QVariantMap resPart;
+                resPart["type"] = "tool_result";
+                resPart["name"] = doc.object()["name"].toString();
+                resPart["result"] = doc.object()["result"].toVariant();
+                parts.append(resPart);
+            }
+        } else if (fullMatch.startsWith("<ACTION>")) {
+            QVariantMap actPart;
+            actPart["type"] = "action_note";
+            actPart["content"] = match.captured(6);
+            parts.append(actPart);
+        } else if (fullMatch.startsWith("<SNIPPET>")) {
+            QVariantMap snipPart;
+            snipPart["type"] = "command_snippet";
+            snipPart["content"] = match.captured(7);
+            parts.append(snipPart);
         }
 
-        // Remaining text
-        QString postText = text.mid(lastPos);
-        if (!postText.isEmpty() || (parts.isEmpty() && !text.isEmpty())) {
-        // Highlight @mentions in postText
+        lastPos = match.capturedEnd();
+    }
+
+    // Remaining text
+    QString postText = text.mid(lastPos);
+    if (!postText.isEmpty() || (parts.isEmpty() && !text.isEmpty())) {
         QString highlighted = postText;
         highlighted.replace(atRe, R"(<font color="#10b981">@\1</font>)");
 
@@ -131,9 +162,11 @@ QVariantList parseMessageParts(const QString& text) {
         part["type"] = "text";
         part["content"] = highlighted;
         parts.append(part);
-        }
+    }
+
     return parts;
 }
+
 
 } // namespace
 
@@ -261,7 +294,7 @@ void GeminiPanel::onBridgeSendMessage(const QString& text, const QString& imageB
     }
 
     if (text.trimmed().toLower() == "/rewind") {
-        appendSystemAction("Rewind", "🕰️ Rewinding schematic state...", "🕰️");
+        appendSystemAction("Rewind", "Rewinding schematic state...", "");
         Q_EMIT rewindRequested();
         return;
     }
@@ -321,8 +354,8 @@ void GeminiPanel::onUndoToPoint(int messageIndex) {
     }
 
     // 2. Truncate the chat history
-    // We keep up to the selected message (inclusive)
-    while (m_history.size() > messageIndex + 1) {
+    // We remove the selected message and everything that follows it.
+    while (m_history.size() > messageIndex) {
         m_history.removeLast();
     }
 
@@ -486,6 +519,7 @@ void GeminiPanel::askPrompt(const QString& text, bool includeContext, const QStr
     m_errorBuffer.clear();
     m_thinkingBuffer.clear();
     m_leftover.clear();
+    m_lastProcessedTagPos = 0;
 
     connect(m_process, &QProcess::readyReadStandardOutput, this, &GeminiPanel::onProcessReadyRead);
     connect(m_process, &QProcess::readyReadStandardError, this, [this]() {
@@ -568,37 +602,60 @@ void GeminiPanel::onProcessReadyRead() {
 void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
     m_responseBuffer += chunk;
     
-    // Ensure we have a model entry to update
-    if (m_history.isEmpty() || m_history.last()["role"].toString() != "model") {
+    // Find the current active model entry to update.
+    // It MUST be after the last 'user' entry to belong to the current turn.
+    int lastUserIndex = -1;
+    int modelIndex = -1;
+    
+    for (int i = m_history.size() - 1; i >= 0; --i) {
+        QString role = m_history[i]["role"].toString();
+        if (role == "user" && lastUserIndex == -1) {
+            lastUserIndex = i;
+        } else if (role == "model" && modelIndex == -1) {
+            modelIndex = i;
+        }
+        if (lastUserIndex != -1 && modelIndex != -1) break;
+    }
+
+    // If the model entry we found is actually from a PREVIOUS turn (before the current user message),
+    // then we must ignore it and create a new one for this turn.
+    if (modelIndex != -1 && modelIndex < lastUserIndex) {
+        modelIndex = -1;
+    }
+
+    if (modelIndex == -1) {
         QVariantMap entry;
         entry["role"] = "model";
         entry["content"] = "";
         entry["thought"] = "";
         entry["timestamp"] = nowTimeChip();
         m_history.append(entry);
+        modelIndex = m_history.size() - 1;
     }
 
     // Extract and update thought process if present
     static QRegularExpression thoughtRe("<THOUGHT>(.*?)(</THOUGHT>|$)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
     auto thoughtMatch = thoughtRe.match(m_responseBuffer);
     if (thoughtMatch.hasMatch()) {
-        m_history.last()["thought"] = thoughtMatch.captured(1).trimmed();
+        m_history[modelIndex]["thought"] = thoughtMatch.captured(1).trimmed();
         if (m_bridge) m_bridge->updateStatus("Reasoning...");
     }
 
-    // Check for action tags
+    // ... (Check for ACTION tags)
     if (chunk.contains("<ACTION>")) {
-        // Extract action for UI feedback
         QRegularExpression re("<ACTION>(.*?)</ACTION>");
         auto match = re.match(chunk);
         if (match.hasMatch()) {
             if (m_bridge) m_bridge->updateStatus("Executing: " + match.captured(1));
         }
     }
+
+    // Handle Tool and Metadata tags with m_lastProcessedTagPos
     if (chunk.contains("<TOOL_CALL>")) {
         static QRegularExpression tcallRe("<TOOL_CALL>(.*?)</TOOL_CALL>", QRegularExpression::DotMatchesEverythingOption);
-        auto match = tcallRe.match(m_responseBuffer); // Check full buffer for multi-chunk tags
-        if (match.hasMatch()) {
+        auto iter = tcallRe.globalMatch(m_responseBuffer, m_lastProcessedTagPos);
+        while (iter.hasNext()) {
+            auto match = iter.next();
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
             if (doc.isObject()) {
                 QJsonObject obj = doc.object();
@@ -608,17 +665,16 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                 call["status"] = "running";
                 call["timestamp"] = QDateTime::currentDateTime().toString("HH:mm:ss");
                 if (m_bridge) m_bridge->addToolCall(call);
-                
-                // Remove the tag from buffer so we don't parse it again
-                m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
+                m_lastProcessedTagPos = match.capturedEnd(0);
             }
         }
     }
 
     if (chunk.contains("<TOOL_RESULT>")) {
         static QRegularExpression tresRe("<TOOL_RESULT>(.*?)</TOOL_RESULT>", QRegularExpression::DotMatchesEverythingOption);
-        auto match = tresRe.match(m_responseBuffer);
-        if (match.hasMatch()) {
+        auto iter = tresRe.globalMatch(m_responseBuffer, m_lastProcessedTagPos);
+        while (iter.hasNext()) {
+            auto match = iter.next();
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
             if (doc.isObject()) {
                 QJsonObject obj = doc.object();
@@ -626,15 +682,26 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                 QVariantMap result;
                 result["result"] = obj["result"].toVariant();
                 if (m_bridge) m_bridge->updateToolResult(name, result);
-                
-                m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
+                m_lastProcessedTagPos = match.capturedEnd(0);
+
+                // Auto-open created netlist files
+                if (name == "create_netlist_file") {
+                    QVariantMap resMap = result["result"].toMap();
+                    if (resMap["status"].toString() == "success") {
+                        QString path = resMap["saved_to"].toString();
+                        if (!path.isEmpty()) {
+                            qDebug() << "[GeminiPanel] Auto-opening created file:" << path;
+                            Q_EMIT fileOpenRequested(path);
+                        }
+                    }
+                }
             }
         }
     }
 
     if (chunk.contains("<USAGE>")) {
         QRegularExpression re("<USAGE>(.*?)</USAGE>");
-        auto match = re.match(chunk); // Use chunk if usage is per-turn
+        auto match = re.match(chunk);
         if (match.hasMatch()) {
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(1).toUtf8());
             if (doc.isObject()) {
@@ -645,14 +712,16 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                     m_bridge->setUsagePercentage(pct);
                 }
             }
+            m_lastProcessedTagPos = match.capturedEnd(0);
         }
     }
 
     // Handle SNIPPET tags (Command execution)
     static QRegularExpression snippetRe("<SNIPPET>(.*?)</SNIPPET>", QRegularExpression::DotMatchesEverythingOption);
-    auto snippetMatch = snippetRe.match(m_responseBuffer);
-    if (snippetMatch.hasMatch()) {
-        QString snippetContent = snippetMatch.captured(1).trimmed();
+    auto snipIter = snippetRe.globalMatch(m_responseBuffer, m_lastProcessedTagPos);
+    while (snipIter.hasNext()) {
+        auto match = snipIter.next();
+        QString snippetContent = match.captured(1).trimmed();
         QJsonDocument doc = QJsonDocument::fromJson(snippetContent.toUtf8());
         if (doc.isObject()) {
             QJsonObject obj = doc.object();
@@ -664,15 +733,15 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                 }
             }
         }
-        // Remove from buffer after processing
-        m_responseBuffer.remove(snippetMatch.capturedStart(0), snippetMatch.capturedLength(0));
+        m_lastProcessedTagPos = match.capturedEnd(0);
     }
 
     // Handle SUGGESTION tags (Buttons)
     if (chunk.contains("<SUGGESTION>")) {
         static QRegularExpression sugRe("<SUGGESTION>(.*?)</SUGGESTION>");
-        auto match = sugRe.match(m_responseBuffer);
-        if (match.hasMatch()) {
+        auto sugIter = sugRe.globalMatch(m_responseBuffer, m_lastProcessedTagPos);
+        while (sugIter.hasNext()) {
+            auto match = sugIter.next();
             QString content = match.captured(1);
             QStringList parts = content.split('|');
             if (parts.size() >= 1) {
@@ -680,19 +749,18 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                 suggestion["label"] = parts[0];
                 suggestion["command"] = (parts.size() > 1) ? parts[1] : parts[0];
                 
-                QVariantList currentSuggestions = m_history.last()["suggestions"].toList();
+                QVariantList currentSuggestions = m_history[modelIndex]["suggestions"].toList();
                 currentSuggestions.append(suggestion);
-                m_history.last()["suggestions"] = currentSuggestions;
+                m_history[modelIndex]["suggestions"] = currentSuggestions;
             }
-            // Remove from buffer to prevent leakage into main text
-            m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
+            m_lastProcessedTagPos = match.capturedEnd(0);
         }
     }
 
     // Fallback for raw command JSON (if AI forgets tags)
     if (chunk.contains("\"commands\":") && !m_responseBuffer.contains("<SNIPPET>")) {
         static QRegularExpression rawCmdRe(R"(\{\s*"commands"\s*:\s*\[.*?\]\s*\})", QRegularExpression::DotMatchesEverythingOption);
-        auto match = rawCmdRe.match(m_responseBuffer);
+        auto match = rawCmdRe.match(m_responseBuffer, m_lastProcessedTagPos);
         if (match.hasMatch()) {
             QJsonDocument doc = QJsonDocument::fromJson(match.captured(0).toUtf8());
             if (doc.isObject()) {
@@ -702,17 +770,15 @@ void GeminiPanel::processAgentStdoutChunk(const QString& chunk) {
                     parseAndExecuteCommandModeInput(cmdVal.toString());
                 }
             }
-            m_responseBuffer.remove(match.capturedStart(0), match.capturedLength(0));
+            m_lastProcessedTagPos = match.capturedEnd(0);
         }
     }
 
-    // Final Update: Main text content (sanitized)
-    // We do this AFTER processing and possibly removing closed tags from the buffer.
-    QString cleanBuffer = sanitizeAgentTextChunk(m_responseBuffer);
-    m_history.last()["content"] = cleanBuffer;
-    m_history.last()["parts"] = parseMessageParts(cleanBuffer);
+    // Final Update: Main text content of the MODEL entry
+    m_history[modelIndex]["content"] = m_responseBuffer;
+    m_history[modelIndex]["parts"] = parseMessageParts(m_responseBuffer);
 
-    // Synchronize to the bridge UI (Throttled for high-performance streaming)
+    // Synchronize to the bridge UI
     if (m_syncTimer && !m_syncTimer->isActive()) {
         m_syncTimer->start();
     }
@@ -1086,8 +1152,37 @@ void GeminiPanel::onCopyPromptClicked() {}
 void GeminiPanel::handleActionTag(const QString& act) { Q_UNUSED(act); }
 void GeminiPanel::handleSuggestionTag(const QString& sug) { Q_UNUSED(sug); }
 void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
-    QString cmd = in.trimmed().toLower();
-    qDebug() << "[GeminiPanel] Running Command Mode:" << cmd;
+    QString raw = in.trimmed();
+    if (raw.isEmpty()) return;
+
+    // Advanced Parser: Handle quoted strings and multi-line arguments (like netlists)
+    QStringList args;
+    QString currentArg;
+    bool inQuotes = false;
+    for (int i = 0; i < raw.size(); ++i) {
+        QChar c = raw[i];
+        if (c == '\"') {
+            // Handle escaped quotes: \"
+            if (i > 0 && raw[i-1] == '\\') {
+                currentArg.chop(1); // remove the backslash
+                currentArg += '\"';
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (c.isSpace() && !inQuotes) {
+            if (!currentArg.isEmpty()) {
+                args << currentArg;
+                currentArg.clear();
+            }
+        } else {
+            currentArg += c;
+        }
+    }
+    if (!currentArg.isEmpty()) args << currentArg;
+    if (args.isEmpty()) return;
+
+    QString cmd = args[0].toLower();
+    qDebug() << "[GeminiPanel] Command Mode:" << cmd << "Args count:" << args.size();
 
     if (cmd == "help") {
         appendSystemNote("<b>Available Commands:</b><br/>"
@@ -1101,7 +1196,25 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
                          "- <b>export netlist</b>: Show raw SPICE output<br/>"
                          "- <b>clear chat / clear history</b>: Wipe all messages<br/>"
                          "- <b>toggle <panel></b>: Show/hide UI panels (e.g. toggle library)");
-    } else if (cmd == "list nodes") {
+    } else if (cmd == "generate_schematic_from_netlist" && args.size() >= 2) {
+        QString netlist = args[1];
+        QString title = (args.size() > 2) ? args[2] : "Generated Circuit";
+        appendSystemAction("Synthesis", "Converting netlist to schematic: " + title, "");
+        Q_EMIT netlistGenerated(netlist);
+        return;
+    } else if (cmd == "list nodes" || cmd == "list_nodes") {
+        appendSystemNote("<b>Available Commands:</b><br/>"
+                         "- <b>help</b>: Show this message<br/>"
+                         "- <b>list nodes</b>: List all net names in the schematic<br/>"
+                         "- <b>list components</b>: List all parts (R1, U1, etc.)<br/>"
+                         "- <b>run sim / run simulation</b>: Start SPICE engine (F8)<br/>"
+                         "- <b>run erc</b>: Run Electrical Rules Check<br/>"
+                         "- <b>plot <name></b>: Open oscilloscope for a signal<br/>"
+                         "- <b>zoom fit</b>: Fit the schematic to view<br/>"
+                         "- <b>export netlist</b>: Show raw SPICE output<br/>"
+                         "- <b>clear chat / clear history</b>: Wipe all messages<br/>"
+                         "- <b>toggle <panel></b>: Show/hide UI panels (e.g. toggle library)");
+    } else if (cmd == "list nodes" || cmd == "list_nodes") {
         if (!m_netManager) {
             appendSystemNote("<b>Error:</b> NetManager is not currently linked to the AI panel.");
             return;
@@ -1112,16 +1225,13 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
         } else {
             appendSystemNote("<b>Nets Found:</b> " + nets.join(", "));
         }
-    } else if (cmd == "run erc") {
-        appendSystemAction("ERC", "Running Electrical Rules Check...", "🔍");
+    } else if (cmd == "run erc" || cmd == "run_erc") {
+        appendSystemAction("ERC", "Running Electrical Rules Check...", "");
         Q_EMIT runERCRequested();
-    } else if (cmd == "run simulation" || cmd == "run sim") {
-        appendSystemAction("Simulation", "Initializing SPICE simulation...", "⚡");
+    } else if (cmd == "run simulation" || cmd == "run sim" || cmd == "run_simulation" || cmd == "run_sim") {
+        appendSystemAction("Simulation", "Initializing SPICE simulation...", "");
         Q_EMIT runSimulationRequested();
-        
-        // Also ensure simulation data is fresh if needed
-        Q_EMIT runSimulationRequested(); 
-    } else if (cmd == "list components" || cmd == "list parts") {
+    } else if (cmd == "list components" || cmd == "list parts" || cmd == "list_components" || cmd == "list_parts") {
         if (!m_scene) {
             appendSystemNote("<b>Error:</b> Schematic scene is not active.");
             return;
@@ -1159,7 +1269,7 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
     } else if (cmd.startsWith("import_subckt ")) {
         QString path = in.mid(14).trimmed();
         Q_EMIT checkpointRequested();
-        appendSystemAction("Import Subcircuit", "Opening symbol generator for: " + QFileInfo(path).fileName(), "📦");
+        appendSystemAction("Import Subcircuit", "Opening symbol generator for: " + QFileInfo(path).fileName(), "");
         Q_EMIT importSubcircuitRequested(path);
     } else {
         appendSystemNote("<b>Unknown Command:</b> \"" + in + "\".<br/>Type <b>help</b> for a list of available system commands.");

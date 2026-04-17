@@ -17,7 +17,7 @@ SmartProbeEngine::SmartProbeEngine(GeminiPanel* geminiPanel, SmartProbeOverlay* 
     connect(m_hideTimer, &QTimer::timeout, this, &SmartProbeEngine::onHideTimeout);
 }
 
-void SmartProbeEngine::probe(const QString& netName, const SimResults& results, const QString& context, const QPoint& viewPos) {
+void SmartProbeEngine::probe(const QString& netName, const QString& context, const QPoint& viewPos) {
     if (netName.isEmpty()) {
         m_debounceTimer->stop();
         if (!m_hideTimer->isActive()) {
@@ -36,11 +36,10 @@ void SmartProbeEngine::probe(const QString& netName, const SimResults& results, 
     }
 
     m_currentNet = netName;
-    m_currentResults = results;
     m_currentContext = context;
     m_currentPos = viewPos;
 
-    m_overlay->showAt(viewPos, netName, formatInstantValue(netName, results), context);
+    m_overlay->showAt(viewPos, netName, formatInstantValue(netName, m_currentResults), context);
     m_overlay->clearAIAnnotation(); // Reset for new net
 
     if (ConfigManager::instance().aiOverlayEnabled()) {
@@ -50,6 +49,11 @@ void SmartProbeEngine::probe(const QString& netName, const SimResults& results, 
             m_debounceTimer->start();
         }
     }
+}
+
+void SmartProbeEngine::updateResults(const SimResults& results) {
+    m_currentResults = results; // Copy only when a new simulation finishes
+    clearCache();
 }
 
 void SmartProbeEngine::onHideTimeout() {
@@ -80,7 +84,9 @@ void SmartProbeEngine::onDebounceTimeout() {
         },
         [this]() {
             // Done streaming, cache the full response
-            m_annotationCache[m_currentNet] = m_overlay->findChild<QLabel*>("m_aiLabel") ? static_cast<QLabel*>(m_overlay->children().at(0))->text() : ""; // Need a better way to get full text
+            if (m_overlay && !m_currentNet.isEmpty()) {
+                m_annotationCache[m_currentNet] = m_overlay->currentAIAnnotation();
+            }
         }
     );
 }

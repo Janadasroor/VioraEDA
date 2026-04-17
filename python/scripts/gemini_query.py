@@ -297,6 +297,9 @@ User: "Make this schematic look better"
 - Avoid overlapping components.
 - Use addTrace for routing wires with specific points.
 - Proactively suggest style improvements when you detect layout issues.
+- DESIGN RULE: When asked to design, create, or modify a circuit, you MUST use the 'create_netlist_file' tool (or 'execute_commands') to apply the changes. 
+- DO NOT just talk about the design. ACT by calling tools.
+- ALWAYS provide <SUGGESTION> tags for 'Generate Schematic|generate_schematic_from_netlist' and 'Run Simulation|run_simulation' at the end of every design task.
 """
         else:
             system_context = common_instructions + """
@@ -465,11 +468,9 @@ You are the General Viora EDA Co-pilot. You handle synthesis, subcircuits, and g
                         tool_calls.append(part.function_call)
                         tool_call_parts.append(part)
 
-            # Output final usage metadata ONCE after the stream is fully finished
-            if final_usage:
-                print(f"<USAGE>{json.dumps(final_usage)}</USAGE>", end="", flush=True)
-
             if not tool_calls:
+                if final_usage:
+                    print(f"<USAGE>{json.dumps(final_usage)}</USAGE>", end="", flush=True)
                 return
 
             # Accumulate full history item safely
@@ -488,7 +489,6 @@ You are the General Viora EDA Co-pilot. You handle synthesis, subcircuits, and g
                 result = func(**call.args) if func else {"error": "Tool not available"}
                 
                 # Output structured result
-                # Note: We might want to truncate extremely large results (like base64 plots) for the dashboard itself
                 dashboard_result = result
                 if isinstance(result, dict) and "plot_png_base64" in result:
                     dashboard_result = result.copy()
@@ -499,7 +499,11 @@ You are the General Viora EDA Co-pilot. You handle synthesis, subcircuits, and g
                 tool_results_parts.append(types.Part.from_function_response(name=call.name, response=result))
             
             contents.append(types.Content(role="user", parts=tool_results_parts))
-            
+
+            # Output final usage metadata ONCE after everything for this turn
+            if final_usage:
+                print(f"<USAGE>{json.dumps(final_usage)}</USAGE>", end="", flush=True)
+                
         except Exception as e:
             print(f"\nError during generation: {e}", file=sys.stderr)
             sys.exit(1)

@@ -41,6 +41,30 @@ GENERAL_TOOLS = [
         },
     },
     {
+        "name": "create_netlist_file",
+        "description": "Creates a standalone SPICE netlist (.cir) file ready for simulation. Use this when the user asks to design or save a circuit as a netlist.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "e.g. 'boost_converter.cir'"},
+                "content": {"type": "string", "description": "The complete SPICE netlist text."}
+            },
+            "required": ["filename", "content"]
+        }
+    },
+    {
+        "name": "remember_fact",
+        "description": "Saves a specific fact, user preference, or instruction to the project's permanent memory. Use this when the user says 'remember this' or 'don't do this again'.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fact": {"type": "string", "description": "The concise fact or rule to remember (e.g. 'User prefers 1k resistors for pull-ups')"},
+                "category": {"type": "string", "enum": ["preference", "rule", "knowledge", "fix"], "default": "knowledge"}
+            },
+            "required": ["fact"]
+        }
+    },
+    {
         "name": "synthesize_subcircuit",
         "description": "Synthesizes a SPICE .subckt macro definition from natural language and saves it to a .sub file. Call this when the user asks you to create a custom component model, subcircuit, or macro (like a 555 timer or op-amp model).",
         "parameters": {

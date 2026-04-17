@@ -25,14 +25,24 @@ public:
 private Q_SLOTS:
     void onClear();
     void onAccepted();
+    void onApplySine();
+    void onApplySquare();
+    void onApplyTriangle();
+    void onApplySawtooth();
+    void onApplySmooth();
+    void onApplyNoise();
+    void onApplyInvert();
+    void onApplyFormula();
 
 private:
     class WaveformDrawWidget;
 
     void setupUi();
     QString buildPwlPoints() const;
+    double evaluateFormula(const QString& formula, double x);
 
     WaveformDrawWidget* m_drawWidget;
+    QLineEdit* m_formulaEdit;
     QLineEdit* m_periodEdit;
     QLineEdit* m_amplitudeEdit;
     QLineEdit* m_offsetEdit;

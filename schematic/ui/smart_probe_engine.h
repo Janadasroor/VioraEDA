@@ -16,7 +16,8 @@ class SmartProbeEngine : public QObject {
 public:
     explicit SmartProbeEngine(GeminiPanel* geminiPanel, SmartProbeOverlay* overlay, QObject* parent = nullptr);
 
-    void probe(const QString& netName, const SimResults& results, const QString& context, const QPoint& viewPos);
+    void probe(const QString& netName, const QString& context, const QPoint& viewPos);
+    void updateResults(const SimResults& results);
     void clearCache();
 
 private Q_SLOTS:

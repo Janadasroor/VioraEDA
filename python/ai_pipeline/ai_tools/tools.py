@@ -22,6 +22,13 @@ class ToolRegistry:
             doc = json.load(f)
         return doc.get("items", []) if isinstance(doc, dict) else []
 
+    def _get_project_root(self):
+        if self.schematic_path:
+            if os.path.isdir(self.schematic_path):
+                return self.schematic_path
+            return os.path.dirname(self.schematic_path)
+        return os.getcwd()
+
     def plot_signal(self, signal_name):
         try:
             self._ensure_tran_results()
@@ -78,6 +85,23 @@ class ToolRegistry:
         except Exception as e:
             return {"error": str(e)}
 
+    def create_netlist_file(self, filename, content):
+        try:
+            proj_root = self._get_project_root()
+            safe_filename = "".join([c for c in filename if c.isalnum() or c in "._-"])
+            if not safe_filename.lower().endswith(".cir"): safe_filename += ".cir"
+            
+            file_path = os.path.join(proj_root, safe_filename)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            return {
+                "status": "success", 
+                "saved_to": file_path, 
+                "info": f"Netlist '{safe_filename}' created in workspace. Opening in new tab..."
+            }
+        except Exception as e:
+            return {"error": str(e)}
     def list_nodes(self):
         try:
             nodes = self.adapter.get_nodes()
@@ -115,6 +139,25 @@ class ToolRegistry:
 
     def web_search(self, query):
         return {"status": "simulated_search", "query": query, "results": []}
+
+    def remember_fact(self, fact, category="knowledge"):
+        try:
+            # Determine memory path: [ProjectRoot]/.viora/memories.md
+            proj_root = self._get_project_root()
+            
+            viora_dir = os.path.join(proj_root, ".viora")
+            os.makedirs(viora_dir, exist_ok=True)
+            
+            memory_file = os.path.join(viora_dir, "memories.md")
+            
+            # Append as a checklist item with timestamp
+            timestamp = QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm") if 'QDateTime' in globals() else ""
+            with open(memory_file, "a", encoding="utf-8") as f:
+                f.write(f"- [{category.upper()}] {fact}\n")
+                
+            return {"status": "success", "saved_to": memory_file, "fact": fact}
+        except Exception as e:
+            return {"error": str(e)}
 
     def lookup_component_data(self, part_number):
         return self.supply_chain.lookup(part_number)
