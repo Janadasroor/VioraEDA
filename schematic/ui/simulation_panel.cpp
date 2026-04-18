@@ -124,7 +124,24 @@ QStringList waveformNetAliases(const QString& netName) {
     const QString trimmed = netName.trimmed();
     if (trimmed.isEmpty()) return {};
 
-    QStringList aliases{trimmed, QString("V(%1)").arg(trimmed)};
+    QStringList aliases{trimmed};
+    
+    // Add LTspice to NGSpice aliases for Current and Power
+    if (trimmed.startsWith("I(", Qt::CaseInsensitive) && trimmed.endsWith(")")) {
+        QString comp = trimmed.mid(2, trimmed.size() - 3).trimmed();
+        aliases << QString("@%1[i]").arg(comp) << QString("@%1[I]").arg(comp);
+    } else if (trimmed.startsWith("P(", Qt::CaseInsensitive) && trimmed.endsWith(")")) {
+        QString comp = trimmed.mid(2, trimmed.size() - 3).trimmed();
+        aliases << QString("@%1[p]").arg(comp) << QString("@%1[P]").arg(comp);
+    } else {
+        aliases << QString("V(%1)").arg(trimmed);
+        
+        // Check V(net) <-> net equivalence
+        if (trimmed.startsWith("V(", Qt::CaseInsensitive) && trimmed.endsWith(")")) {
+            aliases << trimmed.mid(2, trimmed.size() - 3).trimmed();
+        }
+    }
+
     const QString upper = trimmed.toUpper();
     if (upper == "GND" || trimmed == "0") {
         aliases << "0" << "GND" << "V(0)" << "V(GND)";
@@ -503,8 +520,13 @@ SimulationPanel::~SimulationPanel() {
 
 namespace {
 bool signalMatches(const QString& itemText, const QString& signalName) {
-    if (itemText.compare(signalName, Qt::CaseInsensitive) == 0) {
-        return true;
+    const QStringList aliases = waveformNetAliases(signalName);
+    
+    // Check against all possible aliases of the requested signal
+    for (const QString& alias : aliases) {
+        if (itemText.compare(alias, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
     }
 
     // Check for step param suffix: "V(out) [R1=1k]" matches "V(out)"
@@ -512,21 +534,10 @@ bool signalMatches(const QString& itemText, const QString& signalName) {
     int bracketIdx = textNoSuffix.indexOf(" [");
     if (bracketIdx > 0) {
         textNoSuffix = textNoSuffix.left(bracketIdx).trimmed();
-        if (textNoSuffix.compare(signalName, Qt::CaseInsensitive) == 0) {
-            return true;
-        }
-    }
-
-    // Check V(net) <-> net equivalence
-    if (signalName.startsWith("V(", Qt::CaseInsensitive) && signalName.endsWith(")")) {
-        const QString bare = signalName.mid(2, signalName.length() - 3);
-        if (itemText.compare(bare, Qt::CaseInsensitive) == 0 || textNoSuffix.compare(bare, Qt::CaseInsensitive) == 0) {
-            return true;
-        }
-    } else {
-        const QString vName = QString("V(%1)").arg(signalName);
-        if (itemText.compare(vName, Qt::CaseInsensitive) == 0 || textNoSuffix.compare(vName, Qt::CaseInsensitive) == 0) {
-            return true;
+        for (const QString& alias : aliases) {
+            if (textNoSuffix.compare(alias, Qt::CaseInsensitive) == 0) {
+                return true;
+            }
         }
     }
 

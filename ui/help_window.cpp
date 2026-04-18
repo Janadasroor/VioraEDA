@@ -9,18 +9,19 @@
 #include <QStatusBar>
 #include <QApplication>
 #include <QLabel>
+#include <QIcon>
 
 HelpWindow::HelpWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("viospice - Documentation & Guides");
-    resize(1000, 700);
+    setWindowTitle("VioSpice User Manual");
+    resize(1100, 750);
     
     setupUi();
     populateGuides();
     applyTheme();
     
-    statusBar()->showMessage("Ready");
+    statusBar()->showMessage("Welcome to VioSpice Help");
 }
 
 HelpWindow::~HelpWindow() {}
@@ -36,67 +37,130 @@ void HelpWindow::setupUi() {
     m_splitter = new QSplitter(Qt::Horizontal, central);
     m_splitter->setHandleWidth(1);
     
-    // Left panel: Guides list
+    // Left panel: Search + Tree
     QWidget* leftPanel = new QWidget(m_splitter);
+    leftPanel->setObjectName("sidebar");
     QVBoxLayout* leftLayout = new QVBoxLayout(leftPanel);
-    leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(0);
+    leftLayout->setContentsMargins(10, 10, 10, 10);
+    leftLayout->setSpacing(10);
     
-    QLabel* listHeader = new QLabel(" GUIDES", leftPanel);
-    listHeader->setFixedHeight(32);
-    leftLayout->addWidget(listHeader);
+    m_searchEdit = new QLineEdit(leftPanel);
+    m_searchEdit->setPlaceholderText("Search guides...");
+    m_searchEdit->setFixedHeight(30);
+    m_searchEdit->setClearButtonEnabled(true);
+    leftLayout->addWidget(m_searchEdit);
     
-    m_guidesList = new QListWidget(leftPanel);
-    m_guidesList->setFixedWidth(250);
-    m_guidesList->setFrameShape(QFrame::NoFrame);
-    leftLayout->addWidget(m_guidesList);
+    m_docTree = new QTreeWidget(leftPanel);
+    m_docTree->setHeaderHidden(true);
+    m_docTree->setIndentation(15);
+    m_docTree->setAnimated(true);
+    m_docTree->setFrameShape(QFrame::NoFrame);
+    m_docTree->setIconSize(QSize(18, 18));
+    leftLayout->addWidget(m_docTree);
     
     // Right panel: Content viewer
     m_contentViewer = new QTextBrowser(m_splitter);
     m_contentViewer->setOpenExternalLinks(true);
     m_contentViewer->setReadOnly(true);
     m_contentViewer->setFrameShape(QFrame::NoFrame);
+    m_contentViewer->setPlaceholderText("Select a guide from the sidebar to view details.");
     
     m_splitter->addWidget(leftPanel);
     m_splitter->addWidget(m_contentViewer);
     m_splitter->setStretchFactor(1, 1);
+    m_splitter->setSizes({280, 820});
     
     mainLayout->addWidget(m_splitter);
     
-    connect(m_guidesList, &QListWidget::itemClicked, this, &HelpWindow::onGuideSelected);
+    connect(m_docTree, &QTreeWidget::itemClicked, this, &HelpWindow::onDocSelected);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &HelpWindow::onSearchChanged);
 }
 
 void HelpWindow::populateGuides() {
-    m_guidesList->clear();
+    m_docTree->clear();
     
-    // Scan docs directory
-    QDir docsDir(qApp->applicationDirPath() + "/docs");
-    if (!docsDir.exists()) docsDir = QDir("../docs");
-    if (!docsDir.exists()) docsDir = QDir("/home/jnd/qt_projects/viospice/docs");
-    if (!docsDir.exists()) docsDir = QDir("/home/jnd/qt_projects/VioraEDA/docs");
+    QString baseDir = qApp->applicationDirPath();
+    QStringList paths = {
+        baseDir + "/docs/user",
+        "../docs/user",
+        "../../docs/user",
+        "/home/jnd/qt_projects/viospice/docs/user"
+    };
+
+    QDir docsDir;
+    for (const QString& path : paths) {
+        if (QDir(path).exists()) {
+            docsDir = QDir(path);
+            break;
+        }
+    }
+
+    if (!docsDir.exists()) return;
+
+    // Create Categories
+    QTreeWidgetItem* catBasics = new QTreeWidgetItem(m_docTree);
+    catBasics->setText(0, "Getting Started");
+    catBasics->setIcon(0, QIcon(":/icons/folder_open.svg"));
+    
+    QTreeWidgetItem* catWorkflow = new QTreeWidgetItem(m_docTree);
+    catWorkflow->setText(0, "Workflows & Features");
+    catWorkflow->setIcon(0, QIcon(":/icons/folder_open.svg"));
+
+    QTreeWidgetItem* catRef = new QTreeWidgetItem(m_docTree);
+    catRef->setText(0, "References");
+    catRef->setIcon(0, QIcon(":/icons/folder_open.svg"));
 
     QStringList filters;
     filters << "*.md";
     QFileInfoList files = docsDir.entryInfoList(filters, QDir::Files, QDir::Name);
     
     for (const QFileInfo& file : files) {
-        QString title = file.baseName().replace("_", " ");
+        QString rawName = file.baseName();
+        QString title = rawName;
+        if (title.contains("_")) {
+            title = title.mid(title.indexOf("_") + 1).replace("_", " ");
+        }
         if (title.length() > 0) title[0] = title[0].toUpper();
         
-        QListWidgetItem* item = new QListWidgetItem(title, m_guidesList);
-        item->setData(Qt::UserRole, file.absoluteFilePath());
+        QTreeWidgetItem* parent = catBasics;
+        if (rawName.contains("Drawing") || rawName.contains("Simulation")) parent = catWorkflow;
+        else if (rawName.contains("Shortcut")) parent = catRef;
+
+        QTreeWidgetItem* item = new QTreeWidgetItem(parent);
+        item->setText(0, title);
+        item->setData(0, Qt::UserRole, file.absoluteFilePath());
+        item->setIcon(0, QIcon(":/icons/component_file.svg"));
     }
     
-    if (m_guidesList->count() > 0) {
-        m_guidesList->setCurrentRow(0);
-        onGuideSelected(m_guidesList->item(0));
+    m_docTree->expandAll();
+
+    // Select first item
+    if (catBasics->childCount() > 0) {
+        m_docTree->setCurrentItem(catBasics->child(0));
+        onDocSelected(catBasics->child(0), 0);
     }
 }
 
-void HelpWindow::onGuideSelected(QListWidgetItem* item) {
-    if (!item) return;
-    QString filePath = item->data(Qt::UserRole).toString();
-    loadGuide(filePath);
+void HelpWindow::onDocSelected(QTreeWidgetItem* item, int column) {
+    Q_UNUSED(column);
+    QString path = item->data(0, Qt::UserRole).toString();
+    if (!path.isEmpty()) {
+        loadGuide(path);
+    }
+}
+
+void HelpWindow::onSearchChanged(const QString& text) {
+    QTreeWidgetItemIterator it(m_docTree);
+    while (*it) {
+        QTreeWidgetItem* item = *it;
+        if (item->childCount() > 0) { // It's a category
+            item->setHidden(false); // Categories stay visible usually
+        } else {
+            bool match = item->text(0).contains(text, Qt::CaseInsensitive);
+            item->setHidden(!match);
+        }
+        ++it;
+    }
 }
 
 void HelpWindow::loadGuide(const QString& filename) {
@@ -106,7 +170,7 @@ void HelpWindow::loadGuide(const QString& filename) {
         m_contentViewer->document()->setDefaultStyleSheet(markdownStyleSheet());
         m_contentViewer->setMarkdown(content);
         file.close();
-        statusBar()->showMessage("Loaded: " + QFileInfo(filename).fileName());
+        statusBar()->showMessage("Guide: " + QFileInfo(filename).baseName().replace("_", " "));
     }
 }
 
@@ -114,18 +178,23 @@ QString HelpWindow::markdownStyleSheet() const {
     PCBTheme* theme = ThemeManager::theme();
     bool isLight = theme && theme->type() == PCBTheme::Light;
     
-    if (isLight) {
-        return "body { color: #1e293b; font-family: 'Inter', sans-serif; line-height: 1.6; padding: 20px; }"
-               "h1 { color: #0f172a; font-size: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }"
-               "h2 { color: #0f172a; font-size: 18px; margin-top: 20px; }"
-               "code { background: #f1f5f9; color: #2563eb; padding: 2px 4px; border-radius: 4px; font-family: monospace; }"
-               "pre { background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; }";
-    }
-    return "body { color: #d4d4d4; font-family: 'Inter', sans-serif; line-height: 1.6; padding: 20px; }"
-           "h1 { color: #ffffff; font-size: 24px; border-bottom: 1px solid #333; padding-bottom: 10px; }"
-           "h2 { color: #ffffff; font-size: 18px; margin-top: 20px; }"
-           "code { background: #2d2d30; color: #9cdcfe; padding: 2px 4px; border-radius: 4px; font-family: monospace; }"
-           "pre { background: #1e1e1e; border: 1px solid #333; padding: 15px; border-radius: 8px; }";
+    QString bodyColor = isLight ? "#1e293b" : "#e0e0e0";
+    QString hColor = isLight ? "#0f172a" : "#ffffff";
+    QString codeBg = isLight ? "#f1f5f9" : "#2d2d30";
+    QString preBg = isLight ? "#f8fafc" : "#1a1a1a";
+    QString accent = isLight ? "#2563eb" : "#4fc1ff";
+
+    return QString(
+        "body { color: %1; font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.7; padding: 30px; }"
+        "h1 { color: %2; font-size: 28px; border-bottom: 2px solid %3; padding-bottom: 12px; margin-bottom: 20px; }"
+        "h2 { color: %2; font-size: 20px; margin-top: 30px; border-bottom: 1px solid #333; padding-bottom: 5px; }"
+        "h3 { color: %2; font-size: 16px; font-weight: bold; margin-top: 20px; }"
+        "p { margin-bottom: 15px; }"
+        "ul, ol { margin-bottom: 15px; margin-left: 20px; }"
+        "li { margin-bottom: 5px; }"
+        "code { background: %4; color: %5; padding: 2px 5px; border-radius: 4px; font-family: 'Cascadia Code', monospace; font-size: 13px; }"
+        "pre { background: %6; border: 1px solid #333; padding: 20px; border-radius: 10px; margin: 20px 0; }"
+    ).arg(bodyColor, hColor, accent, codeBg, accent, preBg);
 }
 
 void HelpWindow::applyTheme() {
@@ -135,20 +204,22 @@ void HelpWindow::applyTheme() {
     QString bg = theme->windowBackground().name();
     QString panelBg = theme->panelBackground().name();
     QString fg = theme->textColor().name();
-    QString secFg = theme->textSecondary().name();
     QString border = theme->panelBorder().name();
     QString accent = theme->accentColor().name();
-    QString hoverBg = (theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#2d2d30";
+    QString itemHover = (theme->type() == PCBTheme::Light) ? "#f1f5f9" : "#2d2d30";
+    QString searchBg = (theme->type() == PCBTheme::Light) ? "#ffffff" : "#1a1a1a";
 
     setStyleSheet(QString(
-        "QMainWindow, QWidget { background-color: %1; color: %3; }"
-        "QLabel { color: %4; font-size: 10px; font-weight: 800; letter-spacing: 1px; padding: 10px; }"
-        "QListWidget { background-color: %2; border-right: 1px solid %5; color: %3; outline: none; }"
-        "QListWidget::item { padding: 10px 15px; border-bottom: 1px solid %5; }"
-        "QListWidget::item:selected { background-color: %6; color: white; border: none; }"
-        "QListWidget::item:hover:!selected { background-color: %7; }"
-        "QTextBrowser { background-color: %1; color: %3; padding: 30px; selection-background-color: %6; }"
-        "QSplitter::handle { background-color: %5; }"
-        "QStatusBar { background-color: %6; color: white; }"
-    ).arg(bg, panelBg, fg, secFg, border, accent, hoverBg));
+        "QMainWindow { background-color: %1; }"
+        "QWidget#sidebar { background-color: %2; border-right: 1px solid %4; }"
+        "QLineEdit { background-color: %7; border: 1px solid %4; border-radius: 5px; padding: 5px 10px; color: %3; }"
+        "QLineEdit:focus { border-color: %5; }"
+        "QTreeWidget { background-color: transparent; border: none; color: %3; outline: none; }"
+        "QTreeWidget::item { padding: 8px 5px; border-radius: 4px; margin: 2px 0; }"
+        "QTreeWidget::item:selected { background-color: %5; color: white; }"
+        "QTreeWidget::item:hover:!selected { background-color: %6; }"
+        "QTextBrowser { background-color: %1; color: %3; selection-background-color: %5; border: none; }"
+        "QSplitter::handle { background-color: %4; }"
+        "QStatusBar { background-color: %5; color: white; border-top: 1px solid %4; }"
+    ).arg(bg, panelBg, fg, border, accent, itemHover, searchBg));
 }
