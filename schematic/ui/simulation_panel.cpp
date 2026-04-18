@@ -57,6 +57,8 @@
 #include <QMenu>
 #include <QColorDialog>
 #include <QInputDialog>
+#include <QApplication>
+#include <QClipboard>
 #include <QtConcurrent>
 #include <QFutureWatcher>
 #include <QShortcut>
@@ -1066,60 +1068,57 @@ void SimulationPanel::addProbe(const QString& signalName) {
         }
     }
     
+    QListWidgetItem* primaryMatchedItem = nullptr;
     if (!matchedItems.isEmpty()) {
-        for (auto* item : matchedItems) {
-            item->setCheckState(Qt::Checked);
+        primaryMatchedItem = matchedItems.first();
+        primaryMatchedItem->setCheckState(Qt::Checked);
+
+        // Re-probing the same logical node should not accumulate duplicate entries.
+        for (int i = matchedItems.size() - 1; i >= 1; --i) {
+            QListWidgetItem* dup = matchedItems.at(i);
+            if (!dup) continue;
+            if (m_waveformViewer) {
+                m_waveformViewer->removeSignal(dup->text());
+            }
+            const QString dupName = dup->text();
+            for (int row = 0; row < m_signalList->count(); ++row) {
+                if (m_signalList->item(row) == dup) {
+                    delete m_signalList->takeItem(row);
+                    break;
+                }
+            }
+            m_persistentCheckedSignals.remove(dupName);
         }
     } else {
         // Truly new signal, add it
-        QListWidgetItem* targetItem = new QListWidgetItem(signalName);
-        targetItem->setFlags(targetItem->flags() | Qt::ItemIsUserCheckable);
-        targetItem->setCheckState(Qt::Checked);
-        m_signalList->addItem(targetItem);
+        primaryMatchedItem = new QListWidgetItem(signalName);
+        primaryMatchedItem->setFlags(primaryMatchedItem->flags() | Qt::ItemIsUserCheckable);
+        primaryMatchedItem->setCheckState(Qt::Checked);
+        m_signalList->addItem(primaryMatchedItem);
     }
     
-    const QString matchedName = signalName; // Use the base signal name for syncing
+    const QString matchedName = primaryMatchedItem ? primaryMatchedItem->text() : signalName;
     qDebug() << "[PROBE_RT] addProbe requested=" << signalName;
 
-    auto syncExclusiveProbeSelection = [this, &matchedName]() {
+    auto syncProbeSelection = [this, &matchedName]() {
         if (!m_signalList) return;
 
         m_signalList->blockSignals(true);
-        m_persistentCheckedSignals.clear();
 
         for (int i = 0; i < m_signalList->count(); ++i) {
             auto* item = m_signalList->item(i);
             if (!item) continue;
 
-            const bool shouldCheck = signalMatches(item->text(), matchedName);
+            const bool shouldCheck = (item->checkState() == Qt::Checked) || signalMatches(item->text(), matchedName);
             item->setCheckState(shouldCheck ? Qt::Checked : Qt::Unchecked);
             if (shouldCheck) {
                 m_persistentCheckedSignals.insert(item->text());
+            } else {
+                m_persistentCheckedSignals.remove(item->text());
             }
 
             if (m_waveformViewer) {
                 m_waveformViewer->setSignalChecked(item->text(), shouldCheck);
-            }
-        }
-
-        if (m_chart) {
-            const auto seriesList = m_chart->series();
-            for (auto* chartSeries : seriesList) {
-                if (!chartSeries) continue;
-                const bool keep = signalMatches(chartSeries->name(), matchedName);
-                chartSeries->setVisible(keep);
-            }
-
-            auto axesY = m_chart->axes(Qt::Vertical);
-            if (!axesY.isEmpty()) {
-                auto* ay = qobject_cast<QValueAxis*>(axesY[0]);
-                if (ay) {
-                    const QString lower = matchedName.toLower();
-                    if (lower.startsWith("v(")) ay->setTitleText("Voltage (V)");
-                    else if (lower.startsWith("i(") || lower.contains("#branch")) ay->setTitleText("Current (A)");
-                    else if (lower.startsWith("p(")) ay->setTitleText("Power (W)");
-                    else ay->setTitleText("Value");
-                }
             }
         }
 
@@ -1254,7 +1253,7 @@ void SimulationPanel::addProbe(const QString& signalName) {
             }
         }
 
-        syncExclusiveProbeSelection();
+        syncProbeSelection();
         m_waveformViewer->updatePlot(true);
 
         // Probing can arrive while the dock/view layout is still settling, which
@@ -1265,7 +1264,7 @@ void SimulationPanel::addProbe(const QString& signalName) {
             if (viewer) viewer->zoomFit();
         }, Qt::QueuedConnection);
     } else {
-        syncExclusiveProbeSelection();
+        syncProbeSelection();
     }
     
     // If a transient simulation is running, rebuild the live preview chart for the selected signal.
@@ -2682,6 +2681,20 @@ void SimulationPanel::setupUI() {
     m_designExplorerSummaryLabel->setWordWrap(true);
     m_designExplorerSummaryLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; padding: 4px; }").arg(mutedText));
     explorerLayout->addWidget(m_designExplorerSummaryLabel);
+    m_designExplorerDetailLabel = new QLabel("Select a case to inspect its assignments and metric values.");
+    m_designExplorerDetailLabel->setWordWrap(true);
+    m_designExplorerDetailLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; padding: 4px; }").arg(textColor));
+    explorerLayout->addWidget(m_designExplorerDetailLabel);
+    QWidget* explorerActions = new QWidget();
+    auto* explorerActionsLayout = new QHBoxLayout(explorerActions);
+    explorerActionsLayout->setContentsMargins(0, 0, 0, 0);
+    explorerActionsLayout->setSpacing(6);
+    m_designExplorerCopyButton = new QPushButton("Copy Selected Case");
+    m_designExplorerCopyButton->setEnabled(false);
+    m_designExplorerCopyButton->setStyleSheet(buttonStyle("#1d4ed8", "white"));
+    explorerActionsLayout->addWidget(m_designExplorerCopyButton);
+    explorerActionsLayout->addStretch(1);
+    explorerLayout->addWidget(explorerActions);
     m_designExplorerTable = new QTableWidget(0, 0);
     m_designExplorerTable->setSortingEnabled(true);
     m_designExplorerTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -2854,6 +2867,24 @@ void SimulationPanel::setupUI() {
             m_selectedSteppedMeasurement = metricName;
             m_steppedMeasSeriesCombo->setCurrentText(metricName);
             if (m_viewTabs && m_spectrumTab) m_viewTabs->setCurrentWidget(m_spectrumTab);
+        });
+    }
+    if (m_designExplorerTable) {
+        connect(m_designExplorerTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+            if (m_hasLastResults) refreshDesignExplorerSelection(m_lastResults);
+        });
+    }
+    if (m_designExplorerCopyButton) {
+        connect(m_designExplorerCopyButton, &QPushButton::clicked, this, [this]() {
+            if (!m_designExplorerTable) return;
+            const int row = m_designExplorerTable->currentRow();
+            if (row < 0) return;
+            auto* caseItem = m_designExplorerTable->item(row, 1);
+            if (!caseItem) return;
+            const QString copyText = caseItem->data(Qt::UserRole + 2).toString();
+            if (copyText.isEmpty()) return;
+            QApplication::clipboard()->setText(copyText);
+            m_logOutput->append(QString("Design Explorer: copied case %1 to clipboard.").arg(caseItem->text()));
         });
     }
     connect(m_viewTabs, &QTabWidget::currentChanged, this, [this](int) {
@@ -3865,6 +3896,7 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
     if (!m_designExplorerSummaryLabel || !m_designExplorerTable) return;
 
     m_designExplorerTable->setSortingEnabled(false);
+    m_designExplorerTable->clearSelection();
     m_designExplorerTable->clearContents();
     m_designExplorerTable->setRowCount(0);
     m_designExplorerTable->setColumnCount(0);
@@ -3942,6 +3974,9 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
         for (int row = 0; row < stepLabels.size(); ++row) {
             const QString& stepLabel = stepLabels[row];
             const auto rowMeasurements = measurementsByStep.value(stepLabel);
+            const auto assignments = parseSweepAssignments(stepLabel);
+            QMap<QString, double> assignmentMap;
+            for (const auto& assignment : assignments) assignmentMap[assignment.first] = assignment.second;
 
             auto* rankItem = new QTableWidgetItem(QString::number(row + 1));
             rankItem->setData(Qt::UserRole, row + 1);
@@ -3949,11 +3984,38 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
 
             auto* caseItem = new QTableWidgetItem(stepLabel);
             caseItem->setToolTip(stepLabel);
+            QString detailText = QString("Case: %1").arg(stepLabel);
+            QString copyText = QString("Case: %1").arg(stepLabel);
+            if (!assignmentMap.isEmpty()) {
+                detailText += "\nAssignments:";
+                copyText += "\nAssignments:";
+                for (auto it = assignmentMap.cbegin(); it != assignmentMap.cend(); ++it) {
+                    const QString line = QString("%1 = %2").arg(it.key(), QString::number(it.value(), 'g', 12));
+                    detailText += "\n" + line;
+                    copyText += "\n" + line;
+                }
+            }
+            if (!rowMeasurements.isEmpty()) {
+                detailText += "\nMetrics:";
+                copyText += "\nMetrics:";
+                QStringList measurementLines;
+                for (int metricIndex = 0; metricIndex < measurementNames.size(); ++metricIndex) {
+                    const QString& metricName = measurementNames[metricIndex];
+                    if (!rowMeasurements.contains(metricName)) continue;
+                    const MeasurementDisplayEntry metricEntry = rowMeasurements.value(metricName);
+                    measurementLines.append(QString("%1 = %2")
+                                                .arg(metricEntry.baseName,
+                                                     formatMeasuredNumber(results, metricEntry.fullName, metricEntry.baseName, metricEntry.value)));
+                }
+                for (const QString& line : measurementLines) {
+                    detailText += "\n" + line;
+                    copyText += "\n" + line;
+                }
+            }
+            caseItem->setData(Qt::UserRole + 1, detailText);
+            caseItem->setData(Qt::UserRole + 2, copyText);
             m_designExplorerTable->setItem(row, 1, caseItem);
 
-            const auto assignments = parseSweepAssignments(stepLabel);
-            QMap<QString, double> assignmentMap;
-            for (const auto& assignment : assignments) assignmentMap[assignment.first] = assignment.second;
             for (int assignmentIndex = 0; assignmentIndex < assignmentColumns.size(); ++assignmentIndex) {
                 const QString& axisName = assignmentColumns[assignmentIndex];
                 auto* item = new QTableWidgetItem(
@@ -3987,6 +4049,9 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
         if (!objectiveMeasurement.isEmpty()) {
             m_designExplorerTable->sortItems(measurementColumnOffset + measurementNames.indexOf(objectiveMeasurement), Qt::DescendingOrder);
         }
+        if (m_designExplorerTable->rowCount() > 0) {
+            m_designExplorerTable->selectRow(0);
+        }
 
         QString summary = QString("Design Explorer: %1 case(s)").arg(stepLabels.size());
         if (!assignmentColumns.isEmpty()) {
@@ -4001,6 +4066,7 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
                                 formatMeasuredNumber(results, bestEntry.fullName, bestEntry.baseName, bestEntry.value));
         }
         m_designExplorerSummaryLabel->setText(summary);
+        refreshDesignExplorerSelection(results);
         return;
     }
 
@@ -4027,7 +4093,14 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
             auto* rankItem = new QTableWidgetItem(QString::number(row + 1));
             rankItem->setData(Qt::UserRole, row + 1);
             m_designExplorerTable->setItem(row, 0, rankItem);
-            m_designExplorerTable->setItem(row, 1, new QTableWidgetItem(rows[row].component));
+            auto* componentItem = new QTableWidgetItem(rows[row].component);
+            const QString detailText = QString("Component: %1\nSensitivity = %2\n|Sensitivity| = %3")
+                                           .arg(rows[row].component,
+                                                QString::number(rows[row].value, 'g', 12),
+                                                QString::number(std::abs(rows[row].value), 'g', 12));
+            componentItem->setData(Qt::UserRole + 1, detailText);
+            componentItem->setData(Qt::UserRole + 2, detailText);
+            m_designExplorerTable->setItem(row, 1, componentItem);
 
             auto* valueItem = new QTableWidgetItem(QString::number(rows[row].value, 'g', 12));
             valueItem->setData(Qt::UserRole, rows[row].value);
@@ -4040,6 +4113,9 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
 
         m_designExplorerTable->setSortingEnabled(true);
         m_designExplorerTable->sortItems(3, Qt::DescendingOrder);
+        if (m_designExplorerTable->rowCount() > 0) {
+            m_designExplorerTable->selectRow(0);
+        }
         m_designExplorerSummaryLabel->setText(
             rows.isEmpty()
                 ? QString("Design Explorer: no sensitivity data")
@@ -4047,11 +4123,40 @@ void SimulationPanel::refreshDesignExplorer(const SimResults& results) {
                       .arg(rows.size())
                       .arg(rows.first().component,
                            QString::number(rows.first().value, 'g', 12)));
+        refreshDesignExplorerSelection(results);
         return;
     }
 
     m_designExplorerSummaryLabel->setText("Design Explorer: no sweep, optimization, or sensitivity candidates in the current run.");
+    refreshDesignExplorerSelection(results);
     m_designExplorerTable->setSortingEnabled(true);
+}
+
+void SimulationPanel::refreshDesignExplorerSelection(const SimResults& results) {
+    Q_UNUSED(results)
+    if (!m_designExplorerDetailLabel || !m_designExplorerTable) return;
+
+    const int row = m_designExplorerTable->currentRow();
+    if (row < 0) {
+        m_designExplorerDetailLabel->setText("Select a case to inspect its assignments and metric values.");
+        if (m_designExplorerCopyButton) m_designExplorerCopyButton->setEnabled(false);
+        return;
+    }
+
+    auto* caseItem = m_designExplorerTable->item(row, 1);
+    if (!caseItem) {
+        m_designExplorerDetailLabel->setText("Select a case to inspect its assignments and metric values.");
+        if (m_designExplorerCopyButton) m_designExplorerCopyButton->setEnabled(false);
+        return;
+    }
+
+    const QString detailText = caseItem->data(Qt::UserRole + 1).toString();
+    m_designExplorerDetailLabel->setText(detailText.isEmpty()
+                                             ? QString("Selected case: %1").arg(caseItem->text())
+                                             : detailText);
+    if (m_designExplorerCopyButton) {
+        m_designExplorerCopyButton->setEnabled(!caseItem->data(Qt::UserRole + 2).toString().isEmpty());
+    }
 }
 
 void SimulationPanel::updateChartRealTime(const QString& name, double t, double value) {

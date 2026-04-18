@@ -293,13 +293,13 @@ void MainWindow::createMenuBar() {
     QMenu *editMenu = menuBar->addMenu("&Edit");
     m_undoAction = m_undoStack->createUndoAction(this, "&Undo");
     m_undoAction->setShortcut(QKeySequence::Undo);
-    m_undoAction->setIcon(QIcon(":/icons/undo.svg"));
+    m_undoAction->setIcon(getThemeIcon(":/icons/undo.svg"));
     editMenu->addAction(m_undoAction);
     addAction(m_undoAction); // Register globally
 
     m_redoAction = m_undoStack->createRedoAction(this, "&Redo");
     m_redoAction->setShortcut(QKeySequence::Redo);
-    m_redoAction->setIcon(QIcon(":/icons/redo.svg"));
+    m_redoAction->setIcon(getThemeIcon(":/icons/redo.svg"));
     editMenu->addAction(m_redoAction);
     addAction(m_redoAction); // Register globally
     editMenu->addSeparator();
@@ -467,20 +467,20 @@ void MainWindow::createToolBar() {
     QStringList extraTools = {"Measure"};
 
     QMap<QString, QIcon> toolIcons;
-    toolIcons["Select"] = QIcon(":/icons/tool_select.svg");
-    toolIcons["Erase"] = QIcon(":/icons/tool_erase.svg");
-    toolIcons["Zoom Area"] = QIcon(":/icons/tool_zoom_area.svg");
-    toolIcons["Trace"] = QIcon(":/icons/tool_wire.svg");
-    toolIcons["Diff Pair"] = QIcon(":/icons/tool_diff_pair.svg");
-    toolIcons["Length Tuning"] = QIcon(":/icons/tool_meander.svg");
-    toolIcons["Pad"] = QIcon(":/icons/tool_pad.svg");
-    toolIcons["Via"] = QIcon(":/icons/tool_circle.svg");
-    toolIcons["Rectangle"] = QIcon(":/icons/tool_rect.svg");
-    toolIcons["Filled Zone"] = QIcon(":/icons/tool_polygon.svg");
-    toolIcons["Line"] = QIcon(":/icons/tool_line.svg");
-    toolIcons["Circle"] = QIcon(":/icons/tool_circle.svg");
-    toolIcons["Arc"] = QIcon(":/icons/tool_arc.svg");
-    toolIcons["Measure"] = QIcon(":/icons/tool_measure.svg");
+    toolIcons["Select"] = getThemeIcon(":/icons/tool_select.svg");
+    toolIcons["Erase"] = getThemeIcon(":/icons/tool_erase.svg");
+    toolIcons["Zoom Area"] = getThemeIcon(":/icons/tool_zoom_area.svg");
+    toolIcons["Trace"] = getThemeIcon(":/icons/tool_wire.svg");
+    toolIcons["Diff Pair"] = getThemeIcon(":/icons/tool_diff_pair.svg");
+    toolIcons["Length Tuning"] = getThemeIcon(":/icons/tool_meander.svg");
+    toolIcons["Pad"] = getThemeIcon(":/icons/tool_pad.svg");
+    toolIcons["Via"] = getThemeIcon(":/icons/tool_circle.svg");
+    toolIcons["Rectangle"] = getThemeIcon(":/icons/tool_rect.svg");
+    toolIcons["Filled Zone"] = getThemeIcon(":/icons/tool_polygon.svg");
+    toolIcons["Line"] = getThemeIcon(":/icons/tool_line.svg");
+    toolIcons["Circle"] = getThemeIcon(":/icons/tool_circle.svg");
+    toolIcons["Arc"] = getThemeIcon(":/icons/tool_arc.svg");
+    toolIcons["Measure"] = getThemeIcon(":/icons/tool_measure.svg");
     
     auto availableTools = PCBToolRegistry::instance().registeredTools();
     
@@ -488,7 +488,7 @@ void MainWindow::createToolBar() {
     for (const QString& toolName : coreTools) {
         if (availableTools.contains(toolName)) {
             QIcon icon = toolIcons.value(toolName);
-            if (icon.isNull()) icon = QIcon(":/icons/tool_generic.svg");
+            if (icon.isNull()) icon = getThemeIcon(":/icons/tool_generic.svg");
             
             QAction* action = toolbar->addAction(icon, toolName);
             action->setCheckable(true);
@@ -502,7 +502,7 @@ void MainWindow::createToolBar() {
 
     // 2. Add Shape Tools Group
     QToolButton* shapesBtn = new QToolButton(toolbar);
-    shapesBtn->setIcon(QIcon(":/icons/tool_rect.svg"));
+    shapesBtn->setIcon(getThemeIcon(":/icons/tool_rect.svg"));
     shapesBtn->setToolTip("Geometric Shapes...");
     shapesBtn->setPopupMode(QToolButton::InstantPopup);
     QMenu* shapesMenu = new QMenu(shapesBtn);
@@ -545,7 +545,7 @@ void MainWindow::createToolBar() {
 
     // 4. Component Tool
     if (availableTools.contains("Component")) {
-        QAction* action = toolbar->addAction(QIcon(":/icons/comp_ic.svg"), "Component");
+        QAction* action = toolbar->addAction(getThemeIcon(":/icons/comp_ic.svg"), "Component");
         action->setCheckable(true);
         action->setData("Component");
         m_toolActions["Component"] = action;
@@ -557,7 +557,7 @@ void MainWindow::createToolBar() {
     // 5. More Tools Button (Global Access)
     QToolButton* moreBtn = new QToolButton(toolbar);
     moreBtn->setObjectName("MoreToolsButton");
-    moreBtn->setIcon(QIcon(":/icons/chevron_down.svg"));
+    moreBtn->setIcon(getThemeIcon(":/icons/chevron_down.svg"));
     moreBtn->setToolTip("All Tools...");
     moreBtn->setPopupMode(QToolButton::InstantPopup);
     QMenu* moreMenu = new QMenu(moreBtn);
@@ -577,9 +577,9 @@ void MainWindow::createToolBar() {
     toolbar->addWidget(moreBtn);
 
     // 6. Explicitly style the standard Qt extension button if it appears
-    QTimer::singleShot(0, this, [toolbar]() {
+    QTimer::singleShot(0, this, [this, toolbar]() {
         if (QToolButton* extBtn = toolbar->findChild<QToolButton*>("qt_toolbar_ext_button")) {
-            extBtn->setIcon(QIcon(":/icons/chevron_down.svg"));
+            extBtn->setIcon(getThemeIcon(":/icons/chevron_down.svg"));
             extBtn->setToolTip("Hidden Tools");
             extBtn->setStyleSheet("QToolButton { background: #2d2d30; border-radius: 4px; padding: 2px; }");
         }
@@ -589,12 +589,12 @@ void MainWindow::createToolBar() {
     toolbar->addAction(m_undoAction);
     toolbar->addAction(m_redoAction);
 
-    QAction* deleteAction = toolbar->addAction(QIcon(":/icons/tool_delete.svg"), "Delete");
+    QAction* deleteAction = toolbar->addAction(getThemeIcon(":/icons/tool_delete.svg"), "Delete");
     deleteAction->setToolTip("Delete selected items (Del / Bksp)");
     connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeleteSelection);
 
     toolbar->addSeparator();
-    QAction* drcToolbarAction = toolbar->addAction(QIcon(":/icons/check.svg"), "DRC");
+    QAction* drcToolbarAction = toolbar->addAction(getThemeIcon(":/icons/check.svg"), "DRC");
     drcToolbarAction->setToolTip("Run Design Rule Check (Shift+D)");
     connect(drcToolbarAction, &QAction::triggered, this, &MainWindow::onRunDRC);
 
@@ -609,19 +609,19 @@ void MainWindow::createToolBar() {
     connect(layer2Act, &QAction::triggered, this, [this](){ onActiveLayerChanged(1); m_layerPanel->selectLayer(1); });
     addAction(layer2Act);
     
-    QAction* rotateAction = toolbar->addAction(QIcon(":/icons/tool_rotate.svg"), "Rotate");
+    QAction* rotateAction = toolbar->addAction(getThemeIcon(":/icons/tool_rotate.svg"), "Rotate");
     rotateAction->setToolTip("Rotate selected items (R)");
     rotateAction->setShortcut(QKeySequence("R"));
     connect(rotateAction, &QAction::triggered, this, &MainWindow::onRotate);
     
-    QAction* mirrorAction = toolbar->addAction(QIcon(":/icons/flip_h.svg"), "Mirror");
+    QAction* mirrorAction = toolbar->addAction(getThemeIcon(":/icons/flip_h.svg"), "Mirror");
     mirrorAction->setToolTip("Mirror selected items (M)");
     mirrorAction->setShortcut(QKeySequence("Ctrl+M"));
     connect(mirrorAction, &QAction::triggered, this, &MainWindow::onMirror);
 
     toolbar->addSeparator();
 
-    QAction* snapAction = toolbar->addAction(QIcon(":/icons/snap_grid.svg"), "Snap Grid");
+    QAction* snapAction = toolbar->addAction(getThemeIcon(":/icons/snap_grid.svg"), "Snap Grid");
     snapAction->setCheckable(true);
     snapAction->setChecked(true);
     snapAction->setToolTip("Enable/Disable Grid Snapping (S)");
@@ -632,23 +632,23 @@ void MainWindow::createToolBar() {
 
     toolbar->addSeparator();
 
-    QAction* zoomInAction = toolbar->addAction(QIcon(":/icons/view_zoom_in.svg"), "Zoom In"); 
+    QAction* zoomInAction = toolbar->addAction(getThemeIcon(":/icons/view_zoom_in.svg"), "Zoom In"); 
     zoomInAction->setToolTip("Zoom in (+)");
     connect(zoomInAction, &QAction::triggered, this, &MainWindow::onZoomIn);
-    QAction* zoomOutAction = toolbar->addAction(QIcon(":/icons/view_zoom_out.svg"), "Zoom Out"); 
+    QAction* zoomOutAction = toolbar->addAction(getThemeIcon(":/icons/view_zoom_out.svg"), "Zoom Out"); 
     zoomOutAction->setToolTip("Zoom out (-)");
     connect(zoomOutAction, &QAction::triggered, this, &MainWindow::onZoomOut);
-    QAction* zoomFitAction = toolbar->addAction(QIcon(":/icons/view_fit.svg"), "Fit All");
+    QAction* zoomFitAction = toolbar->addAction(getThemeIcon(":/icons/view_fit.svg"), "Fit All"); 
     zoomFitAction->setToolTip("Fit all items to window (F)");
     zoomFitAction->setShortcut(QKeySequence("F"));
     connect(zoomFitAction, &QAction::triggered, this, &MainWindow::onZoomFit);
 
-    QAction* zoomCompAction = toolbar->addAction(QIcon(":/icons/view_zoom_components.svg"), "Zoom Components");
+    QAction* zoomCompAction = toolbar->addAction(getThemeIcon(":/icons/view_zoom_components.svg"), "Zoom Components");
     zoomCompAction->setToolTip("Zoom to fit all components (Alt+F)");
     zoomCompAction->setShortcut(QKeySequence("Alt+F"));
     connect(zoomCompAction, &QAction::triggered, this, &MainWindow::onZoomAllComponents);
 
-    QAction* zoomSelAction = toolbar->addAction(QIcon(":/icons/view_zoom_selection.svg"), "Zoom Selection");
+    QAction* zoomSelAction = toolbar->addAction(getThemeIcon(":/icons/view_zoom_selection.svg"), "Zoom Selection");
     zoomSelAction->setToolTip("Zoom to fit selected items (Ctrl+0)");
     zoomSelAction->setShortcut(QKeySequence("Ctrl+0"));
     connect(zoomSelAction, &QAction::triggered, this, &MainWindow::onZoomSelection);
@@ -683,7 +683,7 @@ void MainWindow::createToolBar() {
 
     toolbar->addSeparator();
 
-    QAction* view3DAct = toolbar->addAction(QIcon(":/icons/tool_3d.svg"), "3D View");
+    QAction* view3DAct = toolbar->addAction(getThemeIcon(":/icons/tool_3d.svg"), "3D View");
     view3DAct->setToolTip("Open PCB 3D Preview (Alt+3)");
     view3DAct->setShortcut(QKeySequence("Alt+3"));
     connect(view3DAct, &QAction::triggered, this, &MainWindow::onToggle3DView);
@@ -747,22 +747,22 @@ void MainWindow::createToolBar() {
     // Zoom & View controls (match schematic editor experience)
     topToolbar->addSeparator();
 
-    QAction* topZoomInAct = topToolbar->addAction(QIcon(":/icons/view_zoom_in.svg"), "Zoom In");
+    QAction* topZoomInAct = topToolbar->addAction(getThemeIcon(":/icons/view_zoom_in.svg"), "Zoom In");
     connect(topZoomInAct, &QAction::triggered, this, &MainWindow::onZoomIn);
 
-    QAction* topZoomOutAct = topToolbar->addAction(QIcon(":/icons/view_zoom_out.svg"), "Zoom Out");
+    QAction* topZoomOutAct = topToolbar->addAction(getThemeIcon(":/icons/view_zoom_out.svg"), "Zoom Out");
     connect(topZoomOutAct, &QAction::triggered, this, &MainWindow::onZoomOut);
 
-    QAction* topFitAct = topToolbar->addAction(QIcon(":/icons/view_fit.svg"), "Fit All");
+    QAction* topFitAct = topToolbar->addAction(getThemeIcon(":/icons/view_fit.svg"), "Fit All");
     connect(topFitAct, &QAction::triggered, this, &MainWindow::onZoomFit);
 
-    QAction* topCompAct = topToolbar->addAction(QIcon(":/icons/view_zoom_components.svg"), "Zoom Components");
+    QAction* topCompAct = topToolbar->addAction(getThemeIcon(":/icons/view_zoom_components.svg"), "Zoom Components");
     connect(topCompAct, &QAction::triggered, this, &MainWindow::onZoomAllComponents);
 
-    QAction* topZoomSelAct = topToolbar->addAction(QIcon(":/icons/view_zoom_selection.svg"), "Zoom Selection");
+    QAction* topZoomSelAct = topToolbar->addAction(getThemeIcon(":/icons/view_zoom_selection.svg"), "Zoom Selection");
     connect(topZoomSelAct, &QAction::triggered, this, &MainWindow::onZoomSelection);
 
-    QAction* topZoomAreaAct = topToolbar->addAction(QIcon(":/icons/tool_zoom_area.svg"), "Zoom Area");
+    QAction* topZoomAreaAct = topToolbar->addAction(getThemeIcon(":/icons/tool_zoom_area.svg"), "Zoom Area");
     topZoomAreaAct->setToolTip("Drag a rectangle to zoom in (Z)");
     connect(topZoomAreaAct, &QAction::triggered, this, [this]() {
         if (m_view) {
@@ -772,7 +772,7 @@ void MainWindow::createToolBar() {
 
     topToolbar->addSeparator();
 
-    QAction* top3DAct = topToolbar->addAction(QIcon(":/icons/tool_3d.svg"), "3D View");
+    QAction* top3DAct = topToolbar->addAction(getThemeIcon(":/icons/tool_3d.svg"), "3D View");
     top3DAct->setToolTip("Open PCB 3D Preview (Alt+3)");
     connect(top3DAct, &QAction::triggered, this, &MainWindow::onToggle3DView);
 
@@ -3157,7 +3157,7 @@ void MainWindow::onOpenCommandPalette() {
                 PaletteResult res;
                 res.title = QString("%1 (%2)").arg(comp->name(), comp->componentType());
                 res.description = QString("Footprint: %1 on Layer %2").arg(comp->componentType()).arg(comp->layer());
-                res.icon = QIcon(":/icons/comp_ic.svg");
+                res.icon = getThemeIcon(":/icons/comp_ic.svg");
                 res.action = [this, comp]() {
                     m_view->centerOn(comp);
                     m_scene->clearSelection();
@@ -3169,7 +3169,7 @@ void MainWindow::onOpenCommandPalette() {
                     PaletteResult res;
                     res.title = QString("Net: %1").arg(trace->netName());
                     res.description = QString("Trace on Layer %1").arg(trace->layer());
-                    res.icon = QIcon(":/icons/tool_trace.svg");
+                    res.icon = getThemeIcon(":/icons/tool_trace.svg");
                     res.action = [this, trace]() {
                         m_view->centerOn(trace);
                         m_scene->clearSelection();
@@ -3449,6 +3449,39 @@ void MainWindow::onSendToBack() {
     for (auto* item : m_scene->items()) minZ = qMin(minZ, item->zValue());
     
     for (auto* item : selected) item->setZValue(minZ - 1);
+}
+
+QIcon MainWindow::getThemeIcon(const QString& path) {
+    QIcon icon(path);
+    if (!ThemeManager::theme()) return icon;
+
+    // List of icons that should keep their original multi-color design
+    static const QStringList multiColorIcons = {
+        "probe", "ammeter", "voltmeter", "power_meter", "scissor", "n-v-probe", "p-v-probe", "tool_pad.svg"
+    };
+
+    bool isMultiColor = false;
+    for (const auto& tag : multiColorIcons) {
+        if (path.contains(tag, Qt::CaseInsensitive)) {
+            isMultiColor = true;
+            break;
+        }
+    }
+
+    if (isMultiColor) {
+        return icon;
+    }
+
+    // Tint monochrome icons for the active theme so they remain visible on both
+    // light and dark backgrounds.
+    QPixmap pixmap = icon.pixmap(QSize(32, 32));
+    if (pixmap.isNull()) return icon;
+
+    QPainter painter(&pixmap);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(pixmap.rect(), ThemeManager::theme()->textColor());
+    painter.end();
+    return QIcon(pixmap);
 }
 
 QIcon MainWindow::createPCBIcon(const QString& name) {

@@ -208,7 +208,7 @@ QIcon SchematicEditor::createComponentIcon(const QString& name) {
         painter.drawLine(8, 16, 16, 24); // Arrow head bottom
         painter.drawRect(22, 10, 4, 12); // Vertical bar (door/up)
     } else if (name == "Wire") {
-        return getThemeIcon(":/icons/tool_wire.svg");
+        return getThemeIcon(":/icons/tool_net.svg");
     } else if (name == "Probe" || name == "Voltage Probe" || name == "Current Probe" || name == "Power Probe" || name == "Logic Probe" || name == "Simulator") {
         QString iconPath = ":/icons/tool_probe.svg";
         if (name == "Voltage Probe") iconPath = ":/icons/tool_voltage_probe.svg";
