@@ -128,6 +128,7 @@ private:
     QString selectionQuickInfoText(PCBItem* item) const;
     QWidget* createStatusSeparator();
     QIcon createPCBIcon(const QString& name);
+    QIcon getThemeIcon(const QString& path);
     void ensureRightBottomDockTabs();
 
     // UI Components

@@ -186,6 +186,7 @@ private:
     void refreshSteppedMeasurementControls(const SimResults& results);
     void rebuildSteppedMeasurementPlot(const SimResults& results);
     void refreshDesignExplorer(const SimResults& results);
+    void refreshDesignExplorerSelection(const SimResults& results);
     bool shouldBuildStandardChart() const;
     bool shouldBuildSpectrumChart() const;
     void applyPlotQuality();
@@ -263,7 +264,9 @@ private:
     QString m_selectedSteppedMeasurement;
     QString m_selectedSteppedAxis;
     QLabel* m_designExplorerSummaryLabel = nullptr;
+    QLabel* m_designExplorerDetailLabel = nullptr;
     QTableWidget* m_designExplorerTable = nullptr;
+    QPushButton* m_designExplorerCopyButton = nullptr;
     
     // Virtual Instruments
     class WaveformViewer* m_waveformViewer = nullptr;
