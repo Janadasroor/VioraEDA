@@ -2,9 +2,10 @@
 #define HELPWINDOW_H
 
 #include <QMainWindow>
-#include <QListWidget>
+#include <QTreeWidget>
 #include <QTextBrowser>
 #include <QSplitter>
+#include <QLineEdit>
 
 class HelpWindow : public QMainWindow {
     Q_OBJECT
@@ -16,7 +17,8 @@ public:
     void loadGuide(const QString& filename);
 
 private Q_SLOTS:
-    void onGuideSelected(QListWidgetItem* item);
+    void onDocSelected(QTreeWidgetItem* item, int column);
+    void onSearchChanged(const QString& text);
 
 private:
     void setupUi();
@@ -24,7 +26,8 @@ private:
     void applyTheme();
     QString markdownStyleSheet() const;
 
-    QListWidget* m_guidesList;
+    QLineEdit* m_searchEdit;
+    QTreeWidget* m_docTree;
     QTextBrowser* m_contentViewer;
     QSplitter* m_splitter;
 };

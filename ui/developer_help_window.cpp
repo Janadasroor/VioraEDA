@@ -65,14 +65,24 @@ void DeveloperHelpWindow::setupUi() {
 void DeveloperHelpWindow::populateTechnicalDocs() {
     m_docTree->clear();
     
-    // Scan docs directory recursively
-    QString docsPath = qApp->applicationDirPath() + "/docs";
-    if (!QDir(docsPath).exists()) {
-        docsPath = "../docs";
+    // Scan docs/developer directory recursively
+    QString baseDir = qApp->applicationDirPath();
+    QStringList paths = {
+        baseDir + "/docs/developer",
+        "../docs/developer",
+        "../../docs/developer",
+        "/home/jnd/qt_projects/viospice/docs/developer"
+    };
+
+    QString docsPath;
+    for (const QString& path : paths) {
+        if (QDir(path).exists()) {
+            docsPath = path;
+            break;
+        }
     }
-    if (!QDir(docsPath).exists()) {
-        docsPath = "/home/jnd/qt_projects/VioraEDA/docs";
-    }
+
+    if (docsPath.isEmpty()) return;
 
     QTreeWidgetItem* root = new QTreeWidgetItem(m_docTree);
     root->setText(0, "Technical Documentation");

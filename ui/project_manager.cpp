@@ -1719,9 +1719,9 @@ void ProjectManager::createMenuBar() {
     prefsMenu->addAction("Settings", QKeySequence(), this, &ProjectManager::onSettings);
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");
-    QAction* helpAction = helpMenu->addAction("&Help & Guides", QKeySequence::HelpContents, this, &ProjectManager::showHelp);
+    QAction* helpAction = helpMenu->addAction("&User Manual & Guides", QKeySequence::HelpContents, this, &ProjectManager::showHelp);
 
-    QAction* devHelpAction = helpMenu->addAction("&Developer Documentation", QKeySequence("Ctrl+Shift+F1"), this, &ProjectManager::showDeveloperHelp);
+    QAction* devHelpAction = helpMenu->addAction("&Engineering Technical Docs", QKeySequence("Ctrl+Shift+F1"), this, &ProjectManager::showDeveloperHelp);
     helpMenu->addAction("Project &Health Audit...", QKeySequence(), this, &ProjectManager::onProjectAudit);
     m_aboutAction = helpMenu->addAction("&About viospice", QKeySequence(), this, &ProjectManager::showAbout);
 }
