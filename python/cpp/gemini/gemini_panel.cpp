@@ -1016,7 +1016,8 @@ QString GeminiPanel::gatherSchematicContext() const {
     params.type = SpiceNetlistGenerator::OP;
     
     QString projectDir = m_projectFilePath.isEmpty() ? QDir::currentPath() : QFileInfo(m_projectFilePath).absolutePath();
-    QString netlist = SpiceNetlistGenerator::generate(m_scene, projectDir, m_netManager, params);
+    auto result = SpiceNetlistGenerator::generate(m_scene, projectDir, m_netManager, params);
+    QString netlist = result.netlist;
     
     if (netlist.trimmed().isEmpty()) return QString();
     

@@ -1,5 +1,6 @@
 #include "spice_netlist_generator.h"
 #include "../items/schematic_item.h"
+#include "../items/smart_signal_item.h"
 #include "net_manager.h"
 #include "../io/netlist_generator.h"
 #include "../../symbols/symbol_library.h"
@@ -287,7 +288,6 @@ QString normalizeXspiceModelAlias(const QString& rawToken, const QString& typeNa
     if (matches({"d_srlatch", "srlatch", "sr_latch", "set_reset_latch"})) return "d_srlatch";
     if (matches({"d_tristate", "tristate", "tri_state"})) return "d_tristate";
     if (matches({"d_ram", "ram", "memory", "digital_ram"})) return "d_ram";
-    if (type.contains("smartsignal") || type.contains("smart signal") || token.contains("fluxscript")) return "flux_script";
 
     if (token.startsWith("d_")) return token;
     return QString();
@@ -321,10 +321,6 @@ QString defaultXspiceModelLine(const QString& ref, const QString& codeModel) {
             .arg(modelName);
     }
 
-    if (codeModel == "flux_script") {
-        return QString(".model %1 flux_script(script_id=\"%2\")").arg(modelName, ref);
-    }
-
     return QString(".model %1 %2").arg(modelName, codeModel);
 }
 
@@ -355,8 +351,7 @@ bool usesNativeLogicADevice(const QString& codeModel) {
 bool xspiceModelUsesCollapsedInputVector(const QString& codeModel) {
     return codeModel == "d_and" || codeModel == "d_nand" ||
            codeModel == "d_or" || codeModel == "d_nor" ||
-           codeModel == "d_xor" || codeModel == "d_xnor" ||
-           codeModel == "flux_script";
+           codeModel == "d_xor" || codeModel == "d_xnor";
 }
 
 NetlistManager::PinDirection pinDirectionFromMetadata(const SymbolDefinition* sym, const QString& pinName, bool* hasExplicitMetadata = nullptr) {
@@ -2496,8 +2491,16 @@ QString formatPwlValueForNetlist(const QString& value, int maxLen = 120) {
 }
 
 QString currentSaveVectorForRef(const QString& spiceRef) {
-    const QString ref = spiceRef.trimmed();
+    QString ref = spiceRef.trimmed();
     if (ref.isEmpty()) return QString();
+
+    // Extract first token (the reference) if the line contains nodes or values
+    if (ref.contains(' ')) {
+        ref = ref.split(QRegularExpression("\\s+")).at(0);
+    }
+
+    // Sanity check: paths or weird strings shouldn't be treated as SPICE references
+    if (ref.contains('/') || ref.contains('\\') || ref.contains('.')) return QString();
 
     const QChar prefix = ref.at(0).toUpper();
     switch (prefix.unicode()) {
@@ -2936,8 +2939,8 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
 }
 }
 
-QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& projectDir, NetManager* /*netManager*/, const SimulationParams& params) {
-    if (!scene) return "* Missing scene\n";
+SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& projectDir, NetManager* /*netManager*/, const SimulationParams& params) {
+    if (!scene) return { "* Missing scene\n", {} };
 
     qDebug() << "[SpiceNetlistGenerator] type=" << params.type << "rfPort1Source=" << params.rfPort1Source << "rfPort2Node=" << params.rfPort2Node << "rfZ0=" << params.rfZ0;
 
@@ -3068,22 +3071,22 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
     QSet<QString> includePaths;
     QSet<QString> libPaths;
 
-    // 1. Get Flattened ECO Package (Components)
+    // 1. Get Flattened ECO Package (Components and Nets)
+    qDebug() << "[SpiceNetlistGenerator] Generating ECO package...";
     ECOPackage pkg = NetlistGenerator::generateECOPackage(scene, projectDir, nullptr);
+    qDebug() << "[SpiceNetlistGenerator] ECO package generated. Components:" << pkg.components.size() << "Nets:" << pkg.nets.size();
     
-    // 2. Get Flattened Connectivity (Nets)
-    QList<NetlistNet> nets = NetlistGenerator::buildConnectivity(scene, projectDir, nullptr);
-
     // Build mapping: ComponentRef -> map(PinName -> NetName)
     // Gather pins from ALL units of the same component reference across the entire scene/hierarchy.
     QMap<QString, QMap<QString, QString>> componentPins;
-    for (const auto& net : nets) {
+    for (const auto& net : pkg.nets) {
         QString netName = net.name;
         if (netName.toUpper() == "GND" || netName == "0") netName = "0";
         for (const auto& pin : net.pins) {
             componentPins[pin.componentRef][pin.pinName] = netName;
         }
     }
+    qDebug() << "[SpiceNetlistGenerator] Pin mapping built.";
 
     // Collect include paths from symbol metadata (subcircuit .inc/.lib)
     for (const auto& comp : pkg.components) {
@@ -3953,6 +3956,70 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             savedCurrentVectors.append(currentSaveVector);
         }
 
+        // --- VioSpice Smart Block (JIT) ---
+        if (type == SchematicItem::SmartSignalType || 
+            typeName.contains("smartsignal", Qt::CaseInsensitive) || 
+            typeName.contains("smart signal", Qt::CaseInsensitive)) {
+            
+            qDebug() << "[SpiceNetlistGenerator] Processing smart block:" << ref;
+            // Re-read pins to get names
+            QMap<QString, QString> pinsMap = componentPins.value(ref);
+            qDebug() << "[SpiceNetlistGenerator] Pin map size for" << ref << ":" << pinsMap.size();
+            
+            // Smart Blocks typically have named pins in metadata
+            // But they are exported as numeric pins on the symbol
+            // We need to match schematic net names to logical pin names
+            
+            // For now, iterate all connected nets and identify if they are outputs or inputs
+            // Based on SmartSignalItem structure: input pins first, then output pins.
+            
+            // Let's find the actual item to get its pin configuration
+            SmartSignalItem* smartItem = nullptr;
+            for (auto* item : scene->items()) {
+                if (auto* si = dynamic_cast<SmartSignalItem*>(item)) {
+                    if (si->reference() == ref) {
+                        smartItem = si;
+                        break;
+                    }
+                }
+            }
+
+            if (smartItem) {
+                QStringList inPins = smartItem->inputPins();
+                QStringList outPins = smartItem->outputPins();
+                int totalPins = inPins.size() + outPins.size();
+                bool emitted = false;
+                
+                for (int i = 0; i < totalPins; ++i) {
+                    QString pinName = smartItem->pinName(i);
+                    QString net = pinsMap.value(pinName, "0");
+                    if (net == "0") continue;
+
+                    if (i < inPins.size()) {
+                        // Input pin: Add high-impedance pulldown to ground to avoid floating node error
+                        netlist += QString("R_IN_%1_%2 %3 0 1G\n").arg(ref, pinName, net);
+                    } else {
+                        // Output pin: Create a voltage source between this net and ground
+                        // The name must match what SimulationManager uses: V[REF]_[PIN_NAME]
+                        QString outPinName = pinName.toUpper();
+                        QString vSrcName = QString("V%1_%2").arg(ref.toUpper(), outPinName);
+                        netlist += QString("%1 %2 0 0.0\n").arg(vSrcName, net);
+                    }
+                    emitted = true;
+                }
+
+                if (!emitted) {
+                    netlist += QString("* Warning: Smart Block %1 has no connected pins.\n").arg(ref);
+                }
+            } else {
+                // Fallback for missing item: default to first two pins as VSource
+                QString n1 = nodes.value(0, "0");
+                QString n2 = nodes.value(1, "0");
+                netlist += QString("%1 %2 %3 0.0\n").arg(line, n1, n2);
+            }
+            continue;
+        }
+
         // Strip unsupported voltage parasitics and emit separate elements for ngspice.
         const bool isVoltageSource = (type == SchematicItem::VoltageSourceType) ||
                                      comp.typeName.startsWith("Voltage_Source", Qt::CaseInsensitive);
@@ -4219,12 +4286,15 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
             continue;
         }
 
+        const bool isSmartSignal = (type == SchematicItem::SmartSignalType) ||
+                                   comp.typeName.compare("SmartSignalBlock", Qt::CaseInsensitive) == 0;
         const bool isCSW = (comp.typeName.compare("csw", Qt::CaseInsensitive) == 0) || ref.startsWith("W", Qt::CaseInsensitive);
-        const bool isSwitch = (comp.typeName.compare("Switch", Qt::CaseInsensitive) == 0) ||
-                              (comp.typeName.compare("sw", Qt::CaseInsensitive) == 0) ||
-                              ref.startsWith("SW", Qt::CaseInsensitive) ||
-                              ref.startsWith("S", Qt::CaseInsensitive) ||
-                              isCSW;
+        const bool isSwitch = !isSmartSignal &&
+                              ((comp.typeName.compare("Switch", Qt::CaseInsensitive) == 0) ||
+                               (comp.typeName.compare("sw", Qt::CaseInsensitive) == 0) ||
+                               ref.startsWith("SW", Qt::CaseInsensitive) ||
+                               ref.startsWith("S", Qt::CaseInsensitive) ||
+                               isCSW);
         if (isSwitch) {
             // If the symbol provides control pins, treat it as a voltage-controlled switch.
             if (nodes.size() >= 4 && !isCSW) {
@@ -4779,7 +4849,7 @@ QString SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& pr
         netlist += "run\n";
     }
     netlist += ".endc\n.end\n";
-    return netlist;
+    return { netlist, componentPins };
 }
 
 QString SpiceNetlistGenerator::buildCommand(const SimulationParams& params) {

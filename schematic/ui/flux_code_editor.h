@@ -1,8 +1,8 @@
 #ifndef FLUX_CODE_EDITOR_H
 #define FLUX_CODE_EDITOR_H
 
-#include <flux/flux_editor.h>
-#include <flux/flux_highlighter.h>
+#include <flux/ui/flux_editor.h>
+#include <flux/ui/flux_highlighter.h>
 
 class QGraphicsScene;
 class NetManager;

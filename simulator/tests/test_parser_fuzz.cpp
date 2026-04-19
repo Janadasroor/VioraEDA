@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <QString>
 
 namespace {
 
@@ -56,7 +57,7 @@ void fuzzValueParser() {
 
     for (const std::string& seed : corpus) {
         double out = 0.0;
-        const bool ok = SimValueParser::parseSpiceNumber(QString::fromStdString(seed), out);
+        const bool ok = SimValueParser::parseSpiceNumber(QString::fromStdString(seed).toStdString(), out);
         if (ok) {
             require(!std::isnan(out), "value parser returned NaN for corpus item");
         }
@@ -65,7 +66,7 @@ void fuzzValueParser() {
     for (int i = 0; i < 10000; ++i) {
         const std::string token = randomToken(rng, 128);
         double out = 0.0;
-        const bool ok = SimValueParser::parseSpiceNumber(QString::fromStdString(token), out);
+        const bool ok = SimValueParser::parseSpiceNumber(QString::fromStdString(token).toStdString(), out);
         if (ok) {
             require(!std::isnan(out), "value parser returned NaN for fuzz token");
         }

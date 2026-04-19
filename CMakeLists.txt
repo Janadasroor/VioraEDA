@@ -107,6 +107,7 @@ endif()
 set(FLUX_BUILD_EDITOR ON CACHE BOOL "Build the FluxEditor GUI module" FORCE)
 set(VIOSPICE_ENABLE_PYTHON ON CACHE BOOL "Enable Python-backed editor features" FORCE)
 add_subdirectory(../fluxscript fluxscript_build)
+add_definitions(-DHAVE_FLUXSCRIPT)
 # -----------------------
 
 include(cmake/project_sources.cmake)
@@ -188,8 +189,6 @@ if(BUILD_VIOSPICE_CLI)
         VioFootprints
         VioraPCBCore
     )
-    target_compile_definitions(viora PRIVATE HAVE_FLUXSCRIPT)
-
 
     if(VIOSPICE_ENGINE_FOUND)
         target_link_libraries(viora PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})

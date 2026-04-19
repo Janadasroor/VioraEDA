@@ -72,6 +72,7 @@
 #include "simulator/bridge/sim_schematic_bridge.h"
 #include "simulation_manager.h"
 #include "simulator/bridge/sim_manager.h"
+#include "simulator/core/sim_results.h"
 #include "simulator/core/sim_value_parser.h"
 #include "simulator/bridge/model_library_manager.h"
 #include "simulator/core/raw_data_parser.h"
@@ -1724,17 +1725,17 @@ bool runSchematicNetlist(const QString& filePath, const QCommandLineParser& pars
         params.type = SpiceNetlistGenerator::OP;
     }
 
-    QString netlist = SpiceNetlistGenerator::generate(&scene, QFileInfo(filePath).absolutePath(), nullptr, params);
+    auto result = SpiceNetlistGenerator::generate(&scene, QFileInfo(filePath).absolutePath(), nullptr, params);
     if (!outPath.isEmpty()) {
         QFile outFile(outPath);
         if (!outFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
             std::cerr << "Error: Unable to write netlist to " << outPath.toStdString() << std::endl;
             return false;
         }
-        outFile.write(netlist.toUtf8());
+        outFile.write(result.netlist.toUtf8());
         outFile.close();
     } else {
-        std::cout << netlist.toStdString() << std::endl;
+        std::cout << result.netlist.toStdString() << std::endl;
     }
     return true;
 }
@@ -2173,7 +2174,7 @@ bool runNetlistCompare(const QStringList& args, const QCommandLineParser& parser
         params.type = SpiceNetlistGenerator::OP;
     }
 
-    const QString schematicNetlist = SpiceNetlistGenerator::generate(&scene, QFileInfo(schematicPath).absolutePath(), nullptr, params);
+    auto result = SpiceNetlistGenerator::generate(&scene, QFileInfo(schematicPath).absolutePath(), nullptr, params);
 
     QFile extFile(externalPath);
     if (!extFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -2183,7 +2184,7 @@ bool runNetlistCompare(const QStringList& args, const QCommandLineParser& parser
     const QString externalNetlist = QString::fromUtf8(extFile.readAll());
     extFile.close();
 
-    const QStringList schLines = normalizeNetlistText(schematicNetlist);
+    const QStringList schLines = normalizeNetlistText(result.netlist);
     const QStringList extLines = normalizeNetlistText(externalNetlist);
 
     QMap<QString, int> schCounts;
@@ -2253,11 +2254,15 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
 
     QString runPath = filePath;
     std::unique_ptr<QTemporaryFile> tempNetlist;
+    QGraphicsScene scene; // Keep scene alive for JIT blocks during simulation
 
     const QString suffix = QFileInfo(filePath).suffix().toLower();
     const bool applyCompat = parser.isSet("compat");
+    
+    // --- Initialize Engine First ---
+    sim.initialize();
+    
     if (suffix == "flxsch") {
-        QGraphicsScene scene;
         QString pageSize;
         TitleBlockData dummyTB;
         if (!SchematicFileIO::loadSchematic(&scene, filePath, pageSize, dummyTB)) {
@@ -2279,7 +2284,23 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
             params.type = SpiceNetlistGenerator::OP;
         }
 
-        const QString netlist = SpiceNetlistGenerator::generate(&scene, QFileInfo(filePath).absolutePath(), nullptr, params);
+        const auto result = SpiceNetlistGenerator::generate(&scene, QFileInfo(filePath).absolutePath(), nullptr, params);
+
+        // --- Initialize Engine First ---
+        // Ensure ngspice sets up its heap and signal handlers BEFORE LLVM JIT is created
+        // to prevent malloc_consolidate crashes during simulation stream.
+        // sim.initialize();
+
+        // --- FluxScript Integration ---
+        if (!g_quiet) std::cout << "FluxScript: Found " << result.componentPins.size() << " component pin mappings." << std::endl;
+        for (auto it = result.componentPins.begin(); it != result.componentPins.end(); ++it) {
+            if (!g_quiet) std::cout << "  " << it.key().toStdString() << ": " << it.value().size() << " pins." << std::endl;
+        }
+
+        // SimManager::instance().m_pinToNetMap = result.componentPins;
+        // SimManager::instance().compileFluxScripts(&scene);
+        // ------------------------------
+
         const QString baseName = QFileInfo(filePath).completeBaseName();
         const QString tempPattern = QDir::tempPath() + "/viospice_netlist_" + baseName + "_XXXXXX.cir";
         tempNetlist = std::make_unique<QTemporaryFile>(tempPattern);
@@ -2287,7 +2308,7 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
             std::cerr << "Error: Failed to create temporary netlist." << std::endl;
             return false;
         }
-        tempNetlist->write(netlist.toUtf8());
+        tempNetlist->write(result.netlist.toUtf8());
         tempNetlist->flush();
         runPath = tempNetlist->fileName();
     } else if (applyCompat && suffix == "cir") {
@@ -2348,12 +2369,21 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
         finished = true;
     });
 
+    QObject::connect(&SimManager::instance(), &SimManager::logMessage, &sim, [&](const QString& msg) {
+        if (!g_quiet) std::cout << "[Simulator] " << msg.toStdString() << std::endl;
+    });
+    QObject::connect(&SimManager::instance(), &SimManager::errorOccurred, &sim, [&](const QString& msg) {
+        std::cerr << "[Simulator Error] " << msg.toStdString() << std::endl;
+    });
+
     {
         const bool jsonOut = parser.isSet("json");
         const bool restoreFd = jsonOut || exportRequested;
         const bool silenceFd = g_quiet || jsonOut;
         ScopedFdSilence silence(silenceFd, restoreFd);
-        sim.runSimulation(runPath);
+        
+        SimControl control;
+        sim.runSimulation(runPath, &control);
 
         QEventLoop loop;
         QTimer timer;
@@ -4081,7 +4111,7 @@ int main(int argc, char *argv[]) {
             if (!g_quiet) std::cerr << "  - Type: DC Operating Point" << std::endl;
         }
 
-        QString netlistText = SpiceNetlistGenerator::generate(&scene, QFileInfo(filePath).absolutePath(), nullptr, spiceParams);
+        auto result = SpiceNetlistGenerator::generate(&scene, QFileInfo(filePath).absolutePath(), nullptr, spiceParams);
         
         QTemporaryFile tempNetlist(QDir::tempPath() + "/viospice_cli_XXXXXX.cir");
         tempNetlist.setAutoRemove(false);
@@ -4091,7 +4121,7 @@ int main(int argc, char *argv[]) {
         }
         {
             QTextStream out(&tempNetlist);
-            out << netlistText;
+            out << result.netlist;
         }
         tempNetlist.close();
 

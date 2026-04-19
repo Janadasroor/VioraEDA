@@ -48,7 +48,8 @@ void CodeEditor::setScene(QGraphicsScene* scene, NetManager* netManager) {
 }
 
 void CodeEditor::updateCompletionKeywords(const QStringList& additionalKeywords) {
-    if (!m_completer) return;
+    auto* completer = this->completer();
+    if (!completer) return;
     
     QStringList baseKeywords = {
         "var", "let", "def", "if", "else", "elif", "for", "while", "return", "import", "from",
@@ -63,18 +64,16 @@ void CodeEditor::updateCompletionKeywords(const QStringList& additionalKeywords)
     allKeywords.removeDuplicates();
     allKeywords.sort();
 
-    auto* model = new QStringListModel(allKeywords, m_completer);
-    m_completer->setModel(model);
+    auto* model = new QStringListModel(allKeywords, completer);
+    completer->setModel(model);
 }
 
 void CodeEditor::setErrorLines(const QMap<int, QString>& errors) {
-    m_errorLines = errors;
-    highlightCurrentLine();
+    FluxEditor::setErrorLines(errors);
 }
 
 void CodeEditor::setActiveDebugLine(int line) {
-    m_activeDebugLine = line;
-    highlightCurrentLine();
+    FluxEditor::setActiveDebugLine(line);
 }
 
 void CodeEditor::onRunRequested() {
@@ -85,7 +84,7 @@ void CodeEditor::onRunRequested() {
     // Clear old errors
     setErrorLines({});
     
-    if (JITContextManager::instance().compileAndLoad(source, errors)) {
+    if (JITContextManager::instance().compileAndLoad("standalone_editor", source, errors)) {
         // Success notification is handled by the manager signal if needed,
         // or we can show a tooltip/status bar message here.
         qDebug() << "FluxScript: Run successful.";
@@ -99,7 +98,8 @@ void CodeEditor::onRunRequested() {
 
 
 void CodeEditor::keyPressEvent(QKeyEvent* e) {
-    if (m_completer && m_completer->popup()->isVisible()) {
+    auto* completer = this->completer();
+    if (completer && completer->popup()->isVisible()) {
         switch (e->key()) {
         case Qt::Key_Enter:
         case Qt::Key_Return:
@@ -117,8 +117,9 @@ void CodeEditor::keyPressEvent(QKeyEvent* e) {
 }
 
 void CodeEditor::focusInEvent(QFocusEvent* e) {
-    if (m_completer)
-        m_completer->setWidget(this);
+    auto* completer = this->completer();
+    if (completer)
+        completer->setWidget(this);
     FluxEditor::focusInEvent(e);
 }
 

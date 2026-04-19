@@ -16,10 +16,10 @@ SmartSignalItem::SmartSignalItem(QPointF pos, QGraphicsItem* parent)
     m_inputPins << "In1";
     m_outputPins << "Out1";
     m_pythonCode = "class SmartSignal:\n    def update(self, t, inputs):\n        return inputs.get('In1', 0.0)";
-    m_fluxCode = "def update(t) {\n    return V(\"In1\");\n}";
+    m_fluxCode = "update(t, inputs) {\n    let freq = 1000.0;\n    let duty = V(\"In1\");\n    \n    // Triangle ramp [0, 1]\n    let ramp = (t * freq) - floor(t * freq);\n    \n    if ramp < duty then 5.0 else 0.0\n}";
     m_engineType = EngineType::FluxScript;
     
-    setReference("SB1");
+    setReference("UB1");
     setName("Smart Block");
     updateSize();
     updateDocstring();

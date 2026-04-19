@@ -1,12 +1,16 @@
-# Strip 'core/' prefix from CORE_SOURCES defined in project_sources.cmake
+# Set up VioCore sources from root-relative paths
 set(LOCAL_CORE_SOURCES ${CORE_SOURCES})
-list(TRANSFORM LOCAL_CORE_SOURCES REPLACE "^core/" "")
+list(TRANSFORM LOCAL_CORE_SOURCES PREPEND "${CMAKE_SOURCE_DIR}/")
 
 list(APPEND LOCAL_CORE_SOURCES
-    flux_script_engine.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/flux_script_engine.cpp"
 )
 
-add_library(VioCore STATIC ${LOCAL_CORE_SOURCES})
+qt6_wrap_cpp(VIO_CORE_MOC_SOURCES
+    jit_context_manager.h
+)
+
+add_library(VioCore STATIC ${LOCAL_CORE_SOURCES} ${VIO_CORE_MOC_SOURCES})
 set_target_properties(VioCore PROPERTIES AUTOMOC ON)
 vioraeda_configure_module_target(VioCore)
 target_link_libraries(VioCore PUBLIC FluxScript)

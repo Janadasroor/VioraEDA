@@ -32,7 +32,7 @@ public:
     virtual void rebuildPrimitives() override;
     virtual SchematicItem* clone() const override;
 
-    SymbolDefinition symbol() const { return m_symbol; }
+    const SymbolDefinition& symbol() const { return m_symbol; }
     void setSymbol(const SymbolDefinition& symbol);
     
     virtual QList<QPointF> connectionPoints() const override;
