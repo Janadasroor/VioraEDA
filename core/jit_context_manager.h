@@ -1,6 +1,11 @@
 #ifndef JIT_CONTEXT_MANAGER_H
 #define JIT_CONTEXT_MANAGER_H
 
+#include <QObject>
+#include <QString>
+#include <QMap>
+#include <memory>
+
 #ifdef HAVE_FLUXSCRIPT
 #pragma push_macro("emit")
 #undef emit
@@ -10,11 +15,6 @@
 #include <flux/compiler/parser.h>
 #pragma pop_macro("emit")
 #endif
-
-#include <QObject>
-#include <QString>
-#include <QMap>
-#include <memory>
 
 namespace Flux {
 
@@ -51,9 +51,20 @@ public:
     void reset();
 
     /**
+     * @brief Sets the pin-to-net mapping for the current script execution.
+     * Used by runtime helpers like V() and I() to find the correct simulation vector.
+     */
+    void setPinMapping(const QMap<QString, QString>& mapping);
+
+    /**
      * @brief Logs a message from the JIT to the console.
      */
     void logMessage(const QString& msg);
+
+    // --- Runtime Helpers for JIT ---
+    static double getVoltage(double namePtr);
+    static double getCurrent(double namePtr);
+    static void setSimulationData(const std::vector<double>& values);
 
 Q_SIGNALS:
     void compilationFinished(bool success, QString message);
@@ -66,6 +77,7 @@ private:
 #ifdef HAVE_FLUXSCRIPT
     std::unique_ptr<FluxJIT> m_jit;
     QMap<QString, void*> m_updateFunctions;
+    QMap<QString, QString> m_currentPinMap;
 #endif
 };
 

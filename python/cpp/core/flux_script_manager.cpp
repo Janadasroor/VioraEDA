@@ -53,12 +53,21 @@ void FluxScriptManager::runScript(const QString& scriptName, const QStringList& 
     });
 
     QString fluxExec = getFluxExecutable();
+    QString pythonExec = getPythonExecutable();
     
     QStringList allArgs;
-    allArgs << fullPath << args;
+    QString cmdToRun;
     
-    qDebug() << "[FluxScriptManager] Running script:" << scriptName << "with" << args.size() << "args";
-    process->start(fluxExec, allArgs);
+    if (fullPath.endsWith(".py")) {
+        cmdToRun = pythonExec;
+        allArgs << fullPath << args;
+    } else {
+        cmdToRun = fluxExec;
+        allArgs << fullPath << args;
+    }
+    
+    qDebug() << "[FluxScriptManager] Running:" << cmdToRun << "script:" << scriptName << "with" << args.size() << "args";
+    process->start(cmdToRun, allArgs);
     if (!process->waitForStarted(1000)) {
         qDebug() << "[FluxScriptManager] Process failed to start!" << process->errorString();
     } else {

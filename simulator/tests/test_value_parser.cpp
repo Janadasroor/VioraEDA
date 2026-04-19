@@ -3,11 +3,13 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <QString>
+#include <QChar>
 
 namespace {
 void expectOk(const char* text, double expected, double tol = 1e-12) {
     double out = 0.0;
-    const bool ok = SimValueParser::parseSpiceNumber(QString::fromLatin1(text), out);
+    const bool ok = SimValueParser::parseSpiceNumber(QString::fromLatin1(text).toStdString(), out);
     if (!ok) {
         std::cerr << "FAILED: parseSpiceNumber(\"" << text << "\") returned false, expected " << expected << std::endl;
     }
@@ -20,7 +22,7 @@ void expectOk(const char* text, double expected, double tol = 1e-12) {
 
 void expectFail(const char* text) {
     double out = 0.0;
-    const bool ok = SimValueParser::parseSpiceNumber(QString::fromLatin1(text), out);
+    const bool ok = SimValueParser::parseSpiceNumber(QString::fromLatin1(text).toStdString(), out);
     assert(!ok && "expected parse failure");
 }
 } // namespace
@@ -55,9 +57,9 @@ int main() {
         QString val = "1k";
         val += QChar(0x03A9);
         double out = 0.0;
-        const bool ok = SimValueParser::parseSpiceNumber(val, out);
-        assert(ok && "expected parse success for omega suffix");
-        assert(std::abs(out - 1e3) <= 1e-9);
+        const bool ok = SimValueParser::parseSpiceNumber(val.toStdString(), out);
+        assert(ok && "expected success with omega");
+        assert(std::abs(out - 1000.0) < 1e-9);
     }
 
     // Edge/malformed cases

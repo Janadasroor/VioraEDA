@@ -5,6 +5,7 @@
 #include "../../schematic/items/schematic_item.h"
 #include "../../schematic/items/smart_signal_item.h"
 #include "simulation_manager.h"
+#include "../../core/jit_context_manager.h"
 #include "../../schematic/analysis/spice_netlist_generator.h"
 #include "../core/sim_value_parser.h"
 #include <QDebug>
@@ -149,6 +150,39 @@ QString detectUnsupportedOtaModelUsage(const QString& netlistText) {
     }
 
     return QString();
+}
+
+QString normalizeFluxSmartBlockSource(QString source) {
+    source.replace(QRegularExpression("^\\s*def\\s+update\\s*\\("),
+                   "update(");
+
+    // Current FluxScript builds parse `return` as a plain expression token rather than
+    // a terminating statement. The common smart-block shape:
+    //   if (cond) { return A; }
+    //   return B;
+    // can be losslessly rewritten to the expression form the compiler evaluates today.
+    const QRegularExpression simpleIfReturnRe(
+        QStringLiteral(R"((?s)^\s*update\s*\(([^)]*)\)\s*\{\s*(.*)\s+if\s*\(\s*(.*?)\s*\)\s*\{\s*return\s+(.*?)\s*;\s*\}\s*return\s+(.*?)\s*;\s*\}\s*$)"));
+    const auto match = simpleIfReturnRe.match(source);
+    if (match.hasMatch()) {
+        const QString args = match.captured(1).trimmed();
+        const QString prefix = match.captured(2).trimmed();
+        const QString cond = match.captured(3).trimmed();
+        const QString thenExpr = match.captured(4).trimmed();
+        const QString elseExpr = match.captured(5).trimmed();
+
+        QString normalized = QStringLiteral("update(%1) {\n").arg(args);
+        if (!prefix.isEmpty()) {
+            normalized += prefix;
+            if (!normalized.endsWith('\n')) normalized += '\n';
+            normalized += '\n';
+        }
+        normalized += QStringLiteral("if %1 then %2 else %3\n}")
+                          .arg(cond, thenExpr, elseExpr);
+        return normalized;
+    }
+
+    return source;
 }
 
 QStringList tokenizeStepFileLine(const QString& line) {
@@ -703,6 +737,9 @@ SimManager& SimManager::instance() {
 SimManager::~SimManager() = default;
 
 SimManager::SimManager(QObject* parent) : QObject(parent) {
+    m_rtTimer = new QTimer(this);
+    connect(m_rtTimer, &QTimer::timeout, this, &SimManager::onRealTimeTick);
+
     connect(this, &SimManager::netlistGenerated, this, [this](const QString& netlist, const SimAnalysisConfig& /*config*/) {
         startNgspiceWithNetlist(netlist);
     });
@@ -742,8 +779,8 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
 void SimManager::runDCOP(QGraphicsScene* scene, NetManager* netMgr) {
     SimAnalysisConfig config;
     config.type = SimAnalysisType::OP;
-    compileFluxScripts(scene);
     QString netlist = generateNetlist(scene, netMgr, config);
+    compileFluxScripts(scene);
     runNgspiceSimulation(netlist, config);
 }
 
@@ -752,8 +789,8 @@ void SimManager::runTransient(QGraphicsScene* scene, NetManager* netMgr, double 
     config.type = SimAnalysisType::Transient;
     config.tStop = tStop;
     config.tStep = tStep;
-    compileFluxScripts(scene);
     QString netlist = generateNetlist(scene, netMgr, config);
+    compileFluxScripts(scene);
     runNgspiceSimulation(netlist, config);
 }
 
@@ -763,8 +800,8 @@ void SimManager::runAC(QGraphicsScene* scene, NetManager* netMgr, double fStart,
     config.fStart = fStart;
     config.fStop = fStop;
     config.fPoints = points;
-    compileFluxScripts(scene);
     QString netlist = generateNetlist(scene, netMgr, config);
+    compileFluxScripts(scene);
     runNgspiceSimulation(netlist, config);
 }
 
@@ -882,7 +919,9 @@ QString SimManager::generateNetlist(QGraphicsScene* scene, NetManager* netMgr, c
             break;
     }
 
-    return SpiceNetlistGenerator::generate(scene, projectDir, netMgr, params);
+    auto result = SpiceNetlistGenerator::generate(scene, projectDir, netMgr, params);
+    instance().m_pinToNetMap = result.componentPins;
+    return result.netlist;
 }
 
 void SimManager::runNgspiceSimulation(const QString& netlist, const SimAnalysisConfig& config) {
@@ -1166,10 +1205,11 @@ void SimManager::cleanupSimulation() {
         proc->deleteLater();
     }
     if (m_control) {
+        SimulationManager::instance().stopSimulation();
         SimControl* ctrl = m_control;
         m_control = nullptr;
         // Delay deletion to ensure any pending signals/threads are done
-        QTimer::singleShot(100, [ctrl]() {
+        QTimer::singleShot(200, [ctrl]() {
             if (ctrl) delete ctrl;
         });
     }
@@ -1221,6 +1261,9 @@ void SimManager::runRealTime(QGraphicsScene* scene, NetManager* netMgr, int inte
 
     m_control = new SimControl();
     Q_EMIT simulationStarted();
+
+    m_rtTimer->start(config.rtIntervalMs);
+
     if (!startSharedSimulation(netlist, QString("Starting real-time transient stream (%1 ms update interval)...").arg(config.rtIntervalMs))) {
         return;
     }
@@ -1237,8 +1280,6 @@ void SimManager::stopRealTime() {
     SimulationManager::instance().stopSimulation();
     if (m_rtTimer) {
         m_rtTimer->stop();
-        delete m_rtTimer;
-        m_rtTimer = nullptr;
     }
     m_rtScene = nullptr;
     m_rtNetMgr = nullptr;
@@ -1254,7 +1295,40 @@ void SimManager::onInteractiveStateChanged() {
 }
 
 void SimManager::onRealTimeTick() {
-    // Real-time tick handling
+    if (!m_rtScene || m_paused || m_stopRequested) return;
+
+    // Use current simulation time and latest known vector values to drive JIT logic
+    // during real-time runs where cbSendData might not be firing as expected.
+    auto& sim = SimulationManager::instance();
+    if (sim.m_fluxScriptTargets.isEmpty()) return;
+
+    // We don't have a fresh vecArray here, so we must rely on SimulationManager::getVectorValue 
+    // to pull the LATEST simulation points for inputs.
+    // NOTE: This assumes ngGet_Vec_Info works across threads in this ngspice build.
+    
+    // 1. Gather all required vectors into a snapshot for the JIT
+    std::vector<double> currentSnapshot;
+    for (const auto& vm : sim.m_vectorMap) {
+        currentSnapshot.push_back(sim.getVectorValue(vm.name));
+    }
+    
+    // 2. Drive JIT updates
+    double time = sim.getVectorValue("time");
+    Flux::JITContextManager::instance().setSimulationData(currentSnapshot);
+
+    for (auto it = sim.m_fluxScriptTargets.begin(); it != sim.m_fluxScriptTargets.end(); ++it) {
+        const QString scriptId = it.key();
+        const SimulationManager::FluxScriptTarget& target = it.value();
+
+        Flux::JITContextManager::instance().setPinMapping(target.pinToNetMap);
+        double vOut = Flux::JITContextManager::instance().runUpdate(scriptId, time, currentSnapshot);
+
+        if (std::isfinite(vOut)) {
+            for (const QString& vSrc : target.outputVoltageSources) {
+                sim.queueFluxSourceUpdate(vSrc, vOut);
+            }
+        }
+    }
 }
 
 bool SimManager::startSharedSimulation(const QString& netlistContent, const QString& startMessage) {
@@ -1396,8 +1470,11 @@ void SimManager::pauseSimulation(bool pause) {
 void SimManager::compileFluxScripts(QGraphicsScene* scene) {
     if (!scene) return;
     
+    // Reset JIT state to clear any old modules/functions
+    Flux::JITContextManager::instance().reset();
+    
     m_fluxScriptTargets.clear();
-    QStringList targetIds;
+    QMap<QString, SimulationManager::FluxScriptTarget> targets;
     int compiledCount = 0;
     
     for (QGraphicsItem* item : scene->items()) {
@@ -1408,11 +1485,28 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
                     if (ref.isEmpty()) continue;
                     
                     m_fluxScriptTargets[ref] = smart;
-                    targetIds << ref;
+                    
+                    SimulationManager::FluxScriptTarget target;
+
+                    // 1. Map output pin sources: V[REF]_[PIN]
+                    for (const QString& outPin : smart->outputPins()) {
+                        target.outputVoltageSources << QString("V%1_%2").arg(ref, outPin.toUpper());
+                    }
+
+                    // 2. Capture Pin-to-Net mapping for this component
+                    target.pinToNetMap = m_pinToNetMap.value(ref);
+                    qDebug() << "[SimManager] Pin map for" << ref << "has" << target.pinToNetMap.size() << "mappings.";
+                    for (auto it = target.pinToNetMap.begin(); it != target.pinToNetMap.end(); ++it) {
+                        qDebug() << "  " << it.key() << "->" << it.value();
+                    }
+
+                    targets.insert(ref, target);
                     
                     // Compile the script into the JIT
+                    QString fluxSource = normalizeFluxSmartBlockSource(smart->fluxCode());
+
                     QMap<int, QString> errors;
-                    if (Flux::JITContextManager::instance().compileAndLoad(ref, smart->fluxCode(), errors)) {
+                    if (Flux::JITContextManager::instance().compileAndLoad(ref, fluxSource, errors)) {
                         compiledCount++;
                     } else {
                         QString err = errors.value(0);
@@ -1428,5 +1522,5 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
     }
     
     // Push targets to live simulation manager for the feedback loop
-    SimulationManager::instance().setFluxScriptTargets(targetIds);
+    SimulationManager::instance().setFluxScriptTargets(targets);
 }

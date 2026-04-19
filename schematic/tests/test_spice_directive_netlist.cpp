@@ -4,7 +4,7 @@
 #include "../items/inductor_item.h"
 #include "../items/power_item.h"
 #include "../items/schematic_spice_directive_item.h"
-#include "simulation_manager.h"
+#include "core/simulation_manager.h"
 #include "../../simulator/bridge/sim_manager.h"
 #include "../../simulator/core/sim_net_evaluator.h"
 #include "../../simulator/core/raw_data_parser.h"
@@ -99,7 +99,7 @@ void SpiceDirectiveNetlistTest::generatesWarningsAndHonorsManualDirectives() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("* Directive Warnings\n"), qPrintable(netlist));
     QVERIFY2(netlist.contains("* Warning: Duplicate .model OPMOD in directive block"), qPrintable(netlist));
@@ -124,7 +124,7 @@ void SpiceDirectiveNetlistTest::reportsDuplicateElementsAndUnclosedSubckts() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("* Directive Warnings\n"), qPrintable(netlist));
     QVERIFY2(netlist.contains("* Warning: Duplicate element reference R1 in directive block"), qPrintable(netlist));
@@ -147,7 +147,7 @@ void SpiceDirectiveNetlistTest::honorsExplicitSaveDirective() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains(".save V(out) I(L1)"), qPrintable(netlist));
     QVERIFY2(!netlist.contains(".save all"), qPrintable(netlist));
@@ -169,7 +169,7 @@ void SpiceDirectiveNetlistTest::rewritesSimpleLtspiceIfExpressions() {
     params.step = "1u";
     params.stop = "2m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("* LTspice rewrite: BGAH GAH 0 V={if(V(REFA)>V(TRI), VG, 0)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BGAH GAH 0 V={((VG)*(u((V(REFA))-(V(TRI)))))}"), qPrintable(netlist));
@@ -192,7 +192,7 @@ void SpiceDirectiveNetlistTest::rewritesIfWithTrueAndFalseBranches() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("* LTspice rewrite: BDRV G 0 V={if(V(IN)>0.5, 12, -3)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BDRV G 0 V={((12)*(u((V(IN))-(0.5))) + (-3)*(1-(u((V(IN))-(0.5)))))"), qPrintable(netlist));
@@ -214,7 +214,7 @@ void SpiceDirectiveNetlistTest::rewritesNestedLtspiceIfInDirectiveElement() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("* LTspice rewrite: G_Latch GND 15 VALUE={IF(V(RESET)<0.5, -1m, IF(V(THRES)>V(CONT), -1m, IF(V(11)>V(TRIG), 1m, 0)))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("G_Latch GND 15 VALUE={"), qPrintable(netlist));
@@ -259,7 +259,7 @@ void SpiceDirectiveNetlistTest::acceptsLm555BehavioralSubcktDirective() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains(".SUBCKT LM555_TI GND TRIG OUT RESET CONT THRES DISCH VCC"), qPrintable(netlist));
     QVERIFY2(netlist.contains("R1 VCC CONT 5k"), qPrintable(netlist));
@@ -325,7 +325,7 @@ void SpiceDirectiveNetlistTest::simulatesLm555BehavioralSubcktDirective() {
     params.step = "1u";
     params.stop = "200u";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     SimResults results;
     QString error;
@@ -383,7 +383,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBooleanOperators() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("BLOGIC OUT 0 V={(V(A)>1) and (V(B)>1)}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BALT OUT2 0 V={(V(A)>1) or (V(B)>1)}"), qPrintable(netlist));
@@ -406,7 +406,7 @@ void SpiceDirectiveNetlistTest::rewritesIdtWithInitialConditionAndReset() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("B__INTDRV_BPI 0 BPI__idt I={(1-(u((V(rst))-(0.5))))*(({Ki})*(V(err)))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("B__INTRESET_BPI 0 BPI__idt I={(u((V(rst))-(0.5)))*(1e6)*((1.25)-V(BPI__idt))}"), qPrintable(netlist));
@@ -442,7 +442,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceBehavioralHelperFunctions() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("BBUF out1 0 V={u((V(a))-(0.5))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BINV out2 0 V={(1-u((V(b))-(0.5)))}"), qPrintable(netlist));
@@ -483,7 +483,7 @@ void SpiceDirectiveNetlistTest::approximatesUnsupportedBehavioralTimeFunctions()
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("BDEL out1 0 V={(V(a))}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("BABS out2 0 V={(V(b))}"), qPrintable(netlist));
@@ -505,7 +505,7 @@ void SpiceDirectiveNetlistTest::approximatesLtspiceTableFunction() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("BTAB out1 0 V={(((0)*(u((0)-(V(a)))) + ((5)*(u((V(a))-(0)) + (10)*(1-(u((V(a))-(0))))))*(1-(u((0)-(V(a)))))))}") ||
              netlist.contains("BTAB out1 0 V={"), qPrintable(netlist));
@@ -528,7 +528,7 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceStepFourAndWaveDirectives() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("LTspice .step detected in line 1; this ngspice configuration reports .step as unimplemented, so VioSpice will omit it from the active netlist."), qPrintable(netlist));
     QVERIFY2(netlist.contains("* .step param RLOAD LIST 5 10 15"), qPrintable(netlist));
@@ -557,7 +557,7 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceFuncDynamicScoping() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("LTspice .func detected in line 2; user-defined functions may rely on LTspice dynamic scoping, so verify ngspice compatibility when referenced inside subcircuits or with local .param overrides."), qPrintable(netlist));
 }
@@ -577,7 +577,7 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceWavefileSources() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("LTspice wavefile= source detected in line 1; ngspice compatibility for WAV-backed sources is not implemented in VioSpice."), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice chan= option for wavefile-backed sources detected in line 1; verify channel-selection compatibility manually."), qPrintable(netlist));
@@ -608,7 +608,7 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceBehavioralAndTriggeredSourceOpt
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("LTspice B-source instance option ic= detected and passed through unchanged"), qPrintable(netlist));
     QVERIFY2(netlist.contains("LTspice B-source step-rejection options tripdv=/tripdt= detected; VioSpice will drop them if needed to keep ngspice loadable"), qPrintable(netlist));
@@ -681,7 +681,7 @@ void SpiceDirectiveNetlistTest::warnsAboutLtspiceMeasForms() {
     params.step = "1u";
     params.stop = "2m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains(".meas PARAM detected and passed through unchanged"), qPrintable(netlist));
     QVERIFY2(netlist.contains(".meas FIND ... AT= detected"), qPrintable(netlist));
@@ -706,7 +706,7 @@ void SpiceDirectiveNetlistTest::rewritesVoltageSourceInstanceExtras() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("V1 V1__rser 0 PWL(0 0 20u 5)"), qPrintable(netlist));
     QVERIFY2(!netlist.contains("V1 V1__rser 0 5"), qPrintable(netlist));
@@ -748,7 +748,7 @@ void SpiceDirectiveNetlistTest::rewritesAdvancedLtspicePwlForms() {
     params.step = "1u";
     params.stop = "10u";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QFileInfo(pwlFile.fileName()).absolutePath(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QFileInfo(pwlFile.fileName()).absolutePath(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("VREP out1 0 PWL(1e-06 1 2e-06 2 3e-06 1 4e-06 2)"), qPrintable(netlist));
     QVERIFY2(netlist.contains("VFILE out2 0 PWL(1e-06 12 2e-06 15)"), qPrintable(netlist));
@@ -784,7 +784,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspicePwlScopedataAndNestedRepeat() {
     params.step = "1u";
     params.stop = "10u";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QFileInfo(scopeFile.fileName()).absolutePath(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QFileInfo(scopeFile.fileName()).absolutePath(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("VNEST out1 0 PWL(1e-06 1 2e-06 2 3e-06 1 4e-06 2 5e-06 1 6e-06 2 7e-06 1 8e-06 2)"), qPrintable(netlist));
     QVERIFY2(netlist.contains("VSCOPE out2 0 PWL(0 3 1 8)"), qPrintable(netlist));
@@ -806,7 +806,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspicePwlRelativeBraceTimes() {
     params.step = "1u";
     params.stop = "10u";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("VREL out 0 PWL(1e-06 1 {1e-06+(2u/2)} 2 {{1e-06+(2u/2)}+(3u-1u)} 3)"), qPrintable(netlist));
 }
@@ -825,7 +825,7 @@ void SpiceDirectiveNetlistTest::warnsAboutIllFormedLtspicePwlRepeat() {
     params.step = "1u";
     params.stop = "10u";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("VBAD out 0 PWL REPEAT FOR 3 (0,0,1,10) ENDREPEAT"), qPrintable(netlist));
     QVERIFY2(netlist.contains("Ill-formed LTspice PWL REPEAT block: first repeated time is zero but first and last values differ."), qPrintable(netlist));
@@ -847,7 +847,7 @@ void SpiceDirectiveNetlistTest::rewritesLtspiceCurrentSourceSpecialForms() {
     params.step = "1u";
     params.stop = "10u";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("R__ILOAD_IRLOAD out 0 5"), qPrintable(netlist));
     QVERIFY2(netlist.contains("B__ITBL_ITBL out 0 I={if((V(out,0))<=(1),(((0)+((2)-(0))*(((V(out,0))-(0))/((1)-(0))))),(if((V(out,0))<=(2),(((2)+((4)-(2))*(((V(out,0))-(1))/((2)-(1))))),(4))))}"), qPrintable(netlist));
@@ -879,7 +879,7 @@ void SpiceDirectiveNetlistTest::preservesMutualInductorDirectives() {
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("L1 "), qPrintable(netlist));
     QVERIFY2(netlist.contains("L2 "), qPrintable(netlist));
@@ -909,7 +909,7 @@ void SpiceDirectiveNetlistTest::expandsInductorParasiticsForNgspiceCompatibility
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("K1 L1 L2 1"), qPrintable(netlist));
     QVERIFY2(netlist.contains("R__RSER_L1 "), qPrintable(netlist));
@@ -956,7 +956,7 @@ void SpiceDirectiveNetlistTest::preservesMultiInductorMutualCouplingDirectives()
     params.step = "1u";
     params.stop = "1m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("L1 "), qPrintable(netlist));
     QVERIFY2(netlist.contains("L2 "), qPrintable(netlist));
@@ -1014,7 +1014,7 @@ void SpiceDirectiveNetlistTest::loadsBoostConverterLtspiceDirectiveInNgspice() {
     params.step = "100n";
     params.stop = "5m";
 
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QVERIFY2(netlist.contains("R__RSER_Cout out Cout__rser {ESR}"), qPrintable(netlist));
     QVERIFY2(netlist.contains("Cout Cout__rser 0 220u"), qPrintable(netlist));
@@ -1786,7 +1786,7 @@ void SpiceDirectiveNetlistTest::boostConverterFeedbackDoesNotRunAway() {
     params.type = SpiceNetlistGenerator::Transient;
     params.step = "100n";
     params.stop = "5m";
-    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params);
+    const QString netlist = SpiceNetlistGenerator::generate(&scene, QString(), nullptr, params).netlist;
 
     QTemporaryFile temp;
     QVERIFY2(temp.open(), "Failed to create temporary netlist file.");
@@ -1819,27 +1819,30 @@ void SpiceDirectiveNetlistTest::boostConverterFeedbackDoesNotRunAway() {
     QVERIFY2(RawDataParser::loadRawAscii(rawPath.toStdString(), &data), qPrintable(parseError));
 
     const auto signalIndex = [&](const QString& name) {
-        for (int i = 0; i < data.varNames.size(); ++i) {
-            if (data.varNames.at(i).compare(name, Qt::CaseInsensitive) == 0) return i;
+        std::string stdName = name.toLower().toStdString();
+        for (int i = 0; i < (int)data.varNames.size(); ++i) {
+            std::string vn = data.varNames.at(i);
+            std::transform(vn.begin(), vn.end(), vn.begin(), ::tolower);
+            if (vn == stdName) return i;
         }
         return -1;
     };
-    const auto tailAverage = [](const QVector<double>& values, int tailCount = 500) {
+    const auto tailAverage = [](const std::vector<double>& values, int tailCount = 500) {
         const int count = std::min(tailCount, static_cast<int>(values.size()));
         double sum = 0.0;
-        for (int i = values.size() - count; i < values.size(); ++i) sum += values.at(i);
+        for (int i = (int)values.size() - count; i < (int)values.size(); ++i) sum += values.at(i);
         return count > 0 ? sum / static_cast<double>(count) : 0.0;
     };
-    const auto tailMin = [](const QVector<double>& values, int tailCount = 500) {
+    const auto tailMin = [](const std::vector<double>& values, int tailCount = 500) {
         const int count = std::min(tailCount, static_cast<int>(values.size()));
         double minVal = values.at(values.size() - count);
-        for (int i = values.size() - count + 1; i < values.size(); ++i) minVal = std::min(minVal, values.at(i));
+        for (int i = (int)values.size() - count + 1; i < (int)values.size(); ++i) minVal = std::min(minVal, values.at(i));
         return minVal;
     };
-    const auto tailMax = [](const QVector<double>& values, int tailCount = 500) {
+    const auto tailMax = [](const std::vector<double>& values, int tailCount = 500) {
         const int count = std::min(tailCount, static_cast<int>(values.size()));
         double maxVal = values.at(values.size() - count);
-        for (int i = values.size() - count + 1; i < values.size(); ++i) maxVal = std::max(maxVal, values.at(i));
+        for (int i = (int)values.size() - count + 1; i < (int)values.size(); ++i) maxVal = std::max(maxVal, values.at(i));
         return maxVal;
     };
 
@@ -1847,21 +1850,26 @@ void SpiceDirectiveNetlistTest::boostConverterFeedbackDoesNotRunAway() {
     const int piIndex = signalIndex("v(pi_out)");
     const int dutyIndex = signalIndex("v(duty)");
     const int errIndex = signalIndex("v(err)");
-    QVERIFY2(outIndex >= 1, qPrintable(QString("Missing signal v(out). Available: %1").arg(data.varNames.join(", "))));
-    QVERIFY2(piIndex >= 1, qPrintable(QString("Missing signal v(pi_out). Available: %1").arg(data.varNames.join(", "))));
-    QVERIFY2(dutyIndex >= 1, qPrintable(QString("Missing signal v(duty). Available: %1").arg(data.varNames.join(", "))));
-    QVERIFY2(errIndex >= 1, qPrintable(QString("Missing signal v(err). Available: %1").arg(data.varNames.join(", "))));
+    
+    QStringList varNames;
+    for (const auto& vn : data.varNames) varNames << QString::fromStdString(vn);
+    const QString varList = varNames.join(", ");
 
-    const QVector<double>& outValues = data.y[outIndex - 1];
-    const QVector<double>& piValues = data.y[piIndex - 1];
-    const QVector<double>& dutyValues = data.y[dutyIndex - 1];
-    const QVector<double>& errValues = data.y[errIndex - 1];
-    QVERIFY2(!outValues.isEmpty(), "No samples for v(out)");
-    QVERIFY2(!piValues.isEmpty(), "No samples for v(pi_out)");
-    QVERIFY2(!dutyValues.isEmpty(), "No samples for v(duty)");
-    QVERIFY2(!errValues.isEmpty(), "No samples for v(err)");
+    QVERIFY2(outIndex >= 1, qPrintable(QString("Missing signal v(out). Available: %1").arg(varList)));
+    QVERIFY2(piIndex >= 1, qPrintable(QString("Missing signal v(pi_out). Available: %1").arg(varList)));
+    QVERIFY2(dutyIndex >= 1, qPrintable(QString("Missing signal v(duty). Available: %1").arg(varList)));
+    QVERIFY2(errIndex >= 1, qPrintable(QString("Missing signal v(err). Available: %1").arg(varList)));
 
-    const double finalVout = outValues.last();
+    const std::vector<double>& outValues = data.y[outIndex - 1];
+    const std::vector<double>& piValues = data.y[piIndex - 1];
+    const std::vector<double>& dutyValues = data.y[dutyIndex - 1];
+    const std::vector<double>& errValues = data.y[errIndex - 1];
+    QVERIFY2(!outValues.empty(), "No samples for v(out)");
+    QVERIFY2(!piValues.empty(), "No samples for v(pi_out)");
+    QVERIFY2(!dutyValues.empty(), "No samples for v(duty)");
+    QVERIFY2(!errValues.empty(), "No samples for v(err)");
+
+    const double finalVout = outValues.back();
     const double finalVoutAvg = tailAverage(outValues);
     const double finalPiAvg = tailAverage(piValues);
     const double finalDutyAvg = tailAverage(dutyValues);

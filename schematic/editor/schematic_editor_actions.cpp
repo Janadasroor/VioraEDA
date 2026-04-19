@@ -1495,6 +1495,11 @@ void SchematicEditor::onSelectionDoubleClicked(const QList<SchematicItem*>& item
                 m_undoStack->endMacro();
             }
             return;
+        } else if (commonType == SchematicItem::SmartSignalType) {
+            if (auto* smart = dynamic_cast<SmartSignalItem*>(items.first())) {
+                openLogicEditor(smart);
+            }
+            return;
         }
     }
 
@@ -1520,6 +1525,13 @@ void SchematicEditor::onLeaveSheet() {
 
 void SchematicEditor::openItemProperties(SchematicItem* item) {
     if (!item) return;
+
+    if (item->itemType() == SchematicItem::SmartSignalType) {
+        if (auto* smart = dynamic_cast<SmartSignalItem*>(item)) {
+            openLogicEditor(smart);
+        }
+        return;
+    }
 
     QList<SchematicItem*> targetItems;
     QList<QGraphicsItem*> selected = m_scene->selectedItems();

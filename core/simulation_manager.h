@@ -3,11 +3,14 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
+#include <QMap>
 #include <QTimer>
 #include <functional>
 #include <vector>
 #include <mutex>
+#include <atomic>
 
 #ifdef HAVE_NGSPICE
 #include <ngspice/sharedspice.h>
@@ -41,11 +44,31 @@ public:
     void alterSwitch(const QString& switchRef, bool open, double vt = 0.5, double vh = 0.1);
     void alterSwitchResistance(const QString& resistorName, double resistance);
     void alterSwitchVoltage(const QString& controlSourceName, double voltage);
+    
+    // Thread-safe update queuing for Flux smart blocks
+    void queueFluxSourceUpdate(const QString& sourceName, double value);
 
     // --- FluxScript JIT Targets ---
-    void setFluxScriptTargets(const QStringList& targetIds);
+    struct FluxScriptTarget {
+        QStringList outputVoltageSources;
+        QMap<QString, QString> pinToNetMap;
+    };
+    void setFluxScriptTargets(const QMap<QString, FluxScriptTarget>& targets);
     void clearFluxScriptTargets();
+    void setSkipFactor(int factor);
 
+    struct VectorMap {
+        int index;
+        QString name;
+        bool isVoltage;
+        bool isScale = false;
+    };
+    int getVectorIndex(const QString& name) const;
+
+    QMap<QString, FluxScriptTarget> m_fluxScriptTargets;
+    std::mutex m_fluxTargetsMutex;
+    std::vector<VectorMap> m_vectorMap;
+    mutable std::mutex m_vectorMutex;
 
 Q_SIGNALS:
     void outputReceived(const QString& text);
@@ -64,17 +87,17 @@ private:
     ~SimulationManager();
 
     bool loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut);
+    void applyPendingFluxSourceUpdates();
 
     bool m_isInitialized;
     bool m_lastLoadFailed = false;
     QString m_lastErrorMessage;
-    bool m_bgRunIssued = false;
-    bool m_stopRequested = false;
-    bool m_pauseRequested = false;
-    bool m_switchToggleInProgress = false;  // Prevents simulationFinished() during switch toggles
+    std::atomic<bool> m_bgRunIssued{false};
+    std::atomic<bool> m_stopRequested{false};
+    std::atomic<bool> m_pauseRequested{false};
+    std::atomic<bool> m_switchToggleInProgress{false};  // Prevents simulationFinished() during switch toggles
     QString m_currentNetlist;
     SimControl* m_streamingControl = nullptr;
-    QStringList m_fluxScriptTargets;
     
     // Thread-safe buffering for real-time updates
     struct SimDataPoint {
@@ -83,6 +106,8 @@ private:
     };
     std::vector<SimDataPoint> m_simBuffer;
     std::mutex m_bufferMutex;
+    QMap<QString, double> m_pendingFluxSourceUpdates;
+    std::mutex m_fluxUpdateMutex;
     QTimer* m_bufferTimer = nullptr;
     int m_streamingCounter = 0;
     int m_skipFactor = 1;
@@ -90,16 +115,6 @@ private:
     std::vector<QString> m_logBuffer;
     std::mutex m_logMutex;
     std::mutex m_controlMutex;
-
-    
-    // Vector mapping for real-time streaming
-    struct VectorMap {
-        int index;
-        QString name;
-        bool isVoltage;
-        bool isScale = false;
-    };
-    std::vector<VectorMap> m_vectorMap;
 
     std::vector<QByteArray> m_circStorage;
     std::vector<char*> m_circPtrs;

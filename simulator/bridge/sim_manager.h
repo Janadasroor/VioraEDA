@@ -50,6 +50,7 @@ public:
     // FluxScript JIT Integration
     void compileFluxScripts(QGraphicsScene* scene);
     QMap<QString, class SmartSignalItem*> m_fluxScriptTargets;
+    QMap<QString, QMap<QString, QString>> m_pinToNetMap;
     
     void stopAll();
     void pauseSimulation(bool pause);

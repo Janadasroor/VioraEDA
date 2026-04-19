@@ -405,6 +405,17 @@ double SimulationManager::getVectorValue(const QString& name) {
     return 0.0;
 }
 
+int SimulationManager::getVectorIndex(const QString& name) const {
+    std::lock_guard<std::mutex> lock(m_vectorMutex);
+    const QString target = name.toLower().trimmed();
+    for (const auto& vm : m_vectorMap) {
+        if (vm.name.toLower() == target) return vm.index;
+        // Also support "V(node)" shorthand matching
+        if (vm.name.toLower() == "v(" + target + ")") return vm.index;
+    }
+    return -1;
+}
+
 void SimulationManager::setParameter(const QString& name, double value) {
 #ifdef HAVE_NGSPICE
     if (!m_isInitialized) return;
@@ -510,7 +521,51 @@ void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, dou
 #endif
 }
 
+void SimulationManager::queueFluxSourceUpdate(const QString& sourceName, double value) {
+    std::lock_guard<std::mutex> lock(m_fluxUpdateMutex);
+    m_pendingFluxSourceUpdates[sourceName] = value;
+}
+
+void SimulationManager::applyPendingFluxSourceUpdates() {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized || m_stopRequested) return;
+
+    QMap<QString, double> updates;
+    {
+        std::lock_guard<std::mutex> lock(m_fluxUpdateMutex);
+        if (m_pendingFluxSourceUpdates.isEmpty()) {
+            return;
+        }
+        updates.swap(m_pendingFluxSourceUpdates);
+    }
+
+    // 1. Halt the simulation
+    sendInternalCommand("bg_halt");
+    
+    // Wait for it to stop (max 200ms)
+    int waitCount = 0;
+    while (ngSpice_running() && waitCount < 100) {
+        QThread::msleep(2);
+        waitCount++;
+    }
+
+    // 2. Apply updates
+    for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
+        // Use the '@source[dc] = value' syntax which is standard for shared ngspice
+        const QString cmd = QString("alter @%1[dc] = %2")
+                                .arg(it.key(), QString::number(it.value(), 'g', 12));
+        qDebug() << "[JIT Apply]" << cmd;
+        ngSpice_Command(cmd.toLatin1().data());
+    }
+
+    // 3. Resume the simulation
+    sendInternalCommand("bg_resume");
+#endif
+}
+
 void SimulationManager::processBufferedData() {
+    applyPendingFluxSourceUpdates();
+
     std::vector<SimDataPoint> batch;
     std::vector<QString> logBatch;
     {
@@ -621,12 +676,18 @@ int SimulationManager::cbControlledExit(int status, bool immediate, bool quit, i
 }
 
 #ifdef HAVE_NGSPICE
-void SimulationManager::setFluxScriptTargets(const QStringList& targetIds) {
-    m_fluxScriptTargets = targetIds;
+void SimulationManager::setFluxScriptTargets(const QMap<QString, FluxScriptTarget>& targets) {
+    std::lock_guard<std::mutex> lock(m_fluxTargetsMutex);
+    m_fluxScriptTargets = targets;
 }
 
 void SimulationManager::clearFluxScriptTargets() {
+    std::lock_guard<std::mutex> lock(m_fluxTargetsMutex);
     m_fluxScriptTargets.clear();
+}
+
+void SimulationManager::setSkipFactor(int factor) {
+    m_skipFactor = std::max(1, factor);
 }
 
 int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id, void* userData) {
@@ -636,18 +697,22 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
     Q_UNUSED(id);
 
     // Check for user abort
-    SimControl* ctrl = nullptr;
+    bool hasControl = false;
+    bool stopRequested = false;
     {
         std::lock_guard<std::mutex> lock(self->m_controlMutex);
-        ctrl = self->m_streamingControl;
+        if (self->m_streamingControl) {
+            hasControl = true;
+            stopRequested = self->m_streamingControl->stopRequested;
+        }
     }
 
-    if (ctrl && ctrl->stopRequested) {
+    if (stopRequested) {
         ngSpice_Command((char*)"bg_halt");
         return 0;
     }
 
-    if (!ctrl || vecArray->veccount <= 1 || !vecArray->vecsa) {
+    if (!hasControl || vecArray->veccount <= 1 || !vecArray->vecsa) {
         return 0;
     }
 
@@ -656,39 +721,55 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
     }
 
     std::vector<double> sampleValues;
-    sampleValues.reserve(static_cast<size_t>(vecArray->veccount - 1));
+    sampleValues.reserve(static_cast<size_t>(vecArray->veccount));
     double timeValue = 0.0;
     bool haveScale = false;
 
     for (int i = 0; i < vecArray->veccount; ++i) {
         pvecvalues value = vecArray->vecsa[i];
-        if (!value) continue;
-        if (value->is_scale && !haveScale) {
-            timeValue = value->creal;
-            haveScale = true;
+        if (!value) {
+            sampleValues.push_back(0.0);
             continue;
         }
         sampleValues.push_back(value->creal);
+        if (value->is_scale && !haveScale) {
+            timeValue = value->creal;
+            haveScale = true;
+        }
     }
 
-    if (!haveScale || sampleValues.empty()) {
+    if (!haveScale) {
         return 0;
     }
 
     // --- FluxScript JIT Feedback Loop ---
     // If we have active FluxScript targets, we execute them NOW and feed back to ngspice
     // This creates a "Mixed-Mode" real-time simulation link.
-    if (!self->m_fluxScriptTargets.isEmpty()) {
-        for (const QString& ref : self->m_fluxScriptTargets) {
-            // 1. Gather inputs for this block
-            std::vector<double> inputs = sampleValues; 
+    {
+        std::lock_guard<std::mutex> targetLock(self->m_fluxTargetsMutex);
+        if (!self->m_fluxScriptTargets.isEmpty()) {
+            for (auto it = self->m_fluxScriptTargets.begin(); it != self->m_fluxScriptTargets.end(); ++it) {
+                const QString scriptId = it.key();
+                const FluxScriptTarget& target = it.value();
 
-            // 2. Run JIT logic
-            double vOut = Flux::JITContextManager::instance().runUpdate(ref, timeValue, inputs);
+                // 1. Set pin-to-net mapping for this execution context
+                Flux::JITContextManager::instance().setPinMapping(target.pinToNetMap);
 
-            // 3. Feedback to ngspice for the NEXT step
-            QString cmd = QString("alter v.%1 dc=%2").arg(ref.toLower()).arg(vOut);
-            ngSpice_Command(cmd.toUtf8().data());
+                // 2. Gather inputs for this block
+                std::vector<double> inputs = sampleValues; 
+
+                // 3. Run JIT logic
+                double vOut = Flux::JITContextManager::instance().runUpdate(scriptId, timeValue, inputs);
+
+                if (!std::isfinite(vOut)) vOut = 0.0;
+
+                // 4. Queue feedback for the app thread. ngspice rejects alter commands
+                // from the active background callback path.
+                for (const QString& vSrc : target.outputVoltageSources) {
+                    std::lock_guard<std::mutex> updateLock(self->m_fluxUpdateMutex);
+                    self->m_pendingFluxSourceUpdates[vSrc] = vOut;
+                }
+            }
         }
     }
 
@@ -708,19 +789,22 @@ int SimulationManager::cbSendInitData(pvecinfoall initData, int id, void* userDa
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (!self || !initData) return 0;
 
-    self->m_vectorMap.clear();
-    for (int i = 0; i < initData->veccount; ++i) {
-        pvecinfo v = initData->vecs[i];
-        if (!v) continue;
-        
-        VectorMap vm;
-        vm.index = i;
-        vm.name = normalizeStreamVectorName(QString::fromLatin1(v->vecname));
-        vm.isVoltage = (v->is_real && !vm.name.toLower().startsWith("i("));
-        vm.isScale = (v->pdvec != nullptr && v->pdvec == v->pdvecscale);
-        self->m_vectorMap.push_back(vm);
+    {
+        std::lock_guard<std::mutex> lock(self->m_vectorMutex);
+        self->m_vectorMap.clear();
+        for (int i = 0; i < initData->veccount; ++i) {
+            pvecinfo v = initData->vecs[i];
+            if (!v) continue;
+
+            VectorMap vm;
+            vm.index = i;
+            vm.name = normalizeStreamVectorName(QString::fromLatin1(v->vecname));
+            vm.isVoltage = (v->is_real && !vm.name.toLower().startsWith("i("));
+            vm.isScale = (v->pdvec != nullptr && v->pdvec == v->pdvecscale);
+            self->m_vectorMap.push_back(vm);
+        }
     }
-    
+
     qDebug() << "Ngspice: streaming initialized with" << initData->veccount << "vectors.";
     return 0;
 }

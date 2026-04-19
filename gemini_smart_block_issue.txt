@@ -1,0 +1,87 @@
+Smart Block output stays at 0 V because of 2 separate bugs.
+
+Project scope:
+- Fix needed in `fluxscript`
+- Fix needed in `viospice`
+- Not a `viomatrixc` issue
+
+1. FluxScript bug
+
+Problem:
+`return` inside `update()` does not behave correctly in block-style `if` statements.
+
+Example script:
+def update(t, inputs) {
+    let freq = 1000.0;
+    let duty = V("In1") / 5.0;
+    let ramp = (t * freq) - floor(t * freq);
+
+    if (ramp < duty) {
+        return 5.0;
+    }
+    return 0.0;
+}
+
+Observed:
+- `V("In1")` resolves correctly in the JIT
+- input voltage was confirmed around `0.999999`
+- but `runUpdate()` kept returning `0`
+
+Important evidence:
+- after a temporary compatibility rewrite on the VioSpice side, `runUpdate()` later returned `5`
+- that proves the logic can evaluate correctly
+- the real issue is FluxScript control-flow / return semantics
+
+What to fix in FluxScript:
+- implement real `return` behavior inside `update()`
+- especially for:
+  - `if (...) { return ...; }`
+  - nested blocks
+  - normal function bodies
+
+Expected result:
+This must work correctly:
+
+update(t, inputs) {
+    if (V("In1") > 0.5) {
+        return 5.0;
+    }
+    return 0.0;
+}
+
+
+2. VioSpice bug
+
+Problem:
+Even when the script returns a valid value, VioSpice updates ngspice the wrong way.
+
+Current behavior:
+- VioSpice sends:
+  alter @VSB1_OUT1[dc] = 5
+- ngspice replies:
+  Warning: cannot execute "...", type "bg_halt" first
+
+Meaning:
+- the output source update is being attempted while ngspice is still in `bg_run`
+- ngspice ignores the change
+
+What to fix in VioSpice:
+- do not call `alter` directly from the ngspice data callback
+- queue the pending output value
+- apply it from the app side with:
+  - `bg_halt`
+  - `alter @Vxxx[dc] = ...`
+  - `bg_resume`
+
+
+Summary
+
+Root cause 1:
+- FluxScript mishandles `return` in `update()` block control flow
+
+Root cause 2:
+- VioSpice tries to `alter` a voltage source while ngspice is still running in background mode
+
+Needed work:
+- fix FluxScript compiler/codegen for `return`
+- fix VioSpice ngspice update flow for smart-block outputs

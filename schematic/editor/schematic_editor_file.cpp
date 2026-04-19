@@ -1265,8 +1265,8 @@ void SchematicEditor::onOpenNetlistEditor() {
         if (m_simConfig.steadyStateTol > 0.0) params.steadyStateTol = QString::number(m_simConfig.steadyStateTol, 'g', 12);
         if (m_simConfig.steadyStateDelay > 0.0) params.steadyStateDelay = QString::number(m_simConfig.steadyStateDelay, 'g', 12);
         
-        QString netlist = SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params);
-        editor->setNetlist(netlist);
+        auto result = SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params);
+        editor->setNetlist(result.netlist);
     }
     
     int idx = m_workspaceTabs->addTab(editor, getThemeIcon(":/icons/tool_sheet.svg"), "Netlist Editor");
@@ -1930,7 +1930,8 @@ void SchematicEditor::onCreateSymbolFromSchematic() {
         // Build a subcircuit body from the current schematic
         SpiceNetlistGenerator::SimulationParams params;
         params.type = SpiceNetlistGenerator::OP;
-        QString fullNetlist = SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params);
+        auto result = SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params);
+        QString fullNetlist = result.netlist;
         QStringList bodyLines;
         bool inControl = false;
         const QStringList lines = fullNetlist.split('\n');

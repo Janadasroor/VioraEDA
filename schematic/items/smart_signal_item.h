@@ -23,7 +23,7 @@ public:
     // SchematicItem interface
     QString itemTypeName() const override { return "SmartSignalBlock"; }
     ItemType itemType() const override { return SchematicItem::SmartSignalType; }
-    QString referencePrefix() const override { return "SB"; }
+    QString referencePrefix() const override { return "UB"; }
     
     QRectF boundingRect() const override;
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget) override;

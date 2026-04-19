@@ -2691,6 +2691,7 @@ void SchematicEditor::onRunSimulation() {
     // 2. Trigger Engine via Ngspice backend asynchronously.
     updateSimulationUiState(true, "Generating netlist...");
     QString netlist = SimManager::instance().generateNetlist(m_scene, m_netManager, config, m_projectDir);
+    SimManager::instance().compileFluxScripts(m_scene);
     
     updateSimulationUiState(true, "Starting simulation...");
     SimManager::instance().runNgspiceSimulation(netlist, config);

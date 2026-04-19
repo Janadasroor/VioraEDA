@@ -76,7 +76,12 @@ public:
         QString rfZ0;          // Reference impedance as string
     };
 
-    static QString generate(QGraphicsScene* scene, const QString& projectDir, NetManager* netManager, const SimulationParams& params);
+    struct GeneratedNetlist {
+        QString netlist;
+        QMap<QString, QMap<QString, QString>> componentPins; // ComponentRef -> PinName -> NetName
+    };
+
+    static GeneratedNetlist generate(QGraphicsScene* scene, const QString& projectDir, NetManager* netManager, const SimulationParams& params);
     static QString buildCommand(const SimulationParams& params);
     static QString normalizeXspiceGateModelAlias(const QString& rawToken, const QString& typeName = QString());
 static QStringList buildXspiceNodeTokensForPins(const QMap<QString, QString>& pins,

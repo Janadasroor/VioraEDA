@@ -3486,6 +3486,7 @@ void SimulationPanel::onRunSimulation() {
             }
         }
 
+        SimManager::instance().compileFluxScripts(m_scene);
         SimManager::instance().runNgspiceSimulation(result.netlistText, config);
     });
 
@@ -3560,7 +3561,7 @@ void SimulationPanel::onRunSimulation() {
             params.type = SpiceNetlistGenerator::OP;
         }
 
-        result.netlistText = SpiceNetlistGenerator::generate(&tempScene, projectDir, &netMgr, params);
+        result.netlistText = SpiceNetlistGenerator::generate(&tempScene, projectDir, &netMgr, params).netlist;
         result.netlist = preflight;
         result.ok = true;
         return result;
@@ -3670,7 +3671,7 @@ QString SimulationPanel::generateSpiceNetlist() {
         params.step = "100u";
     }
 
-    return SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params);
+    return SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params).netlist;
 }
 
 void SimulationPanel::onSimResultsReady(const SimResults& results) {
