@@ -289,6 +289,13 @@ int main(int argc, char *argv[])
 
     int exitCode = a.exec();
 
+    // Clean up all top-level windows to avoid ASan/LSan reports
+    // Many editors in this app are created without parents for window-level independence
+    const auto topLevelWidgets = QApplication::topLevelWidgets();
+    for (QWidget* widget : topLevelWidgets) {
+        delete widget;
+    }
+
     // Clean up embedded Python runtime
     shutdownEmbeddedPython();
 

@@ -393,6 +393,7 @@ private:
     QWidget* m_breadcrumbWidget;
     void updateBreadcrumbs();
     bool canReuseTab(int index) const;
+    void showSchematicTabLoadError(const QString& filePath, const QString& error);
 
     // Tab enhancement features
     void setupTabContextMenu();

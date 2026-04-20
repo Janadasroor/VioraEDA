@@ -346,6 +346,13 @@ QString nativeLogicKeywordForCodeModel(const QString& codeModel) {
 }
 
 bool usesNativeLogicADevice(const QString& codeModel) {
+    // Guardrail:
+    // Do not switch logic code models to native LT-style `A` devices based on
+    // symbol/model type alone. The runtime ngspice backend must also support
+    // VioMATRIXC's parse-time A-device transform. If this returns true on plain
+    // ngspice, generated netlists will load-fail with missing model/errors. If
+    // this returns false on VioMATRIXC, digital outputs will work only through
+    // explicit bridges and external schematic probes will expose internal nodes.
     if (nativeLogicKeywordForCodeModel(codeModel).isEmpty()) {
         return false;
     }
@@ -2952,6 +2959,11 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
     netlist += "* viospice Automated Hierarchical SPICE Netlist\n";
     netlist += "* Generated: " + QDateTime::currentDateTime().toString(Qt::ISODate) + "\n";
     netlist += ".options ngbehavior=ltps\n";
+    // Guardrail:
+    // Keep a permissive deck-level default here. The actual native-logic switch
+    // happens in SimulationManager before load, where `vicompat=lt` is applied
+    // only for VioMATRIXC. A deck-only `.options vicompat=lt` is too late for
+    // parse-time A-device rewriting and must not be relied on.
     netlist += ".options vicompat=all\n";
 
     // 0. Append SPICE Directives from schematic at the TOP 
@@ -4644,6 +4656,13 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
         } else if (isNativeLogicADevice) {
             const QString nativeKeyword = nativeLogicKeywordForCodeModel(normalizedLogicCodeModel);
             if (!nativeKeyword.isEmpty()) {
+                // Guardrail:
+                // On the native path we emit the LT-style keyword (`DLATCH`,
+                // `DFF`, `AND`, ...) instead of explicit `__MM_DAC/__MM_ADC`
+                // bridge wiring. That preserves direct schematic probeability on
+                // external pins when the backend is VioMATRIXC. Do not mix this
+                // with bridge aliases unless you intentionally want internal
+                // implementation nodes to leak into waveform selection.
                 value = nativeKeyword;
                 // Collect and emit the model card for the native keyword if not already added
                 if (!switchModelsAdded.contains(value.toLower())) {

@@ -48,10 +48,18 @@ bool JITContextManager::compileAndLoad(const QString& id, const QString& source,
     }
 
     // Wrap the source in the expected format if needed
+    // Use a unique function name to avoid JIT symbol collisions
+    QString safeId = id;
+    safeId.replace("-", "_").replace(".", "_").replace(" ", "_");
+    QString uniqueFuncName = "update_" + safeId;
+
     QString wrapped = source;
     static const QRegularExpression updateDefRe(R"(^\s*(def\s+)?update\s*[\({])");
     if (!updateDefRe.match(source).hasMatch()) {
-        wrapped = "def update(t, inputs) {\n" + source + "\n}";
+        wrapped = QString("def %1(t, inputs) {\n%2\n}").arg(uniqueFuncName, source);
+    } else {
+        // Rename 'update' to uniqueFuncName
+        wrapped.replace(updateDefRe, QString("def %1(").arg(uniqueFuncName));
     }
 
 
@@ -72,13 +80,13 @@ bool JITContextManager::compileAndLoad(const QString& id, const QString& source,
     m_jit->addModule(std::move(artifacts->codegenContext->OwnedModule), 
                      std::move(artifacts->codegenContext->OwnedContext));
 
-    void* func = m_jit->getPointerToFunction("update");
+    void* func = m_jit->getPointerToFunction(uniqueFuncName.toStdString());
     if (func) {
         std::lock_guard<std::mutex> lock(m_funcMutex);
         m_updateFunctions[id] = func;
-        qDebug() << "FluxScript: Loaded logic for" << id << "at" << func;
+        qDebug() << "FluxScript: Loaded logic for" << id << "at" << func << "(symbol:" << uniqueFuncName << ")";
     } else {
-        errors[0] = "FluxScript: No executable logic found (define 'update').";
+        errors[0] = QString("FluxScript: Failed to find generated function %1").arg(uniqueFuncName);
         return false;
     }
 
@@ -176,9 +184,10 @@ double JITContextManager::getVoltage(double namePtr) {
 
     if (idx >= 0 && idx < (int)g_simValues.size()) {
         double val = g_simValues[idx];
-        // std::cout << "[JIT READ] V(" << targetName.toStdString() << ") = " << val << std::endl;
+        qDebug() << "[JIT READ] Pin:" << pinOrNet << "Net:" << targetName << "Index:" << idx << "Value:" << val;
         return val;
     }
+    qDebug() << "[JIT READ] FAILED to find vector for Pin:" << pinOrNet << "Net:" << targetName << "Index:" << idx;
     #endif
     return 0.0;
 }

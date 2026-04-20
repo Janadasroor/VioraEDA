@@ -451,6 +451,8 @@ WaveformViewer::WaveformViewer(QWidget *parent) : QWidget(parent),
 WaveformViewer::~WaveformViewer() {
     if (m_measureDialog) m_measureDialog->deleteLater();
     if (m_analysisDialog) m_analysisDialog->deleteLater();
+    qDeleteAll(m_panes);
+    m_panes.clear();
 }
 
 void WaveformViewer::keyPressEvent(QKeyEvent *event) {
