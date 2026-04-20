@@ -99,6 +99,7 @@ private:
     std::atomic<bool> m_stopRequested{false};
     std::atomic<bool> m_pauseRequested{false};
     std::atomic<bool> m_switchToggleInProgress{false};  // Prevents simulationFinished() during switch toggles
+    std::atomic<bool> m_jitUpdateInProgress{false};    // Prevents simulationFinished() during JIT updates
     QString m_currentNetlist;
     SimControl* m_streamingControl = nullptr;
     

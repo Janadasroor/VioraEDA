@@ -94,6 +94,12 @@ bool SimulationManager::isAvailable() const {
 
 bool SimulationManager::supportsNativeLogicADevices() const {
 #ifdef HAVE_NGSPICE
+    // Guardrail:
+    // Native LT-style `A... DLATCH|DFF|AND...` netlists only work with the
+    // VioMATRIXC ngspice build because that frontend rewrites them during
+    // deck parsing. Plain shared-ngspice does not perform that transform, so
+    // the schematic generator must stay on the explicit mixed-mode bridge path
+    // unless this probe returns true.
     Dl_info info;
     QString libPath;
     if (dladdr((void*)ngSpice_Init, &info) && info.dli_fname) {
@@ -169,7 +175,10 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         std::lock_guard<std::mutex> lock(m_controlMutex);
         m_streamingControl = control;
     }
-    m_vectorMap.clear();
+    {
+        std::lock_guard<std::mutex> lock(m_vectorMutex);
+        m_vectorMap.clear();
+    }
     m_lastLoadFailed = false;
     m_lastRunFailed = false;
     m_bgRunIssued = false;
@@ -243,6 +252,12 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
         }
     };
 
+    // Guardrail:
+    // The command ordering below is sensitive. `vicompat` must be set before
+    // ngSpice_Circ()/source loads the deck because VioMATRIXC performs LT-style
+    // A-device rewriting during parse/load, not after. Reordering this block or
+    // moving `set vicompat=lt` into the generated netlist will break native
+    // digital devices and force probes back onto internal bridge nodes.
     ngSpice_Command((char*)"reset");
     ngSpice_Command((char*)"set ngbehavior=ltps");
     ngSpice_Command((char*)"set filetype=binary");
@@ -544,6 +559,7 @@ void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, dou
     // (for advanced users who use .model SW with VSWITCH)
 
     // 1. Halt the simulation
+    m_switchToggleInProgress = true;
     sendInternalCommand("bg_halt");
 
     // Small delay to ensure simulation has stopped
@@ -555,6 +571,7 @@ void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, dou
 
     // 3. Resume simulation
     sendInternalCommand("bg_resume");
+    m_switchToggleInProgress = false;
 #endif
 }
 
@@ -577,18 +594,28 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
     }
 
     // 1. Halt the simulation
-    sendInternalCommand("bg_halt");
+    m_jitUpdateInProgress = true;
+    ngSpice_Command((char*)"bg_halt");
     
-    // Wait for it to stop (max 200ms)
+    // Wait for it to stop (max 500ms) - ngspice takes time to finish the current step
     int waitCount = 0;
-    while (ngSpice_running() && waitCount < 100) {
+    while (ngSpice_running() && waitCount < 250) {
         QThread::msleep(2);
         waitCount++;
     }
 
+    if (ngSpice_running()) {
+        qWarning() << "[SimulationManager] Failed to halt ngspice for update. Aborting sync.";
+        m_jitUpdateInProgress = false;
+        return;
+    }
+
+    // Small extra safety buffer for sparse matrix state cleanup
+    QThread::msleep(5);
+
     // 2. Apply updates
     for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
-        // Use the '@source[dc] = value' syntax which is standard for shared ngspice
+        // Use the '@source[dc] = value' syntax
         const QString cmd = QString("alter @%1[dc] = %2")
                                 .arg(it.key(), QString::number(it.value(), 'g', 12));
         qDebug() << "[JIT Apply]" << cmd;
@@ -596,7 +623,9 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
     }
 
     // 3. Resume the simulation
-    sendInternalCommand("bg_resume");
+    // Using 'bg_resume' allows the background thread to continue safely.
+    m_jitUpdateInProgress = false;
+    ngSpice_Command((char*)"bg_resume");
 #endif
 }
 
@@ -633,9 +662,12 @@ void SimulationManager::processBufferedData() {
     }
 
     QStringList names;
-    for (const auto& vector : m_vectorMap) {
-        if (vector.isScale) continue;
-        names << vector.name;
+    {
+        std::lock_guard<std::mutex> lock(m_vectorMutex);
+        for (const auto& vector : m_vectorMap) {
+            if (vector.isScale) continue;
+            names << vector.name;
+        }
     }
 
     Q_EMIT realTimeDataBatchReceived(times, valueRows, names);
@@ -655,6 +687,7 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
 
         // `reset` emits this before any deck is loaded. It is expected noise, not
         // a circuit-load failure, and leaving it in the log is misleading.
+        // Keep this filter narrow so real parse/load failures still surface.
         if (lower == "warning: there is no circuit loaded.") {
             return 0;
         }
@@ -806,6 +839,9 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
     {
         std::lock_guard<std::mutex> targetLock(self->m_fluxTargetsMutex);
         if (!self->m_fluxScriptTargets.isEmpty()) {
+            // Synchronize simulation data with JIT so V() and I() helpers can read it
+            Flux::JITContextManager::instance().setSimulationData(sampleValues);
+
             for (auto it = self->m_fluxScriptTargets.begin(); it != self->m_fluxScriptTargets.end(); ++it) {
                 const QString scriptId = it.key();
                 const FluxScriptTarget& target = it.value();
@@ -879,9 +915,10 @@ int SimulationManager::cbSendInitData(void* initData, int id, void* userData) {
 int SimulationManager::cbBGThreadRunning(bool finished, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (self && finished && self->m_bgRunIssued) {
-        // If we're in the middle of a switch toggle, don't emit simulationFinished.
-        // The simulation will be resumed immediately via bg_run.
-        if (self->m_switchToggleInProgress) {
+        // If we're in the middle of a switch toggle or JIT update, don't emit simulationFinished.
+        // The simulation will be resumed immediately via bg_resume.
+        if (self->m_switchToggleInProgress || self->m_jitUpdateInProgress) {
+            // We still want to process whatever data was buffered up to the halt point
             QMetaObject::invokeMethod(self->m_bufferTimer, "stop", Qt::QueuedConnection);
             QMetaObject::invokeMethod(self, "processBufferedData", Qt::QueuedConnection);
             return 0;

@@ -26,6 +26,7 @@ class LogicEditorPanel : public QMainWindow {
     Q_OBJECT
 public:
     explicit LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent = nullptr);
+    ~LogicEditorPanel() override;
 
     void setScene(QGraphicsScene* scene, class NetManager* netManager);
     void setTargetBlock(SmartSignalItem* item);

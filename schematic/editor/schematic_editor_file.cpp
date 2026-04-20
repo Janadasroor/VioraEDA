@@ -598,6 +598,21 @@ void SchematicEditor::onImportAscFile() {
     openFile(filePath);
 }
 
+void SchematicEditor::showSchematicTabLoadError(const QString& filePath, const QString& error) {
+    const QString tabName = QFileInfo(filePath).fileName().isEmpty()
+        ? tr("Unnamed schematic")
+        : QFileInfo(filePath).fileName();
+    const QString message = tr("Failed to open schematic tab \"%1\":\n%2").arg(tabName, error);
+
+    statusBar()->showMessage(message, 8000);
+
+    // Queue the dialog so startup/open flows show the error after the tab open
+    // attempt is visible, instead of looking like editor construction failed.
+    QTimer::singleShot(0, this, [this, message]() {
+        QMessageBox::critical(this, tr("Schematic Tab Load Error"), message);
+    });
+}
+
 bool SchematicEditor::openFile(const QString& filePath) {
     if (filePath.isEmpty()) return false;
 
@@ -774,11 +789,10 @@ bool SchematicEditor::openFile(const QString& filePath) {
         updateBreadcrumbs();
         statusBar()->showMessage(QString("Loaded: %1").arg(filePath), 5000);
         return true;
-    } else {
-        QMessageBox::critical(this, "Load Error",
-            QString("Failed to load schematic:\n%1").arg(SchematicFileIO::lastError()));
-        return false;
     }
+
+    showSchematicTabLoadError(filePath, SchematicFileIO::lastError());
+    return false;
 }
 
 void SchematicEditor::onSaveSchematic() {
