@@ -297,6 +297,7 @@ SchematicView::~SchematicView() {
     if (m_currentTool) {
         m_currentTool->deactivate();
     }
+    delete m_smartProbeOverlay;
 }
 
 void SchematicView::setCurrentTool(const QString& toolName) {

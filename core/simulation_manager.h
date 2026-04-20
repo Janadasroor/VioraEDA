@@ -11,6 +11,8 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <thread>
+#include <condition_variable>
 
 #ifdef HAVE_NGSPICE
 #include <ngspice/sharedspice.h>
@@ -66,12 +68,14 @@ public:
     };
     int getVectorIndex(const QString& name) const;
     bool isRunning() const;
-    void applyPendingFluxSourceUpdates();
 
     QMap<QString, FluxScriptTarget> m_fluxScriptTargets;
     std::mutex m_fluxTargetsMutex;
     std::vector<VectorMap> m_vectorMap;
     mutable std::mutex m_vectorMutex;
+    
+    // Protection for ngspice API calls
+    std::mutex m_ngspiceMutex;
 
 Q_SIGNALS:
     void outputReceived(const QString& text);
@@ -100,6 +104,14 @@ private:
     std::atomic<bool> m_pauseRequested{false};
     std::atomic<bool> m_switchToggleInProgress{false};  // Prevents simulationFinished() during switch toggles
     std::atomic<bool> m_jitUpdateInProgress{false};    // Prevents simulationFinished() during JIT updates
+    
+    // High-performance JIT update sync
+    std::thread m_jitSyncThread;
+    std::mutex m_jitSyncMutex;
+    std::condition_variable m_jitSyncCond;
+    std::atomic<bool> m_jitSyncThreadRunning{false};
+    QMap<QString, double> m_pendingHighPriorityUpdates;
+    
     QString m_currentNetlist;
     SimControl* m_streamingControl = nullptr;
     
@@ -110,8 +122,6 @@ private:
     };
     std::vector<SimDataPoint> m_simBuffer;
     std::mutex m_bufferMutex;
-    QMap<QString, double> m_pendingFluxSourceUpdates;
-    std::mutex m_fluxUpdateMutex;
     QTimer* m_bufferTimer = nullptr;
     int m_streamingCounter = 0;
     int m_skipFactor = 1;
