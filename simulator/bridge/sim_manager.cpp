@@ -153,35 +153,6 @@ QString detectUnsupportedOtaModelUsage(const QString& netlistText) {
 }
 
 QString normalizeFluxSmartBlockSource(QString source) {
-    source.replace(QRegularExpression("^\\s*def\\s+update\\s*\\("),
-                   "update(");
-
-    // Current FluxScript builds parse `return` as a plain expression token rather than
-    // a terminating statement. The common smart-block shape:
-    //   if (cond) { return A; }
-    //   return B;
-    // can be losslessly rewritten to the expression form the compiler evaluates today.
-    const QRegularExpression simpleIfReturnRe(
-        QStringLiteral(R"((?s)^\s*update\s*\(([^)]*)\)\s*\{\s*(.*)\s+if\s*\(\s*(.*?)\s*\)\s*\{\s*return\s+(.*?)\s*;\s*\}\s*return\s+(.*?)\s*;\s*\}\s*$)"));
-    const auto match = simpleIfReturnRe.match(source);
-    if (match.hasMatch()) {
-        const QString args = match.captured(1).trimmed();
-        const QString prefix = match.captured(2).trimmed();
-        const QString cond = match.captured(3).trimmed();
-        const QString thenExpr = match.captured(4).trimmed();
-        const QString elseExpr = match.captured(5).trimmed();
-
-        QString normalized = QStringLiteral("update(%1) {\n").arg(args);
-        if (!prefix.isEmpty()) {
-            normalized += prefix;
-            if (!normalized.endsWith('\n')) normalized += '\n';
-            normalized += '\n';
-        }
-        normalized += QStringLiteral("if %1 then %2 else %3\n}")
-                          .arg(cond, thenExpr, elseExpr);
-        return normalized;
-    }
-
     return source;
 }
 

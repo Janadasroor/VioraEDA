@@ -12,6 +12,7 @@
 #include <QMetaObject>
 #include <QRegularExpression>
 #include <utility>
+#include <dlfcn.h>
 
 namespace {
     /**
@@ -91,6 +92,23 @@ bool SimulationManager::isAvailable() const {
 #endif
 }
 
+bool SimulationManager::supportsNativeLogicADevices() const {
+#ifdef HAVE_NGSPICE
+    Dl_info info;
+    QString libPath;
+    if (dladdr((void*)ngSpice_Init, &info) && info.dli_fname) {
+        libPath = QString::fromLocal8Bit(info.dli_fname);
+    } else if (dladdr((void*)ngSpice_Command, &info) && info.dli_fname) {
+        libPath = QString::fromLocal8Bit(info.dli_fname);
+    }
+
+    return libPath.contains("VioMATRIXC", Qt::CaseInsensitive) ||
+           libPath.contains("releasesh", Qt::CaseInsensitive);
+#else
+    return false;
+#endif
+}
+
 QString SimulationManager::lastErrorMessage() const {
     std::lock_guard<std::mutex> lock(const_cast<SimulationManager*>(this)->m_logMutex);
     return m_lastErrorMessage;
@@ -130,6 +148,14 @@ void SimulationManager::initialize() {
 #endif
 }
 
+bool SimulationManager::isRunning() const {
+#ifdef HAVE_NGSPICE
+    return ngSpice_running();
+#else
+    return false;
+#endif
+}
+
 void SimulationManager::runSimulation(const QString& netlist, SimControl* control) {
     if (!isAvailable()) {
         Q_EMIT errorOccurred("Simulation engine not installed.");
@@ -145,6 +171,7 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     }
     m_vectorMap.clear();
     m_lastLoadFailed = false;
+    m_lastRunFailed = false;
     m_bgRunIssued = false;
     m_stopRequested = false;
     m_pauseRequested = false;
@@ -217,9 +244,19 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
     };
 
     ngSpice_Command((char*)"reset");
+    ngSpice_Command((char*)"set ngbehavior=ltps");
+    ngSpice_Command((char*)"set filetype=binary");
+    if (supportsNativeLogicADevices()) {
+        // VioMATRIXC's LT-style A-device rewrite happens during deck load, so
+        // compat mode must be set before ngSpice_Circ()/source parses the netlist.
+        ngSpice_Command((char*)"set vicompat=lt");
+    } else {
+        ngSpice_Command((char*)"set vicompat=all");
+    }
     {
         std::lock_guard<std::mutex> lock(m_logMutex);
         m_lastLoadFailed = false;
+        m_lastRunFailed = false;
         m_lastErrorMessage.clear();
     }
 
@@ -610,15 +647,21 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (self && output) {
         QString msg = QString::fromLatin1(output);
-        const QString lower = msg.toLower();
         // Clean up stderr/stdout distinction if needed
         if (msg.startsWith("stderr ")) msg.remove(0, 7);
         else if (msg.startsWith("stdout ")) msg.remove(0, 7);
+        const QString trimmed = msg.trimmed();
+        const QString lower = trimmed.toLower();
+
+        // `reset` emits this before any deck is loaded. It is expected noise, not
+        // a circuit-load failure, and leaving it in the log is misleading.
+        if (lower == "warning: there is no circuit loaded.") {
+            return 0;
+        }
 
         {
             std::lock_guard<std::mutex> lock(self->m_logMutex);
             const bool isError =
-                lower.contains("no circuit loaded") ||
                 lower.contains("there is no circuit") ||
                 lower.contains("error on line") ||
                 lower.contains("unknown model type") ||
@@ -627,23 +670,38 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
                 lower.contains("circuit not parsed") ||
                 lower.contains("ngspice.dll cannot recover") ||
                 lower.contains("could not find include file");
+            const bool isRunFailure =
+                lower.contains("singular matrix") ||
+                lower.contains("dynamic gmin stepping failed") ||
+                lower.contains("true gmin stepping failed") ||
+                lower.contains("source stepping failed") ||
+                lower.contains("time-step too small") ||
+                lower.contains("timestep too small") ||
+                lower.contains("tran simulation(s) aborted") ||
+                lower.contains("vector ") && lower.contains("zero length");
             const bool isWarning = lower.contains("warning");
 
             if (isError) {
                 self->m_lastLoadFailed = true;
                 if (self->m_lastErrorMessage.isEmpty()) {
-                    self->m_lastErrorMessage = msg.trimmed();
+                    self->m_lastErrorMessage = trimmed;
+                }
+            }
+            if (isRunFailure) {
+                self->m_lastRunFailed = true;
+                if (self->m_lastErrorMessage.isEmpty()) {
+                    self->m_lastErrorMessage = trimmed;
                 }
             }
             
             // Capture specific "Error:" prefix even if not in the known failure list
             if (self->m_lastErrorMessage.isEmpty() && (msg.startsWith("Error:", Qt::CaseInsensitive) || msg.startsWith("Fatal error:", Qt::CaseInsensitive))) {
-                self->m_lastErrorMessage = msg.trimmed();
+                self->m_lastErrorMessage = trimmed;
             }
             self->m_logBuffer.push_back(msg);
 
             if (isError || isWarning) {
-                qWarning() << "[Ngspice]" << msg.trimmed();
+                qWarning() << "[Ngspice]" << trimmed;
             }
         }
     }
@@ -841,10 +899,11 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
     processBufferedData(); // Flush remaining
 
 #ifdef HAVE_NGSPICE
-    if (m_bgRunIssued && !m_lastLoadFailed && !rawPath.isEmpty()) {
+    if (m_bgRunIssued && !m_lastLoadFailed && !m_lastRunFailed && !rawPath.isEmpty()) {
         qDebug() << "[SimulationManager] handleSimulationFinished: rawPath=" << rawPath
                  << "bgRunIssued=" << m_bgRunIssued
-                 << "lastLoadFailed=" << m_lastLoadFailed;
+                 << "lastLoadFailed=" << m_lastLoadFailed
+                 << "lastRunFailed=" << m_lastRunFailed;
 
         // IMPORTANT: Do NOT emit simulationFinished() yet!
         // We need to write the raw file first, otherwise the UI clears the viewer
@@ -859,6 +918,7 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
             }
 
             qDebug() << "[SimulationManager] Attempting to write raw file:" << rawPath;
+            QFile::remove(rawPath);
 
             ngSpice_Command((char*)"set filetype=binary");
             const QString writeCmd = "write " + rawPath;
@@ -910,7 +970,11 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
         qDebug() << "[SimulationManager] Skipping raw file write:"
                  << "bgRunIssued=" << m_bgRunIssued
                  << "lastLoadFailed=" << m_lastLoadFailed
+                 << "lastRunFailed=" << m_lastRunFailed
                  << "rawPath=" << rawPath;
+        if (m_lastRunFailed && !m_lastErrorMessage.isEmpty()) {
+            Q_EMIT errorOccurred(m_lastErrorMessage);
+        }
     }
 #endif
     m_bgRunIssued = false;

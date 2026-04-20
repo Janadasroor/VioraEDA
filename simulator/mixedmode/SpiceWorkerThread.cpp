@@ -1,4 +1,5 @@
 #include "SpiceWorkerThread.h"
+#include "simulation_manager.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -42,13 +43,7 @@ void SpiceWorkerThread::stopSimulation() {
 
 void SpiceWorkerThread::run() {
 #ifdef HAVE_NGSPICE
-    ngSpice_Init(cbSendChar,
-                 cbSendStat,
-                 cbControlledExit,
-                 cbSendData,
-                 cbSendInitData,
-                 cbBGThreadRunning,
-                 this);
+    SimulationManager::instance().initialize();
     ngSpice_Command(const_cast<char*>("set filetype=ascii"));
 
     while (!isInterruptionRequested()) {

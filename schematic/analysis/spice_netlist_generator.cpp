@@ -22,6 +22,7 @@
 #include <cmath>
 #include <limits>
 #include "config_manager.h"
+#include "simulation_manager.h"
 #include "../../simulator/core/sim_value_parser.h"
 #include "../../simulator/mixedmode/NetlistManager.h"
 
@@ -345,7 +346,10 @@ QString nativeLogicKeywordForCodeModel(const QString& codeModel) {
 }
 
 bool usesNativeLogicADevice(const QString& codeModel) {
-    return !nativeLogicKeywordForCodeModel(codeModel).isEmpty();
+    if (nativeLogicKeywordForCodeModel(codeModel).isEmpty()) {
+        return false;
+    }
+    return SimulationManager::instance().supportsNativeLogicADevices();
 }
 
 bool xspiceModelUsesCollapsedInputVector(const QString& codeModel) {
@@ -2948,6 +2952,7 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
     netlist += "* viospice Automated Hierarchical SPICE Netlist\n";
     netlist += "* Generated: " + QDateTime::currentDateTime().toString(Qt::ISODate) + "\n";
     netlist += ".options ngbehavior=ltps\n";
+    netlist += ".options vicompat=all\n";
 
     // 0. Append SPICE Directives from schematic at the TOP 
     // This ensures .params and .model are defined before use
@@ -3898,8 +3903,8 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                         placeIf(0, takeByNames(inputs, {"S", "SET"}));
                         placeIf(1, takeByNames(inputs, {"R", "RESET"}));
                     } else if (normalizedLogicCodeModel == "d_dlatch") {
-                        placeIf(0, takeByNames(inputs, {"D"}));
-                        placeIf(1, takeByNames(inputs, {"CLK", "CLOCK", "CK", "C", "EN", "G", "GATE"}));
+                         placeIf(0, takeByNames(inputs, {"D", "DATA"}));
+                         placeIf(1, takeByNames(inputs, {"CLK", "CLOCK", "CK", "C", "EN", "ENABLE", "G", "GATE"}));
                     } else if (normalizedLogicCodeModel == "d_ram") {
                         int slot = 0;
                         while (slot < 5 && !inputs.isEmpty()) nativeNodes[slot++] = takeFirst(inputs);
@@ -4640,6 +4645,13 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
             const QString nativeKeyword = nativeLogicKeywordForCodeModel(normalizedLogicCodeModel);
             if (!nativeKeyword.isEmpty()) {
                 value = nativeKeyword;
+                // Collect and emit the model card for the native keyword if not already added
+                if (!switchModelsAdded.contains(value.toLower())) {
+                    const QString modelLine = QString(".model %1 %2(rise_delay=1n fall_delay=1n)")
+                                                .arg(nativeKeyword, normalizedLogicCodeModel);
+                    netlist += modelLine + "\n";
+                    switchModelsAdded.insert(value.toLower());
+                }
             }
         }
 
