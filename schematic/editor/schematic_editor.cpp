@@ -128,6 +128,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
       m_showCurrentOverlays(true),
       m_mouseFollowPlacementActive(false),
       m_isSaving(false),
+      m_isDestroying(false),
       m_undoStack(new QUndoStack(this)),
       m_api(new SchematicAPI(nullptr, m_undoStack, this)),
       m_updatingProperties(false),
@@ -272,6 +273,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
 }
 
 SchematicEditor::~SchematicEditor() {
+    m_isDestroying = true;
     if (m_undoStack) {
         m_undoStack->disconnect(this);
         m_undoStack->clear(); // Ensure commands are deleted while scene and NetManager are still alive
@@ -591,6 +593,7 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     connect(view, &SchematicView::pageTitleBlockDoubleClicked, this, &SchematicEditor::onEditTitleBlock);
     connect(view, &SchematicView::coordinatesChanged, this, &SchematicEditor::updateCoordinates);
     connect(scene, &QGraphicsScene::selectionChanged, this, [this, scene, view]() {
+        if (m_isDestroying) return;
         if (m_scene == scene) {
             onSelectionChanged();
             QList<SchematicItem*> selected;
@@ -1622,7 +1625,7 @@ void SchematicEditor::onTimeTravelSnapshot(double t, const QMap<QString, double>
     statusBar()->showMessage(QString("Time-Travel: %1 s").arg(t, 0, 'g', 4), 2000);
     }
 void SchematicEditor::runLiveERC(const QList<SchematicItem*>& items) {
-    if (!m_scene || !m_netManager || !m_view || items.isEmpty()) return;
+    if (m_isDestroying || !m_scene || !m_netManager || !m_view || items.isEmpty()) return;
 
     m_netManager->updateNets(m_scene);
     auto violations = SchematicERC::runLive(m_scene, items, m_netManager, m_ercRules);

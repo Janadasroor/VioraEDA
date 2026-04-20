@@ -28,6 +28,7 @@ public:
     static SimulationManager& instance();
 
     bool isAvailable() const;
+    bool supportsNativeLogicADevices() const;
     void initialize();
     void runSimulation(const QString& netlist, SimControl* control = nullptr);
     bool validateNetlist(const QString& netlist, QString* errorOut = nullptr);
@@ -64,6 +65,8 @@ public:
         bool isScale = false;
     };
     int getVectorIndex(const QString& name) const;
+    bool isRunning() const;
+    void applyPendingFluxSourceUpdates();
 
     QMap<QString, FluxScriptTarget> m_fluxScriptTargets;
     std::mutex m_fluxTargetsMutex;
@@ -87,10 +90,10 @@ private:
     ~SimulationManager();
 
     bool loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut);
-    void applyPendingFluxSourceUpdates();
 
     bool m_isInitialized;
     bool m_lastLoadFailed = false;
+    std::atomic<bool> m_lastRunFailed{false};
     QString m_lastErrorMessage;
     std::atomic<bool> m_bgRunIssued{false};
     std::atomic<bool> m_stopRequested{false};

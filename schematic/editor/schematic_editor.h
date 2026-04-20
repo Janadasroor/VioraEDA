@@ -367,6 +367,7 @@ private:
     QString m_currentFilePath;
     bool m_isModified;
     bool m_isSaving = false;
+    bool m_isDestroying = false;
     bool m_simulationRunning;
     bool m_simPaused = false;
     bool m_showVoltageOverlays;

@@ -18,6 +18,8 @@
 #include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QTimer>
+#include <QThread>
+#include <QElapsedTimer>
 #include "../simulator/core/sim_report_generator.h"
 #include "../simulator/core/raw_data_parser.h"
 #include "../utils/schematic_url_encoder.h"
@@ -2297,8 +2299,8 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
             if (!g_quiet) std::cout << "  " << it.key().toStdString() << ": " << it.value().size() << " pins." << std::endl;
         }
 
-        // SimManager::instance().m_pinToNetMap = result.componentPins;
-        // SimManager::instance().compileFluxScripts(&scene);
+        SimManager::instance().m_pinToNetMap = result.componentPins;
+        SimManager::instance().compileFluxScripts(&scene);
         // ------------------------------
 
         const QString baseName = QFileInfo(filePath).completeBaseName();
@@ -4165,7 +4167,21 @@ int main(int argc, char *argv[]) {
         });
 
         sm.runSimulation(tempNetlist.fileName(), nullptr);
-        loop.exec();
+        
+        // Active wait loop instead of loop.exec() to ensure JIT updates are applied
+        while (!success && !lastError.length()) {
+            QCoreApplication::processEvents();
+            
+            static QElapsedTimer lastUpdate;
+            if (!lastUpdate.isValid() || lastUpdate.elapsed() > 2) {
+                SimulationManager::instance().applyPendingFluxSourceUpdates();
+                lastUpdate.restart();
+            }
+            
+            QThread::msleep(2);
+            if (!sm.isRunning()) break;
+        }
+
         
         QFile::remove(tempNetlist.fileName());
         QFile::remove(tempNetlist.fileName() + ".raw");

@@ -78,6 +78,7 @@ private:
     std::unique_ptr<FluxJIT> m_jit;
     QMap<QString, void*> m_updateFunctions;
     QMap<QString, QString> m_currentPinMap;
+    std::mutex m_funcMutex;
 #endif
 };
 
