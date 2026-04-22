@@ -78,6 +78,7 @@ temp-icons/
 Testing/
 tests/test-folders-paths.md
 tests/files/
+viomatrixc_patch
 benchmark_spice.sh
 opencode.json
 ui-map/*

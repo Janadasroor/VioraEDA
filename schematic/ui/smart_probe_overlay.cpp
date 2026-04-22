@@ -37,7 +37,7 @@ SmartProbeOverlay::SmartProbeOverlay(QWidget* parent) : QWidget(parent) {
 
     refreshTheme();
 
-    m_fadeAnimation = new QPropertyAnimation(this, "opacity");
+    m_fadeAnimation = new QPropertyAnimation(this, "opacity", this);
     m_fadeAnimation->setDuration(150);
     m_fadeAnimation->setEasingCurve(QEasingCurve::OutCubic);
     

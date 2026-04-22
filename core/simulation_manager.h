@@ -12,7 +12,6 @@
 #include <mutex>
 #include <atomic>
 #include <thread>
-#include <condition_variable>
 
 #ifdef HAVE_NGSPICE
 #include <ngspice/sharedspice.h>
@@ -85,15 +84,17 @@ Q_SIGNALS:
     void errorOccurred(const QString& error);
     void realTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
 
-private Q_SLOTS:
+public Q_SLOTS:
     void handleSimulationFinished(const QString& rawPath);
     void processBufferedData();
+    void clearCircuits();
+    bool loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut);
+    void applyPendingFluxSourceUpdates();
+    void requestFluxSourceSync();
 
 private:
     explicit SimulationManager(QObject* parent = nullptr);
     ~SimulationManager();
-
-    bool loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut);
 
     bool m_isInitialized;
     bool m_lastLoadFailed = false;
@@ -102,20 +103,19 @@ private:
     std::atomic<bool> m_bgRunIssued{false};
     std::atomic<bool> m_stopRequested{false};
     std::atomic<bool> m_pauseRequested{false};
-    std::atomic<bool> m_switchToggleInProgress{false};  // Prevents simulationFinished() during switch toggles
-    std::atomic<bool> m_jitUpdateInProgress{false};    // Prevents simulationFinished() during JIT updates
+    std::atomic<bool> m_switchToggleInProgress{false};
+    std::atomic<bool> m_jitUpdateInProgress{false};
+    std::atomic<bool> m_haltRequested{false};
+    std::atomic<bool> m_fluxSyncRequested{false};
     
     // High-performance JIT update sync
     std::thread m_jitSyncThread;
     std::mutex m_jitSyncMutex;
-    std::condition_variable m_jitSyncCond;
-    std::atomic<bool> m_jitSyncThreadRunning{false};
     QMap<QString, double> m_pendingHighPriorityUpdates;
     
     QString m_currentNetlist;
     SimControl* m_streamingControl = nullptr;
     
-    // Thread-safe buffering for real-time updates
     struct SimDataPoint {
         double time;
         std::vector<double> values;
@@ -133,7 +133,6 @@ private:
     std::vector<QByteArray> m_circStorage;
     std::vector<char*> m_circPtrs;
 
-    // Callbacks from ngspice (static because they are C function pointers)
     static int cbSendChar(char* output, int id, void* userData);
     static int cbSendStat(char* stat, int id, void* userData);
     static int cbControlledExit(int status, bool immediate, bool quit, int id, void* userData);

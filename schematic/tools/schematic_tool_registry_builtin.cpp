@@ -120,3 +120,6 @@ void SchematicToolRegistryBuiltIn::registerBuiltInTools() {
     registry.registerTool("5V", []() { return new SchematicComponentTool("5V"); });
     registry.registerTool("12V", []() { return new SchematicComponentTool("12V"); });
 }
+void SchematicToolRegistryBuiltIn::cleanup() {
+    SchematicToolRegistry::instance().clear();
+}

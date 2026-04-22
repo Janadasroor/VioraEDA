@@ -4325,20 +4325,9 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 }
             }
             if (series) {
-                // High-performance check: only append to the preview chart if it's currently visible
-                // and has a reasonable number of points. In a future update, we should replace 
-                // this with a more efficient custom-drawn widget for the preview as well.
-                
-                const int step = std::max(1, static_cast<int>(times.size()) / 50); 
-                
-                QList<QPointF> points;
-                points.reserve(times.size() / step + 2);
-                for(size_t k=0; k<times.size(); k += step) {
-                    points.append(QPointF(times[k], signalValues[k]));
-                }
-                if (times.size() > 0 && (times.size() - 1) % step != 0) {
-                     points.append(QPointF(times.back(), signalValues.back()));
-                }
+                // Preserve narrow pulses in the live preview. Stride sampling can lock onto
+                // one phase of a periodic signal and make a valid waveform look flat.
+                const QList<QPointF> points = decimateMinMaxBuckets(times, signalValues, 240);
 
                 // If the chart is being cleared or rebuilt (m_acceptRealTimeStream check above),
                 // this series pointer might still be technically valid in this call stack, 

@@ -27,6 +27,8 @@ public:
     // Get tool metadata
     SchematicTool* getTool(const QString& toolName) const;
 
+    void clear();
+
 private:
     SchematicToolRegistry() = default;
     ~SchematicToolRegistry() = default;

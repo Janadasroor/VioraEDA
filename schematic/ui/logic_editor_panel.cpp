@@ -188,7 +188,7 @@ void LogicEditorPanel::setupUi() {
     mainLayout->addWidget(toolbar);
 
     // Tab 1: Logic Editor
-    auto* logicTab = new QWidget();
+    auto* logicTab = new QWidget(m_tabs);
     auto* logicLayout = new QVBoxLayout(logicTab);
     logicLayout->setContentsMargins(0, 0, 0, 0);
     logicLayout->setSpacing(0);
@@ -211,7 +211,7 @@ void LogicEditorPanel::setupUi() {
     vSplitter->addWidget(topHalf);
 
     // 1b. Right Sidebar (Template Library & AI Copilot)
-    auto* rightDockArea = new QWidget();
+    auto* rightDockArea = new QWidget(this);
     auto* rightLayout = new QVBoxLayout(rightDockArea);
     rightLayout->setContentsMargins(0, 0, 0, 0);
 
@@ -254,7 +254,7 @@ void LogicEditorPanel::setupUi() {
     m_tabs->addTab(logicTab, "CODE EDITOR");
 
     // Tab 2: Pin Manager (Visual)
-    auto* pinsTab = new QWidget();
+    auto* pinsTab = new QWidget(m_tabs);
     auto* pinsLayout = new QVBoxLayout(pinsTab);
     
     m_pinMapper = new VisualPinMapper(this);
@@ -320,7 +320,7 @@ void LogicEditorPanel::setupUi() {
     m_tabs->addTab(testsTab, "TESTING");
 
     // Tab 5: Snapshots Gallery
-    auto* snapTab = new QWidget(this);
+    auto* snapTab = new QWidget(m_tabs);
     auto* snapLayout = new QVBoxLayout(snapTab);
     
     m_snapBtn = new QPushButton("CAPTURE SNAPSHOT", this);

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(viospice VERSION 0.1 LANGUAGES CXX)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE) 
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE) 
+
 enable_testing()
 include(CTest)
 
@@ -39,6 +42,23 @@ else()
     message(WARNING "VIOSPICE ENGINE not found. Simulation features will be disabled.")
 endif()
 # -----------------------
+
+# Prefer the custom VioMATRIXC engine over any system ngspice install.
+# This repo relies on engine-local symbols such as `viospice_jit_lookup`, so
+# accidentally resolving `/usr/local/lib/libngspice.so.0` will break native
+# SmartSignal code models even if the app still links successfully.
+set(VIOSPICE_PREFERRED_ENGINE_LIB "/home/jnd/cpp_projects/VioMATRIXC/releasesh/src/.libs/libngspice.so")
+if(NOT EXISTS "${VIOSPICE_PREFERRED_ENGINE_LIB}")
+    set(VIOSPICE_PREFERRED_ENGINE_LIB "/home/jnd/cpp_projects/VioMATRIXC/release/src/.libs/libngspice.so")
+endif()
+if(EXISTS "${VIOSPICE_PREFERRED_ENGINE_LIB}")
+    get_filename_component(VIOSPICE_PREFERRED_ENGINE_DIR "${VIOSPICE_PREFERRED_ENGINE_LIB}" DIRECTORY)
+else()
+    set(VIOSPICE_PREFERRED_ENGINE_LIB "${VIOSPICE_ENGINE_LIBRARY}")
+    if(VIOSPICE_ENGINE_FOUND)
+        get_filename_component(VIOSPICE_PREFERRED_ENGINE_DIR "${VIOSPICE_ENGINE_LIBRARY}" DIRECTORY)
+    endif()
+endif()
 
 # --- nanobind Python Bindings ---
 option(VIOSPICE_ENABLE_NANOBIND "Build Python bindings via nanobind" ON)
@@ -177,7 +197,7 @@ if(BUILD_VIOSPICE_CLI)
         resources/resources.qrc
     )
 
-    target_link_libraries(viora PRIVATE
+    target_link_libraries(viora PRIVATE "${VIOSPICE_PREFERRED_ENGINE_LIB}"
         VioSchematicUI
         VioSchematicCore
         VioSymbols
@@ -191,14 +211,15 @@ if(BUILD_VIOSPICE_CLI)
     )
 
     if(VIOSPICE_ENGINE_FOUND)
-        target_link_libraries(viora PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
         target_include_directories(viora PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
-        # Set rpath so viora finds VioMATRIXC's libngspice at runtime
-        get_filename_component(_engine_lib_dir "${VIOSPICE_ENGINE_LIBRARY}" DIRECTORY)
+        # Guardrail:
+        # Keep the preferred VioMATRIXC engine dir first in RPATH. If the
+        # system libngspice resolves first, native code models load without the
+        # VioSpice bridge symbols and SmartSignal A-devices fail at deck load.
         set_target_properties(viora PROPERTIES
-            BUILD_RPATH "${_engine_lib_dir}"
+            BUILD_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
             BUILD_RPATH_USE_ORIGIN TRUE
-            INSTALL_RPATH "$ORIGIN/../lib"
+            INSTALL_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
         )
     endif()
 
@@ -221,32 +242,27 @@ if(BUILD_VIOSPICE_APP)
         resources/resources.qrc
     )
 
-    target_link_libraries(viospice PRIVATE
+    target_link_libraries(viospice PRIVATE "${VIOSPICE_PREFERRED_ENGINE_LIB}"
+        -Wl,--whole-archive
         VioUI
-        VioSchematicUI
-        VioSchematicCore
-        VioSymbols
+        VioSchematic
         VioSimulator
+        VioSymbols
         VioCore
-        VioUI # Link twice if there are circular dependencies
         FluxScript
         FluxScriptManager
         VioFootprints
         VioraPCBCore
+        -Wl,--no-whole-archive
     )
 
 
-    if(VIOSPICE_ENGINE_FOUND)
-        target_link_libraries(viospice PRIVATE ${VIOSPICE_ENGINE_LIBRARIES})
-        target_include_directories(viospice PRIVATE ${VIOSPICE_ENGINE_INCLUDE_DIRS})
-        # Set rpath so viospice finds VioMATRIXC's libngspice at runtime
-        get_filename_component(_engine_lib_dir "${VIOSPICE_ENGINE_LIBRARY}" DIRECTORY)
-        set_target_properties(viospice PROPERTIES
-            BUILD_RPATH "${_engine_lib_dir}"
-            BUILD_RPATH_USE_ORIGIN TRUE
-            INSTALL_RPATH "$ORIGIN/../lib"
-        )
-    endif()
+    set_target_properties(viospice PROPERTIES
+        BUILD_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+        INSTALL_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+        BUILD_WITH_INSTALL_RPATH TRUE
+        BUILD_RPATH_USE_ORIGIN TRUE
+    )
 
     # Link embedded Python runtime (Phase 4)
     if(Python3_FOUND)

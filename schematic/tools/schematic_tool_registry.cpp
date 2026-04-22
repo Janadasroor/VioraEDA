@@ -54,3 +54,8 @@ bool SchematicToolRegistry::isToolRegistered(const QString& toolName) const {
 SchematicTool* SchematicToolRegistry::getTool(const QString& toolName) const {
     return m_toolInstances.value(toolName, nullptr);
 }
+void SchematicToolRegistry::clear() {
+    qDeleteAll(m_toolInstances);
+    m_toolInstances.clear();
+    m_toolCreators.clear();
+}
