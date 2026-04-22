@@ -1,5 +1,8 @@
-set(VIOSCHEMATIC_SOURCES ${SCHEMATIC_SOURCES})
-list(TRANSFORM VIOSCHEMATIC_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/../")
+set(VIOSCHEMATIC_SOURCES "")
+foreach(src ${SCHEMATIC_SOURCES})
+    get_filename_component(abs_src "${CMAKE_CURRENT_SOURCE_DIR}/../${src}" ABSOLUTE)
+    list(APPEND VIOSCHEMATIC_SOURCES ${abs_src})
+endforeach()
 
 add_library(VioSchematic STATIC ${VIOSCHEMATIC_SOURCES})
 set_target_properties(VioSchematic PROPERTIES AUTOMOC ON)

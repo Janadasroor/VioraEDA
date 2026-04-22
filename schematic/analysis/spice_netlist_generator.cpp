@@ -4004,29 +4004,31 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
             if (smartItem) {
                 QStringList inPins = smartItem->inputPins();
                 QStringList outPins = smartItem->outputPins();
-                int totalPins = inPins.size() + outPins.size();
-                bool emitted = false;
                 
-                for (int i = 0; i < totalPins; ++i) {
-                    QString pinName = smartItem->pinName(i);
-                    QString net = pinsMap.value(pinName, "0");
-                    if (net == "0") continue;
-
-                    if (i < inPins.size()) {
-                        // Input pin: Add high-impedance pulldown to ground to avoid floating node error
-                        netlist += QString("R_IN_%1_%2 %3 0 1G\n").arg(ref, pinName, net);
-                    } else {
-                        // Output pin: Create a voltage source between this net and ground
-                        // The name must match what SimulationManager uses: V[REF]_[PIN_NAME]
-                        QString outPinName = pinName.toUpper();
-                        QString vSrcName = QString("V%1_%2").arg(ref.toUpper(), outPinName);
-                        netlist += QString("%1 %2 0 0.0\n").arg(vSrcName, net);
-                    }
-                    emitted = true;
+                // Native XSPICE Integration:
+                // Format: A_[REF] [in1 in2...] out1 [out2...] viospice_jit_model
+                // .model viospice_jit_model viospice_jit (jit_id="REF")
+                
+                QStringList inNets;
+                for (const QString& pin : inPins) {
+                    inNets << pinsMap.value(pin, "0");
+                }
+                
+                QStringList outNets;
+                for (const QString& pin : outPins) {
+                    outNets << pinsMap.value(pin, "0");
                 }
 
-                if (!emitted) {
-                    netlist += QString("* Warning: Smart Block %1 has no connected pins.\n").arg(ref);
+                if (!outNets.isEmpty()) {
+                    // We only support single output per JIT block in the first version of the code model
+                    QString inVector = "[" + inNets.join(" ") + "]";
+                    QString outNet = outNets.first();
+                    
+                    netlist += QString("A_%1 %2 %3 viospice_jit_model_%1\n").arg(ref, inVector, outNet);
+                    netlist += QString(".model viospice_jit_model_%1 viospice_jit (jit_id=\"%1\")\n").arg(ref);
+                    qDebug() << "[SpiceNetlistGenerator] Emitted native JIT block for" << ref;
+                } else {
+                    netlist += QString("* Warning: Smart Block %1 has no output pins.\n").arg(ref);
                 }
             } else {
                 // Fallback for missing item: default to first two pins as VSource

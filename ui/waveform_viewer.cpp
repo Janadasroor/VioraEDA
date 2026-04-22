@@ -144,6 +144,72 @@ QList<QPointF> buildVisibleMinMaxSeries(const QVector<double>& time,
     }
     return points;
 }
+
+QList<QPointF> buildMinMaxSeries(const std::vector<double>& time,
+                                 const std::vector<double>& values,
+                                 int maxColumns,
+                                 bool acMode) {
+    const int n = static_cast<int>(std::min(time.size(), values.size()));
+    if (n <= 0) return {};
+    if (maxColumns < 8) maxColumns = 8;
+
+    auto pointAt = [&](int idx) {
+        const double y = acMode ? toDb(values[idx]) : values[idx];
+        return QPointF(time[idx], y);
+    };
+
+    if (n <= maxColumns) {
+        QList<QPointF> points;
+        points.reserve(n);
+        for (int i = 0; i < n; ++i) points.append(pointAt(i));
+        return points;
+    }
+
+    const int bucketCount = std::max(1, maxColumns / 2);
+    const double bucketSpan = static_cast<double>(n) / static_cast<double>(bucketCount);
+    QList<QPointF> points;
+    points.reserve(bucketCount * 2 + 2);
+    points.append(pointAt(0));
+
+    for (int bucket = 0; bucket < bucketCount; ++bucket) {
+        const int bucketBegin = static_cast<int>(std::floor(bucket * bucketSpan));
+        int bucketEnd = static_cast<int>(std::floor((bucket + 1) * bucketSpan));
+        if (bucket == bucketCount - 1 || bucketEnd > n) bucketEnd = n;
+        if (bucketBegin >= bucketEnd) continue;
+
+        int minIdx = bucketBegin;
+        int maxIdx = bucketBegin;
+        double minVal = acMode ? toDb(values[bucketBegin]) : values[bucketBegin];
+        double maxVal = minVal;
+
+        for (int i = bucketBegin + 1; i < bucketEnd; ++i) {
+            const double y = acMode ? toDb(values[i]) : values[i];
+            if (y < minVal) {
+                minVal = y;
+                minIdx = i;
+            }
+            if (y > maxVal) {
+                maxVal = y;
+                maxIdx = i;
+            }
+        }
+
+        if (minIdx == maxIdx) {
+            const QPointF point(time[minIdx], minVal);
+            if (points.isEmpty() || points.back() != point) points.append(point);
+        } else if (minIdx < maxIdx) {
+            points.append(QPointF(time[minIdx], minVal));
+            points.append(QPointF(time[maxIdx], maxVal));
+        } else {
+            points.append(QPointF(time[maxIdx], maxVal));
+            points.append(QPointF(time[minIdx], minVal));
+        }
+    }
+
+    const QPointF lastPoint = pointAt(n - 1);
+    if (points.isEmpty() || points.back() != lastPoint) points.append(lastPoint);
+    return points;
+}
 } // namespace
 
 
@@ -912,24 +978,11 @@ void WaveformViewer::appendPoints(const QString& name, const std::vector<double>
         bool haveVisibleY = false;
         
         if (batchSize > 200) {
-            int step = batchSize / 100;
-            if (step < 1) step = 1;
-            QList<QPointF> decimatedPoints;
-            decimatedPoints.reserve(batchSize / step + 1);
-            for (int i = 0; i < batchSize; i += step) {
-                const double y = m_acMode ? toDb(values[i]) : values[i];
-                decimatedPoints.append(QPointF(times[i], y));
-                if (!haveVisibleY) {
-                    minVisibleY = maxVisibleY = y;
-                    haveVisibleY = true;
-                } else {
-                    minVisibleY = std::min(minVisibleY, y);
-                    maxVisibleY = std::max(maxVisibleY, y);
-                }
-            }
-            if ((batchSize - 1) % step != 0) {
-                const double y = m_acMode ? toDb(values.back()) : values.back();
-                decimatedPoints.append(QPointF(times.back(), y));
+            // Use min/max buckets instead of stride sampling; simple strides can alias
+            // PWM or clocked signals into a fake flat trace.
+            const QList<QPointF> decimatedPoints = buildMinMaxSeries(times, values, 240, m_acMode);
+            for (const QPointF& point : decimatedPoints) {
+                const double y = point.y();
                 if (!haveVisibleY) {
                     minVisibleY = maxVisibleY = y;
                     haveVisibleY = true;

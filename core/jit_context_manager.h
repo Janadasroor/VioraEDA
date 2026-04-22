@@ -46,6 +46,11 @@ public:
     double runUpdate(const QString& id, double time, const std::vector<double>& inputs);
 
     /**
+     * @brief Returns the raw function pointer for a loaded script.
+     */
+    void* getFunctionAddress(const QString& id);
+
+    /**
      * @brief Resets the JIT state (clears all loaded modules).
      */
     void reset();
@@ -55,6 +60,12 @@ public:
      * Used by runtime helpers like V() and I() to find the correct simulation vector.
      */
     void setPinMapping(const QMap<QString, QString>& mapping);
+
+    /**
+     * @brief Sets the ordered list of input pin names for a specific block.
+     * Used to optimize V("PinName") calls into direct array access inputs[i].
+     */
+    void setInputPinMapping(const QString& id, const QStringList& pins);
 
     /**
      * @brief Logs a message from the JIT to the console.
@@ -77,6 +88,7 @@ private:
 #ifdef HAVE_FLUXSCRIPT
     std::unique_ptr<FluxJIT> m_jit;
     QMap<QString, void*> m_updateFunctions;
+    QMap<QString, QStringList> m_blockInputs;
     QMap<QString, QString> m_currentPinMap;
     std::mutex m_funcMutex;
 #endif

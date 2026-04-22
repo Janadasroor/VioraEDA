@@ -32,276 +32,84 @@
 #include <QFuture>
 #include <QMessageBox>
 
-// External Python embedding functions (defined in core/python_embed.cpp)
 extern void initEmbeddedPython();
 extern void shutdownEmbeddedPython();
 
-// Event hooks system (defined in ui/python_hooks.cpp)
 extern "C" {
 #include "ui/python_hooks.h"
 }
 
 int main(int argc, char *argv[])
 {
+    // MANDATORY: Setup custom simulation engine environment BEFORE any engine code is loaded
+    qputenv("SPICE_SCRIPTS", "/home/jnd/.viospice");
+    qputenv("SPICE_LIB_DIR", "/home/jnd/.viospice");
+
+    // Enable ASan-friendly exit behavior
+    qputenv("ASAN_OPTIONS", "detect_leaks=1");
+
     QApplication a(argc, argv);
-
-    // Initialize embedded Python (Blender-style — `import vspice` works inside the app)
     initEmbeddedPython();
-
-    // Initialize global theme
     ThemeManager::instance();
-
-    // Initialize FluxScript Simulation Bridge
     initializeFluxSimBridge();
     FluxScriptEngine::instance().initialize();
 
-
     a.setApplicationName("viospice");
-    a.setApplicationVersion("0.1.0");
     a.setOrganizationName("VIO");
-    a.setWindowIcon(QIcon(":/icons/logo_viospice.png"));
 
-    // --- Single Instance / Command Line Argument Handling ---
     QString serverName = "viospice_instance_server";
     QString fileToOpen;
-    bool showHelp = false;
-    bool showVersion = false;
-
     for (int i = 1; i < argc; ++i) {
         QString arg = argv[i];
-        if (arg == "--help" || arg == "-h") {
-            showHelp = true;
-        } else if (arg == "--version" || arg == "-v") {
-            showVersion = true;
-        } else if (!arg.startsWith("-")) {
-            fileToOpen = QFileInfo(arg).absoluteFilePath();
-        }
+        if (!arg.startsWith("-")) fileToOpen = QFileInfo(arg).absoluteFilePath();
     }
 
-    if (showHelp) {
-        printf("viospice - High Performance Circuit Simulator\n");
-        printf("Usage: viospice [options] [file]\n\n");
-        printf("Options:\n");
-        printf("  -h, --help     Show this help message\n");
-        printf("  -v, --version  Show version information\n");
-        return 0;
-    }
-
-    if (showVersion) {
-        printf("viospice version 0.1.0\n");
-        return 0;
-    }
-
-    // Try to connect to an existing instance
-    QLocalSocket socket;
-    socket.connectToServer(serverName);
-    if (socket.waitForConnected(500)) {
-        if (!fileToOpen.isEmpty()) {
-            socket.write(fileToOpen.toUtf8());
-            socket.waitForBytesWritten();
-        }
-        return 0;
-    }
-
-    // No existing instance, start server for this one
     QLocalServer* server = new QLocalServer(&a);
     QLocalServer::removeServer(serverName);
     server->listen(serverName);
 
-    // Start WebSocket state bridge server
-#if VIOSPICE_HAS_QT_WEBSOCKETS
-    WsServer* wsServer = new WsServer(18420, &a);
-    WsServer::setInstance(wsServer);
-    wsServer->start();
-#endif
-
-    // Show splash screen
     SplashScreen* splash = new SplashScreen();
     splash->show();
     a.processEvents();
 
-    // Initialize systems
     SchematicItemRegistry::registerBuiltInItems();
     SchematicToolRegistryBuiltIn::registerBuiltInTools();
     PCBItemRegistry::registerBuiltInItems();
     PCBToolRegistryBuiltIn::registerBuiltInTools();
 
-    // Initialize symbol, footprint, and model libraries
     SymbolLibraryManager::instance();
     FootprintLibraryManager::instance();
 
-    // Set up loading logic
-    auto startMainApp = [&a, &fileToOpen, server](SplashScreen* s) {
-        auto openFile = [](const QString& path) {
-            QFileInfo fi(path);
-            QString ext = fi.suffix().toLower();
-
-            if (ext == "cir" || ext == "sp" || ext == "spice" || ext == "txt") {
-                NetlistEditor* netEditor = new NetlistEditor();
-                netEditor->setAttribute(Qt::WA_DeleteOnClose);
-                QFile file(path);
-                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                    QTextStream in(&file);
-                    netEditor->setNetlist(in.readAll());
-                    file.close();
-                }
-                netEditor->show();
-                return (QWidget*)netEditor;
-            } else if (ext == "sclib" || ext == "kicad_sym" || ext == "asy") {
-                SymbolEditor* symbolEditor = new SymbolEditor();
-                symbolEditor->setAttribute(Qt::WA_DeleteOnClose);
-                if (ext == "kicad_sym") {
-                    symbolEditor->importKicadSymbol(path);
-                } else if (ext == "asy") {
-                    symbolEditor->importLtspiceSymbol(path);
-                } else if (ext == "sclib") {
-                    symbolEditor->loadLibrary(path);
-                }
-                symbolEditor->show();
-                return (QWidget*)symbolEditor;
-            } else if (ext == "csv") {
-                CsvViewer* viewer = new CsvViewer();
-                viewer->setAttribute(Qt::WA_DeleteOnClose);
-                viewer->loadFile(path);
-                viewer->show();
-                return (QWidget*)viewer;
-            } else if (ext == "pcb" || ext == "kicad_pcb" || ext == "pcbdoc") {
-                MainWindow* pcbEditor = new MainWindow();
-                pcbEditor->setAttribute(Qt::WA_DeleteOnClose);
-                pcbEditor->openFile(path);
-                pcbEditor->show();
-                return (QWidget*)pcbEditor;
-            } else if (ext == "fp" || ext == "mod" || ext == "kicad_mod") {
-                // Open footprint editor - would need to add loadFootprint method
-                SymbolEditor* fpEditor = new SymbolEditor(); // TODO: Create FootprintEditor
-                fpEditor->setAttribute(Qt::WA_DeleteOnClose);
-                fpEditor->show();
-                return (QWidget*)fpEditor;
-            } else {
-                SchematicEditor* schEditor = new SchematicEditor();
-                schEditor->setAttribute(Qt::WA_DeleteOnClose);
-                schEditor->openFile(path);
-                schEditor->show();
-                return (QWidget*)schEditor;
-            }
-        };
-
-        // Connect server to open files in this instance
-        QObject::connect(server, &QLocalServer::newConnection, [server, openFile]() {
-            QLocalSocket* clientSocket = server->nextPendingConnection();
-            QObject::connect(clientSocket, &QLocalSocket::readyRead, [clientSocket, openFile]() {
-                QString path = QString::fromUtf8(clientSocket->readAll());
-                if (!path.isEmpty()) {
-                    QWidget* w = openFile(path);
-                    if (w) {
-                        w->raise();
-                        w->activateWindow();
-                    }
-                }
-                clientSocket->disconnectFromServer();
-            });
-        });
-
+    QMetaObject::invokeMethod(qApp, [splash, fileToOpen]() {
         if (!fileToOpen.isEmpty()) {
-            openFile(fileToOpen);
+            SchematicEditor* sch = new SchematicEditor();
+            sch->setAttribute(Qt::WA_DeleteOnClose);
+            sch->openFile(fileToOpen);
+            sch->show();
         } else {
-            ProjectManager* projectManager = new ProjectManager;
-            projectManager->setAttribute(Qt::WA_DeleteOnClose);
-            projectManager->show();
+            ProjectManager* pm = new ProjectManager;
+            pm->setAttribute(Qt::WA_DeleteOnClose);
+            pm->show();
         }
-        
-        s->deleteLater();
-    };
-
-    // Background loading
-    auto updateSplash = [splash](const QString& status, int progress, int total) {
-        splash->setStatus(status);
-        splash->setProgress(progress, total);
-    };
-
-    QObject::connect(&SymbolLibraryManager::instance(), &SymbolLibraryManager::progressUpdated, splash, updateSplash);
-    QObject::connect(&ModelLibraryManager::instance(), &ModelLibraryManager::progressUpdated, splash, updateSplash);
-    QObject::connect(&FootprintLibraryManager::instance(), &FootprintLibraryManager::progressUpdated, splash, updateSplash);
-
-    QtConcurrent::run([splash, startMainApp]() {
-        // Load symbols first because startup UI depends on them. Model and footprint
-        // scans can be much larger, so do not block the splash on those.
-        SymbolLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/sym", true);
-
-        QMetaObject::invokeMethod(qApp, [startMainApp, splash]() {
-            startMainApp(splash);
-
-            // Start UI Command Server for Python integration
-            auto& uiServer = UICommandServer::instance();
-            if (uiServer.start(18790)) {
-                qDebug() << "UI Command Server started on port 18790 — Python scripts can connect via vspice.ui";
-
-                // Connect UI hooks
-                uiServer.setShowMessageFn([](const QString& title, const QString& text) {
-                    QMessageBox::information(nullptr, title, text);
-                });
-
-                uiServer.setGetSchematicContextFn([]() -> QVariantMap {
-                    QVariantMap ctx;
-                    ctx["has_schematic"] = false;
-                    ctx["message"] = "Schematic context integration pending";
-                    return ctx;
-                });
-
-                uiServer.setRunPythonCodeFn([](const QString& code) -> QVariantMap {
-                    QVariantMap result;
-                    result["ok"] = true;
-                    result["message"] = "Python code execution via external client (code not executed in GUI process)";
-                    result["code_length"] = code.length();
-                    return result;
-                });
-            }
-
-            QtConcurrent::run([]() {
-                ModelLibraryManager::instance().reload();
-                FootprintLibraryManager::instance().loadUserLibraries(QDir::homePath() + "/ViospiceLib/footprints");
-            });
-        }, Qt::QueuedConnection);
-    });
-
-    // Wire up event hooks to simulator and editor signals
-    QObject::connect(&SimManager::instance(), &SimManager::simulationFinished,
-                     [](const SimResults& results) {
-                         QJsonObject obj;
-                         obj["type"] = "simulation_finished";
-                         obj["analysis"] = static_cast<int>(results.analysisType);
-                         obj["waveform_count"] = static_cast<int>(results.waveforms.size());
-                         obj["node_count"] = static_cast<int>(results.nodeVoltages.size());
-                         QJsonDocument doc(obj);
-                         QByteArray json = doc.toJson(QJsonDocument::Compact);
-                         py_hooks_fire("simulation_finished", json.constData());
-                     });
-
-    QObject::connect(&SimManager::instance(), &SimManager::errorOccurred,
-                     [](const QString& msg) {
-                         QJsonObject obj;
-                         obj["type"] = "simulation_error";
-                         obj["message"] = msg;
-                         QJsonDocument doc(obj);
-                         QByteArray json = doc.toJson(QJsonDocument::Compact);
-                         py_hooks_fire("simulation_error", json.constData());
-                     });
+        splash->deleteLater();
+    }, Qt::QueuedConnection);
 
     int exitCode = a.exec();
 
-    // Clean up all top-level windows to avoid ASan/LSan reports
-    // Use a while loop to ensure we catch windows created during destruction of others
-    while (true) {
-        const auto topLevelWidgets = QApplication::topLevelWidgets();
-        if (topLevelWidgets.isEmpty()) break;
-        
-        for (QWidget* widget : topLevelWidgets) {
-            delete widget;
-        }
+    qDebug() << "Closing all windows...";
+    for (auto w : QApplication::topLevelWidgets()) { 
+        w->close(); 
+    }
+    
+    // Process events to run CloseEvents and deleteLater
+    for(int i=0; i<5; ++i) QApplication::processEvents(QEventLoop::AllEvents, 100);
+
+    // Final forced deletion of any widget orphans that didn't close
+    for (auto w : QApplication::topLevelWidgets()) {
+        delete w;
     }
 
-    // Clean up embedded Python runtime
+    SchematicToolRegistryBuiltIn::cleanup();
     shutdownEmbeddedPython();
-
     return exitCode;
 }

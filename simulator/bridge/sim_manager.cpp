@@ -152,7 +152,29 @@ QString detectUnsupportedOtaModelUsage(const QString& netlistText) {
     return QString();
 }
 
-QString normalizeFluxSmartBlockSource(QString source) {
+QString normalizeFluxSmartBlockSource(QString source, const QStringList& inputPins) {
+    // Native SmartSignal execution uses the raw JIT ABI `(t, inputs)`.
+    // Flux's `inputs[...]` parser expects a named token like `in0`, not a
+    // numeric literal, and lowers that token to the corresponding raw index.
+    for (int i = 0; i < inputPins.size(); ++i) {
+        QString pin = inputPins.at(i).trimmed();
+        if (pin.startsWith('"') && pin.endsWith('"')) pin = pin.mid(1, pin.length() - 2);
+        if (pin.startsWith('\'') && pin.endsWith('\'')) pin = pin.mid(1, pin.length() - 2);
+        pin = pin.trimmed();
+        
+        if (pin.isEmpty()) continue;
+
+        const QString escapedPin = QRegularExpression::escape(pin);
+        const QString replacement = QString("inputs[in%1]").arg(i);
+
+        source.replace(QRegularExpression(QString(R"(V\s*\(\s*[\"']%1[\"']\s*\))").arg(escapedPin), QRegularExpression::CaseInsensitiveOption), replacement);
+        source.replace(QRegularExpression(QString(R"(inputs\s*\[\s*[\"']%1[\"']\s*\])").arg(escapedPin), QRegularExpression::CaseInsensitiveOption), replacement);
+        source.replace(QRegularExpression(QString(R"(inputs\s*\.\s*get\s*\(\s*[\"']%1[\"']\s*(,[^)]+)?\))").arg(escapedPin), QRegularExpression::CaseInsensitiveOption), replacement);
+    }
+    
+    // Rewrite function signature: update(t, inputs) -> update(t, inputs)
+    // No change needed for signature if we keep 'inputs', but ensure it matches the pattern
+    source.replace(QRegularExpression(R"(def\s+update\s*\(\s*t\s*,\s*inputs\s*\))"), "def update(t, inputs)");
     return source;
 }
 
@@ -1460,8 +1482,12 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
                     SimulationManager::FluxScriptTarget target;
 
                     // 1. Map output pin sources: V[REF]_[PIN]
-                    for (const QString& outPin : smart->outputPins()) {
-                        target.outputVoltageSources << QString("V%1_%2").arg(ref, outPin.toUpper());
+                    // ONLY if we are using legacy behavioral sources.
+                    // For native A-devices, the list must be empty to bypass legacy sync.
+                    if (!SimulationManager::instance().supportsNativeLogicADevices()) {
+                        for (const QString& outPin : smart->outputPins()) {
+                            target.outputVoltageSources << QString("V%1_%2").arg(ref, outPin.toUpper());
+                        }
                     }
 
                     // 2. Capture Pin-to-Net mapping for this component
@@ -1473,8 +1499,13 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
 
                     targets.insert(ref, target);
                     
+                    // Register input pin ordering with the JIT to allow V("PinName") optimization
+                    Flux::JITContextManager::instance().setInputPinMapping(ref, smart->inputPins());
+
                     // Compile the script into the JIT
-                    QString fluxSource = normalizeFluxSmartBlockSource(smart->fluxCode());
+                    QString fluxSource = normalizeFluxSmartBlockSource(
+                        smart->fluxCode(),
+                        smart->inputPins());
 
                     QMap<int, QString> errors;
                     if (Flux::JITContextManager::instance().compileAndLoad(ref, fluxSource, errors)) {

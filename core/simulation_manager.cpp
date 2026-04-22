@@ -4,6 +4,7 @@
 #include "schematic/items/smart_signal_item.h"
 #include <QDebug>
 #include <QThread>
+#include <QLibrary>
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
@@ -67,6 +68,53 @@ namespace {
 
         return q;
     }
+
+    void* resolveLoadedSymbol(const char* symbolName) {
+        if (!symbolName || !*symbolName) {
+            return nullptr;
+        }
+
+        // Prefer the already loaded process image. VioSpice uses a custom
+        // VioMATRIXC libngspice build and the soname/path can vary, so
+        // QLibrary::resolve("libngspice", ...) is not reliable enough for
+        // native SmartSignal registration.
+        if (void* sym = dlsym(RTLD_DEFAULT, symbolName)) {
+            return sym;
+        }
+
+        Dl_info info;
+        if (dladdr((void*)ngSpice_Init, &info) && info.dli_fname) {
+            QLibrary loadedNgspice(QString::fromLocal8Bit(info.dli_fname));
+            if (QFunctionPointer sym = loadedNgspice.resolve(symbolName)) {
+                return reinterpret_cast<void*>(sym);
+            }
+        }
+
+        if (QFunctionPointer sym = QLibrary::resolve("libngspice", symbolName)) {
+            return reinterpret_cast<void*>(sym);
+        }
+        if (QFunctionPointer sym = QLibrary::resolve("ngspice", symbolName)) {
+            return reinterpret_cast<void*>(sym);
+        }
+        return nullptr;
+    }
+
+    QStringList jitRegistrationAliases(const QString& id) {
+        QStringList aliases;
+        const QString trimmed = id.trimmed();
+        if (trimmed.isEmpty()) {
+            return aliases;
+        }
+
+        aliases << trimmed;
+        aliases << trimmed.toUpper();
+        aliases << trimmed.toLower();
+        aliases << QString("\"%1\"").arg(trimmed);
+        aliases << QString("\"%1\"").arg(trimmed.toUpper());
+        aliases << QString("\"%1\"").arg(trimmed.toLower());
+        aliases.removeDuplicates();
+        return aliases;
+    }
 }
 
 SimulationManager& SimulationManager::instance() {
@@ -79,85 +127,9 @@ SimulationManager::SimulationManager(QObject* parent)
     m_bufferTimer = new QTimer(this);
     m_bufferTimer->setInterval(33); // ~30 FPS
     connect(m_bufferTimer, &QTimer::timeout, this, &SimulationManager::processBufferedData);
-
-    // Launch high-priority JIT sync thread
-    m_jitSyncThreadRunning = true;
-    m_jitSyncThread = std::thread([this]() {
-        while (m_jitSyncThreadRunning) {
-            QMap<QString, double> updates;
-            {
-                std::unique_lock<std::mutex> lock(m_jitSyncMutex);
-                m_jitSyncCond.wait(lock, [this]() { 
-                    return !m_pendingHighPriorityUpdates.isEmpty() || !m_jitSyncThreadRunning; 
-                });
-                
-                if (!m_jitSyncThreadRunning) break;
-                
-                updates = m_pendingHighPriorityUpdates;
-                m_pendingHighPriorityUpdates.clear();
-            }
-
-            if (updates.isEmpty()) continue;
-            
-            // CRITICAL: Wait for initial data stream to stabilize
-            // If we alter during the first few steps, spSolve/spFactor will crash
-            if (m_streamingCounter < 5) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
-            }
-
-            // 1. Halt simulation
-            m_jitUpdateInProgress = true;
-            {
-                std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
-                if (!m_bgRunIssued) { // Abort if simulation finished while waiting for mutex
-                    m_jitUpdateInProgress = false;
-                    continue;
-                }
-                ngSpice_Command((char*)"bg_halt");
-            }
-            
-            // Wait for halt (max 500ms)
-            int waitCount = 0;
-            while (ngSpice_running() && waitCount < 250) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                waitCount++;
-            }
-
-            // Check if we stopped because it finished or because we halted it
-            if (!ngSpice_running() && m_bgRunIssued) {
-                // Extended safety sleep for sparse matrix stabilization
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                
-                std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
-                
-                // Double check logical state under lock
-                if (!m_bgRunIssued) {
-                    m_jitUpdateInProgress = false;
-                    continue;
-                }
-
-                // 2. Apply updates
-                for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
-                    const QString cmd = QString("alter @%1[dc] = %2")
-                                            .arg(it.key(), QString::number(it.value(), 'g', 12));
-                    ngSpice_Command(cmd.toLatin1().data());
-                }
-                
-                // 3. Resume
-                ngSpice_Command((char*)"bg_resume");
-            }
-            m_jitUpdateInProgress = false;
-        }
-    });
 }
 
 SimulationManager::~SimulationManager() {
-    m_jitSyncThreadRunning = false;
-    m_jitSyncCond.notify_all();
-    if (m_jitSyncThread.joinable()) {
-        m_jitSyncThread.join();
-    }
 }
 
 bool SimulationManager::isAvailable() const {
@@ -197,21 +169,16 @@ QString SimulationManager::lastErrorMessage() const {
 }
 
 void SimulationManager::initialize() {
+    std::lock_guard<std::mutex> lock(m_ngspiceMutex);
     if (m_isInitialized) return;
 
 #ifdef HAVE_NGSPICE
-    // Set environment variables for ngspice to find spinit and code models
-    // This must be done BEFORE ngSpice_Init
-    QString scriptsPath = "/home/jnd/.ngspice";
-    if (qEnvironmentVariableIsEmpty("SPICE_SCRIPTS")) {
-        qputenv("SPICE_SCRIPTS", scriptsPath.toUtf8());
-    }
-    if (qEnvironmentVariableIsEmpty("SPICE_LIB_DIR")) {
-        qputenv("SPICE_LIB_DIR", scriptsPath.toUtf8());
-    }
+    // MANDATORY: Setup environment BEFORE ngSpice_Init
+    QString scriptsPath = "/home/jnd/.viospice";
+    qputenv("SPICE_SCRIPTS", scriptsPath.toUtf8());
+    qputenv("SPICE_LIB_DIR", scriptsPath.toUtf8());
 
     // Initialize ngspice with our callbacks
-    // we pass 'this' as userData to route callbacks back to the instance
     ngSpice_Init(
         cbSendChar,
         cbSendStat,
@@ -223,11 +190,22 @@ void SimulationManager::initialize() {
     );
     m_isInitialized = true;
     qDebug() << "Ngspice initialized";
-    {
-        std::lock_guard<std::mutex> lock(m_ngspiceMutex);
-        ngSpice_Command((char*)"set ngbehavior=ltps");
-        ngSpice_Command((char*)"set filetype=binary");
+
+    // Load VioSpice Native JIT Code Models
+    QString cmDir = "/home/jnd/cpp_projects/VioMATRIXC/releasesh/src/xspice/icm";
+    QStringList cmSubDirs = {"analog", "digital", "spice2poly", "table", "tlines", "xtradev", "xtraevt"};
+    
+    for (const QString& sub : cmSubDirs) {
+        QString cmPath = QString("%1/%2/%2.cm").arg(cmDir, sub);
+        if (QFile::exists(cmPath)) {
+            QString cmd = QString("codemodel %1").arg(cmPath);
+            ngSpice_Command(cmd.toUtf8().data());
+            qDebug() << "[SimManager] Loaded native code model:" << cmPath;
+        }
     }
+
+    ngSpice_Command((char*)"set ngbehavior=ltps");
+    ngSpice_Command((char*)"set filetype=binary");
 #else
     qWarning() << "Ngspice not available (HAVE_NGSPICE not defined)";
 #endif
@@ -264,10 +242,17 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     m_bgRunIssued = false;
     m_stopRequested = false;
     m_pauseRequested = false;
+    m_haltRequested = false;
+    m_fluxSyncRequested = false;
+    m_jitUpdateInProgress = false;
 
     {
         std::lock_guard<std::mutex> lock(m_bufferMutex);
         m_simBuffer.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_jitSyncMutex);
+        m_pendingHighPriorityUpdates.clear();
     }
     {
         std::lock_guard<std::mutex> lock(m_logMutex);
@@ -287,6 +272,71 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         m_bufferTimer->stop();
         if (!error.isEmpty()) Q_EMIT errorOccurred(error);
         return;
+    }
+
+    // 1. Resolve Native JIT API from VioMATRIXC
+    typedef void (*ngSpice_RegisterJitLogic_t)(const char*, double (*)(double, const double*));
+    typedef double (*viospice_jit_func_t)(double, const double*);
+    typedef viospice_jit_func_t (*viospice_jit_lookup_t)(const char*);
+    static ngSpice_RegisterJitLogic_t registerFunc = nullptr;
+    static viospice_jit_lookup_t lookupFunc = nullptr;
+    static bool resolved = false;
+    
+    if (!resolved) {
+        registerFunc = reinterpret_cast<ngSpice_RegisterJitLogic_t>(
+            resolveLoadedSymbol("ngSpice_RegisterJitLogic"));
+        lookupFunc = reinterpret_cast<viospice_jit_lookup_t>(
+            resolveLoadedSymbol("viospice_jit_lookup"));
+        resolved = true;
+        qDebug() << "[SimManager] Native JIT register symbol resolved:" << (registerFunc != nullptr);
+        qDebug() << "[SimManager] Native JIT lookup symbol resolved:" << (lookupFunc != nullptr);
+    }
+
+    // 2. Register all active Smart Blocks with the engine
+    if (registerFunc) {
+        std::lock_guard<std::mutex> targetLock(m_fluxTargetsMutex);
+        for (auto it = m_fluxScriptTargets.constBegin(); it != m_fluxScriptTargets.constEnd(); ++it) {
+            void* funcPtr = Flux::JITContextManager::instance().getFunctionAddress(it.key());
+            if (funcPtr) {
+                const auto direct = reinterpret_cast<viospice_jit_func_t>(funcPtr);
+                const double sampleLow[] = {0.0};
+                const double sampleMid[] = {2.0};
+                const double sampleHigh[] = {4.0};
+                qDebug() << "[SimManager] Direct JIT self-test for" << it.key()
+                         << "in=0 @1e-4 ->" << direct(1e-4, sampleLow)
+                         << "in=2 @1e-4 ->" << direct(1e-4, sampleMid)
+                         << "in=4 @1e-4 ->" << direct(1e-4, sampleHigh)
+                         << "in=4 @0 ->" << direct(0.0, sampleHigh)
+                         << "in=4 @2e-4 ->" << direct(2e-4, sampleHigh)
+                         << "in=4 @5e-4 ->" << direct(5e-4, sampleHigh)
+                         << "in=4 @9e-4 ->" << direct(9e-4, sampleHigh)
+                         << "in=4 @1e-3 ->" << direct(1e-3, sampleHigh);
+
+                const QStringList aliases = jitRegistrationAliases(it.key());
+                qDebug() << "[SimManager] Registering native JIT for" << it.key()
+                         << "aliases=" << aliases
+                         << "at" << funcPtr;
+                for (const QString& alias : aliases) {
+                    const QByteArray aliasUtf8 = alias.toUtf8();
+                    registerFunc(aliasUtf8.constData(), (double (*)(double, const double*))funcPtr);
+                }
+                if (lookupFunc) {
+                    for (const QString& alias : aliases) {
+                        const QByteArray aliasUtf8 = alias.toUtf8();
+                        void* verified = reinterpret_cast<void*>(lookupFunc(aliasUtf8.constData()));
+                        qDebug() << "[SimManager] Verified native JIT lookup for" << it.key()
+                                 << "alias=" << alias
+                                 << "registered=" << funcPtr
+                                 << "lookup=" << verified
+                                 << "match=" << (verified == funcPtr);
+                    }
+                }
+            } else {
+                qWarning() << "[SimManager] Missing JIT function address for" << it.key();
+            }
+        }
+    } else {
+        qWarning() << "[SimManager] Native JIT API not found in VioMATRIXC. Falling back to slow mode.";
     }
 
     Q_EMIT simulationStarted();
@@ -366,6 +416,13 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
         m_lastRunFailed = false;
         m_lastErrorMessage.clear();
     }
+    {
+        std::lock_guard<std::mutex> lock(m_jitSyncMutex);
+        m_pendingHighPriorityUpdates.clear();
+    }
+    m_fluxSyncRequested = false;
+    m_jitUpdateInProgress = false;
+    m_haltRequested = false;
 
     bool loaded = false;
     QFile file(netlist);
@@ -523,6 +580,10 @@ void SimulationManager::stopSimulation() {
     }
     m_stopRequested = true;
     m_pauseRequested = false;
+    m_bgRunIssued = false; 
+    m_fluxSyncRequested = false;
+    m_jitUpdateInProgress = false;
+    m_haltRequested = false;
     ngSpice_Command((char*)"bg_halt");
     QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
     QMetaObject::invokeMethod(this, "processBufferedData", Qt::QueuedConnection);
@@ -531,6 +592,10 @@ void SimulationManager::stopSimulation() {
 
 void SimulationManager::shutdown() {
 #ifdef HAVE_NGSPICE
+    m_bgRunIssued = false;
+    m_fluxSyncRequested = false;
+    m_jitUpdateInProgress = false;
+    m_haltRequested = false;
     ngSpice_Command((char*)"bg_halt");
     ngSpice_Command((char*)"quit");
     QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
@@ -594,6 +659,7 @@ void SimulationManager::sendInternalCommand(const QString& command) {
     if (command == "bg_halt") {
         m_pauseRequested = true;
         m_stopRequested = false;
+        m_haltRequested = true;
         QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
     } else if (command == "bg_resume") {
         m_pauseRequested = false;
@@ -655,7 +721,7 @@ void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, dou
 #ifdef HAVE_NGSPICE
     if (!m_isInitialized) return;
 
-    // Use bg_halt -> alter -> bg_run cycle for voltage-controlled switches
+    // Use bg_halt -> alter -> bg_resume cycle for voltage-controlled switches
     // (for advanced users who use .model SW with VSWITCH)
 
     // 1. Halt the simulation
@@ -667,7 +733,10 @@ void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, dou
 
     // 2. Alter the control voltage source
     QString cmd = QString("alter %1 DC=%2").arg(controlSourceName, QString::number(voltage, 'g', 12));
-    ngSpice_Command(cmd.toLatin1().data());
+    {
+        std::lock_guard<std::mutex> lock(m_ngspiceMutex);
+        ngSpice_Command(cmd.toLatin1().data());
+    }
 
     // 3. Resume simulation
     sendInternalCommand("bg_resume");
@@ -676,15 +745,104 @@ void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, dou
 }
 
 void SimulationManager::queueFluxSourceUpdate(const QString& sourceName, double value) {
-    // Rate limit: If an update is already being processed by the sync thread, skip this one.
-    // We only need the freshest value for the next possible update cycle.
-    if (m_jitUpdateInProgress) return;
-
     {
         std::lock_guard<std::mutex> lock(m_jitSyncMutex);
         m_pendingHighPriorityUpdates[sourceName] = value;
     }
-    m_jitSyncCond.notify_one();
+
+    // Guardrail:
+    // Do not issue bg_halt/bg_resume from a side thread while ngspice is still
+    // in its data-dump path. VioMATRIXC is sensitive to that re-entrancy and can
+    // crash inside CKTdump/OUTpData. We coalesce updates and request a single
+    // halt on the Qt thread, then resume only after cbBGThreadRunning confirms
+    // the background thread has actually stopped.
+    QMetaObject::invokeMethod(this, [this]() { requestFluxSourceSync(); }, Qt::QueuedConnection);
+}
+
+void SimulationManager::requestFluxSourceSync() {
+#ifdef HAVE_NGSPICE
+    if (!m_isInitialized || !m_bgRunIssued || m_stopRequested || m_pauseRequested) return;
+    if (m_streamingCounter < 5) return;
+    if (m_jitUpdateInProgress || m_fluxSyncRequested) return;
+
+    {
+        std::lock_guard<std::mutex> lock(m_jitSyncMutex);
+        if (m_pendingHighPriorityUpdates.isEmpty()) return;
+    }
+
+    m_jitUpdateInProgress = true;
+    m_fluxSyncRequested = true;
+    m_haltRequested = true;
+
+    {
+        std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
+        if (!m_bgRunIssued || m_stopRequested || m_pauseRequested) {
+            m_haltRequested = false;
+            m_fluxSyncRequested = false;
+            m_jitUpdateInProgress = false;
+            return;
+        }
+        ngSpice_Command((char*)"bg_halt");
+    }
+#endif
+}
+
+void SimulationManager::applyPendingFluxSourceUpdates() {
+#ifdef HAVE_NGSPICE
+    QMap<QString, double> updates;
+    {
+        std::lock_guard<std::mutex> lock(m_jitSyncMutex);
+        updates.swap(m_pendingHighPriorityUpdates);
+    }
+
+    if (updates.isEmpty()) {
+        if (m_bgRunIssued && !m_stopRequested && !m_pauseRequested) {
+            m_pauseRequested = false;
+            m_stopRequested = false;
+            if (m_streamingControl) {
+                QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection);
+            }
+            std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
+            ngSpice_Command((char*)"bg_resume");
+        }
+        m_fluxSyncRequested = false;
+        m_haltRequested = false;
+        m_jitUpdateInProgress = false;
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
+        for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
+            const QString cmd = QString("alter @%1[dc] = %2")
+                                    .arg(it.key(), QString::number(it.value(), 'g', 12));
+            ngSpice_Command(cmd.toLatin1().data());
+        }
+
+        if (m_bgRunIssued && !m_stopRequested && !m_pauseRequested) {
+            m_pauseRequested = false;
+            m_stopRequested = false;
+            if (m_streamingControl) {
+                QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection);
+            }
+            ngSpice_Command((char*)"bg_resume");
+        }
+    }
+
+    m_fluxSyncRequested = false;
+    m_haltRequested = false;
+    m_jitUpdateInProgress = false;
+
+    // If newer values arrived while we were paused, schedule one more sync cycle.
+    bool hasMoreUpdates = false;
+    {
+        std::lock_guard<std::mutex> lock(m_jitSyncMutex);
+        hasMoreUpdates = !m_pendingHighPriorityUpdates.isEmpty();
+    }
+    if (hasMoreUpdates) {
+        QMetaObject::invokeMethod(this, [this]() { requestFluxSourceSync(); }, Qt::QueuedConnection);
+    }
+#endif
 }
 
 void SimulationManager::processBufferedData() {
@@ -917,6 +1075,13 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
                 for (const QString& vSrc : target.outputVoltageSources) {
                     self->queueFluxSourceUpdate(vSrc, vOut);
                 }
+                
+                // BACKPRESSURE: If the sync thread is busy, slow down the solver
+                // to ensure the 'physical' source in the circuit doesn't lag 
+                // behind the simulation time.
+                if (self->m_jitUpdateInProgress) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                }
             }
         }
     }
@@ -970,18 +1135,26 @@ int SimulationManager::cbBGThreadRunning(bool finished, int id, void* userData) 
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (!self) return 0;
 
+    // finished=true means the background thread has STOPPED (either halted or completed).
+    // finished=false means the background thread has STARTED.
     if (finished) {
-        // --- STOPPED ---
-        // Was this a manual halt for a JIT update or switch toggle?
-        if (self->m_jitUpdateInProgress || self->m_switchToggleInProgress) {
-            // It's just a pause. Process data and return.
+        // Was this a manual halt we requested?
+        if (self->m_jitUpdateInProgress) {
+            QMetaObject::invokeMethod(self, [self]() { self->applyPendingFluxSourceUpdates(); }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(self->m_bufferTimer, "stop", Qt::QueuedConnection);
+            QMetaObject::invokeMethod(self, "processBufferedData", Qt::QueuedConnection);
+            return 0;
+        }
+
+        if (self->m_haltRequested || self->m_switchToggleInProgress) {
+            self->m_haltRequested = false; // Reset for next time
             QMetaObject::invokeMethod(self->m_bufferTimer, "stop", Qt::QueuedConnection);
             QMetaObject::invokeMethod(self, "processBufferedData", Qt::QueuedConnection);
             return 0;
         }
 
         // --- NATURAL COMPLETION ---
-        // Mark as finished immediately to stop the high-priority JIT thread from restarting it
+        // Only get here if finished=true and NO halt was requested.
         self->m_bgRunIssued = false;
 
         QFileInfo info(self->m_currentNetlist);
@@ -1077,4 +1250,9 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
     m_stopRequested = false;
     m_pauseRequested = false;
     Q_EMIT simulationFinished();
+}
+void SimulationManager::clearCircuits() {
+    std::lock_guard<std::mutex> lock(m_ngspiceMutex);
+    m_circStorage.clear();
+    m_circPtrs.clear();
 }

@@ -8,6 +8,7 @@
 class SchematicToolRegistryBuiltIn {
 public:
     static void registerBuiltInTools();
+    static void cleanup();
 
 private:
     SchematicToolRegistryBuiltIn() = default;
