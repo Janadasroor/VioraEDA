@@ -963,7 +963,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             openTextLabelPropertiesDialog(textItem);
             return;
         }
-    } else if (item->itemTypeName() == "7-Segment Display") {
+    } else if (SevenSegmentDisplayItem::isSegmentDisplayTypeName(item->itemTypeName())) {
         if (auto* display = dynamic_cast<SevenSegmentDisplayItem*>(item)) {
             SevenSegmentPropertiesDialog dlg(display, this);
             dlg.exec();
@@ -1534,7 +1534,7 @@ void SchematicEditor::onLeaveSheet() {
 void SchematicEditor::openItemProperties(SchematicItem* item) {
     if (!item) return;
 
-    if (item->itemTypeName() == "7-Segment Display") {
+    if (SevenSegmentDisplayItem::isSegmentDisplayTypeName(item->itemTypeName())) {
         if (auto* display = dynamic_cast<SevenSegmentDisplayItem*>(item)) {
             SevenSegmentPropertiesDialog dlg(display, this);
             dlg.exec();

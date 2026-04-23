@@ -2,6 +2,8 @@
 #define SEVENSEGMENTDISPLAYITEM_H
 
 #include "schematic_item.h"
+#include <QVector>
+#include <QStringList>
 
 class SevenSegmentDisplayItem : public SchematicItem {
 public:
@@ -10,12 +12,23 @@ public:
         CommonAnode = 1
     };
 
-    explicit SevenSegmentDisplayItem(QPointF pos = QPointF(), QGraphicsItem* parent = nullptr);
+    enum class Variant {
+        Single7 = 0,
+        Dual7 = 1,
+        Seg14 = 2,
+        Seg16 = 3
+    };
 
-    QString itemTypeName() const override { return "7-Segment Display"; }
+    explicit SevenSegmentDisplayItem(Variant variant = Variant::Single7,
+                                     QPointF pos = QPointF(),
+                                     const QString& typeName = QString(),
+                                     QGraphicsItem* parent = nullptr);
+
+    QString itemTypeName() const override { return m_typeName; }
     ItemType itemType() const override { return SchematicItem::ComponentType; }
     QString referencePrefix() const override { return "DS"; }
     void setValue(const QString& value) override;
+    QString pinName(int index) const override;
 
     void setSimState(const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& currents) override;
 
@@ -31,14 +44,30 @@ public:
     void setCommonType(CommonType type);
     double thresholdVoltage() const { return m_thresholdV; }
     void setThresholdVoltage(double volts);
+    Variant variant() const { return m_variant; }
+    void setVariant(Variant variant);
+    static bool isSegmentDisplayTypeName(const QString& typeName);
 
 private:
-    static constexpr int kSegmentCount = 8; // a,b,c,d,e,f,g,dp
     bool segmentOn(int idx) const;
+    QString displayHeader() const;
+    QStringList segmentPinLabels() const;
+    QStringList allPinLabels() const;
+    int segmentCount() const;
+    int comPin1Index() const;
+    int comPin2Index() const;
+    void ensureDriveSize();
+    void paintClassic7Digit(QPainter* painter, const QRectF& bezel, int baseSegmentIndex) const;
+    void paintBarArrayDigit(QPainter* painter, const QRectF& bezel, int baseSegmentIndex, int count) const;
+    void paintInspired14Or16(QPainter* painter, const QRectF& bezel) const;
+    static Variant variantFromTypeName(const QString& typeName);
+    static QString typeNameForVariant(Variant variant);
 
+    QString m_typeName;
+    Variant m_variant = Variant::Single7;
     CommonType m_commonType = CommonType::CommonCathode;
     double m_thresholdV = 1.7;
-    double m_segmentDrive[kSegmentCount] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    QVector<double> m_segmentDrive;
 };
 
 #endif // SEVENSEGMENTDISPLAYITEM_H

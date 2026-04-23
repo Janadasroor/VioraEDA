@@ -345,10 +345,10 @@ void SchematicMenuRegistry::initializeDefaultActions() {
 
     // --- 7-Segment Actions ---
     ContextAction segOptions;
-    segOptions.label = "7-Segment Properties...";
+    segOptions.label = "Segment Display Properties...";
     segOptions.priority = 90;
     segOptions.isVisible = [](const QList<SchematicItem*>& items) {
-        return items.size() == 1 && items.first()->itemTypeName() == "7-Segment Display";
+        return items.size() == 1 && SevenSegmentDisplayItem::isSegmentDisplayTypeName(items.first()->itemTypeName());
     };
     segOptions.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
         if (!view || items.size() != 1) return;
