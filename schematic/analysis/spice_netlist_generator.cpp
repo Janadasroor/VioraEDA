@@ -3521,7 +3521,7 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
         };
 
         // Determine SPICE prefix
-        const bool isSevenSegmentDisplay = (comp.typeName == "7-Segment Display");
+        const bool isSevenSegmentDisplay = comp.typeName.contains("Segment Display", Qt::CaseInsensitive);
         bool isInstrument = (comp.typeName == "OscilloscopeInstrument" ||
                              comp.typeName == "Oscilloscope Instrument" ||
                              comp.typeName == "VoltmeterInstrument" ||

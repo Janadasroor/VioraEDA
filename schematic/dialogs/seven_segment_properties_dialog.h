@@ -17,6 +17,7 @@ private:
     void applyChanges();
 
     QPointer<SevenSegmentDisplayItem> m_item;
+    QComboBox* m_variant = nullptr;
     QComboBox* m_commonType = nullptr;
     QDoubleSpinBox* m_threshold = nullptr;
 };

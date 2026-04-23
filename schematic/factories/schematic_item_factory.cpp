@@ -54,7 +54,10 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
                                     typeName == "Oscilloscope Instrument" ||
                                     typeName == "Logic Analyzer" ||
                                     typeName == "Signal Generator" ||
-                                    typeName == "7-Segment Display");
+                                    typeName == "7-Segment Display" ||
+                                    typeName == "Dual 7-Segment Display" ||
+                                    typeName == "14-Segment Display" ||
+                                    typeName == "16-Segment Display");
 
     // Prefer external symbols if they exist (override built-ins), except for power, source, instruments and explicit JFET types.
     if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet && !isBjtAlias && !isMosAlias && !isMesfet && !isSpecializedItem) {

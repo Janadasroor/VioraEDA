@@ -538,7 +538,25 @@ void SchematicItemRegistry::registerBuiltInItems() {
     });
 
     factory.registerItemType("7-Segment Display", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
-        auto* item = new SevenSegmentDisplayItem(pos, parent);
+        auto* item = new SevenSegmentDisplayItem(SevenSegmentDisplayItem::Variant::Single7, pos, "7-Segment Display", parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("Dual 7-Segment Display", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new SevenSegmentDisplayItem(SevenSegmentDisplayItem::Variant::Dual7, pos, "Dual 7-Segment Display", parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("14-Segment Display", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new SevenSegmentDisplayItem(SevenSegmentDisplayItem::Variant::Seg14, pos, "14-Segment Display", parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("16-Segment Display", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new SevenSegmentDisplayItem(SevenSegmentDisplayItem::Variant::Seg16, pos, "16-Segment Display", parent);
         if (!properties.isEmpty()) item->fromJson(properties);
         return item;
     });
