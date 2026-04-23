@@ -24,6 +24,7 @@
 #include "push_button_item.h"
 #include "led_item.h"
 #include "blinking_led_item.h"
+#include "seven_segment_display_item.h"
 #include "signal_generator_item.h"
 #include "behavioral_current_source_item.h"
 #include "logic_analyzer_item.h"
@@ -532,6 +533,12 @@ void SchematicItemRegistry::registerBuiltInItems() {
 
     factory.registerItemType("Blinking LED", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
         auto* item = new BlinkingLEDItem(pos, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
+    });
+
+    factory.registerItemType("7-Segment Display", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new SevenSegmentDisplayItem(pos, parent);
         if (!properties.isEmpty()) item->fromJson(properties);
         return item;
     });

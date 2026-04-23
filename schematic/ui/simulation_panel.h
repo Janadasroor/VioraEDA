@@ -22,6 +22,7 @@
 #include <QPointer>
 #include <atomic>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include "../../simulator/bridge/sim_manager.h"
 #include "../../simulator/core/sim_results.h"
 #include "../../simulator/core/sim_meas_evaluator.h"
@@ -303,6 +304,8 @@ private:
     int m_realTimePointCounter = 0;
     QSet<QString> m_persistentCheckedSignals;
     bool m_isSimInitiator = false;
+    QElapsedTimer m_liveSnapshotTimer;
+    int m_liveSnapshotIntervalMs = 33; // ~30 FPS UI update ceiling
 
     // .meas post-processing
     std::vector<MeasStatement> m_measStatements;

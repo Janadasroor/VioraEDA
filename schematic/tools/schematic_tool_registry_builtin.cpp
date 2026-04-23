@@ -83,6 +83,7 @@ void SchematicToolRegistryBuiltIn::registerBuiltInTools() {
     registry.registerTool("Push Button", []() { return new SchematicComponentTool("PushButton"); });
     registry.registerTool("LED", []() { return new SchematicComponentTool("LED"); });
     registry.registerTool("Blinking LED", []() { return new SchematicComponentTool("Blinking LED"); });
+    registry.registerTool("7-Segment Display", []() { return new SchematicComponentTool("7-Segment Display"); });
     registry.registerTool("Signal Generator", []() { return new SchematicComponentTool("Signal Generator"); });
     registry.registerTool("Logic Analyzer", []() { return new SchematicComponentTool("Logic Analyzer"); });
     registry.registerTool("Oscilloscope Instrument", []() { return new SchematicComponentTool("Oscilloscope Instrument"); });

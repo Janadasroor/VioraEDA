@@ -14,12 +14,14 @@
 #include "../items/hierarchical_port_item.h"
 #include "../items/led_item.h"
 #include "../items/blinking_led_item.h"
+#include "../items/seven_segment_display_item.h"
 #include "../items/tuning_slider_item.h"
 #include "../ui/simulation_panel.h"
 #include "../analysis/net_manager.h"
 #include "../tools/schematic_net_label_tool.h"
 #include "theme_manager.h"
 #include "../dialogs/led_properties_dialog.h"
+#include "../dialogs/seven_segment_properties_dialog.h"
 #include <algorithm>
 #include <set>
 #include <QApplication>
@@ -340,6 +342,22 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         dlg.exec();
     };
     registerGlobalAction(ledOptions);
+
+    // --- 7-Segment Actions ---
+    ContextAction segOptions;
+    segOptions.label = "7-Segment Properties...";
+    segOptions.priority = 90;
+    segOptions.isVisible = [](const QList<SchematicItem*>& items) {
+        return items.size() == 1 && items.first()->itemTypeName() == "7-Segment Display";
+    };
+    segOptions.handler = [](SchematicView* view, const QList<SchematicItem*>& items) {
+        if (!view || items.size() != 1) return;
+        auto* display = dynamic_cast<SevenSegmentDisplayItem*>(items.first());
+        if (!display) return;
+        SevenSegmentPropertiesDialog dlg(display, view);
+        dlg.exec();
+    };
+    registerGlobalAction(segOptions);
 
     // --- Bus Actions ---
     

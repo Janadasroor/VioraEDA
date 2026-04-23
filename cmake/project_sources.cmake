@@ -167,6 +167,8 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/tuning_slider_properties_dialog.h
     schematic/dialogs/led_properties_dialog.cpp
     schematic/dialogs/led_properties_dialog.h
+    schematic/dialogs/seven_segment_properties_dialog.cpp
+    schematic/dialogs/seven_segment_properties_dialog.h
     schematic/dialogs/switch_properties_dialog.cpp
     schematic/dialogs/switch_properties_dialog.h
     schematic/dialogs/csw_properties_dialog.cpp
@@ -283,6 +285,8 @@ set(SCHEMATIC_SOURCES
     schematic/items/led_item.cpp
     schematic/items/blinking_led_item.h
     schematic/items/blinking_led_item.cpp
+    schematic/items/seven_segment_display_item.h
+    schematic/items/seven_segment_display_item.cpp
     schematic/items/smart_signal_item.h
     schematic/items/smart_signal_item.cpp
     schematic/items/simulation_overlay_item.h

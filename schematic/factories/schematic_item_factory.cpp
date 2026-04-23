@@ -53,7 +53,8 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
     const bool isSpecializedItem = (typeName == "Tuning Slider" || 
                                     typeName == "Oscilloscope Instrument" ||
                                     typeName == "Logic Analyzer" ||
-                                    typeName == "Signal Generator");
+                                    typeName == "Signal Generator" ||
+                                    typeName == "7-Segment Display");
 
     // Prefer external symbols if they exist (override built-ins), except for power, source, instruments and explicit JFET types.
     if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet && !isBjtAlias && !isMosAlias && !isMesfet && !isSpecializedItem) {
