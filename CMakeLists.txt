@@ -197,7 +197,14 @@ if(BUILD_VIOSPICE_CLI)
         resources/resources.qrc
     )
 
+    # Guardrail:
+    # These static module libraries reference each other cyclically (for example
+    # VioSimulator -> VioSchematic and app/UI code -> simulator/core helpers).
+    # Use raw linker group flags here rather than CMake LINK_GROUP because the
+    # Qt target graph also brings in VioHeadless and CMake rejects that cycle
+    # during generation.
     target_link_libraries(viora PRIVATE "${VIOSPICE_PREFERRED_ENGINE_LIB}"
+        -Wl,--start-group
         VioSchematicUI
         VioSchematicCore
         VioSymbols
@@ -208,6 +215,7 @@ if(BUILD_VIOSPICE_CLI)
         VioUI
         VioFootprints
         VioraPCBCore
+        -Wl,--end-group
     )
 
     if(VIOSPICE_ENGINE_FOUND)
@@ -242,8 +250,12 @@ if(BUILD_VIOSPICE_APP)
         resources/resources.qrc
     )
 
+    # Guardrail:
+    # Keep the static module set inside a raw linker group. Plain left-to-right
+    # archive resolution breaks this repo because the schematic/simulator/core/UI
+    # layers have intentional cross-module references.
     target_link_libraries(viospice PRIVATE "${VIOSPICE_PREFERRED_ENGINE_LIB}"
-        -Wl,--whole-archive
+        -Wl,--start-group
         VioUI
         VioSchematic
         VioSimulator
@@ -253,7 +265,7 @@ if(BUILD_VIOSPICE_APP)
         FluxScriptManager
         VioFootprints
         VioraPCBCore
-        -Wl,--no-whole-archive
+        -Wl,--end-group
     )
 
 

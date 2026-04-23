@@ -163,6 +163,13 @@ bool SimulationManager::supportsNativeLogicADevices() const {
 #endif
 }
 
+bool SimulationManager::isNativeSmartSignalMode() const {
+    // Single source of truth for SmartSignal execution ownership.
+    // If true: ngspice native A-device executes JIT in solver.
+    // If false: legacy Qt-side feedback loop is allowed.
+    return supportsNativeLogicADevices();
+}
+
 QString SimulationManager::lastErrorMessage() const {
     std::lock_guard<std::mutex> lock(const_cast<SimulationManager*>(this)->m_logMutex);
     return m_lastErrorMessage;
@@ -220,9 +227,48 @@ bool SimulationManager::isRunning() const {
 #endif
 }
 
+bool SimulationManager::recoverEngineIfNeeded() {
+#ifdef HAVE_NGSPICE
+    if (!m_engineRecoveryRequired.exchange(false)) {
+        return true;
+    }
+
+    qWarning() << "[SimManager] Recovering ngspice engine after fatal state.";
+
+    m_bgRunIssued = false;
+    m_stopRequested = false;
+    m_pauseRequested = false;
+    m_haltRequested = false;
+    m_fluxSyncRequested = false;
+    m_jitUpdateInProgress = false;
+
+    if (m_bufferTimer) {
+        m_bufferTimer->stop();
+    }
+
+    if (m_isInitialized) {
+        {
+            std::lock_guard<std::mutex> lock(m_ngspiceMutex);
+            ngSpice_Command((char*)"bg_halt");
+            ngSpice_Command((char*)"quit");
+        }
+        m_isInitialized = false;
+    }
+
+    initialize();
+    return m_isInitialized;
+#else
+    return false;
+#endif
+}
+
 void SimulationManager::runSimulation(const QString& netlist, SimControl* control) {
     if (!isAvailable()) {
         Q_EMIT errorOccurred("Simulation engine not installed.");
+        return;
+    }
+    if (!recoverEngineIfNeeded()) {
+        Q_EMIT errorOccurred("Failed to recover simulation engine.");
         return;
     }
     if (!m_isInitialized) initialize();
@@ -288,8 +334,6 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         lookupFunc = reinterpret_cast<viospice_jit_lookup_t>(
             resolveLoadedSymbol("viospice_jit_lookup"));
         resolved = true;
-        qDebug() << "[SimManager] Native JIT register symbol resolved:" << (registerFunc != nullptr);
-        qDebug() << "[SimManager] Native JIT lookup symbol resolved:" << (lookupFunc != nullptr);
     }
 
     // 2. Register all active Smart Blocks with the engine
@@ -298,37 +342,24 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         for (auto it = m_fluxScriptTargets.constBegin(); it != m_fluxScriptTargets.constEnd(); ++it) {
             void* funcPtr = Flux::JITContextManager::instance().getFunctionAddress(it.key());
             if (funcPtr) {
-                const auto direct = reinterpret_cast<viospice_jit_func_t>(funcPtr);
-                const double sampleLow[] = {0.0};
-                const double sampleMid[] = {2.0};
-                const double sampleHigh[] = {4.0};
-                qDebug() << "[SimManager] Direct JIT self-test for" << it.key()
-                         << "in=0 @1e-4 ->" << direct(1e-4, sampleLow)
-                         << "in=2 @1e-4 ->" << direct(1e-4, sampleMid)
-                         << "in=4 @1e-4 ->" << direct(1e-4, sampleHigh)
-                         << "in=4 @0 ->" << direct(0.0, sampleHigh)
-                         << "in=4 @2e-4 ->" << direct(2e-4, sampleHigh)
-                         << "in=4 @5e-4 ->" << direct(5e-4, sampleHigh)
-                         << "in=4 @9e-4 ->" << direct(9e-4, sampleHigh)
-                         << "in=4 @1e-3 ->" << direct(1e-3, sampleHigh);
-
                 const QStringList aliases = jitRegistrationAliases(it.key());
-                qDebug() << "[SimManager] Registering native JIT for" << it.key()
-                         << "aliases=" << aliases
-                         << "at" << funcPtr;
                 for (const QString& alias : aliases) {
                     const QByteArray aliasUtf8 = alias.toUtf8();
                     registerFunc(aliasUtf8.constData(), (double (*)(double, const double*))funcPtr);
                 }
                 if (lookupFunc) {
+                    bool anyAliasMatched = false;
                     for (const QString& alias : aliases) {
                         const QByteArray aliasUtf8 = alias.toUtf8();
                         void* verified = reinterpret_cast<void*>(lookupFunc(aliasUtf8.constData()));
-                        qDebug() << "[SimManager] Verified native JIT lookup for" << it.key()
-                                 << "alias=" << alias
-                                 << "registered=" << funcPtr
-                                 << "lookup=" << verified
-                                 << "match=" << (verified == funcPtr);
+                        if (verified == funcPtr) {
+                            anyAliasMatched = true;
+                            break;
+                        }
+                    }
+                    if (!anyAliasMatched) {
+                        qWarning() << "[SimManager] Native JIT registration lookup mismatch for"
+                                   << it.key();
                     }
                 }
             } else {
@@ -362,6 +393,10 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
 bool SimulationManager::validateNetlist(const QString& netlist, QString* errorOut) {
     if (!isAvailable()) {
         if (errorOut) *errorOut = "Simulation engine not installed.";
+        return false;
+    }
+    if (!recoverEngineIfNeeded()) {
+        if (errorOut) *errorOut = "Failed to recover simulation engine.";
         return false;
     }
     if (!m_isInitialized) initialize();
@@ -401,7 +436,7 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
         ngSpice_Command((char*)"set ngbehavior=ltps");
         ngSpice_Command((char*)"set filetype=binary");
     }
-    if (supportsNativeLogicADevices()) {
+    if (isNativeSmartSignalMode()) {
         // VioMATRIXC's LT-style A-device rewrite happens during deck load, so
         // compat mode must be set before ngSpice_Circ()/source parses the netlist.
         std::lock_guard<std::mutex> lock(m_ngspiceMutex);
@@ -908,6 +943,9 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
 
         {
             std::lock_guard<std::mutex> lock(self->m_logMutex);
+            const bool isFatalEngineState =
+                lower.contains("ngspice.dll cannot recover") ||
+                lower.contains("awaits to be reset or detached");
             const bool isError =
                 lower.contains("there is no circuit") ||
                 lower.contains("error on line") ||
@@ -915,7 +953,7 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
                 lower.contains("unable to find definition of model") ||
                 lower.contains("mif-error") ||
                 lower.contains("circuit not parsed") ||
-                lower.contains("ngspice.dll cannot recover") ||
+                isFatalEngineState ||
                 lower.contains("could not find include file");
             const bool isRunFailure =
                 lower.contains("singular matrix") ||
@@ -933,6 +971,9 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
                 if (self->m_lastErrorMessage.isEmpty()) {
                     self->m_lastErrorMessage = trimmed;
                 }
+            }
+            if (isFatalEngineState) {
+                self->m_engineRecoveryRequired = true;
             }
             if (isRunFailure) {
                 self->m_lastRunFailed = true;
@@ -976,6 +1017,9 @@ int SimulationManager::cbControlledExit(int status, bool immediate, bool quit, i
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (self) {
         qDebug() << "Ngspice exit request:" << status << " Thread:" << QThread::currentThreadId();
+        if (status != 0 || immediate || quit) {
+            self->m_engineRecoveryRequired = true;
+        }
     }
     return 0;
 }
@@ -984,6 +1028,20 @@ int SimulationManager::cbControlledExit(int status, bool immediate, bool quit, i
 void SimulationManager::setFluxScriptTargets(const QMap<QString, FluxScriptTarget>& targets) {
     std::lock_guard<std::mutex> lock(m_fluxTargetsMutex);
     m_fluxScriptTargets = targets;
+
+    // Guardrail:
+    // In native SmartSignal mode, legacy voltage-source feedback must be fully
+    // disabled. Enforce that invariant here so future call sites cannot
+    // accidentally reactivate bg_halt/alter/bg_resume cycles.
+    if (isNativeSmartSignalMode()) {
+        for (auto it = m_fluxScriptTargets.begin(); it != m_fluxScriptTargets.end(); ++it) {
+            if (!it->outputVoltageSources.isEmpty()) {
+                qWarning() << "[SimManager] Clearing legacy SmartSignal outputs in native mode for"
+                           << it.key();
+                it->outputVoltageSources.clear();
+            }
+        }
+    }
 }
 
 void SimulationManager::clearFluxScriptTargets() {
@@ -1059,6 +1117,15 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
             for (auto it = self->m_fluxScriptTargets.begin(); it != self->m_fluxScriptTargets.end(); ++it) {
                 const QString scriptId = it.key();
                 const FluxScriptTarget& target = it.value();
+
+                // Guardrail:
+                // Empty outputVoltageSources means this block is running through the
+                // native VioMATRIXC A-device path. In that mode ngspice executes the
+                // JIT directly inside the solver, so the legacy Qt-side feedback loop
+                // must not run (no runUpdate + no bg_halt/bg_resume alter cycle).
+                if (target.outputVoltageSources.isEmpty()) {
+                    continue;
+                }
 
                 // 1. Set pin-to-net mapping for this execution context
                 Flux::JITContextManager::instance().setPinMapping(target.pinToNetMap);

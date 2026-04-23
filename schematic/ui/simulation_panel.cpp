@@ -4446,8 +4446,10 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
 
     m_realTimeSeries.clear();
 
+    bool waveformBatchStarted = false;
     if (m_waveformViewer) {
         m_waveformViewer->beginBatchUpdate();
+        waveformBatchStarted = true;
         m_waveformViewer->clear();
         m_waveformViewer->ensurePaneCount(previousPaneCount);
         m_waveformViewer->setFocusedPaneIndex(previousFocusedPaneIndex);
@@ -4515,6 +4517,9 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             }
         }
         m_signalList->blockSignals(false);
+        if (waveformBatchStarted && m_waveformViewer) {
+            m_waveformViewer->endBatchUpdate();
+        }
         m_acceptRealTimeStream = restoreRealTimeStream;
         return;
     }
@@ -4832,7 +4837,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     }
 
     // Finalize the waveform viewer AFTER all waves have been added
-    if (m_waveformViewer) {
+    if (waveformBatchStarted && m_waveformViewer) {
         if (!previousSelectedSignal.isEmpty()) {
             m_waveformViewer->setCurrentSignal(previousSelectedSignal);
         }

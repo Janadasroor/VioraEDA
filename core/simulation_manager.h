@@ -30,6 +30,7 @@ public:
 
     bool isAvailable() const;
     bool supportsNativeLogicADevices() const;
+    bool isNativeSmartSignalMode() const;
     void initialize();
     void runSimulation(const QString& netlist, SimControl* control = nullptr);
     bool validateNetlist(const QString& netlist, QString* errorOut = nullptr);
@@ -95,6 +96,7 @@ public Q_SLOTS:
 private:
     explicit SimulationManager(QObject* parent = nullptr);
     ~SimulationManager();
+    bool recoverEngineIfNeeded();
 
     bool m_isInitialized;
     bool m_lastLoadFailed = false;
@@ -107,6 +109,7 @@ private:
     std::atomic<bool> m_jitUpdateInProgress{false};
     std::atomic<bool> m_haltRequested{false};
     std::atomic<bool> m_fluxSyncRequested{false};
+    std::atomic<bool> m_engineRecoveryRequired{false};
     
     // High-performance JIT update sync
     std::thread m_jitSyncThread;
