@@ -499,6 +499,8 @@ set(UI_SOURCES
     ui/developer_help_window.cpp
     ui/spice_model_architect.cpp
     ui/spice_model_architect.h
+    ui/mos_circuit_architect.cpp
+    ui/mos_circuit_architect.h
     ui/project_explorer_widget.cpp
     ui/project_explorer_widget.h
     ui/image_preview_panel.cpp
