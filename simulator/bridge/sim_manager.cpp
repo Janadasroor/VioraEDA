@@ -1293,6 +1293,7 @@ void SimManager::onRealTimeTick() {
     // Use current simulation time and latest known vector values to drive JIT logic
     // during real-time runs where cbSendData might not be firing as expected.
     auto& sim = SimulationManager::instance();
+    if (sim.isNativeSmartSignalMode()) return;
     if (sim.m_fluxScriptTargets.isEmpty()) return;
 
     // We don't have a fresh vecArray here, so we must rely on SimulationManager::getVectorValue 
@@ -1312,6 +1313,14 @@ void SimManager::onRealTimeTick() {
     for (auto it = sim.m_fluxScriptTargets.begin(); it != sim.m_fluxScriptTargets.end(); ++it) {
         const QString scriptId = it.key();
         const SimulationManager::FluxScriptTarget& target = it.value();
+
+        // Guardrail:
+        // When outputVoltageSources is empty we are on native A-device mode.
+        // Native mode is solver-integrated and must not be driven by the
+        // legacy real-time feedback tick.
+        if (target.outputVoltageSources.isEmpty()) {
+            continue;
+        }
 
         Flux::JITContextManager::instance().setPinMapping(target.pinToNetMap);
         double vOut = Flux::JITContextManager::instance().runUpdate(scriptId, time, currentSnapshot);
@@ -1484,7 +1493,7 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
                     // 1. Map output pin sources: V[REF]_[PIN]
                     // ONLY if we are using legacy behavioral sources.
                     // For native A-devices, the list must be empty to bypass legacy sync.
-                    if (!SimulationManager::instance().supportsNativeLogicADevices()) {
+                    if (!SimulationManager::instance().isNativeSmartSignalMode()) {
                         for (const QString& outPin : smart->outputPins()) {
                             target.outputVoltageSources << QString("V%1_%2").arg(ref, outPin.toUpper());
                         }

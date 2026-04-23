@@ -17,7 +17,6 @@
 #include <flux/runtime/flux_runtime.h>
 #include <QDebug>
 #include <QRegularExpression>
-#include <iostream>
 
 namespace Flux {
 
@@ -73,7 +72,6 @@ bool JITContextManager::compileAndLoad(const QString& id, const QString& source,
                 // We escape the pin name for regex safety.
                 QRegularExpression re(QString(R"(\bV\s*\(\s*["']%1["']\s*\))").arg(QRegularExpression::escape(pins[i])), QRegularExpression::CaseInsensitiveOption);
                 if (transformedSource.contains(re)) {
-                    qDebug() << "[JIT] Optimizing V(\"" << pins[i] << "\") -> inputs[" << i << "] for block" << id;
                     transformedSource.replace(re, QString("inputs[%1]").arg(i));
                 }
             }

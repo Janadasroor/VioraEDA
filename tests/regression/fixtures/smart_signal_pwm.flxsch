@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "application": "viospice",
+    "version": 1
+  },
+  "pageSettings": {
+    "orientation": "landscape",
+    "size": "A4"
+  },
+  "titleBlock": {
+    "revision": "A",
+    "sheetNumber": "1",
+    "sheetTotal": "1"
+  },
+  "items": [
+    {
+      "type": "Voltage_Source_Pulse",
+      "id": "{a9627d03-40f0-46f4-8a4b-cf5a4b0f0001}",
+      "x": -120,
+      "y": 0,
+      "rotation": 0,
+      "unit": 1,
+      "name": "",
+      "value": "PULSE(0.0 5.0 0 1u 1u 0.5m 1m 0)",
+      "reference": "V1",
+      "footprint": "",
+      "spiceModel": "",
+      "isLocked": false,
+      "isMirroredX": false,
+      "isMirroredY": false,
+      "excludeFromSim": false,
+      "excludeFromPcb": true,
+      "paramExpressions": {},
+      "tolerances": {},
+      "pinPadMapping": {},
+      "sourceType": 2,
+      "dcVoltage": "0",
+      "pulseV1": "0.0",
+      "pulseV2": "5.0",
+      "pulseDelay": "0",
+      "pulseRise": "1u",
+      "pulseFall": "1u",
+      "pulseWidth": "0.5m",
+      "pulsePeriod": "1m",
+      "pulseNcycles": "0",
+      "acAmplitude": "",
+      "acPhase": "",
+      "seriesResistance": "0",
+      "parallelCapacitance": "0",
+      "showFunction": true,
+      "showDc": true,
+      "showAc": true,
+      "showParasitic": true,
+      "refLabelX": 30,
+      "refLabelY": -15,
+      "valLabelX": 30,
+      "valLabelY": 15
+    },
+    {
+      "type": "SmartSignalBlock",
+      "id": "{a9627d03-40f0-46f4-8a4b-cf5a4b0f0002}",
+      "x": 0,
+      "y": 0,
+      "rotation": 0,
+      "unit": 1,
+      "name": "Smart Block",
+      "value": "",
+      "reference": "SB1",
+      "footprint": "",
+      "spiceModel": "",
+      "isLocked": false,
+      "isMirroredX": false,
+      "isMirroredY": false,
+      "excludeFromSim": false,
+      "excludeFromPcb": true,
+      "paramExpressions": {},
+      "tolerances": {},
+      "pinPadMapping": {},
+      "pythonCode": "class SmartSignal:\n    def update(self, t, inputs):\n        return inputs.get('In1', 0.0)",
+      "fluxCode": "def update(t, inputs) {\n    let freq = 1000.0;\n    let duty = V(\"In1\") / 5.0;\n    if (duty < 0.0) {\n        duty = 0.0;\n    }\n    if (duty > 1.0) {\n        duty = 1.0;\n    }\n    let ramp = (t * freq) - floor(t * freq);\n    if (ramp < duty) {\n        return 5.0;\n    }\n    return 0.0;\n}",
+      "engineType": "flux",
+      "inputs": [
+        "In1"
+      ],
+      "outputs": [
+        "Out1"
+      ],
+      "parameters": {},
+      "test_cases": [],
+      "snapshots": []
+    },
+    {
+      "type": "GND",
+      "id": "{a9627d03-40f0-46f4-8a4b-cf5a4b0f0003}",
+      "x": -120,
+      "y": 80,
+      "rotation": 0,
+      "power_type": 0,
+      "name": "GND",
+      "value": "GND",
+      "isLocked": false,
+      "valX": -22.5,
+      "valY": 7.5
+    },
+    {
+      "type": "Spice Directive",
+      "id": "{a9627d03-40f0-46f4-8a4b-cf5a4b0f0004}",
+      "x": 170,
+      "y": -5,
+      "text": "RLOAD OUT 0 1k",
+      "size": 10,
+      "color": "#3b82f6",
+      "bold": false,
+      "italic": false,
+      "family": "Courier New",
+      "align": 1,
+      "rotation": 0
+    },
+    {
+      "type": "Net Label",
+      "id": "{a9627d03-40f0-46f4-8a4b-cf5a4b0f0005}",
+      "x": 60,
+      "y": -10,
+      "rotation": 0,
+      "label": "OUT",
+      "scope": 0,
+      "netClass": ""
+    },
+    {
+      "type": "Wire",
+      "wireType": 2,
+      "points": [
+        {
+          "x": -120,
+          "y": -45
+        },
+        {
+          "x": -60,
+          "y": -45
+        },
+        {
+          "x": -60,
+          "y": -10
+        }
+      ]
+    },
+    {
+      "type": "Wire",
+      "wireType": 2,
+      "points": [
+        {
+          "x": -120,
+          "y": 45
+        },
+        {
+          "x": -120,
+          "y": 65
+        }
+      ]
+    }
+  ]
+}

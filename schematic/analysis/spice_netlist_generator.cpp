@@ -356,7 +356,7 @@ bool usesNativeLogicADevice(const QString& codeModel) {
     if (nativeLogicKeywordForCodeModel(codeModel).isEmpty()) {
         return false;
     }
-    return SimulationManager::instance().supportsNativeLogicADevices();
+    return SimulationManager::instance().isNativeSmartSignalMode();
 }
 
 bool xspiceModelUsesCollapsedInputVector(const QString& codeModel) {
