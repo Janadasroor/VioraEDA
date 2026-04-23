@@ -34,6 +34,9 @@ add_library(VioSimulator STATIC
     bridge/flux_sim_bridge.h
     bridge/flux_sim_bridge.cpp
     bridge/flux_script_marshaller.h
+    synthesis/mos_synthesizer_interface.h
+    synthesis/bv_mos_synthesizer.h
+    synthesis/bv_mos_synthesizer.cpp
 )
 
 if(NOT VIOSPICE_ENABLE_PYTHON)

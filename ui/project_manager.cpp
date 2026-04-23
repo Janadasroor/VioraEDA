@@ -9,6 +9,7 @@
 #include "calculator_dialog.h"
 #include "spice_model_manager_dialog.h"
 #include "plugin_manager_dialog.h"
+#include "mos_circuit_architect.h"
 #include "../schematic/ui/netlist_editor.h"
 #include "csv_viewer.h"
 #include "../pcb/editor/mainwindow.h"
@@ -805,6 +806,8 @@ QWidget* ProjectManager::createLauncherArea() {
         // Utility tiles go into the same m_launcherGrid (after design tiles)
         addUtil("SPICE Model Manager","Manage simulation models and subcircuit libraries",
                 ":/icons/toolbar_netlist.png", QColor("#06b6d4"), &ProjectManager::openSpiceModelManager);
+        addUtil("MOS Circuit Architect", "Generate MOS/BV netlists from custom waveforms",
+                ":/icons/waveform_generator.png", QColor("#10b981"), &ProjectManager::openMosCircuitArchitect);
         addUtil("Calculator Tools",  "Resistance, trace width, and impedance calculators",
                 ":/icons/calculator_tools.png", QColor("#f59e0b"), &ProjectManager::openCalculatorTools);
         addUtil("OpenCode AI",         "AI-powered circuit design, simulation, and analysis",
@@ -1931,6 +1934,11 @@ void ProjectManager::openPluginsManager() {
 
 void ProjectManager::openSpiceModelManager() {
     SpiceModelManagerDialog dlg(this);
+    dlg.exec();
+}
+
+void ProjectManager::openMosCircuitArchitect() {
+    MosCircuitArchitect dlg(this);
     dlg.exec();
 }
 

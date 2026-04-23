@@ -54,6 +54,7 @@ private Q_SLOTS:
     void openCalculatorTools();
     void openPluginsManager();
     void openSpiceModelManager();
+    void openMosCircuitArchitect();
     void launchOpenCode();
     void showPythonConsole();
     void importLtspiceBatch();
