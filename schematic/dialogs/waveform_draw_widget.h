@@ -7,6 +7,8 @@
 
 class WaveformDrawWidget : public QWidget {
     Q_OBJECT
+signals:
+    void pointsChanged();
 public:
     explicit WaveformDrawWidget(QWidget* parent = nullptr);
 
