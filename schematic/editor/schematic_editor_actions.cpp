@@ -52,7 +52,9 @@
 #include "../dialogs/batch_edit_dialog.h"
 #include "../dialogs/led_properties_dialog.h"
 #include "../dialogs/switch_properties_dialog.h"
+#include "../dialogs/seven_segment_properties_dialog.h"
 #include "../items/tuning_slider_symbol_item.h"
+#include "../items/seven_segment_display_item.h"
 #include "../dialogs/tuning_slider_properties_dialog.h"
 #include "../dialogs/design_rule_editor.h"
 #include "../dialogs/voltage_controlled_switch_dialog.h"
@@ -961,6 +963,12 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             openTextLabelPropertiesDialog(textItem);
             return;
         }
+    } else if (item->itemTypeName() == "7-Segment Display") {
+        if (auto* display = dynamic_cast<SevenSegmentDisplayItem*>(item)) {
+            SevenSegmentPropertiesDialog dlg(display, this);
+            dlg.exec();
+            return;
+        }
     } else if (item->itemType() == SchematicItem::ComponentType) {
         if (auto* comp = dynamic_cast<GenericComponentItem*>(item)) {
             SchematicTextItem* labelItem = comp->referenceLabelItem();
@@ -1525,6 +1533,14 @@ void SchematicEditor::onLeaveSheet() {
 
 void SchematicEditor::openItemProperties(SchematicItem* item) {
     if (!item) return;
+
+    if (item->itemTypeName() == "7-Segment Display") {
+        if (auto* display = dynamic_cast<SevenSegmentDisplayItem*>(item)) {
+            SevenSegmentPropertiesDialog dlg(display, this);
+            dlg.exec();
+        }
+        return;
+    }
 
     if (item->itemType() == SchematicItem::SmartSignalType) {
         if (auto* smart = dynamic_cast<SmartSignalItem*>(item)) {

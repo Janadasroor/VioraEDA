@@ -3188,7 +3188,8 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                 ModelLibraryManager::instance().loadLibraryFile(subLib);
                 switchModelsAdded.insert(modelName.toLower());
             }
-        } else if (!switchModelsAdded.contains(modelName.toLower()) && comp.reference.startsWith("D", Qt::CaseInsensitive)) {
+        } else if (!switchModelsAdded.contains(modelName.toLower()) &&
+                   (comp.type == SchematicItem::DiodeType || typeLower.contains("diode"))) {
             // Generate .model from component paramExpressions for user-customized diodes
             const auto& pe = comp.paramExpressions;
             if (!pe.isEmpty()) {
@@ -3520,6 +3521,7 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
         };
 
         // Determine SPICE prefix
+        const bool isSevenSegmentDisplay = (comp.typeName == "7-Segment Display");
         bool isInstrument = (comp.typeName == "OscilloscopeInstrument" ||
                              comp.typeName == "Oscilloscope Instrument" ||
                              comp.typeName == "VoltmeterInstrument" ||
@@ -3534,6 +3536,14 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                              comp.typeName == "Frequency Counter" ||
                              comp.typeName == "LogicProbeInstrument" ||
                              comp.typeName == "Logic Probe");
+
+        if (isSevenSegmentDisplay) {
+            // Visual-only instrument-style display:
+            // do not emit any SPICE element, otherwise reference prefixes like DS*
+            // can be interpreted as diode instances and break netlist parsing.
+            netlist += QString("* Info: %1 is visual-only and is omitted from simulation netlist\n").arg(ref);
+            continue;
+        }
 
         if (isInstrument) {
             QStringList keys = pins.keys();

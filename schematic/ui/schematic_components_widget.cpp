@@ -337,6 +337,7 @@ void SchematicComponentsWidget::populate() {
         {"IC", "Integrated Circuits"}, {"RAM", "Integrated Circuits"}, {"OpAmp", "Integrated Circuits"},
         {"Switch", "Interactive"}, {"Voltage Controlled Switch", "Interactive"}, {"Push Button", "Interactive"}, {"LED", "Interactive"},
         {"Blinking LED", "Interactive"},
+        {"7-Segment Display", "Displays"},
         {"AND Gate", "Logic"}, {"OR Gate", "Logic"}, {"XOR Gate", "Logic"},
         {"NAND Gate", "Logic"}, {"NOR Gate", "Logic"}, {"XNOR Gate", "Logic"},
         {"Buffer", "Logic"}, {"Inverter", "Logic"},

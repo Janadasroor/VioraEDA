@@ -3316,6 +3316,7 @@ void SimulationPanel::onRunSimulation() {
     if (!m_overlayPreviousRun || !m_overlayPreviousRun->isChecked()) {
         clearResults();
     }
+    m_liveSnapshotTimer.invalidate();
 
     const int idx = m_analysisType->currentIndex();
     if (idx == 7) { // Real-time
@@ -3676,6 +3677,7 @@ QString SimulationPanel::generateSpiceNetlist() {
 
 void SimulationPanel::onSimResultsReady(const SimResults& results) {
     m_acceptRealTimeStream = false; // Stop accepting real-time data immediately
+    m_liveSnapshotTimer.invalidate();
     if (g_liveStreamOwner == this) {
         g_liveStreamOwner.clear();
     }
@@ -4254,8 +4256,14 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
     if (values.empty() || names.empty()) return;
 
     // 1. Update Probes / Schematic Labels (Live)
-    // We only use the VERY LAST point for the schematic probes to save CPU.
-    if (!times.empty()) {
+    // Throttle expensive item-state propagation under high-frequency streams to
+    // keep UI responsive, while still ingesting full waveform data below.
+    const bool shouldEmitLiveSnapshot =
+        !m_liveSnapshotTimer.isValid() || m_liveSnapshotTimer.elapsed() >= m_liveSnapshotIntervalMs;
+    if (shouldEmitLiveSnapshot && !times.empty()) {
+        if (!m_liveSnapshotTimer.isValid()) m_liveSnapshotTimer.start();
+        else m_liveSnapshotTimer.restart();
+
         double lastT = times.back();
         const std::vector<double>& lastVals = values.back();
         QMap<QString, double> nodeVoltages;
@@ -4263,14 +4271,24 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
 
         for (int i = 0; i < names.size(); ++i) {
             if (i >= static_cast<int>(lastVals.size())) break;
-            QString name = names[i];
+            QString name = names[i].trimmed();
             double val = lastVals[i];
             
-            if (name.startsWith("V(")) {
-                QString node = name.mid(2, name.length() - 3);
+            if (name.startsWith("V(", Qt::CaseInsensitive) && name.endsWith(')') && name.size() > 3) {
+                QString node = name.mid(2, name.length() - 3).trimmed();
                 nodeVoltages[node] = val;
-            } else if (name.toLower().endsWith("#branch") || name.startsWith("i(")) {
+            } else if (name.toLower().endsWith("#branch") ||
+                       (name.startsWith("I(", Qt::CaseInsensitive) && name.endsWith(')'))) {
                 currents[name] = val;
+            } else {
+                // Shared ngspice streaming can expose node vectors directly as raw
+                // names (e.g., "net2") instead of V(net2). Treat those as voltages.
+                const QString lowered = name.toLower();
+                if (!name.isEmpty() && name != "time" &&
+                    !lowered.endsWith("#branch") &&
+                    !lowered.startsWith("@")) {
+                    nodeVoltages[name] = val;
+                }
             }
         }
         Q_EMIT timeSnapshotReady(lastT, nodeVoltages, currents);

@@ -1508,9 +1508,41 @@ void SchematicEditor::onSimulationResultsReady(const SimResults& results) {
     // 1. Convert maps for easier propagation
     QMap<QString, double> voltages;
     for (const auto& [name, val] : results.nodeVoltages) voltages[QString::fromStdString(name)] = val;
-    
+
     QMap<QString, double> currents;
     for (const auto& [name, val] : results.branchCurrents) currents[QString::fromStdString(name)] = val;
+
+    // For transient runs, nodeVoltages/branchCurrents can be empty while waveform
+    // vectors are populated. Recover the final sample so visual items (LED/7-seg)
+    // reflect the simulated end-state.
+    if (voltages.isEmpty() || currents.isEmpty()) {
+        for (const auto& wave : results.waveforms) {
+            if (wave.yData.empty()) continue;
+            const QString waveName = QString::fromStdString(wave.name).trimmed();
+            const double finalVal = wave.yData.back();
+
+            if (waveName.startsWith("V(", Qt::CaseInsensitive) && waveName.endsWith(')') && waveName.size() > 3) {
+                const QString net = waveName.mid(2, waveName.size() - 3).trimmed();
+                if (!net.isEmpty() && !voltages.contains(net)) {
+                    voltages.insert(net, finalVal);
+                }
+                continue;
+            }
+
+            if (waveName.startsWith("I(", Qt::CaseInsensitive) && waveName.endsWith(')') && waveName.size() > 3) {
+                const QString branch = waveName.mid(2, waveName.size() - 3).trimmed();
+                if (!branch.isEmpty() && !currents.contains(branch)) {
+                    currents.insert(branch, finalVal);
+                }
+                continue;
+            }
+
+            // Some backends may already expose raw node names without V(...)
+            if (!voltages.contains(waveName)) {
+                voltages.insert(waveName, finalVal);
+            }
+        }
+    }
 
     // 2. Update all scene items (LEDs, Switches, Markers)
     for (auto* item : m_scene->items()) {
