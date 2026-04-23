@@ -2396,15 +2396,18 @@ QString inlinePwlFileIfNeeded(const QString& value, const QString& projectDir, Q
         body = match2.captured(1).trimmed();
     }
 
-    // Check for FILE="..." syntax
-    QRegularExpression fileRe(R"(FILE\s*=\s*["']?([^"']+)["']?)", QRegularExpression::CaseInsensitiveOption);
-    auto fileMatch = fileRe.match(body);
-    if (fileMatch.hasMatch()) {
-        QString path = fileMatch.captured(1);
-        // Use the new native VioMATRIXC 'pwlfile' parameter
-        QString result = QString("pwlfile=\"%1\"").arg(path);
-        if (!tail.isEmpty()) result += " " + tail;
-        return result;
+    // Check for FILE="..." syntax. If no scaling factors are present and it's a simple file-backed PWL, 
+    // use native pwlfile for efficiency. Otherwise, expansion below handles scaling/nesting.
+    if (!body.contains("SCALE_FACTOR", Qt::CaseInsensitive)) {
+        QRegularExpression fileRe(R"(FILE\s*=\s*["']?([^"']+)["']?)", QRegularExpression::CaseInsensitiveOption);
+        auto fileMatch = fileRe.match(body);
+        if (fileMatch.hasMatch()) {
+            QString path = fileMatch.captured(1);
+            // Use the new native VioMATRIXC 'pwlfile' parameter
+            QString result = QString("pwlfile=\"%1\"").arg(path);
+            if (!tail.isEmpty()) result += " " + tail;
+            return result;
+        }
     }
 
     QStringList tokens = tokenizePwlBody(body);

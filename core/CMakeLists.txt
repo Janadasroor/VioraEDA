@@ -35,7 +35,6 @@ set(HEADLESS_SOURCES
     ../pcb/models/board_model.h
     ../pcb/analysis/connectivity_engine.h
     ../pcb/analysis/drc_engine.h
-    sync_manager.h
 )
 add_library(VioHeadless STATIC ${HEADLESS_SOURCES})
 set_target_properties(VioHeadless PROPERTIES AUTOMOC ON)

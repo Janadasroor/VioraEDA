@@ -6,7 +6,10 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QCheckBox>
+#include <QInputDialog>
+#include <QLineEdit>
 #include "../schematic/dialogs/waveform_draw_widget.h"
+#include "../schematic/dialogs/waveform_engine.h"
 #include "../simulator/bridge/sim_manager.h"
 #include "../simulator/synthesis/bv_mos_synthesizer.h"
 #include "../simulator/synthesis/ideal_switch_synthesizer.h"
@@ -69,17 +72,23 @@ void MosCircuitArchitect::setupUi() {
     
     auto* polyCheck = new QCheckBox("Polyline Mode");
     auto* revBtn = new QPushButton("Reverse Time");
+    auto* squareBtn = new QPushButton("Gen Square");
+    auto* bitBtn = new QPushButton("Gen Bitstream");
     auto* scaleUpBtn = new QPushButton("Scale (x1.1)");
     auto* scaleDownBtn = new QPushButton("Scale (x0.9)");
     
     advLayout->addWidget(polyCheck, 0, 0);
     advLayout->addWidget(revBtn, 0, 1);
-    advLayout->addWidget(scaleUpBtn, 1, 0);
-    advLayout->addWidget(scaleDownBtn, 1, 1);
+    advLayout->addWidget(squareBtn, 1, 0);
+    advLayout->addWidget(bitBtn, 1, 1);
+    advLayout->addWidget(scaleUpBtn, 2, 0);
+    advLayout->addWidget(scaleDownBtn, 2, 1);
     leftLayout->addWidget(advGroup);
 
     connect(polyCheck, &QCheckBox::toggled, m_drawWidget, &WaveformDrawWidget::setPolylineMode);
     connect(revBtn, &QPushButton::clicked, m_drawWidget, &WaveformDrawWidget::reverseTime);
+    connect(squareBtn, &QPushButton::clicked, this, &MosCircuitArchitect::onSquareClicked);
+    connect(bitBtn, &QPushButton::clicked, this, &MosCircuitArchitect::onBitstreamClicked);
     connect(scaleUpBtn, &QPushButton::clicked, [this](){ m_drawWidget->scaleValue(1.1); });
     connect(scaleDownBtn, &QPushButton::clicked, [this](){ m_drawWidget->scaleValue(0.9); });
     connect(m_drawWidget, &WaveformDrawWidget::pointsChanged, this, &MosCircuitArchitect::updatePreview);
@@ -218,7 +227,13 @@ void MosCircuitArchitect::onVerifyClicked() {
     QString tb;
     tb += "* Verification Testbench for MosCircuitArchitect\n";
     tb += netlist + "\n";
-    tb += "Vdd vdd_node 0 " + m_paramTable->item(0, 1)->text() + "\n";
+    
+    QString vddVal = "5V";
+    if (m_paramTable->rowCount() > 0 && m_paramTable->item(0, 0)->text() == "VDD") {
+        vddVal = m_paramTable->item(0, 1)->text();
+    }
+
+    tb += "Vdd vdd_node 0 " + vddVal + "\n";
     tb += "X_target out_node vdd_node 0 CUSTOM_WAVE_GEN\n";
     tb += "Rload out_node 0 1Meg\n";
     
@@ -237,4 +252,24 @@ void MosCircuitArchitect::onVerifyClicked() {
     // Trigger global simulation. Main app listens to this and spawns WaveformViewer.
     SimManager::instance().runNetlistText(tb);
     QMessageBox::information(this, "Verification Started", "The testbench netlist has been submitted to the SPICE engine.\nOnce completed, the raw results will open.");
+}
+
+void MosCircuitArchitect::onSquareClicked() {
+    bool ok;
+    double duty = QInputDialog::getDouble(this, "Square Wave", "Duty Cycle (0.1 - 0.9):", 0.5, 0.1, 0.9, 2, &ok);
+    if (!ok) return;
+
+    auto pts = WaveformEngine::generateSquare(duty);
+    m_drawWidget->setPoints(pts);
+    updatePreview();
+}
+
+void MosCircuitArchitect::onBitstreamClicked() {
+    bool ok;
+    QString bits = QInputDialog::getText(this, "Bitstream", "Enter Bits (e.g. 10110):", QLineEdit::Normal, "101010", &ok);
+    if (!ok || bits.isEmpty()) return;
+
+    auto pts = WaveformEngine::generateBitstream(bits);
+    m_drawWidget->setPoints(pts);
+    updatePreview();
 }
