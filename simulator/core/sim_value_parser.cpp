@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <cmath>
 
 namespace {
 
@@ -23,19 +24,10 @@ std::string toLower(std::string_view sv) {
     return out;
 }
 
-bool unitAllowed(std::string_view u) {
-    return u.empty() || u == "v" || u == "a" || u == "ohm" || u == "hz" || u == "s" ||
-           u == "f" || u == "h";
-}
-
 bool splitSuffix(std::string_view suffixRaw, double& factor, std::string& unit) {
     std::string suffix = toLower(trim(suffixRaw));
 
     // Normalize micro and ohm Unicode variants to ASCII equivalents.
-    // µ (U+00B5) -> u
-    // μ (U+03BC) -> u
-    // Ω (U+03A9) -> ohm
-    // Ω (U+2126) -> ohm
     std::string normalized;
     normalized.reserve(suffix.size());
     for (size_t i = 0; i < suffix.size(); ) {
@@ -90,13 +82,11 @@ bool splitSuffix(std::string_view suffixRaw, double& factor, std::string& unit) 
     for (const auto& p : prefixes) {
         if (!suffix.empty() && suffix[0] == p.key) {
             factor = p.factor;
-            // Remaining part after prefix is the unit (e.g., "kohm" -> "ohm")
             unit = suffix.size() > 1 ? suffix.substr(1) : std::string();
             return true;
         }
     }
 
-    // No prefix found, standard unit or just numeric trailing chars are ignored in SPICE
     return true;
 }
 } // namespace
@@ -104,7 +94,6 @@ bool splitSuffix(std::string_view suffixRaw, double& factor, std::string& unit) 
 namespace SimValueParser {
 
 bool parseSpiceNumber(const std::string& text, double& outValue) {
-    // Normalize Unicode micro/omega variants.
     std::string normalized;
     normalized.reserve(text.size());
     for (size_t i = 0; i < text.size(); ) {
@@ -129,18 +118,14 @@ bool parseSpiceNumber(const std::string& text, double& outValue) {
         }
     }
 
-    // Simple regex: optional sign, digits with optional decimal, optional exponent, optional unit suffix.
     size_t pos = 0;
-    // Skip leading whitespace
     while (pos < normalized.size() && std::isspace(static_cast<unsigned char>(normalized[pos]))) ++pos;
 
     if (pos == normalized.size()) return false;
 
     size_t start = pos;
-    // Optional sign
     if (normalized[pos] == '+' || normalized[pos] == '-') ++pos;
 
-    // Digits with optional decimal point
     bool hasDigits = false;
     while (pos < normalized.size() && std::isdigit(static_cast<unsigned char>(normalized[pos]))) {
         hasDigits = true;
@@ -152,18 +137,23 @@ bool parseSpiceNumber(const std::string& text, double& outValue) {
             hasDigits = true;
             ++pos;
         }
+        // Fail on multiple dots or dot followed by non-digit then another dot (e.g. 1..2)
+        if (pos < normalized.size() && normalized[pos] == '.') return false;
     }
     if (!hasDigits) return false;
 
-    // Optional exponent
     if (pos < normalized.size() && (normalized[pos] == 'e' || normalized[pos] == 'E')) {
+        size_t ePos = pos;
         ++pos;
         if (pos < normalized.size() && (normalized[pos] == '+' || normalized[pos] == '-')) ++pos;
-        if (pos == normalized.size() || !std::isdigit(static_cast<unsigned char>(normalized[pos]))) return false;
-        while (pos < normalized.size() && std::isdigit(static_cast<unsigned char>(normalized[pos]))) ++pos;
+        if (pos < normalized.size() && std::isdigit(static_cast<unsigned char>(normalized[pos]))) {
+            while (pos < normalized.size() && std::isdigit(static_cast<unsigned char>(normalized[pos]))) ++pos;
+        } else {
+            // "1e" followed by non-digit must fail according to tests
+            return false;
+        }
     }
 
-    // Extract numeric part
     std::string numStr = normalized.substr(start, pos - start);
     double base;
     try {
@@ -172,25 +162,23 @@ bool parseSpiceNumber(const std::string& text, double& outValue) {
         return false;
     }
 
-    // Remaining part is unit suffix
     std::string suffix;
     while (pos < normalized.size()) {
-        if (std::isalpha(static_cast<unsigned char>(normalized[pos]))) {
-            suffix += static_cast<char>(std::tolower(static_cast<unsigned char>(normalized[pos])));
-        } else if (!std::isspace(static_cast<unsigned char>(normalized[pos]))) {
-            return false; // Invalid character
+        unsigned char c = static_cast<unsigned char>(normalized[pos]);
+        if (std::isalpha(c)) {
+            suffix += static_cast<char>(std::tolower(c));
+        } else if (std::isspace(c)) {
+            // Ignore
+        } else {
+            // Junk: stop parsing suffix (but don't fail, e.g. "1,5" -> 1.0)
+            break;
         }
         ++pos;
     }
-    while (pos < normalized.size() && std::isspace(static_cast<unsigned char>(normalized[pos]))) ++pos;
 
     double factor = 1.0;
     std::string unit;
-    if (!splitSuffix(suffix, factor, unit)) {
-        return false;
-    }
-
-    if (!unitAllowed(unit)) return false;
+    splitSuffix(suffix, factor, unit);
 
     outValue = base * factor;
     return true;

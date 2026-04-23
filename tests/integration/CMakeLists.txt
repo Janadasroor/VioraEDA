@@ -10,14 +10,13 @@ vioraeda_configure_cli_target(test_integration_ngspice_shared)
 # Ensure circular static lib deps resolve (Gemini/Python symbols).
 target_link_libraries(test_integration_ngspice_shared PRIVATE
     -Wl,--start-group
-    FluxCore
-    FluxSymbols
-    FluxSchematicCore
-    FluxSchematicUI
-    FluxUI
-    FluxPython
-    FluxPythonBindings
-    FluxSimulator
+    VioCore
+    VioSymbols
+    VioSchematic
+    VioUI
+    VioSimulator
+    FluxScript
+    FluxScriptManager
     -Wl,--end-group
 )
 
@@ -36,13 +35,12 @@ target_link_libraries(test_benchmark PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 vioraeda_configure_cli_target(test_benchmark)
 target_link_libraries(test_benchmark PRIVATE
     -Wl,--start-group
-    FluxCore
-    FluxSymbols
-    FluxSchematicCore
-    FluxSchematicUI
-    FluxUI
-    FluxPython
-    FluxPythonBindings
-    FluxSimulator
+    VioCore
+    VioSymbols
+    VioSchematic
+    VioUI
+    VioSimulator
+    FluxScript
+    FluxScriptManager
     -Wl,--end-group
 )

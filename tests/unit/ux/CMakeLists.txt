@@ -5,10 +5,10 @@ add_executable(test_ux_logic
 vioraeda_configure_cli_target(test_ux_logic)
 target_link_libraries(test_ux_logic PRIVATE
     Qt${QT_VERSION_MAJOR}::Test
-    FluxSchematic
-    FluxUI
-    FluxCore
-    FluxSymbols
+    VioSchematic
+    VioUI
+    VioCore
+    VioSymbols
 )
 
 add_test(NAME unit_ux_logic COMMAND test_ux_logic)

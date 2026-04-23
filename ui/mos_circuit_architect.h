@@ -27,6 +27,8 @@ private Q_SLOTS:
     void onGenerateClicked();
     void onVerifyClicked();
     void onParameterChanged();
+    void onSquareClicked();
+    void onBitstreamClicked();
 
 private:
     void setupUi();

@@ -390,7 +390,7 @@ private Q_SLOTS:
 
         Flux::Model::SymbolDefinition symbol("BodyProbeSymbol");
         symbol.setReferencePrefix("U");
-        symbol.addPrimitive(Flux::Model::SymbolPrimitive::createRect(QPointF(-50.0, -30.0), QPointF(50.0, 30.0)));
+        symbol.addPrimitive(Flux::Model::SymbolPrimitive::createRect(QRectF(QPointF(-50.0, -30.0), QPointF(50.0, 30.0))));
         symbol.addPrimitive(Flux::Model::SymbolPrimitive::createPin(QPointF(-70.0, 0.0), 1, "IN", "Left", 20.0));
 
         auto* comp = new GenericComponentItem(symbol);
@@ -554,7 +554,7 @@ private Q_SLOTS:
         scene.addItem(resistor);
 
         const QPointF leftPin = resistor->mapToScene(resistor->connectionPoints().first());
-        const QPointF junction = leftPin + QPointF(-45.0, 0.0);
+        const QPointF junction = leftPin + QPointF(0.0, -45.0);
 
         auto* verticalWire = new WireItem();
         verticalWire->setPoints({junction, leftPin});

@@ -123,7 +123,8 @@ public:
     bool isConfigurable() const { return m_configurable; }
     void setConfigurable(bool configurable);
 
-    QVariantMap parameters() const { return m_parameters; }
+    QVariantMap& parameters() { return m_parameters; }
+    const QVariantMap& parameters() const { return m_parameters; }
     void setParameters(const QVariantMap& params);
 
     // For custom rules

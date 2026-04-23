@@ -281,12 +281,17 @@ QRectF SymbolDefinition::boundingRect() const {
                 minY = qMin(minY, qMin(prim.data["y1"].toDouble(), prim.data["y2"].toDouble()));
                 maxY = qMax(maxY, qMax(prim.data["y1"].toDouble(), prim.data["y2"].toDouble()));
                 break;
-            case SymbolPrimitive::Rect:
-                minX = qMin(minX, prim.data["x"].toDouble());
-                maxX = qMax(maxX, prim.data["x"].toDouble() + prim.data["w"].toDouble());
-                minY = qMin(minY, prim.data["y"].toDouble());
-                maxY = qMax(maxY, prim.data["y"].toDouble() + prim.data["h"].toDouble());
+            case SymbolPrimitive::Rect: {
+                qreal x = prim.data["x"].toDouble();
+                qreal y = prim.data["y"].toDouble();
+                qreal w = prim.data.contains("width") ? prim.data["width"].toDouble() : prim.data["w"].toDouble();
+                qreal h = prim.data.contains("height") ? prim.data["height"].toDouble() : prim.data["h"].toDouble();
+                minX = qMin(minX, x);
+                maxX = qMax(maxX, x + w);
+                minY = qMin(minY, y);
+                maxY = qMax(maxY, y + h);
                 break;
+            }
             case SymbolPrimitive::Circle: {
                 qreal cx = prim.data["cx"].toDouble();
                 qreal cy = prim.data["cy"].toDouble();
@@ -318,10 +323,14 @@ QRectF SymbolDefinition::boundingRect() const {
                 break;
             }
             case SymbolPrimitive::Arc: {
-                minX = qMin(minX, prim.data["x"].toDouble());
-                maxX = qMax(maxX, prim.data["x"].toDouble() + prim.data["w"].toDouble());
-                minY = qMin(minY, prim.data["y"].toDouble());
-                maxY = qMax(maxY, prim.data["y"].toDouble() + prim.data["h"].toDouble());
+                qreal x = prim.data["x"].toDouble();
+                qreal y = prim.data["y"].toDouble();
+                qreal w = prim.data.contains("width") ? prim.data["width"].toDouble() : prim.data["w"].toDouble();
+                qreal h = prim.data.contains("height") ? prim.data["height"].toDouble() : prim.data["h"].toDouble();
+                minX = qMin(minX, x);
+                maxX = qMax(maxX, x + w);
+                minY = qMin(minY, y);
+                maxY = qMax(maxY, y + h);
                 break;
             }
             case SymbolPrimitive::Polygon: {
