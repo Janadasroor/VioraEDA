@@ -26,6 +26,7 @@ void WaveformDrawWidget::setPolylineMode(bool enabled) {
 
 void WaveformDrawWidget::clearPoints() {
     m_points.clear();
+    emit pointsChanged();
     update();
 }
 
@@ -60,6 +61,7 @@ void WaveformDrawWidget::reverseTime() {
         return a.x() < b.x();
     });
     m_points = next;
+    emit pointsChanged();
     update();
 }
 
@@ -72,6 +74,7 @@ void WaveformDrawWidget::shiftTime(double delta) {
         if (p.x() >= 0.0 && p.x() <= 1.0) next.append(p);
     }
     m_points = next;
+    emit pointsChanged();
     update();
 }
 
@@ -84,6 +87,7 @@ void WaveformDrawWidget::scaleTime(double factor) {
         if (p.x() <= 1.0) next.append(p);
     }
     m_points = next;
+    emit pointsChanged();
     update();
 }
 
@@ -91,6 +95,7 @@ void WaveformDrawWidget::scaleValue(double factor) {
     for (auto& p : m_points) {
         p.setY(qBound(-1.0, p.y() * factor, 1.0));
     }
+    emit pointsChanged();
     update();
 }
 

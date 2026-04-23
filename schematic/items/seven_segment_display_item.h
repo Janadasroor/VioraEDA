@@ -2,6 +2,7 @@
 #define SEVENSEGMENTDISPLAYITEM_H
 
 #include "schematic_item.h"
+#include <QColor>
 #include <QVector>
 #include <QStringList>
 
@@ -44,6 +45,18 @@ public:
     void setCommonType(CommonType type);
     double thresholdVoltage() const { return m_thresholdV; }
     void setThresholdVoltage(double volts);
+    QColor segmentOnColor() const { return m_segmentOnColor; }
+    void setSegmentOnColor(const QColor& color);
+    QColor segmentOffColor() const { return m_segmentOffColor; }
+    void setSegmentOffColor(const QColor& color);
+    QColor bodyColor() const { return m_bodyColor; }
+    void setBodyColor(const QColor& color);
+    QColor bezelColor() const { return m_bezelColor; }
+    void setBezelColor(const QColor& color);
+    double glowStrength() const { return m_glowStrength; }
+    void setGlowStrength(double value);
+    double fitScale() const { return m_fitScale; }
+    void setFitScale(double value);
     Variant variant() const { return m_variant; }
     void setVariant(Variant variant);
     static bool isSegmentDisplayTypeName(const QString& typeName);
@@ -67,6 +80,12 @@ private:
     Variant m_variant = Variant::Single7;
     CommonType m_commonType = CommonType::CommonCathode;
     double m_thresholdV = 1.7;
+    QColor m_segmentOnColor = QColor(255, 72, 60);
+    QColor m_segmentOffColor = QColor(70, 28, 28);
+    QColor m_bodyColor = QColor("#2a2f3a");
+    QColor m_bezelColor = QColor("#101319");
+    double m_glowStrength = 0.0;
+    double m_fitScale = 1.0;
     QVector<double> m_segmentDrive;
 };
 

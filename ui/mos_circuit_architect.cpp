@@ -9,14 +9,18 @@
 #include "../schematic/dialogs/waveform_draw_widget.h"
 #include "../simulator/bridge/sim_manager.h"
 #include "../simulator/synthesis/bv_mos_synthesizer.h"
+#include "../simulator/synthesis/ideal_switch_synthesizer.h"
+#include <QGroupBox>
+#include <QSplitter>
 
 MosCircuitArchitect::MosCircuitArchitect(QWidget *parent)
     : QDialog(parent), m_currentSynthesizer(nullptr) {
     setWindowTitle("MOS Circuit Architect - Custom Waveform Native Synthesis");
     setMinimumSize(900, 600);
     
-    // Register topologiess
+    // Register topologies
     m_synthesizers.append(new BVMosSynthesizer());
+    m_synthesizers.append(new IdealSwitchSynthesizer());
     m_currentSynthesizer = m_synthesizers.first();
 
     setupUi();
@@ -58,6 +62,27 @@ void MosCircuitArchitect::setupUi() {
     connect(clearBtn, &QPushButton::clicked, m_drawWidget, &WaveformDrawWidget::clearPoints);
     connect(snapCheck, &QCheckBox::toggled, m_drawWidget, &WaveformDrawWidget::setSnapToGrid);
     connect(stepCheck, &QCheckBox::toggled, m_drawWidget, &WaveformDrawWidget::setStepMode);
+
+    // --- Advanced Tools ---
+    auto* advGroup = new QGroupBox("Waveform Options");
+    auto* advLayout = new QGridLayout(advGroup);
+    
+    auto* polyCheck = new QCheckBox("Polyline Mode");
+    auto* revBtn = new QPushButton("Reverse Time");
+    auto* scaleUpBtn = new QPushButton("Scale (x1.1)");
+    auto* scaleDownBtn = new QPushButton("Scale (x0.9)");
+    
+    advLayout->addWidget(polyCheck, 0, 0);
+    advLayout->addWidget(revBtn, 0, 1);
+    advLayout->addWidget(scaleUpBtn, 1, 0);
+    advLayout->addWidget(scaleDownBtn, 1, 1);
+    leftLayout->addWidget(advGroup);
+
+    connect(polyCheck, &QCheckBox::toggled, m_drawWidget, &WaveformDrawWidget::setPolylineMode);
+    connect(revBtn, &QPushButton::clicked, m_drawWidget, &WaveformDrawWidget::reverseTime);
+    connect(scaleUpBtn, &QPushButton::clicked, [this](){ m_drawWidget->scaleValue(1.1); });
+    connect(scaleDownBtn, &QPushButton::clicked, [this](){ m_drawWidget->scaleValue(0.9); });
+    connect(m_drawWidget, &WaveformDrawWidget::pointsChanged, this, &MosCircuitArchitect::updatePreview);
     
     // --- Right Panel ---
     auto* rightPanel = new QWidget;

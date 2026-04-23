@@ -37,6 +37,8 @@ add_library(VioSimulator STATIC
     synthesis/mos_synthesizer_interface.h
     synthesis/bv_mos_synthesizer.h
     synthesis/bv_mos_synthesizer.cpp
+    synthesis/ideal_switch_synthesizer.h
+    synthesis/ideal_switch_synthesizer.cpp
 )
 
 if(NOT VIOSPICE_ENABLE_PYTHON)

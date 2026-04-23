@@ -2,6 +2,7 @@
 
 #include <QJsonObject>
 #include <QPainter>
+#include <QRadialGradient>
 #include <QTransform>
 
 #include <algorithm>
@@ -18,6 +19,18 @@ QColor segmentColorForDrive(double drive) {
     const int g = static_cast<int>(20 + 60 * t);
     const int b = static_cast<int>(20 + 40 * t);
     return QColor(r, g, b);
+}
+
+QColor segmentColorForDrive(double drive, const QColor& baseColor) {
+    const double t = std::clamp(drive, 0.0, 1.0);
+    QColor c = baseColor.isValid() ? baseColor : QColor(255, 72, 60);
+    const int minMix = 48;
+    const int maxMix = 255;
+    const int mix = static_cast<int>(minMix + (maxMix - minMix) * t);
+    c.setRed(std::clamp((c.red() * mix) / 255, 0, 255));
+    c.setGreen(std::clamp((c.green() * mix) / 255, 0, 255));
+    c.setBlue(std::clamp((c.blue() * mix) / 255, 0, 255));
+    return c;
 }
 
 QPolygonF segPolyH(double x, double y, double w, double h, double cut) {
@@ -72,6 +85,15 @@ QRectF fitRectPreserveAspect(const QSizeF& src, const QRectF& dst) {
     return QRectF(dst.left() + (dst.width() - out.width()) * 0.5,
                   dst.top() + (dst.height() - out.height()) * 0.5,
                   out.width(), out.height());
+}
+
+QRectF unitedPathBounds(const QPainterPath* paths, int count) {
+    QRectF bounds;
+    for (int i = 0; i < count; ++i) {
+        const QRectF r = paths[i].controlPointRect();
+        bounds = bounds.isNull() ? r : bounds.united(r);
+    }
+    return bounds;
 }
 
 QPainterPath parseSvgPathDataAbsolute(const QString& data) {
@@ -171,6 +193,21 @@ QPainterPath parseSvgPathDataAbsolute(const QString& data) {
 }
 
 const std::array<QPainterPath, 17>& exactSeg16Paths() {
+    // Canonical 16-seg order must match the reference layout exactly:
+    // a1 a2
+    // f  h i j  b
+    // g1     g2
+    // e  m l k  c
+    // d1 d2
+    // dp
+    //
+    // Sensitive: the inner six are easy to mis-map. The correct order is:
+    // h = upper-left diagonal
+    // i = upper center vertical
+    // j = upper-right diagonal
+    // k = lower-right diagonal
+    // l = lower center vertical
+    // m = lower-left diagonal
     static const std::array<QString, 17> kSeg16PathData = {
         R"SVG(M 224.45 121.98 C225.65,120.78 226.10,116.72 226.56,102.98 C226.94,91.63 226.78,84.97 226.11,84.00 C224.51,81.68 136.64,81.10 132.24,83.37 C127.35,85.91 113.00,99.97 113.00,102.24 C113.00,104.73 130.37,122.71 133.38,123.34 C134.55,123.58 155.17,123.71 179.22,123.64 C216.92,123.52 223.14,123.29 224.45,121.98 Z)SVG",
         R"SVG(M 340.88 113.35 C346.99,107.49 351.99,101.98 351.99,101.10 C351.98,100.22 348.49,95.84 344.24,91.36 L 336.50 83.22 L 325.00 82.52 C318.67,82.14 297.65,81.98 278.28,82.16 C246.21,82.47 242.91,82.66 241.30,84.27 C239.78,85.79 239.48,88.45 239.16,103.31 C238.85,117.25 239.05,120.80 240.19,121.74 C241.96,123.21 248.04,123.44 293.13,123.75 L 329.75 124.00 L 340.88 113.35 Z)SVG",
@@ -183,17 +220,81 @@ const std::array<QPainterPath, 17>& exactSeg16Paths() {
         R"SVG(M 213.47 371.71 C214.90,369.75 216.69,339.76 215.59,336.27 C214.68,333.42 208.22,333.02 163.28,333.01 L 125.07 333.00 L 116.04 340.58 C106.30,348.75 104.00,351.38 104.00,354.36 C104.00,355.43 107.69,359.94 112.42,364.62 L 120.83 372.96 L 140.67 373.27 C151.57,373.45 172.12,373.57 186.33,373.55 C209.96,373.50 212.28,373.35 213.47,371.71 Z)SVG",
         R"SVG(M 322.58 370.51 C330.39,364.56 340.00,354.60 340.00,352.47 C340.00,351.14 336.94,347.38 331.75,342.33 L 323.50 334.31 L 308.09 333.65 C299.62,333.29 279.11,333.00 262.53,333.00 C238.29,333.00 232.01,333.27 230.47,334.40 C228.79,335.63 228.45,337.84 227.64,352.87 C226.93,366.05 227.00,370.29 227.95,371.44 C229.57,373.40 236.13,373.66 281.58,373.57 L 318.66 373.50 L 322.58 370.51 Z)SVG",
         R"SVG(M 190.35 312.75 C190.68,308.76 191.47,291.33 192.13,274.00 L 193.31 242.50 L 190.07 235.00 C188.28,230.88 184.57,222.77 181.83,217.00 C179.08,211.23 174.36,200.43 171.35,193.00 C168.33,185.57 164.37,176.35 162.54,172.50 C157.90,162.69 154.00,154.02 154.00,153.49 C154.00,153.25 152.42,149.66 150.48,145.52 C147.89,140.00 146.45,138.00 145.04,138.00 C143.98,138.00 142.85,138.44 142.51,138.98 C142.18,139.52 141.27,152.90 140.49,168.73 C139.70,184.55 138.77,202.00 138.42,207.50 L 137.78 217.50 L 142.77 228.00 C147.32,237.55 154.53,253.46 165.16,277.38 C173.58,296.36 184.29,318.53 185.37,319.23 C185.99,319.64 187.23,319.98 188.13,319.98 C189.44,320.00 189.88,318.56 190.35,312.75 Z)SVG",
-        R"SVG(M 262.87 316.25 C266.08,310.95 273.81,297.07 279.45,286.50 C282.09,281.55 285.77,274.96 287.63,271.86 C289.49,268.76 292.21,263.59 293.69,260.36 C295.16,257.14 298.94,249.98 302.07,244.46 C305.21,238.93 309.81,230.16 312.29,224.96 L 316.81 215.50 L 317.89 188.50 C319.82,140.14 319.81,138.54 317.50,138.24 C315.90,138.04 314.06,140.46 308.35,150.24 C304.42,156.99 298.84,167.00 295.94,172.50 C293.04,178.00 289.16,185.20 287.33,188.50 C285.49,191.80 281.46,199.45 278.37,205.50 C275.28,211.55 269.81,221.90 266.21,228.50 L 259.66 240.50 L 258.79 261.00 C258.31,272.27 257.58,289.15 257.16,298.50 C256.74,307.85 256.75,316.51 257.17,317.75 C258.31,321.03 260.29,320.51 262.87,316.25 Z)SVG",
-        R"SVG(M 133.21 559.92 C135.25,556.86 141.27,546.28 146.58,536.43 C151.90,526.57 156.58,518.05 156.99,517.50 C157.41,516.95 163.75,505.25 171.08,491.50 L 184.42 466.50 L 185.65 438.50 C186.98,408.06 187.30,388.63 186.48,387.81 C186.19,387.52 184.95,387.48 183.72,387.71 C182.07,388.03 179.95,391.02 175.50,399.31 C163.66,421.35 157.64,432.71 150.75,446.00 C146.91,453.42 143.20,460.40 142.52,461.50 C141.84,462.60 138.26,469.25 134.56,476.27 C128.46,487.86 127.80,489.71 127.37,496.27 C126.53,509.18 125.25,563.46 125.76,564.80 C126.70,567.29 129.53,565.44 133.21,559.92 Z)SVG",
-        R"SVG(M 302.22 564.25 C302.47,563.29 302.77,556.88 302.90,550.00 C303.02,543.12 303.31,536.60 303.54,535.50 C303.77,534.40 304.44,524.14 305.03,512.70 L 306.11 491.90 L 303.11 485.20 C301.46,481.51 297.56,472.88 294.45,466.00 C291.34,459.12 287.08,449.40 284.99,444.40 C282.90,439.39 278.73,429.94 275.72,423.40 C269.50,409.85 263.89,397.25 261.63,391.74 C259.85,387.39 257.26,385.92 255.54,388.27 C254.79,389.30 253.87,400.92 252.96,420.68 C250.90,465.52 250.81,463.90 255.63,474.00 C257.86,478.67 260.27,484.08 260.98,486.00 C262.46,489.99 265.56,496.95 271.02,508.50 C273.10,512.90 276.89,521.45 279.44,527.50 C281.99,533.55 287.09,544.69 290.78,552.25 C296.29,563.56 297.86,566.00 299.62,566.00 C300.83,566.00 301.96,565.23 302.22,564.25 Z)SVG",
         R"SVG(M 242.57 319.76 C243.46,318.88 244.30,304.36 247.00,244.00 C248.12,218.98 249.46,190.18 249.98,180.00 C250.50,169.82 250.95,156.23 250.97,149.79 C251.00,139.21 250.81,137.97 249.07,137.04 C246.00,135.39 214.81,135.68 212.50,137.38 C210.81,138.61 210.48,141.24 209.35,162.13 C207.89,189.20 206.73,215.60 204.38,275.40 C202.74,317.42 202.74,318.34 204.60,319.71 C206.10,320.81 210.23,321.04 224.17,320.80 C233.89,320.64 242.17,320.17 242.57,319.76 Z)SVG",
+        R"SVG(M 262.87 316.25 C266.08,310.95 273.81,297.07 279.45,286.50 C282.09,281.55 285.77,274.96 287.63,271.86 C289.49,268.76 292.21,263.59 293.69,260.36 C295.16,257.14 298.94,249.98 302.07,244.46 C305.21,238.93 309.81,230.16 312.29,224.96 L 316.81 215.50 L 317.89 188.50 C319.82,140.14 319.81,138.54 317.50,138.24 C315.90,138.04 314.06,140.46 308.35,150.24 C304.42,156.99 298.84,167.00 295.94,172.50 C293.04,178.00 289.16,185.20 287.33,188.50 C285.49,191.80 281.46,199.45 278.37,205.50 C275.28,211.55 269.81,221.90 266.21,228.50 L 259.66 240.50 L 258.79 261.00 C258.31,272.27 257.58,289.15 257.16,298.50 C256.74,307.85 256.75,316.51 257.17,317.75 C258.31,321.03 260.29,320.51 262.87,316.25 Z)SVG",
+        R"SVG(M 302.22 564.25 C302.47,563.29 302.77,556.88 302.90,550.00 C303.02,543.12 303.31,536.60 303.54,535.50 C303.77,534.40 304.44,524.14 305.03,512.70 L 306.11 491.90 L 303.11 485.20 C301.46,481.51 297.56,472.88 294.45,466.00 C291.34,459.12 287.08,449.40 284.99,444.40 C282.90,439.39 278.73,429.94 275.72,423.40 C269.50,409.85 263.89,397.25 261.63,391.74 C259.85,387.39 257.26,385.92 255.54,388.27 C254.79,389.30 253.87,400.92 252.96,420.68 C250.90,465.52 250.81,463.90 255.63,474.00 C257.86,478.67 260.27,484.08 260.98,486.00 C262.46,489.99 265.56,496.95 271.02,508.50 C273.10,512.90 276.89,521.45 279.44,527.50 C281.99,533.55 287.09,544.69 290.78,552.25 C296.29,563.56 297.86,566.00 299.62,566.00 C300.83,566.00 301.96,565.23 302.22,564.25 Z)SVG",
         R"SVG(M 233.25 565.85 C234.54,565.17 235.00,563.69 235.00,560.21 C235.00,557.62 235.43,546.05 235.95,534.50 C240.15,441.46 241.90,389.67 240.89,387.79 C240.02,386.17 238.19,386.00 221.59,386.00 C208.12,386.00 202.98,386.33 202.24,387.25 C201.09,388.69 199.73,413.31 196.98,482.50 C196.39,497.35 195.48,518.12 194.95,528.66 C193.63,555.22 193.71,564.52 195.28,565.82 C195.99,566.41 199.25,567.07 202.53,567.30 C211.05,567.88 231.18,566.93 233.25,565.85 Z)SVG",
+        R"SVG(M 133.21 559.92 C135.25,556.86 141.27,546.28 146.58,536.43 C151.90,526.57 156.58,518.05 156.99,517.50 C157.41,516.95 163.75,505.25 171.08,491.50 L 184.42 466.50 L 185.65 438.50 C186.98,408.06 187.30,388.63 186.48,387.81 C186.19,387.52 184.95,387.48 183.72,387.71 C182.07,388.03 179.95,391.02 175.50,399.31 C163.66,421.35 157.64,432.71 150.75,446.00 C146.91,453.42 143.20,460.40 142.52,461.50 C141.84,462.60 138.26,469.25 134.56,476.27 C128.46,487.86 127.80,489.71 127.37,496.27 C126.53,509.18 125.25,563.46 125.76,564.80 C126.70,567.29 129.53,565.44 133.21,559.92 Z)SVG",
         R"SVG(M 404.26 616.97 C408.47,614.95 414.00,610.68 414.00,609.45 C414.00,609.10 414.95,607.47 416.12,605.83 C417.54,603.84 418.41,600.73 418.76,596.46 C419.20,590.94 418.90,589.32 416.58,584.58 C412.85,576.96 406.30,572.21 398.36,571.39 C390.06,570.53 384.72,572.25 378.95,577.64 C368.48,587.44 368.22,603.04 378.36,612.87 C384.74,619.05 396.15,620.85 404.26,616.97 Z)SVG"
     };
     static const std::array<QPainterPath, 17> kPaths = [] {
         std::array<QPainterPath, 17> out;
         for (int i = 0; i < static_cast<int>(out.size()); ++i) {
             out[i] = parseSvgPathDataAbsolute(kSeg16PathData[i]);
+        }
+        return out;
+    }();
+    return kPaths;
+}
+
+const std::array<QPainterPath, 15>& exactSeg14Paths() {
+    // Canonical 14-seg order must match the reference layout exactly:
+    //    a
+    // f  h i j  b
+    //   g1   g2
+    // e  m l k  c
+    //    d
+    // dp
+    //
+    // Sensitive: the inner six are easy to mis-map. The correct order is:
+    // h = upper-left diagonal
+    // i = upper center vertical
+    // j = upper-right diagonal
+    // k = lower-right diagonal
+    // l = lower center vertical
+    // m = lower-left diagonal
+    static const std::array<QString, 15> kSeg14PathData = {
+        R"SVG(M 119.35 21.58 C124.59,16.78 124.63,15.76 119.84,11.34 C117.54,9.22 116.75,9.17 73.94,8.57 L 30.39 7.95 L 25.69 11.61 C23.11,13.62 21.00,15.94 21.00,16.75 C21.00,17.57 22.75,19.98 24.88,22.12 L 28.76 26.00 L 71.65 26.00 L 114.54 26.00 L 119.35 21.58 Z)SVG",
+        R"SVG(M 127.21 118.25 C129.69,115.61 129.82,114.88 130.47,99.50 C130.85,90.70 131.79,70.90 132.55,55.50 C133.88,28.72 133.86,27.39 132.11,25.00 C131.11,23.62 129.63,22.50 128.83,22.50 C128.03,22.50 124.87,24.75 121.81,27.50 L 116.23 32.50 L 115.13 48.50 C114.52,57.30 113.72,74.69 113.35,87.14 L 112.69 109.79 L 117.59 115.38 C120.29,118.46 122.98,120.98 123.56,120.99 C124.15,120.99 125.79,119.76 127.21,118.25 Z)SVG",
+        R"SVG(M 123.74 224.80 C124.79,223.54 125.84,207.36 128.04,158.56 L 129.08 135.61 L 126.13 132.67 L 123.18 129.72 L 117.25 135.67 L 111.31 141.62 L 110.59 157.06 C110.20,165.55 109.47,182.40 108.98,194.50 L 108.08 216.50 L 113.70 222.20 C119.45,228.01 120.80,228.36 123.74,224.80 Z)SVG",
+        R"SVG(M 109.97 237.90 C115.98,233.55 116.06,232.40 110.72,227.35 L 106.12 223.00 L 64.31 223.00 L 22.50 223.01 L 17.75 227.32 C15.14,229.69 13.00,232.07 13.00,232.62 C13.00,233.16 14.47,235.03 16.26,236.77 C20.08,240.47 18.57,240.37 73.18,240.69 L 105.85 240.89 L 109.97 237.90 Z)SVG",
+        R"SVG(M 18.85 218.30 C20.09,217.65 20.98,205.74 22.08,175.17 L 23.32 140.84 L 17.61 135.17 L 11.90 129.50 L 9.13 132.56 L 6.37 135.62 L 5.16 161.56 C4.50,175.83 3.67,195.44 3.32,205.14 L 2.69 222.78 L 5.43 225.52 L 8.17 228.26 L 13.31 223.38 C16.14,220.70 18.63,218.41 18.85,218.30 Z)SVG",
+        R"SVG(M 18.53 115.75 C22.80,111.56 23.98,109.69 24.38,106.50 C24.65,104.30 25.43,86.88 26.11,67.78 L 27.34 33.06 L 22.92 28.15 C17.21,21.80 16.16,21.39 13.23,24.31 C10.47,27.08 10.05,31.89 7.94,85.80 L 6.75 116.10 L 9.05 118.55 C10.31,119.90 11.76,121.00 12.26,121.00 C12.76,121.00 15.58,118.64 18.53,115.75 Z)SVG",
+        R"SVG(M 64.50 125.50 L 64.50 117.50 L 45.13 117.23 L 25.76 116.96 L 21.38 120.54 C18.97,122.52 17.00,124.78 17.00,125.57 C17.00,126.36 18.68,128.59 20.73,130.52 L 24.46 134.04 L 44.48 133.77 L 64.50 133.50 L 64.50 125.50 Z)SVG",
+        R"SVG(M 115.00 129.50 L 119.41 125.01 L 115.50 121.00 L 111.59 117.00 L 91.43 117.00 L 71.27 117.00 L 70.64 121.64 C69.81,127.64 69.83,132.49 70.67,133.33 C71.03,133.70 80.16,134.00 90.96,134.00 L 110.58 134.00 L 115.00 129.50 Z)SVG",
+        R"SVG(M 54.67 94.75 L 55.62 78.50 L 49.81 65.19 C46.61,57.87 44.00,51.74 44.00,51.58 C44.00,49.78 34.65,31.97 34.04,32.62 C33.59,33.10 32.93,39.80 32.56,47.50 C32.20,55.20 31.67,62.25 31.40,63.18 C30.85,65.07 33.13,70.83 43.26,93.00 C50.45,108.75 51.67,111.00 52.98,111.00 C53.39,111.00 54.15,103.69 54.67,94.75 Z)SVG",
+        R"SVG(M 76.64 110.70 C77.22,110.12 80.77,33.73 80.27,32.75 C80.06,32.34 76.15,32.00 71.59,32.00 L 63.30 32.00 L 62.69 40.25 C61.36,58.50 59.67,108.70 60.34,110.43 C60.97,112.08 61.87,112.22 68.62,111.71 C72.79,111.40 76.39,110.94 76.64,110.70 Z)SVG",
+        R"SVG(M 97.04 88.64 L 108.79 66.88 L 109.51 50.53 C109.91,41.54 109.92,33.67 109.53,33.04 C108.76,31.80 105.39,36.68 100.58,46.00 C99.01,49.03 94.67,57.18 90.93,64.11 L 84.13 76.72 L 83.41 94.00 C82.83,107.91 82.95,111.18 83.99,110.84 C84.70,110.60 90.57,100.61 97.04,88.64 Z)SVG",
+        R"SVG(M 103.30 200.79 L 104.11 185.24 L 96.65 168.37 C85.80,143.81 83.96,140.00 82.93,140.00 C82.42,140.00 81.98,141.46 81.95,143.25 C81.93,145.04 81.52,152.35 81.05,159.50 C80.08,174.28 79.01,170.33 91.78,199.00 C99.88,217.18 99.89,217.20 101.32,216.73 C102.11,216.47 102.76,211.24 103.30,200.79 Z)SVG",
+        R"SVG(M 72.61 216.82 C73.46,215.45 74.48,196.51 75.51,163.25 L 76.23 140.00 L 67.76 140.00 L 59.28 140.00 L 58.68 146.25 C58.35,149.69 57.53,166.82 56.86,184.33 C55.80,211.81 55.83,216.28 57.07,217.06 C59.21,218.42 71.74,218.22 72.61,216.82 Z)SVG",
+        R"SVG(M 29.76 214.25 C32.12,210.82 42.40,192.16 47.79,181.50 L 51.84 173.50 L 52.37 156.75 C52.66,147.54 52.53,140.00 52.07,140.00 C50.68,140.00 49.63,141.78 38.20,163.50 L 27.16 184.50 L 26.45 200.75 C25.71,217.86 26.12,219.53 29.76,214.25 Z)SVG",
+        R"SVG(M 146.33 239.64 C153.35,236.70 155.27,228.12 150.08,222.92 C142.07,214.91 128.50,224.44 133.37,234.66 C134.36,236.73 136.31,238.67 138.26,239.51 C142.33,241.28 142.39,241.28 146.33,239.64 Z)SVG"
+    };
+    static const std::array<QPainterPath, 15> kPaths = [] {
+        std::array<QPainterPath, 15> out;
+        for (int i = 0; i < static_cast<int>(out.size()); ++i) {
+            out[i] = parseSvgPathDataAbsolute(kSeg14PathData[i]);
+        }
+        return out;
+    }();
+    return kPaths;
+}
+
+const std::array<QPainterPath, 8>& exactSeg7Paths() {
+    static const std::array<QString, 8> kSeg7PathData = {
+        R"SVG(M 116.57 17.44 C119.21,15.21 121.54,12.89 121.74,12.29 C121.94,11.68 120.68,9.57 118.95,7.59 L 115.79 4.00 L 71.15 4.01 L 26.50 4.02 L 22.75 7.57 C20.69,9.53 19.00,11.62 19.00,12.22 C19.00,12.82 20.87,15.03 23.15,17.14 L 27.30 20.97 L 55.40 21.23 C70.85,21.38 89.86,21.50 97.64,21.50 L 111.78 21.50 L 116.57 17.44 Z)SVG",
+        R"SVG(M 125.23 113.25 L 127.83 110.50 L 129.89 66.50 C131.89,23.81 131.89,22.43 130.12,20.00 C129.11,18.62 127.58,17.50 126.73,17.50 C125.87,17.50 122.72,19.84 119.73,22.70 L 114.28 27.89 L 113.53 37.70 C113.12,43.09 112.26,60.30 111.64,75.95 L 110.50 104.41 L 115.50 110.20 C118.25,113.39 120.98,116.00 121.56,116.00 C122.15,116.00 123.80,114.76 125.23,113.25 Z)SVG",
+        R"SVG(M 120.74 220.75 C123.04,218.28 123.61,211.25 126.08,155.61 L 127.18 130.72 L 124.19 127.72 L 121.19 124.73 L 115.85 130.46 C112.91,133.62 110.21,137.25 109.85,138.54 C109.50,139.83 108.70,153.17 108.09,168.19 C107.48,183.21 106.77,199.09 106.50,203.48 L 106.03 211.47 L 111.73 217.23 C114.87,220.41 117.71,223.00 118.04,223.00 C118.38,223.00 119.59,221.99 120.74,220.75 Z)SVG",
+        R"SVG(M 108.51 232.55 C110.98,230.52 113.00,228.26 113.00,227.51 C113.00,226.77 110.86,224.32 108.25,222.08 L 103.50 218.01 L 61.96 218.01 L 20.42 218.00 L 15.51 222.99 L 10.59 227.98 L 13.94 231.44 C15.79,233.34 18.24,235.03 19.40,235.20 C20.55,235.36 40.07,235.66 62.76,235.86 L 104.02 236.23 L 108.51 232.55 Z)SVG",
+        R"SVG(M 18.20 209.61 C18.59,207.90 19.47,190.62 20.15,171.21 L 21.40 135.92 L 15.65 130.21 L 9.90 124.50 L 7.46 127.30 C6.11,128.84 4.81,131.09 4.57,132.30 C4.05,134.87 0.96,203.76 0.99,212.30 C1.00,217.15 1.41,218.50 3.53,220.62 L 6.06 223.15 L 11.78 217.93 C15.43,214.61 17.75,211.59 18.20,209.61 Z)SVG",
+        R"SVG(M 17.02 110.48 L 22.46 104.97 L 23.67 77.73 C24.33,62.76 24.89,45.33 24.92,39.00 L 24.98 27.50 L 19.89 22.25 C17.09,19.36 14.48,17.00 14.08,17.00 C12.23,17.00 9.05,21.91 8.55,25.51 C8.25,27.71 7.55,41.20 6.99,55.50 C6.44,69.80 5.71,88.03 5.37,96.00 C4.78,109.90 4.85,110.61 6.95,113.25 C8.16,114.76 9.69,116.00 10.36,116.00 C11.02,116.00 14.02,113.52 17.02,110.48 Z)SVG",
+        R"SVG(M 112.19 125.72 C114.22,124.09 116.12,122.13 116.42,121.36 C116.71,120.59 115.34,118.17 113.36,115.98 L 109.77 112.00 L 67.03 112.00 L 24.29 112.00 L 19.64 115.55 C17.09,117.50 15.00,119.78 15.00,120.63 C15.00,121.48 16.61,123.59 18.57,125.34 L 22.15 128.50 L 61.82 129.00 C83.65,129.27 103.07,129.31 105.00,129.09 C106.93,128.86 110.16,127.34 112.19,125.72 Z)SVG",
+        R"SVG(M 148.25 231.99 C154.25,225.40 150.00,215.00 141.30,215.00 C130.37,215.00 126.42,229.39 136.00,234.29 C140.56,236.62 144.74,235.84 148.25,231.99 Z)SVG"
+    };
+    static const std::array<QPainterPath, 8> kPaths = [] {
+        std::array<QPainterPath, 8> out;
+        for (int i = 0; i < static_cast<int>(out.size()); ++i) {
+            out[i] = parseSvgPathDataAbsolute(kSeg7PathData[i]);
         }
         return out;
     }();
@@ -349,6 +450,40 @@ void SevenSegmentDisplayItem::setThresholdVoltage(double volts) {
     update();
 }
 
+void SevenSegmentDisplayItem::setSegmentOnColor(const QColor& color) {
+    if (!color.isValid()) return;
+    m_segmentOnColor = color;
+    update();
+}
+
+void SevenSegmentDisplayItem::setSegmentOffColor(const QColor& color) {
+    if (!color.isValid()) return;
+    m_segmentOffColor = color;
+    update();
+}
+
+void SevenSegmentDisplayItem::setBodyColor(const QColor& color) {
+    if (!color.isValid()) return;
+    m_bodyColor = color;
+    update();
+}
+
+void SevenSegmentDisplayItem::setBezelColor(const QColor& color) {
+    if (!color.isValid()) return;
+    m_bezelColor = color;
+    update();
+}
+
+void SevenSegmentDisplayItem::setGlowStrength(double value) {
+    m_glowStrength = std::clamp(value, 0.0, 2.0);
+    update();
+}
+
+void SevenSegmentDisplayItem::setFitScale(double value) {
+    m_fitScale = std::clamp(value, 0.7, 1.25);
+    update();
+}
+
 QRectF SevenSegmentDisplayItem::boundingRect() const {
     const int hw = variantHalfWidth(m_variant);
     const int hh = variantHalfHeight(m_variant);
@@ -437,43 +572,37 @@ QString SevenSegmentDisplayItem::displayHeader() const {
 }
 
 void SevenSegmentDisplayItem::paintClassic7Digit(QPainter* painter, const QRectF& bezel, int baseSegmentIndex) const {
-    const double sx = bezel.left() + 6.0;
-    const double sy = bezel.top() + 6.0;
-    const double hW = 44.0;
-    const double hH = 10.0;
-    const double vW = 10.0;
-    const double vH = 42.0;
-    const double cut = 3.0;
-
-    const double yTop = sy + 0.0;
-    const double yUpperV = sy + 8.0;
-    const double yMid = sy + 52.0;
-    const double yLowerV = sy + 54.0;
-    const double yBottom = sy + 98.0; // was effectively ~108; tighten gap above bottom
-
-    const QPolygonF segA = segPolyH(sx + 10, yTop, hW, hH, cut);
-    const QPolygonF segB = segPolyV(sx + 56, yUpperV, vW, vH, cut);
-    const QPolygonF segC = segPolyV(sx + 56, yLowerV, vW, vH, cut);
-    const QPolygonF segD = segPolyH(sx + 10, yBottom, hW, hH, cut);
-    const QPolygonF segE = segPolyV(sx + 0, yLowerV, vW, vH, cut);
-    const QPolygonF segF = segPolyV(sx + 0, yUpperV, vW, vH, cut);
-    const QPolygonF segG = segPolyH(sx + 10, yMid, hW, hH, cut);
-    const QPointF dpCenter(sx + 73, yBottom + 4.0);
-
-    const QPolygonF segments[7] = {segA, segB, segC, segD, segE, segF, segG};
-    for (int i = 0; i < 7; ++i) {
-        const QColor on = segmentColorForDrive(m_segmentDrive.value(baseSegmentIndex + i, 0.0)).lighter(130);
-        const QColor off(65, 26, 26);
+    const auto& segPaths = exactSeg7Paths();
+    const QRectF srcBounds = unitedPathBounds(segPaths.data(), static_cast<int>(segPaths.size()));
+    const QRectF fitZone = fitRectPreserveAspect(srcBounds.size(), bezel.adjusted(4, 4, -4, -4));
+    const QSizeF scaled(fitZone.width() * m_fitScale, fitZone.height() * m_fitScale);
+    const QRectF exactRect(fitZone.center().x() - scaled.width() * 0.5,
+                           fitZone.center().y() - scaled.height() * 0.5,
+                           scaled.width(), scaled.height());
+    QTransform xf;
+    xf.translate(exactRect.left(), exactRect.top());
+    xf.scale(exactRect.width() / srcBounds.width(), exactRect.height() / srcBounds.height());
+    xf.translate(-srcBounds.left(), -srcBounds.top());
+    for (int i = 0; i < static_cast<int>(segPaths.size()); ++i) {
+        const QColor on = segmentColorForDrive(m_segmentDrive.value(baseSegmentIndex + i, 0.0), m_segmentOnColor).lighter(130);
+        const QColor off = m_segmentOffColor;
         painter->setPen(QPen(QColor(25, 25, 25), 0.8));
+        if (m_glowStrength > 0.01 && m_segmentDrive.value(baseSegmentIndex + i, 0.0) > 0.01) {
+            const QRectF r = xf.map(segPaths[i]).controlPointRect();
+            const qreal radius = std::max(r.width(), r.height()) * (0.45 + 0.25 * m_glowStrength);
+            QRadialGradient glow(r.center(), radius);
+            QColor glowColor = on;
+            glowColor.setAlphaF(std::clamp(0.18 * m_glowStrength, 0.0, 0.5));
+            glow.setColorAt(0.0, glowColor);
+            glow.setColorAt(1.0, QColor(0, 0, 0, 0));
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(glow);
+            painter->drawEllipse(r.center(), radius, radius);
+            painter->setPen(QPen(QColor(25, 25, 25), 0.8));
+        }
         painter->setBrush(m_segmentDrive.value(baseSegmentIndex + i, 0.0) > 0.01 ? on : off);
-        painter->drawPolygon(segments[i]);
+        painter->drawPath(xf.map(segPaths[i]));
     }
-
-    const QColor onDp = segmentColorForDrive(m_segmentDrive.value(baseSegmentIndex + 7, 0.0)).lighter(130);
-    const QColor offDp(65, 26, 26);
-    painter->setPen(QPen(QColor(25, 25, 25), 0.8));
-    painter->setBrush(m_segmentDrive.value(baseSegmentIndex + 7, 0.0) > 0.01 ? onDp : offDp);
-    painter->drawEllipse(dpCenter, 4.3, 4.3);
 }
 
 void SevenSegmentDisplayItem::paintBarArrayDigit(QPainter* painter, const QRectF& bezel, int baseSegmentIndex, int count) const {
@@ -502,81 +631,74 @@ void SevenSegmentDisplayItem::paintBarArrayDigit(QPainter* painter, const QRectF
 }
 
 void SevenSegmentDisplayItem::paintInspired14Or16(QPainter* painter, const QRectF& bezel) const {
-    auto mapPt = [&](double nx, double ny) {
-        return QPointF(bezel.left() + nx * bezel.width(), bezel.top() + ny * bezel.height());
-    };
-
-    const qreal segWMain = std::max<qreal>(3.8, bezel.width() * 0.078);
-    const qreal segWDiag = std::max<qreal>(3.2, bezel.width() * 0.062);
-    const qreal segWCenter = std::max<qreal>(3.1, bezel.width() * 0.061);
-    auto drawSegPoly = [&](int idx, const QPointF& p1, const QPointF& p2, qreal width) {
-        const bool on = segmentOn(idx);
-        const QColor onColor = segmentColorForDrive(m_segmentDrive.value(idx, 0.0)).lighter(125);
-        const QColor offColor(86, 34, 34); // brighter off-state so no segment appears "missing"
-        painter->setPen(QPen(QColor(24, 24, 24), 0.8));
-        painter->setBrush(on ? onColor : offColor);
-        painter->drawPolygon(segPolyLine(p1, p2, width));
-    };
-
     if (m_variant == Variant::Seg16) {
-        const QRectF exactRect = fitRectPreserveAspect(QSizeF(452.0, 694.0), bezel.adjusted(2, 2, -2, -2));
+        const auto& segPaths = exactSeg16Paths();
+        const QRectF srcBounds = unitedPathBounds(segPaths.data(), static_cast<int>(segPaths.size()));
+        const QRectF fitZone = fitRectPreserveAspect(srcBounds.size(), bezel.adjusted(2, 2, -2, -2));
+        const QSizeF scaled(fitZone.width() * m_fitScale, fitZone.height() * m_fitScale);
+        const QRectF exactRect(fitZone.center().x() - scaled.width() * 0.5,
+                               fitZone.center().y() - scaled.height() * 0.5,
+                               scaled.width(), scaled.height());
         QTransform xf;
         xf.translate(exactRect.left(), exactRect.top());
-        xf.scale(exactRect.width() / 452.0, exactRect.height() / 694.0);
-        const auto& segPaths = exactSeg16Paths();
+        xf.scale(exactRect.width() / srcBounds.width(), exactRect.height() / srcBounds.height());
+        xf.translate(-srcBounds.left(), -srcBounds.top());
         for (int idx = 0; idx < static_cast<int>(segPaths.size()); ++idx) {
             const bool on = segmentOn(idx);
-            const QColor onColor = segmentColorForDrive(m_segmentDrive.value(idx, 0.0)).lighter(125);
-            const QColor offColor(86, 34, 34);
+            const QColor onColor = segmentColorForDrive(m_segmentDrive.value(idx, 0.0), m_segmentOnColor).lighter(125);
+            const QColor offColor = m_segmentOffColor;
             painter->setPen(QPen(QColor(24, 24, 24), 0.8));
+            if (m_glowStrength > 0.01 && on) {
+                const QRectF r = xf.map(segPaths[idx]).controlPointRect();
+                const qreal radius = std::max(r.width(), r.height()) * (0.42 + 0.22 * m_glowStrength);
+                QRadialGradient glow(r.center(), radius);
+                QColor gc = onColor;
+                gc.setAlphaF(std::clamp(0.16 * m_glowStrength, 0.0, 0.45));
+                glow.setColorAt(0.0, gc);
+                glow.setColorAt(1.0, QColor(0, 0, 0, 0));
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(glow);
+                painter->drawEllipse(r.center(), radius, radius);
+                painter->setPen(QPen(QColor(24, 24, 24), 0.8));
+            }
             painter->setBrush(on ? onColor : offColor);
             painter->drawPath(xf.map(segPaths[idx]));
         }
         return;
     }
 
-    // Keep 14-seg silhouette close to classic 7-seg proportions.
-    const double xL = 0.18, xR = 0.82;
-    const double xLM = 0.28, xRM = 0.72;
-    const double xC = 0.50;
-    const double yT = 0.11, yUT = 0.18, yUM = 0.41, yM = 0.50, yLM = 0.59, yLB = 0.82, yB = 0.89;
-
-    const QPointF aL = mapPt(xL, yT), aR = mapPt(xR, yT);
-    const QPointF dL = mapPt(xL, yB), dR = mapPt(xR, yB);
-    const QPointF bT = mapPt(xR, yUT), bM = mapPt(xR, yUM);
-    const QPointF cM = mapPt(xR, yLM), cB = mapPt(xR, yLB);
-    const QPointF fT = mapPt(xL, yUT), fM = mapPt(xL, yUM);
-    const QPointF eM = mapPt(xL, yLM), eB = mapPt(xL, yLB);
-    const QPointF g1L = mapPt(xL + 0.05, yM), g1R = mapPt(xC - 0.05, yM);
-    const QPointF g2L = mapPt(xC + 0.05, yM), g2R = mapPt(xR - 0.05, yM);
-    const QPointF h0 = mapPt(xLM, yUT), h1 = mapPt(xC - 0.048, yUM + 0.018);
-    const QPointF i0 = mapPt(xRM, yUT), i1 = mapPt(xC + 0.048, yUM + 0.018);
-    const QPointF j0 = mapPt(xLM, yLB), j1 = mapPt(xC - 0.048, yLM - 0.018);
-    const QPointF k0 = mapPt(xRM, yLB), k1 = mapPt(xC + 0.048, yLM - 0.018);
-    const QPointF lT = mapPt(xC, yUT + 0.03), lB = mapPt(xC, yUM + 0.005);
-    const QPointF mT = mapPt(xC, yLM - 0.005), mB = mapPt(xC, yLB - 0.03);
-
-    // 14-seg: a b c d e f g1 g2 h i j k l m
-    drawSegPoly(0, aL, aR, segWMain);
-    drawSegPoly(1, bT, bM, segWMain);
-    drawSegPoly(2, cM, cB, segWMain);
-    drawSegPoly(3, dL, dR, segWMain);
-    drawSegPoly(4, eM, eB, segWMain);
-    drawSegPoly(5, fT, fM, segWMain);
-    drawSegPoly(6, g1L, g1R, segWCenter);
-    drawSegPoly(7, g2L, g2R, segWCenter);
-    drawSegPoly(8, h0, h1, segWDiag);
-    drawSegPoly(9, i0, i1, segWDiag);
-    drawSegPoly(10, j0, j1, segWDiag);
-    drawSegPoly(11, k0, k1, segWDiag);
-    drawSegPoly(12, lT, lB, segWCenter);
-    drawSegPoly(13, mT, mB, segWCenter);
-
-    const bool dpOn = segmentOn(14);
-    painter->setPen(QPen(QColor(24, 24, 24), 0.8));
-    painter->setBrush(dpOn ? segmentColorForDrive(m_segmentDrive.value(14, 0.0)).lighter(125)
-                           : QColor(86, 34, 34));
-    painter->drawEllipse(mapPt(0.93, 0.93), segWMain * 0.34, segWMain * 0.34);
+    const auto& segPaths = exactSeg14Paths();
+    const QRectF srcBounds = unitedPathBounds(segPaths.data(), static_cast<int>(segPaths.size()));
+    const QRectF fitZone = fitRectPreserveAspect(srcBounds.size(), bezel.adjusted(8, 8, -8, -8));
+    const QSizeF scaled(fitZone.width() * m_fitScale, fitZone.height() * m_fitScale);
+    const QRectF exactRect(fitZone.center().x() - scaled.width() * 0.5,
+                           fitZone.center().y() - scaled.height() * 0.5,
+                           scaled.width(), scaled.height());
+    QTransform xf;
+    xf.translate(exactRect.left(), exactRect.top());
+    xf.scale(exactRect.width() / srcBounds.width(), exactRect.height() / srcBounds.height());
+    xf.translate(-srcBounds.left(), -srcBounds.top());
+    for (int idx = 0; idx < static_cast<int>(segPaths.size()); ++idx) {
+        const bool on = segmentOn(idx);
+        const QColor onColor = segmentColorForDrive(m_segmentDrive.value(idx, 0.0), m_segmentOnColor).lighter(125);
+        const QColor offColor = m_segmentOffColor;
+        painter->setPen(QPen(QColor(24, 24, 24), 0.8));
+        if (m_glowStrength > 0.01 && on) {
+            const QRectF r = xf.map(segPaths[idx]).controlPointRect();
+            const qreal radius = std::max(r.width(), r.height()) * (0.42 + 0.22 * m_glowStrength);
+            QRadialGradient glow(r.center(), radius);
+            QColor gc = onColor;
+            gc.setAlphaF(std::clamp(0.16 * m_glowStrength, 0.0, 0.45));
+            glow.setColorAt(0.0, gc);
+            glow.setColorAt(1.0, QColor(0, 0, 0, 0));
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(glow);
+            painter->drawEllipse(r.center(), radius, radius);
+            painter->setPen(QPen(QColor(24, 24, 24), 0.8));
+        }
+        painter->setBrush(on ? onColor : offColor);
+        painter->drawPath(xf.map(segPaths[idx]));
+    }
 }
 
 void SevenSegmentDisplayItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget*) {
@@ -586,7 +708,7 @@ void SevenSegmentDisplayItem::paint(QPainter* painter, const QStyleOptionGraphic
     const qreal bodyMargin = 8.0;
     QRectF body = bounds.adjusted(bodyMargin, bodyMargin, -bodyMargin, -bodyMargin);
     painter->setPen(QPen(isSelected() ? QColor("#55aaff") : QColor("#d9d9d9"), 2.0));
-    painter->setBrush(QColor("#2a2f3a"));
+    painter->setBrush(m_bodyColor);
     painter->drawRoundedRect(body, 8, 8);
 
     QRectF bezel = body.adjusted(22, 24, -22, -24);
@@ -594,7 +716,7 @@ void SevenSegmentDisplayItem::paint(QPainter* painter, const QStyleOptionGraphic
         bezel = body.adjusted(18, 24, -18, -24);
     }
     painter->setPen(QPen(QColor("#aab0bb"), 1.0));
-    painter->setBrush(QColor("#101319"));
+    painter->setBrush(m_bezelColor);
     painter->drawRoundedRect(bezel, 5, 5);
 
     if (m_variant == Variant::Single7) {
@@ -652,6 +774,12 @@ QJsonObject SevenSegmentDisplayItem::toJson() const {
     j["variant"] = static_cast<int>(m_variant);
     j["commonType"] = static_cast<int>(m_commonType);
     j["threshold"] = m_thresholdV;
+    j["segmentOnColor"] = m_segmentOnColor.name(QColor::HexArgb);
+    j["segmentOffColor"] = m_segmentOffColor.name(QColor::HexArgb);
+    j["bodyColor"] = m_bodyColor.name(QColor::HexArgb);
+    j["bezelColor"] = m_bezelColor.name(QColor::HexArgb);
+    j["glowStrength"] = m_glowStrength;
+    j["fitScale"] = m_fitScale;
     return j;
 }
 
@@ -681,6 +809,28 @@ bool SevenSegmentDisplayItem::fromJson(const QJsonObject& json) {
     }
     if (json.contains("threshold")) {
         m_thresholdV = json["threshold"].toDouble(1.7);
+    }
+    if (json.contains("segmentOnColor")) {
+        const QColor color(json["segmentOnColor"].toString());
+        if (color.isValid()) m_segmentOnColor = color;
+    }
+    if (json.contains("segmentOffColor")) {
+        const QColor color(json["segmentOffColor"].toString());
+        if (color.isValid()) m_segmentOffColor = color;
+    }
+    if (json.contains("bodyColor")) {
+        const QColor color(json["bodyColor"].toString());
+        if (color.isValid()) m_bodyColor = color;
+    }
+    if (json.contains("bezelColor")) {
+        const QColor color(json["bezelColor"].toString());
+        if (color.isValid()) m_bezelColor = color;
+    }
+    if (json.contains("glowStrength")) {
+        m_glowStrength = std::clamp(json["glowStrength"].toDouble(0.0), 0.0, 2.0);
+    }
+    if (json.contains("fitScale")) {
+        m_fitScale = std::clamp(json["fitScale"].toDouble(1.0), 0.7, 1.25);
     }
     SchematicItem::setValue(m_commonType == CommonType::CommonCathode ? "CC" : "CA");
     update();
