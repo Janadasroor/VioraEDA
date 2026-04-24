@@ -115,20 +115,28 @@ QVector<QPointF> generateBitstream(const QString& bits) {
     QVector<QPointF> res;
     if (bits.isEmpty()) return res;
 
-    QString filtered;
-    for (const QChar& c : bits) {
-        if (c == '0' || c == '1') filtered.append(c);
+    QVector<double> values;
+    for (int i = 0; i < bits.length(); ++i) {
+        if (bits[i] == '1') {
+            values.append(1.0);
+        } else if (bits[i] == '0') {
+            values.append(0.0);
+        } else if (bits[i] == '-' && i + 1 < bits.length() && bits[i+1] == '1') {
+            values.append(-1.0);
+            i++; // Skip the '1'
+        } else if (bits[i].toLower() == 'n') {
+            values.append(-1.0);
+        }
     }
-    if (filtered.isEmpty()) return res;
 
-    double dt = 1.0 / filtered.length();
-    for (int i = 0; i < filtered.length(); ++i) {
-        double val = (filtered[i] == '1') ? 1.0 : -1.0;
-        // One point at the exact start of each bit
-        res.append(QPointF(i * dt, val));
+    if (values.isEmpty()) return res;
+
+    double dt = 1.0 / values.length();
+    for (int i = 0; i < values.length(); ++i) {
+        res.append(QPointF(i * dt, values[i]));
     }
     // Final closure point at the very end
-    res.append(QPointF(1.0, (filtered.at(filtered.length() - 1) == '1') ? 1.0 : -1.0));
+    res.append(QPointF(1.0, values.last()));
 
     return res;
 }

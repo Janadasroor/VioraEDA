@@ -265,8 +265,9 @@ void VoltageSourceCustomWaveformDialog::onApplySawtooth() {
 
 void VoltageSourceCustomWaveformDialog::onApplyBitstream() {
     bool ok;
-    QString bits = QInputDialog::getText(this, "Logic Bitstream", "Enter bits (e.g. 101101):", QLineEdit::Normal, "", &ok);
+    QString bits = QInputDialog::getText(this, "Logic Bitstream", "Enter bits (e.g. 10n101, n is -1):", QLineEdit::Normal, m_lastBitstream, &ok);
     if (ok && !bits.isEmpty()) {
+        m_lastBitstream = bits;
         m_drawWidget->setPoints(WaveformEngine::generateBitstream(bits));
         m_drawWidget->setStepMode(true);
         // Update UI checkbox to match

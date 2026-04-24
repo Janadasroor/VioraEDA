@@ -13,7 +13,8 @@
 
 #include "../simulator/synthesis/mos_synthesizer_interface.h"
 
-class WaveformDrawWidget; // Forward declaration
+class WaveformDrawWidget; 
+class QCheckBox;
 
 class MosCircuitArchitect : public QDialog {
     Q_OBJECT
@@ -39,9 +40,11 @@ private:
     WaveformDrawWidget* m_drawWidget;
     QComboBox* m_topologyCombo;
     QTableWidget* m_paramTable;
+    QCheckBox* m_stepCheck;
     QTextEdit* m_previewArea;
     QPushButton* m_generateBtn;
     QPushButton* m_verifyBtn;
+    QString m_lastBitstream;
     
     QList<IMosWaveformSynthesizer*> m_synthesizers;
     IMosWaveformSynthesizer* m_currentSynthesizer;

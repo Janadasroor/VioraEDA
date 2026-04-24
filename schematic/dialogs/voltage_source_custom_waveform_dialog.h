@@ -80,6 +80,7 @@ private:
     bool m_repeatEnabled;
     bool m_saveToFileEnabled;
     QString m_pwlFilePath;
+    QString m_lastBitstream;
     QString m_defaultDir;
     QString m_defaultBaseName;
 };
