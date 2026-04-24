@@ -50,3 +50,4 @@ QString IdealSwitchSynthesizer::synthesizeNetlist(const QString& subcktName,
     
     return out;
 }
+

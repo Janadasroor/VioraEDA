@@ -195,6 +195,8 @@ set(SCHEMATIC_SOURCES
     schematic/dialogs/mos_properties_dialog.h
     schematic/dialogs/mesfet_properties_dialog.cpp
     schematic/dialogs/mesfet_properties_dialog.h
+    schematic/dialogs/power_stage_properties_dialog.cpp
+    schematic/dialogs/power_stage_properties_dialog.h
     schematic/dialogs/jfet_model_picker_dialog.cpp
     schematic/dialogs/jfet_model_picker_dialog.h
     schematic/dialogs/jfet_properties_dialog.cpp

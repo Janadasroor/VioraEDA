@@ -6,40 +6,94 @@
 #include <QScrollBar>
 #include <QKeyEvent>
 #include <QPainter>
-#include <QDialog>
-#include <QLabel>
-#include <QLineEdit>
-#include <QPushButton>
-#include <QCheckBox>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QStringListModel>
 #include <QToolTip>
-#include "diagnostics/debugger.h"
+#include <QStringListModel>
+#include <QDebug>
 #include "jit_context_manager.h"
-
 
 namespace Flux {
 
+FluxHighlighter::FluxHighlighter(QTextDocument* parent)
+    : QSyntaxHighlighter(parent) {
+    HighlightingRule rule;
+
+    keywordFormat.setForeground(Qt::darkBlue);
+    keywordFormat.setFontWeight(QFont::Bold);
+    QStringList keywordPatterns = {
+        "\\bdef\\b", "\\bextern\\b", "\\breturn\\b", "\\bvar\\b",
+        "\\blet\\b", "\\bfn\\b", "\\bif\\b", "\\belse\\b", "\\bfor\\b",
+        "\\bin\\b", "\\bdo\\b", "\\bwhile\\b", "\\bimport\\b", "\\bcase\\b",
+        "\\bswitch\\b", "\\bdefault\\b", "\\bbreak\\b", "\\bcontinue\\b",
+        "\\bstruct\\b", "\\bclass\\b", "\\bnamespace\\b"
+    };
+    for (const QString& pattern : keywordPatterns) {
+        rule.pattern = QRegularExpression(pattern);
+        rule.format = keywordFormat;
+        highlightingRules.append(rule);
+    }
+
+    typeFormat.setForeground(Qt::darkMagenta);
+    QStringList typePatterns = {
+        "\\bfloat\\b", "\\bdouble\\b", "\\bint\\b", "\\bvoid\\b",
+        "\\bcomplex\\b", "\\bstring\\b", "\\bvector\\b", "\\bmatrix\\b"
+    };
+    for (const QString& pattern : typePatterns) {
+        rule.pattern = QRegularExpression(pattern);
+        rule.format = typeFormat;
+        highlightingRules.append(rule);
+    }
+
+    singleLineCommentFormat.setForeground(Qt::darkGreen);
+    rule.pattern = QRegularExpression("//[^\n]*");
+    rule.format = singleLineCommentFormat;
+    highlightingRules.append(rule);
+    
+    rule.pattern = QRegularExpression("#[^\n]*");
+    rule.format = singleLineCommentFormat;
+    highlightingRules.append(rule);
+
+    quotationFormat.setForeground(Qt::darkRed);
+    rule.pattern = QRegularExpression("\".*\"");
+    rule.format = quotationFormat;
+    highlightingRules.append(rule);
+
+    functionFormat.setFontItalic(true);
+    functionFormat.setForeground(Qt::blue);
+    rule.pattern = QRegularExpression("\\b[A-Za-z0-9_]+(?=\\()");
+    rule.format = functionFormat;
+    highlightingRules.append(rule);
+
+    spiceSuffixFormat.setForeground(Qt::darkCyan);
+    rule.pattern = QRegularExpression("\\b[0-9.]+[kMegunpfaGT]\\b");
+    rule.format = spiceSuffixFormat;
+    highlightingRules.append(rule);
+}
+
+void FluxHighlighter::highlightBlock(const QString& text) {
+    for (const HighlightingRule& rule : highlightingRules) {
+        QRegularExpressionMatchIterator matchIterator = rule.pattern.globalMatch(text);
+        while (matchIterator.hasNext()) {
+            QRegularExpressionMatch match = matchIterator.next();
+            setFormat(match.capturedStart(), match.capturedLength(), rule.format);
+        }
+    }
+}
+
 CodeEditor::CodeEditor(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)
-    : FluxEditor(parent), m_scene(scene), m_netManager(netManager) {
+    : QPlainTextEdit(parent), m_scene(scene), m_netManager(netManager), m_completer(nullptr) {
+    
+    m_highlighter = new FluxHighlighter(document());
     
     setMouseTracking(true);
     
-    // Initialize FluxScript keywords
-    QStringList keywords = {
-        "var", "let", "def", "if", "else", "elif", "for", "while", "return", "import", "from",
-        "intrinsic", "V", "I", "P", "sim", "math", "Eigen", 
-        "True", "False", "None", 
-        "math.sin", "math.cos", "math.tan", "math.pi", "math.exp", "math.log", "math.sqrt",
-        "abs", "round", "min", "max", "len", "println"
-    };
-    QCompleter* completer = new QCompleter(keywords, this);
-    completer->setModelSorting(QCompleter::CaseInsensitivelySortedModel);
-    completer->setCaseSensitivity(Qt::CaseInsensitive);
-    completer->setWrapAround(false);
-    setCompleter(completer);
+    QFont font;
+    font.setFamily("Monospace");
+    font.setFixedPitch(true);
+    font.setPointSize(10);
+    setFont(font);
 
+    // Dark theme default
+    setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; selection-background-color: #264f78;");
 }
 
 void CodeEditor::setScene(QGraphicsScene* scene, NetManager* netManager) {
@@ -47,59 +101,76 @@ void CodeEditor::setScene(QGraphicsScene* scene, NetManager* netManager) {
     m_netManager = netManager;
 }
 
-void CodeEditor::updateCompletionKeywords(const QStringList& additionalKeywords) {
-    auto* completer = this->completer();
-    if (!completer) return;
-    
-    QStringList baseKeywords = {
-        "var", "let", "def", "if", "else", "elif", "for", "while", "return", "import", "from",
-        "intrinsic", "V", "I", "P", "sim", "math", "Eigen", 
-        "True", "False", "None", 
-        "math.sin", "math.cos", "math.tan", "math.pi", "math.exp", "math.log", "math.sqrt",
-        "abs", "round", "min", "max", "len", "println"
-    };
+void CodeEditor::setCompleter(QCompleter* completer) {
+    if (m_completer)
+        m_completer->disconnect(this);
 
-    
-    QStringList allKeywords = baseKeywords + additionalKeywords;
-    allKeywords.removeDuplicates();
-    allKeywords.sort();
+    m_completer = completer;
 
-    auto* model = new QStringListModel(allKeywords, completer);
-    completer->setModel(model);
+    if (!m_completer)
+        return;
+
+    m_completer->setWidget(this);
+    m_completer->setCompletionMode(QCompleter::PopupCompletion);
+    m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+    QObject::connect(m_completer, QOverload<const QString&>::of(&QCompleter::activated),
+                     this, &CodeEditor::insertCompletion);
+}
+
+QCompleter* CodeEditor::completer() const {
+    return m_completer;
+}
+
+void CodeEditor::insertCompletion(const QString& completion) {
+    if (m_completer->widget() != this)
+        return;
+    QTextCursor tc = textCursor();
+    int extra = completion.length() - m_completer->completionPrefix().length();
+    tc.movePosition(QTextCursor::Left);
+    tc.movePosition(QTextCursor::EndOfWord);
+    tc.insertText(completion.right(extra));
+    setTextCursor(tc);
+}
+
+QString CodeEditor::textUnderCursor() const {
+    QTextCursor tc = textCursor();
+    tc.select(QTextCursor::WordUnderCursor);
+    return tc.selectedText();
+}
+
+void CodeEditor::updateCompletionKeywords(const QStringList& keywords) {
+    if (!m_completer) return;
+    auto* model = new QStringListModel(keywords, m_completer);
+    m_completer->setModel(model);
 }
 
 void CodeEditor::setErrorLines(const QMap<int, QString>& errors) {
-    FluxEditor::setErrorLines(errors);
+    m_errorLines = errors;
+    viewport()->update();
 }
 
 void CodeEditor::setActiveDebugLine(int line) {
-    FluxEditor::setActiveDebugLine(line);
+    m_activeDebugLine = line;
+    viewport()->update();
 }
 
 void CodeEditor::onRunRequested() {
 #ifdef HAVE_FLUXSCRIPT
     QString source = toPlainText();
     QMap<int, QString> errors;
-    
-    // Clear old errors
     setErrorLines({});
     
     if (JITContextManager::instance().compileAndLoad("standalone_editor", source, errors)) {
-        // Success notification is handled by the manager signal if needed,
-        // or we can show a tooltip/status bar message here.
         qDebug() << "FluxScript: Run successful.";
     } else {
-        // Show errors in editor
         setErrorLines(errors);
         qDebug() << "FluxScript: Run failed with errors.";
     }
 #endif
 }
 
-
 void CodeEditor::keyPressEvent(QKeyEvent* e) {
-    auto* completer = this->completer();
-    if (completer && completer->popup()->isVisible()) {
+    if (m_completer && m_completer->popup()->isVisible()) {
         switch (e->key()) {
         case Qt::Key_Enter:
         case Qt::Key_Return:
@@ -113,14 +184,38 @@ void CodeEditor::keyPressEvent(QKeyEvent* e) {
         }
     }
 
-    FluxEditor::keyPressEvent(e);
+    const bool isShortcut = (e->modifiers().testFlag(Qt::ControlModifier) && e->key() == Qt::Key_E);
+    if (!m_completer || !isShortcut)
+        QPlainTextEdit::keyPressEvent(e);
+
+    const bool ctrlOrShift = e->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
+    if (!m_completer || (ctrlOrShift && e->text().isEmpty()))
+        return;
+
+    static QString eow("~!@#$%^&*()_+{}|:\"<>?,./;'[]\\-=");
+    bool hasModifier = (e->modifiers() != Qt::NoModifier) && !ctrlOrShift;
+    QString completionPrefix = textUnderCursor();
+
+    if (!isShortcut && (hasModifier || e->text().isEmpty() || completionPrefix.length() < 2
+                      || eow.contains(e->text().right(1)))) {
+        m_completer->popup()->hide();
+        return;
+    }
+
+    if (completionPrefix != m_completer->completionPrefix()) {
+        m_completer->setCompletionPrefix(completionPrefix);
+        m_completer->popup()->setCurrentIndex(m_completer->completionModel()->index(0, 0));
+    }
+    QRect cr = cursorRect();
+    cr.setWidth(m_completer->popup()->sizeHintForColumn(0)
+                + m_completer->popup()->verticalScrollBar()->sizeHint().width());
+    m_completer->complete(cr);
 }
 
 void CodeEditor::focusInEvent(QFocusEvent* e) {
-    auto* completer = this->completer();
-    if (completer)
-        completer->setWidget(this);
-    FluxEditor::focusInEvent(e);
+    if (m_completer)
+        m_completer->setWidget(this);
+    QPlainTextEdit::focusInEvent(e);
 }
 
 bool CodeEditor::event(QEvent* e) {
@@ -131,20 +226,11 @@ bool CodeEditor::event(QEvent* e) {
         QString word = cursor.selectedText();
         
         static QMap<QString, QString> helpDb = {
-            {"V", "<b>V(node)</b><br>Returns the real-time voltage at the specified node.<br><i>Example</i>: V(\"N001\")"},
-            {"I", "<b>I(branch)</b><br>Returns the current flowing through a branch or device.<br><i>Example</i>: I(\"V1\")"},
-            {"P", "<b>P(param)</b><br>Gets or sets a simulation parameter.<br><i>Example</i>: P(\"R1.R\") = 10k"},
-            {"sim", "<b>sim object</b><br>Simulation control object.<br><i>Methods</i>: sim.run(), sim.stop(), sim.pause()"},
-            {"var", "Explicit variable declaration with type inference."},
-            {"intrinsic", "Declares an external C/C++ function for JIT linking."},
-            {"math", "FluxScript's high-performance math library (mapped to LLVM intrinsics)."},
-            {"println", "<b>println(str)</b><br>Logs a message to the VioSpice simulation console."},
-            {"Eigen", "Linear algebra support via the Eigen JIT bridge."},
-            {"sin", "<b>math.sin(x)</b><br>Returns the sine of x (radians). Evaluated at JIT-speed."},
-            {"pi", "The mathematical constant π (3.14159...)."}
+            {"V", "<b>V(node)</b><br>Returns voltage at node."},
+            {"I", "<b>I(branch)</b><br>Returns current through branch."},
+            {"math", "FluxScript math library."}
         };
 
-        
         if (helpDb.contains(word)) {
             QToolTip::showText(helpEvent->globalPos(), helpDb[word], this);
         } else {
@@ -152,13 +238,33 @@ bool CodeEditor::event(QEvent* e) {
         }
         return true;
     }
-    return FluxEditor::event(e);
+    return QPlainTextEdit::event(e);
+}
+
+void CodeEditor::paintEvent(QPaintEvent* e) {
+    QPlainTextEdit::paintEvent(e);
+    
+    QPainter painter(viewport());
+    for (auto it = m_errorLines.begin(); it != m_errorLines.end(); ++it) {
+        int line = it.key();
+        QTextBlock block = document()->findBlockByLineNumber(line);
+        if (block.isValid()) {
+            QRectF r = blockBoundingRect(block).translated(contentOffset());
+            painter.fillRect(r.toRect(), QColor(255, 0, 0, 40));
+        }
+    }
+    
+    if (m_activeDebugLine >= 0) {
+        QTextBlock block = document()->findBlockByLineNumber(m_activeDebugLine);
+        if (block.isValid()) {
+            QRectF r = blockBoundingRect(block).translated(contentOffset());
+            painter.fillRect(r.toRect(), QColor(255, 255, 0, 40));
+        }
+    }
 }
 
 void CodeEditor::showFindReplaceDialog() {}
-void CodeEditor::findNext(const QString& /* text */, bool /* forward */) {}
-void CodeEditor::replaceText(const QString& /* find */, const QString& /* replace */) {}
-void CodeEditor::onContentChanged() {}
-void CodeEditor::insertCompletion(const QString& /* completion */) {}
+void CodeEditor::findNext(const QString&, bool) {}
+void CodeEditor::replaceText(const QString&, const QString&) {}
 
 } // namespace Flux

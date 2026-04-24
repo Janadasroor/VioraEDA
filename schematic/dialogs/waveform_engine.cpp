@@ -1,7 +1,10 @@
 #include "waveform_engine.h"
+#include "../items/voltage_source_item.h"
+#include "../core/sim_value_parser.h"
 #include <QtMath>
 #include <cmath>
 #include <random>
+#include <QRegularExpression>
 
 namespace WaveformEngine {
 
@@ -11,65 +14,69 @@ struct Parser {
     double x_val;
     bool error = false;
 
-    double parseExpression() {
-        double res = parseTerm();
-        while (pos < s.length() && !error) {
-            if (s[pos] == '+') { pos++; res += parseTerm(); }
-            else if (s[pos] == '-') { pos++; res -= parseTerm(); }
-            else break;
-        }
-        return res;
-    }
-
-    double parseTerm() {
-        double res = parseFactor();
-        while (pos < s.length() && !error) {
-            if (s[pos] == '*') { pos++; res *= parseFactor(); }
-            else if (s[pos] == '/') {
-                pos++;
-                double d = parseFactor();
-                if (d != 0) res /= d;
-                else error = true;
-            }
-            else break;
-        }
-        return res;
-    }
-
-    double parseFactor() {
-        if (pos >= s.length()) { error = true; return 0; }
-        if (s[pos] == '(') {
-            pos++;
-            double res = parseExpression();
-            if (pos < s.length() && s[pos] == ')') pos++;
-            else error = true;
-            return res;
-        }
-        if (s[pos] == '-') { pos++; return -parseFactor(); }
-        
-        if (s[pos].isDigit() || s[pos] == '.') {
-            int start = pos;
-            while (pos < s.length() && (s[pos].isDigit() || s[pos] == '.' || s[pos] == 'e')) pos++;
-            return s.mid(start, pos - start).toDouble();
-        }
-
-        if (s.mid(pos).startsWith("x")) { pos++; return x_val; }
-        if (s.mid(pos).startsWith("sin(")) { pos += 4; double v = std::sin(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
-        if (s.mid(pos).startsWith("cos(")) { pos += 4; double v = std::cos(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
-        if (s.mid(pos).startsWith("exp(")) { pos += 4; double v = std::exp(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
-        if (s.mid(pos).startsWith("log(")) { pos += 4; double v = std::log(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
-        if (s.mid(pos).startsWith("sqrt(")) { pos += 5; double v = std::sqrt(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
-        if (s.mid(pos).startsWith("tan(")) { pos += 4; double v = std::tan(parseExpression()); if (pos < s.length() && s[pos] == ')') pos++; return v; }
-
-        error = true;
-        return 0;
-    }
+    double parseExpression();
+    double parseTerm();
+    double parseFactor();
+    double parseValue();
 };
+
+double Parser::parseExpression() {
+    double res = parseTerm();
+    while (pos < s.length()) {
+        if (s[pos] == '+') { pos++; res += parseTerm(); }
+        else if (s[pos] == '-') { pos++; res -= parseTerm(); }
+        else break;
+    }
+    return res;
+}
+
+double Parser::parseTerm() {
+    double res = parseFactor();
+    while (pos < s.length()) {
+        if (s[pos] == '*') { pos++; res *= parseFactor(); }
+        else if (s[pos] == '/') {
+            pos++;
+            double div = parseFactor();
+            if (std::abs(div) > 1e-20) res /= div;
+        }
+        else break;
+    }
+    return res;
+}
+
+double Parser::parseFactor() {
+    if (pos >= s.length()) return 0;
+    if (s[pos] == '(') {
+        pos++;
+        double res = parseExpression();
+        if (pos < s.length() && s[pos] == ')') pos++;
+        return res;
+    }
+    return parseValue();
+}
+
+double Parser::parseValue() {
+    if (pos >= s.length()) return 0;
+    if (s.mid(pos, 1) == "x") { pos++; return x_val; }
+    
+    // Check functions
+    if (s.mid(pos, 4) == "sin(") { pos += 4; double v = parseExpression(); if (pos < s.length() && s[pos] == ')') pos++; return std::sin(v); }
+    if (s.mid(pos, 4) == "cos(") { pos += 4; double v = parseExpression(); if (pos < s.length() && s[pos] == ')') pos++; return std::cos(v); }
+    if (s.mid(pos, 4) == "tan(") { pos += 4; double v = parseExpression(); if (pos < s.length() && s[pos] == ')') pos++; return std::tan(v); }
+    if (s.mid(pos, 4) == "exp(") { pos += 4; double v = parseExpression(); if (pos < s.length() && s[pos] == ')') pos++; return std::exp(v); }
+    if (s.mid(pos, 4) == "log(") { pos += 4; double v = parseExpression(); if (pos < s.length() && s[pos] == ')') pos++; return std::log(v); }
+    if (s.mid(pos, 5) == "sqrt(") { pos += 5; double v = parseExpression(); if (pos < s.length() && s[pos] == ')') pos++; return std::sqrt(v); }
+
+    int start = pos;
+    if (s[pos] == '-') pos++;
+    while (pos < s.length() && (s[pos].isDigit() || s[pos] == '.')) pos++;
+    return s.mid(start, pos - start).toDouble();
+}
 
 QVector<QPointF> generateSine(int points) {
     QVector<QPointF> res;
     for (int i = 0; i <= points; ++i) {
-        double x = double(i) / points;
+        double x = (double)i / points;
         res.append(QPointF(x, std::sin(2.0 * M_PI * x)));
     }
     return res;
@@ -77,37 +84,38 @@ QVector<QPointF> generateSine(int points) {
 
 QVector<QPointF> generateSquare(double dutyCycle) {
     QVector<QPointF> res;
-    double d = qBound(0.001, dutyCycle, 0.999);
-    res.append({0, 1});
-    res.append({d - 0.0001, 1});
-    res.append({d, -1});
-    res.append({0.9999, -1});
-    res.append({1.0, 1});
+    res.append(QPointF(0, 1));
+    res.append(QPointF(dutyCycle, 1));
+    res.append(QPointF(dutyCycle, -1));
+    res.append(QPointF(1, -1));
     return res;
 }
 
 QVector<QPointF> generateTriangle() {
-    return {{0, 0}, {0.25, 1}, {0.75, -1}, {1.0, 0}};
+    QVector<QPointF> res;
+    res.append(QPointF(0, 0));
+    res.append(QPointF(0.25, 1));
+    res.append(QPointF(0.75, -1));
+    res.append(QPointF(1, 0));
+    return res;
 }
 
 QVector<QPointF> generateSawtooth() {
-    return {{0, -1}, {0.999, 1}, {1.0, -1}};
+    QVector<QPointF> res;
+    res.append(QPointF(0, -1));
+    res.append(QPointF(1, 1));
+    return res;
 }
 
 QVector<QPointF> generatePulse(double v1, double v2, double delay, double width, double riseFall) {
     QVector<QPointF> res;
-    res.append({0, v1});
-    if (delay > 0) res.append({delay, v1});
-    res.append({delay + riseFall, v2});
-    res.append({qMin(0.999, delay + riseFall + width), v2});
-    res.append({qMin(1.0, delay + riseFall + width + riseFall), v1});
-    if (delay + 2*riseFall + width < 1.0) res.append({1.0, v1});
-    
-    // Auto-normalize if v1/v2 are outside [-1, 1]
-    double maxV = qMax(qAbs(v1), qAbs(v2));
-    if (maxV > 1.0) {
-        for (auto& p : res) p.setY(p.y() / maxV);
-    }
+    // Normalized to 0..1 range
+    res.append(QPointF(0, v1));
+    if (delay > 0) res.append(QPointF(delay, v1));
+    res.append(QPointF(delay + riseFall, v2));
+    res.append(QPointF(delay + riseFall + width, v2));
+    res.append(QPointF(delay + riseFall + width + riseFall, v1));
+    res.append(QPointF(1.0, v1));
     return res;
 }
 
@@ -143,7 +151,7 @@ QVector<QPointF> generateBitstream(const QString& bits) {
 
 double evaluateFormula(const QString& formula, double x, bool* ok) {
     Parser p;
-    p.s = formula.toLower().replace(" ", "").replace("pi", QString::number(M_PI, 'g', 15));
+    p.s = formula.toLower().replace(" ", "");
     p.x_val = x;
     double res = p.parseExpression();
     if (ok) *ok = !p.error;
@@ -153,14 +161,11 @@ double evaluateFormula(const QString& formula, double x, bool* ok) {
 QVector<QPointF> generateFromFormula(const QString& formula, int points, bool* ok) {
     QVector<QPointF> res;
     for (int i = 0; i <= points; ++i) {
-        double x = double(i) / points;
-        bool localOk;
-        double y = evaluateFormula(formula, x, &localOk);
-        if (!localOk) {
-            if (ok) *ok = false;
-            return {};
-        }
-        res.append({x, y});
+        double x = (double)i / points;
+        bool evalOk = true;
+        double y = evaluateFormula(formula, x, &evalOk);
+        if (!evalOk) { if (ok) *ok = false; return res; }
+        res.append(QPointF(x, y));
     }
     if (ok) *ok = true;
     return res;
@@ -171,75 +176,42 @@ void smooth(QVector<QPointF>& points) {
     QVector<QPointF> next;
     next.append(points.first());
     for (int i = 1; i < points.size() - 1; ++i) {
-        double avgY = (points[i-1].y() + points[i].y() + points[i+1].y()) / 3.0;
-        next.append({points[i].x(), avgY});
+        double y = (points[i-1].y() + points[i].y() + points[i+1].y()) / 3.0;
+        next.append(QPointF(points[i].x(), y));
     }
     next.append(points.last());
     points = next;
 }
 
 void addNoise(QVector<QPointF>& points, double factor) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    static std::mt19937 gen(42);
     std::uniform_real_distribution<> dis(-factor, factor);
     for (auto& p : points) {
-        p.setY(qBound(-1.0, p.y() + dis(gen), 1.0));
+        p.setY(p.y() + dis(gen));
     }
 }
 
 QString convertToPwl(QVector<QPointF> points, const ExportParams& params) {
-    if (points.isEmpty()) return "0 0 1 0";
-
-    // Ensure sorted and bounded [0, 1]
+    if (points.isEmpty()) return "";
+    
+    // Sort by time
     std::sort(points.begin(), points.end(), [](const QPointF& a, const QPointF& b) {
         return a.x() < b.x();
     });
 
-    if (points.first().x() > 0.0) points.prepend(QPointF(0.0, points.first().y()));
-    if (points.last().x() < 1.0) points.append(QPointF(1.0, points.last().y()));
-
     QStringList tokens;
+    double lastT = -1e20;
+    double lastY = 0;
 
-    if (params.resample) {
-        double lastY = -9e9;
-        for (int i = 0; i < params.sampleCount; ++i) {
-            double x = double(i) / (params.sampleCount - 1);
-            double y = 0;
-            for (int j = 1; j < points.size(); ++j) {
-                if (x <= points[j].x()) {
-                    const QPointF a = points[j - 1];
-                    const QPointF b = points[j];
-                    if (params.isStepMode) y = a.y();
-                    else {
-                        double t = (b.x() - a.x()) <= 1e-12 ? 0.0 : (x - a.x()) / (b.x() - a.x());
-                        y = a.y() + t * (b.y() - a.y());
-                    }
-                    break;
-                }
-            }
-            double currentY = params.offset + params.amplitude * y;
-            if (i == 0 || i == params.sampleCount - 1 || qAbs(currentY - lastY) > 1e-9) {
-                tokens << QString::number(x * params.period, 'g', 15) << QString::number(currentY, 'g', 15);
-                lastY = currentY;
-            }
-        }
-    } else {
-        double lastT = -1.0;
-        double lastY = -9e9;
-        const double tr = 1e-9; // 1ns fixed transition
+    for (const auto& p : points) {
+        double rawT = p.x() * params.period;
+        double rawY = p.y() * params.amplitude + params.offset;
 
-        for (int i = 0; i < points.size(); ++i) {
-            double rawT = points[i].x() * params.period;
-            double rawY = params.offset + params.amplitude * points[i].y();
-
-            if (i > 0 && qAbs(rawT - lastT) < 1e-15 && qAbs(rawY - lastY) < 1e-12) continue;
-
-            if (i > 0 && params.isStepMode) {
-                if (qAbs(rawY - lastY) > 1e-9) {
-                    double jumpStart = std::max(lastT + 1e-15, rawT - tr);
-                    tokens << QString::number(jumpStart, 'g', 15) << QString::number(lastY, 'g', 15);
-                } else if (i < points.size() - 1) {
-                    continue; 
+        if (rawT > lastT + 1e-18) {
+            if (params.isStepMode && lastT >= 0) {
+                // Add vertical step
+                if (std::abs(rawY - lastY) > 1e-12) {
+                    tokens << QString::number(rawT, 'g', 15) << QString::number(lastY, 'g', 15);
                 }
             }
             tokens << QString::number(rawT, 'g', 15) << QString::number(rawY, 'g', 15);
@@ -248,6 +220,58 @@ QString convertToPwl(QVector<QPointF> points, const ExportParams& params) {
         }
     }
     return tokens.join(' ');
+}
+
+QVector<QPointF> pointsFromVoltageSource(const VoltageSourceItem* item) {
+    if (!item) return {};
+    return parseSpiceFunction(item->value());
+}
+
+QVector<QPointF> parseSpiceFunction(const QString& spiceFunc) {
+    QString v = spiceFunc.trimmed().toUpper();
+    
+    auto captureParams = [](const QString& v, const QString& func) -> QStringList {
+        QRegularExpression re(func + "\\s*\\(([^\\)]*)\\)");
+        auto match = re.match(v);
+        if (match.hasMatch()) {
+            return match.captured(1).split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
+        }
+        return {};
+    };
+
+    if (v.contains("SINE")) {
+        // Simple 1 cycle sine for preview/architecture
+        return generateSine(100);
+    } else if (v.contains("PULSE")) {
+        QStringList p = captureParams(v, "PULSE");
+        if (p.size() >= 7) {
+             double period = 1.0;
+             SimValueParser::parseSpiceNumber(p[6].toStdString(), period);
+             double width = 0.5;
+             SimValueParser::parseSpiceNumber(p[5].toStdString(), width);
+             // Normalize to 0..1 scale
+             return generatePulse(0, 1, 0, width / period, 0.001);
+        }
+        return generateSquare();
+    } else if (v.contains("PWL")) {
+        QStringList p = captureParams(v, "PWL");
+        QVector<QPointF> pts;
+        double tMax = 1e-12;
+        for (int i = 0; i < p.size() - 1; i += 2) {
+            double t = 0, y = 0;
+            SimValueParser::parseSpiceNumber(p[i].toStdString(), t);
+            SimValueParser::parseSpiceNumber(p[i+1].toStdString(), y);
+            pts.append(QPointF(t, y));
+            if (t > tMax) tMax = t;
+        }
+        // Normalize time to 0..1
+        if (!pts.isEmpty() && tMax > 1e-11) {
+            for (auto& pt : pts) pt.setX(pt.x() / tMax);
+        }
+        return pts;
+    }
+
+    return generateSine(50); // Fallback
 }
 
 } // namespace WaveformEngine

@@ -1,6 +1,7 @@
 #include "flux_script_engine.h"
 #include <flux/jit_engine.h>
 #include <QDebug>
+#include <string>
 
 FluxScriptEngine& FluxScriptEngine::instance() {
     static FluxScriptEngine inst;
@@ -22,24 +23,31 @@ bool FluxScriptEngine::isInitialized() const {
 }
 
 bool FluxScriptEngine::executeString(const QString& code, QString* error) {
-    return Flux::JITEngine::instance().executeString(code, error);
+    std::string stdError;
+    bool ok = Flux::JITEngine::instance().executeString(code.toStdString(), error ? &stdError : nullptr);
+    if (error) *error = QString::fromStdString(stdError);
+    return ok;
 }
 
 bool FluxScriptEngine::validateScript(const QString& code, QString* error) {
-    return Flux::JITEngine::instance().compileScript(code, error);
+    std::string stdError;
+    bool ok = Flux::JITEngine::instance().compileScript(code.toStdString(), error ? &stdError : nullptr);
+    if (error) *error = QString::fromStdString(stdError);
+    return ok;
 }
 
 FluxScriptEngine::FluxValue FluxScriptEngine::callFunction(const char* method, const std::vector<double>& args, QString* error) {
-    // Pure JIT call without Python overhead
-    auto result = Flux::JITEngine::instance().callFunction(method, args, error);
+    std::string stdError;
+    auto result = Flux::JITEngine::instance().callFunction(std::string(method), args, error ? &stdError : nullptr);
 
-    if (error && !error->isEmpty()) {
-        qDebug() << "[FluxScriptEngine] Error calling function:" << method << ":" << *error;
-        return 0.0;
+    if (error) {
+        *error = QString::fromStdString(stdError);
+        if (!error->isEmpty()) {
+            qDebug() << "[FluxScriptEngine] Error calling function:" << method << ":" << *error;
+            return 0.0;
+        }
     }
 
-    // Convert Flux::JITEngine::Result (assumed to be similar std::variant) to FluxScriptEngine::FluxValue
-    // For now, assume it's directly compatible or handle conversion
     if (std::holds_alternative<double>(result)) {
         return std::get<double>(result);
     } else if (std::holds_alternative<int>(result)) {

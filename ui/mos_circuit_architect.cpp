@@ -8,20 +8,40 @@
 #include <QCheckBox>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QGroupBox>
+#include <QSplitter>
+#include <QDebug>
+#include <QUndoStack>
+#include <QApplication>
+
+#include "../schematic/editor/schematic_view.h"
+#include "../schematic/editor/schematic_editor.h"
+#include "../schematic/editor/schematic_commands.h"
+#include "../schematic/factories/schematic_item_factory.h"
+#include "../schematic/items/voltage_source_item.h"
+#include "../schematic/items/generic_component_item.h"
+#include "../schematic/items/schematic_spice_directive_item.h"
 #include "../schematic/dialogs/waveform_draw_widget.h"
 #include "../schematic/dialogs/waveform_engine.h"
 #include "../simulator/bridge/sim_manager.h"
+#include "../simulator/core/sim_value_parser.h"
 #include "../simulator/synthesis/bv_mos_synthesizer.h"
 #include "../simulator/synthesis/ideal_switch_synthesizer.h"
-#include <QGroupBox>
-#include <QSplitter>
+#include "../simulator/synthesis/power_electronics_synthesizers.h"
+#include "waveform_viewer.h"
+
+using namespace Flux::Model;
 
 MosCircuitArchitect::MosCircuitArchitect(QWidget *parent)
-    : QDialog(parent), m_currentSynthesizer(nullptr) {
-    setWindowTitle("MOS Circuit Architect - Custom Waveform Native Synthesis");
+    : QMainWindow(parent), m_currentSynthesizer(nullptr), m_sourceItem(nullptr) {
+    setWindowTitle("MOS Circuit Architect - Power Electronics Vision");
     setMinimumSize(900, 600);
+    setAttribute(Qt::WA_DeleteOnClose);
     
     // Register topologies
+    m_synthesizers.append(new HalfBridgeSynthesizer());
+    m_synthesizers.append(new PushPullSynthesizer());
+    m_synthesizers.append(new MatrixSynthesizer());
     m_synthesizers.append(new BVMosSynthesizer());
     m_synthesizers.append(new IdealSwitchSynthesizer());
     m_currentSynthesizer = m_synthesizers.first();
@@ -35,7 +55,9 @@ MosCircuitArchitect::~MosCircuitArchitect() {
 }
 
 void MosCircuitArchitect::setupUi() {
-    auto* mainLayout = new QVBoxLayout(this);
+    auto* central = new QWidget;
+    setCentralWidget(central);
+    auto* mainLayout = new QVBoxLayout(central);
 
     auto* splitter = new QSplitter(Qt::Horizontal);
     
@@ -43,13 +65,12 @@ void MosCircuitArchitect::setupUi() {
     auto* leftPanel = new QWidget;
     auto* leftLayout = new QVBoxLayout(leftPanel);
     
-    auto* drawLabel = new QLabel("Draw Custom Target Waveform:");
+    auto* drawLabel = new QLabel("Drawn Target Waveform (0 to 1.0 Cycle):");
     drawLabel->setStyleSheet("font-weight: bold; color: #a1a1aa;");
     leftLayout->addWidget(drawLabel);
     
-    m_drawWidget = new WaveformDrawWidget(this);
+    m_drawWidget = new WaveformDrawWidget;
     m_drawWidget->setMinimumSize(400, 300);
-    m_drawWidget->setSnapToGrid(false);
     leftLayout->addWidget(m_drawWidget, 1);
     
     auto* controlsLayout = new QHBoxLayout;
@@ -72,10 +93,10 @@ void MosCircuitArchitect::setupUi() {
     
     auto* polyCheck = new QCheckBox("Polyline Mode");
     auto* revBtn = new QPushButton("Reverse Time");
-    auto* squareBtn = new QPushButton("Gen Square");
-    auto* bitBtn = new QPushButton("Gen Bitstream");
-    auto* scaleUpBtn = new QPushButton("Scale (x1.1)");
-    auto* scaleDownBtn = new QPushButton("Scale (x0.9)");
+    auto* squareBtn = new QPushButton("Square Wave...");
+    auto* bitBtn = new QPushButton("Bitstream...");
+    auto* scaleUpBtn = new QPushButton("Value x1.1");
+    auto* scaleDownBtn = new QPushButton("Value x0.9");
     
     advLayout->addWidget(polyCheck, 0, 0);
     advLayout->addWidget(revBtn, 0, 1);
@@ -102,7 +123,7 @@ void MosCircuitArchitect::setupUi() {
     formLayout->addRow("Topology:", m_topologyCombo);
     rightLayout->addLayout(formLayout);
     
-    auto* paramLabel = new QLabel("Circuit Parameters:");
+    auto* paramLabel = new QLabel("Circuit Parameters (Auto-Synced to .tran):");
     paramLabel->setStyleSheet("font-weight: bold; color: #a1a1aa;");
     rightLayout->addWidget(paramLabel);
     
@@ -119,18 +140,16 @@ void MosCircuitArchitect::setupUi() {
     
     m_previewArea = new QTextEdit;
     m_previewArea->setReadOnly(true);
-    m_previewArea->setStyleSheet("background-color: #0d0d0f; color: #10b981; font-family: monospace;");
+    m_previewArea->setStyleSheet("background-color: #0d0d0f; color: #10b981; font-family: monospace; font-size: 11pt; border: 1px solid #3f3f46;");
     rightLayout->addWidget(m_previewArea, 2);
     
     auto* btnLayout = new QHBoxLayout;
-    m_generateBtn = new QPushButton("Generate Netlist");
-    m_generateBtn->setStyleSheet("background-color: #27272a; padding: 6px 12px;");
-    m_verifyBtn = new QPushButton("Run Verification in Simulator");
-    m_verifyBtn->setStyleSheet("background-color: #007acc; color: white; font-weight: bold; padding: 6px 12px;");
+    m_runBtn = new QPushButton("Apply & Run Simulation");
+    m_runBtn->setStyleSheet("background-color: #10b981; color: white; font-weight: bold; padding: 10px 20px; font-size: 11pt;");
     
-    btnLayout->addWidget(m_generateBtn);
     btnLayout->addStretch();
-    btnLayout->addWidget(m_verifyBtn);
+    btnLayout->addWidget(m_runBtn);
+    btnLayout->addStretch();
     rightLayout->addLayout(btnLayout);
     
     splitter->addWidget(leftPanel);
@@ -141,8 +160,7 @@ void MosCircuitArchitect::setupUi() {
     
     // Connects
     connect(m_topologyCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MosCircuitArchitect::onTopologyChanged);
-    connect(m_generateBtn, &QPushButton::clicked, this, &MosCircuitArchitect::onGenerateClicked);
-    connect(m_verifyBtn, &QPushButton::clicked, this, &MosCircuitArchitect::onVerifyClicked);
+    connect(m_runBtn, &QPushButton::clicked, this, &MosCircuitArchitect::onVerifyClicked);
     connect(m_paramTable, &QTableWidget::itemChanged, this, &MosCircuitArchitect::onParameterChanged);
 }
 
@@ -163,6 +181,10 @@ void MosCircuitArchitect::onTopologyChanged(int index) {
     if (index < 0 || index >= m_synthesizers.size()) return;
     m_currentSynthesizer = m_synthesizers[index];
     populateParameters();
+    
+    // Auto-sync PERIOD when switching topologies too
+    updateSimulationVision();
+    
     updatePreview();
 }
 
@@ -188,7 +210,7 @@ void MosCircuitArchitect::populateParameters() {
 }
 
 void MosCircuitArchitect::onParameterChanged() {
-    // Only manual updates via the Generate button for now, to save performance when actively typing
+    updatePreview();
 }
 
 void MosCircuitArchitect::updatePreview() {
@@ -211,54 +233,167 @@ void MosCircuitArchitect::updatePreview() {
     m_previewArea->setPlainText(netlist);
 }
 
+void MosCircuitArchitect::updateSimulationVision() {
+    // Look for active schematic editor to detect .tran timing
+    SchematicEditor* editor = nullptr;
+    for (auto* widget : QApplication::topLevelWidgets()) {
+        if (auto* e = qobject_cast<SchematicEditor*>(widget)) {
+            if (!editor || e->isActiveWindow()) editor = e;
+        }
+    }
+    
+    if (!editor) return;
+    
+    SchematicView* view = nullptr;
+    QTabWidget* tabWidget = editor->findChild<QTabWidget*>();
+    if (tabWidget) view = qobject_cast<SchematicView*>(tabWidget->currentWidget());
+    if (!view) view = editor->findChild<SchematicView*>();
+    
+    if (view && view->scene()) {
+        double tranStop = 0;
+        for (auto* item : view->scene()->items()) {
+            if (auto* directive = dynamic_cast<SchematicSpiceDirectiveItem*>(item)) {
+                QString text = directive->text().toUpper();
+                if (text.contains(".TRAN")) {
+                    QStringList parts = text.split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
+                    if (parts.size() >= 3) {
+                         SimValueParser::parseSpiceNumber(parts[2].toStdString(), tranStop);
+                    }
+                }
+            }
+        }
+        if (tranStop > 0) {
+            QString tranStr = QString::number(tranStop, 'g', 6);
+            for (int i = 0; i < m_paramTable->rowCount(); ++i) {
+                if (m_paramTable->item(i, 0)->text() == "PERIOD") {
+                    m_paramTable->item(i, 1)->setText(tranStr);
+                    break;
+                }
+            }
+        }
+    }
+}
+
 void MosCircuitArchitect::onGenerateClicked() {
-    updatePreview();
+    // This is now replaced by Apply & Run Simulation workflow
 }
 
 void MosCircuitArchitect::onVerifyClicked() {
+    qDebug() << "[MosArchitect] Apply & Run Triggered.";
+    
+    // 1. Force vision sync and preview update
+    updateSimulationVision();
     updatePreview();
-    QString netlist = m_previewArea->toPlainText();
-    if (netlist.isEmpty() || netlist.contains("No points drawn")) {
-        QMessageBox::warning(this, "Empty Model", "Cannot verify an empty model. Please draw a waveform.");
-        return;
-    }
     
-    // Construct automated testbench wrapper
-    QString tb;
-    tb += "* Verification Testbench for MosCircuitArchitect\n";
-    tb += netlist + "\n";
-    
-    QString vddVal = "5V";
-    if (m_paramTable->rowCount() > 0 && m_paramTable->item(0, 0)->text() == "VDD") {
-        vddVal = m_paramTable->item(0, 1)->text();
+    // 2. Perform Placement
+    QGraphicsScene* scene = nullptr;
+    QPointF placementPos;
+    QUndoStack* stack = nullptr;
+    SchematicView* activeView = nullptr;
+    SchematicEditor* editor = nullptr;
+
+    if (m_sourceItem && m_sourceItem->scene()) {
+        scene = m_sourceItem->scene();
+        placementPos = m_sourceItem->pos();
+        if (!scene->views().isEmpty()) {
+            activeView = qobject_cast<SchematicView*>(scene->views().first());
+        }
+    } else {
+        // Search all top-level windows for an editor
+        for (auto* widget : QApplication::topLevelWidgets()) {
+            if (auto* e = qobject_cast<SchematicEditor*>(widget)) {
+                if (!editor || e->isActiveWindow()) editor = e;
+            }
+        }
+        
+        if (editor) {
+            QTabWidget* tabWidget = editor->findChild<QTabWidget*>();
+            if (tabWidget) activeView = qobject_cast<SchematicView*>(tabWidget->currentWidget());
+            if (!activeView) activeView = editor->findChild<SchematicView*>();
+        }
+        
+        if (activeView && activeView->scene()) {
+            scene = activeView->scene();
+            placementPos = activeView->mapToScene(activeView->viewport()->rect().center());
+        }
     }
 
-    tb += "Vdd vdd_node 0 " + vddVal + "\n";
-    tb += "X_target out_node vdd_node 0 CUSTOM_WAVE_GEN\n";
-    tb += "Rload out_node 0 1Meg\n";
-    
-    // Determine transient timing based on drawn points x-axis max
-    double tMax = 1e-3;
-    QVector<QPointF> pts = m_drawWidget->points();
-    if (!pts.isEmpty()) {
-        tMax = pts.last().x() * 1.2; // 20% margin
-        if (tMax <= 0) tMax = 1e-3;
+    if (scene) {
+        QString topoName = m_currentSynthesizer->getTopologyName();
+        QString typeName = "HALF_BRIDGE_POWER_STAGE";
+        if (topoName.contains("Push-Pull")) typeName = "PUSH_PULL_POWER_STAGE";
+        else if (topoName.contains("Matrix")) typeName = "MATRIX_POWER_STAGE";
+        
+        QString refBase = m_sourceItem ? m_sourceItem->reference() : "MOS1";
+        if (refBase.startsWith("V")) refBase = "M" + refBase.mid(1);
+        
+        // Unify model and symbol name to ensure correct SPICE netlisting
+        QString modelName = typeName + "_" + refBase;
+        
+        auto* powerBlock = SchematicItemFactory::instance().createItem(typeName, placementPos, {}, nullptr);
+        if (!powerBlock) return;
+        
+        powerBlock->setReference("X" + refBase);
+        powerBlock->setValue(modelName);
+        if (auto* generic = dynamic_cast<GenericComponentItem*>(powerBlock)) {
+            auto def = generic->symbol();
+            def.setName(modelName);      // Used for instance name
+            def.setModelName(modelName); // Internal consistency
+            generic->setSymbol(def);
+        }
+        
+        QString subckt = m_previewArea->toPlainText();
+        subckt.replace("CUSTOM_WAVE_GEN", modelName);
+        
+        auto* directive = new SchematicSpiceDirectiveItem(subckt);
+        directive->setPos(placementPos + QPointF(120, 100));
+        
+        if (activeView) stack = activeView->undoStack();
+        if (stack) {
+            stack->beginMacro("Apply Power MOS Stage");
+            stack->push(new AddItemCommand(scene, powerBlock));
+            stack->push(new AddItemCommand(scene, directive));
+            if (m_sourceItem) stack->push(new RemoveItemCommand(scene, {m_sourceItem}));
+            stack->endMacro();
+        } else {
+            scene->addItem(powerBlock);
+            scene->addItem(directive);
+        }
+        
+        scene->clearSelection();
+        powerBlock->setSelected(true);
+        if (activeView) activeView->centerOn(powerBlock);
+
+        // 3. Trigger Global Simulation
+        // Find editor if we don't have it
+        if (!editor) {
+            for (auto* widget : QApplication::topLevelWidgets()) {
+                if (auto* e = qobject_cast<SchematicEditor*>(widget)) {
+                    if (e->centralWidget()->findChild<SchematicView*>() == activeView) {
+                        editor = e;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (editor) {
+            qDebug() << "[MosArchitect] Triggering global simulation in editor.";
+            QMetaObject::invokeMethod(editor, "onRunSimulation");
+        } else {
+             qDebug() << "[MosArchitect] Error: Could not find editor to trigger simulation.";
+        }
+
+        close();
+    } else {
+        QMessageBox::warning(this, "No Active Schematic", "Open a schematic first!");
     }
-    double tStep = tMax / 1000.0;
-    
-    tb += QString(".tran %1 %2\n").arg(tStep, 0, 'g', 4).arg(tMax, 0, 'g', 4);
-    tb += ".end\n";
-    
-    // Trigger global simulation. Main app listens to this and spawns WaveformViewer.
-    SimManager::instance().runNetlistText(tb);
-    QMessageBox::information(this, "Verification Started", "The testbench netlist has been submitted to the SPICE engine.\nOnce completed, the raw results will open.");
 }
 
 void MosCircuitArchitect::onSquareClicked() {
     bool ok;
     double duty = QInputDialog::getDouble(this, "Square Wave", "Duty Cycle (0.1 - 0.9):", 0.5, 0.1, 0.9, 2, &ok);
     if (!ok) return;
-
     auto pts = WaveformEngine::generateSquare(duty);
     m_drawWidget->setPoints(pts);
     m_drawWidget->setStepMode(true);
@@ -268,13 +403,28 @@ void MosCircuitArchitect::onSquareClicked() {
 
 void MosCircuitArchitect::onBitstreamClicked() {
     bool ok;
-    QString bits = QInputDialog::getText(this, "Bitstream", "Enter Bits (e.g. 10n110, n is -1):", QLineEdit::Normal, m_lastBitstream.isEmpty() ? "101010" : m_lastBitstream, &ok);
+    QString bits = QInputDialog::getText(this, "Bitstream", "Enter Bits (e.g. 10n110):", QLineEdit::Normal, m_lastBitstream.isEmpty() ? "101010" : m_lastBitstream, &ok);
     if (!ok || bits.isEmpty()) return;
-
     m_lastBitstream = bits;
     auto pts = WaveformEngine::generateBitstream(bits);
     m_drawWidget->setPoints(pts);
     m_drawWidget->setStepMode(true);
     if (m_stepCheck) m_stepCheck->setChecked(true);
+    updatePreview();
+}
+
+void MosCircuitArchitect::setSourceItem(VoltageSourceItem* item) {
+    m_sourceItem = item;
+    if (m_sourceItem) {
+        setWindowTitle("Convert to Power MOS Stage - " + m_sourceItem->reference());
+        auto pts = WaveformEngine::pointsFromVoltageSource(m_sourceItem);
+        if (!pts.isEmpty()) m_drawWidget->setPoints(pts);
+        updateSimulationVision();
+        updatePreview();
+    }
+}
+
+void MosCircuitArchitect::setPoints(const QVector<QPointF>& points) {
+    m_drawWidget->setPoints(points);
     updatePreview();
 }

@@ -124,8 +124,6 @@ endif()
 # -----------------------
 
 # --- FluxScript Support ---
-set(FLUX_BUILD_EDITOR ON CACHE BOOL "Build the FluxEditor GUI module" FORCE)
-set(VIOSPICE_ENABLE_PYTHON ON CACHE BOOL "Enable Python-backed editor features" FORCE)
 add_subdirectory(../fluxscript fluxscript_build)
 add_definitions(-DHAVE_FLUXSCRIPT)
 # -----------------------

@@ -150,7 +150,8 @@ void GenericSymbolPropertiesDialog::addSimulationTab() {
         : m_item->spiceModel().trimmed();
     int comboIndex = -1;
     for (int i = 1; i < m_subcktPicker->count(); ++i) {
-        if (m_subcktPicker->itemData(i).toString().compare(currentModel, Qt::CaseInsensitive) == 0) {
+        if (m_subcktPicker->itemData(i, Qt::UserRole).isValid() && 
+            m_subcktPicker->itemData(i).toString().compare(currentModel, Qt::CaseInsensitive) == 0) {
             comboIndex = i;
             break;
         }
@@ -189,9 +190,11 @@ void GenericSymbolPropertiesDialog::addSimulationTab() {
         if (!m_spiceModelEdit || !m_subcktPicker) return;
         int matchedIndex = -1;
         for (int i = 1; i < m_subcktPicker->count(); ++i) {
-            if (m_subcktPicker->itemText(i).compare(text.trimmed(), Qt::CaseInsensitive) == 0) {
-                matchedIndex = i;
-                break;
+            if (m_subcktPicker->itemData(i, Qt::UserRole).isValid()) { // Safely check user data
+                 if (m_subcktPicker->itemData(i).toString().compare(text.trimmed(), Qt::CaseInsensitive) == 0) {
+                    matchedIndex = i;
+                    break;
+                 }
             }
         }
         if (matchedIndex >= 0) {

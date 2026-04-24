@@ -69,6 +69,7 @@
 #include "../dialogs/jfet_properties_dialog.h"
 #include "../dialogs/mos_properties_dialog.h"
 #include "../dialogs/mesfet_properties_dialog.h"
+#include "../dialogs/power_stage_properties_dialog.h"
 #include "../items/generic_component_item.h"
 #include "../items/voltage_controlled_switch_item.h"
 #include "../dialogs/oscilloscope_properties_dialog.h"
@@ -1401,6 +1402,15 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 }
             }
             return;
+        }
+
+        // Power Stage properties dialog
+        if (item->itemTypeName().contains("Power MOS Stage", Qt::CaseInsensitive)) {
+            if (auto* gen = dynamic_cast<GenericComponentItem*>(item)) {
+                PowerStagePropertiesDialog dlg(gen, m_undoStack, m_scene, this);
+                dlg.exec();
+                return;
+            }
         }
 
         GenericSymbolPropertiesDialog dlg(item, m_undoStack, m_scene, this);
