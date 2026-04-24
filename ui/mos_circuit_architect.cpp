@@ -55,16 +55,16 @@ void MosCircuitArchitect::setupUi() {
     auto* controlsLayout = new QHBoxLayout;
     auto* clearBtn = new QPushButton("Clear Canvas");
     auto* snapCheck = new QCheckBox("Snap to Grid");
-    auto* stepCheck = new QCheckBox("Step Mode");
+    m_stepCheck = new QCheckBox("Step Mode");
     controlsLayout->addWidget(clearBtn);
     controlsLayout->addStretch();
     controlsLayout->addWidget(snapCheck);
-    controlsLayout->addWidget(stepCheck);
+    controlsLayout->addWidget(m_stepCheck);
     leftLayout->addLayout(controlsLayout);
     
     connect(clearBtn, &QPushButton::clicked, m_drawWidget, &WaveformDrawWidget::clearPoints);
     connect(snapCheck, &QCheckBox::toggled, m_drawWidget, &WaveformDrawWidget::setSnapToGrid);
-    connect(stepCheck, &QCheckBox::toggled, m_drawWidget, &WaveformDrawWidget::setStepMode);
+    connect(m_stepCheck, &QCheckBox::toggled, m_drawWidget, &WaveformDrawWidget::setStepMode);
 
     // --- Advanced Tools ---
     auto* advGroup = new QGroupBox("Waveform Options");
@@ -261,15 +261,20 @@ void MosCircuitArchitect::onSquareClicked() {
 
     auto pts = WaveformEngine::generateSquare(duty);
     m_drawWidget->setPoints(pts);
+    m_drawWidget->setStepMode(true);
+    if (m_stepCheck) m_stepCheck->setChecked(true);
     updatePreview();
 }
 
 void MosCircuitArchitect::onBitstreamClicked() {
     bool ok;
-    QString bits = QInputDialog::getText(this, "Bitstream", "Enter Bits (e.g. 10110):", QLineEdit::Normal, "101010", &ok);
+    QString bits = QInputDialog::getText(this, "Bitstream", "Enter Bits (e.g. 10n110, n is -1):", QLineEdit::Normal, m_lastBitstream.isEmpty() ? "101010" : m_lastBitstream, &ok);
     if (!ok || bits.isEmpty()) return;
 
+    m_lastBitstream = bits;
     auto pts = WaveformEngine::generateBitstream(bits);
     m_drawWidget->setPoints(pts);
+    m_drawWidget->setStepMode(true);
+    if (m_stepCheck) m_stepCheck->setChecked(true);
     updatePreview();
 }
