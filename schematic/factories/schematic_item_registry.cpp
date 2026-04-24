@@ -198,8 +198,62 @@ void SchematicItemRegistry::registerBuiltInItems() {
     };
 
     addMosAlias("nmos", false, "2N7000");
-    addMosAlias("nmos4", false, "2N7000");
+    addMosAlias("nmos", false, "2N7000");
     addMosAlias("pmos", true, "BS250");
+
+    // Helper to create Power MOS Stage Symbols
+    auto createPowerStageSymbol = [](const QString& name, const QString& topo) {
+        SymbolDefinition def(name);
+        def.setReferencePrefix("X");
+        def.addPrimitive(SymbolPrimitive::createRect(QRectF(-40, -40, 80, 80)));
+        def.addPrimitive(SymbolPrimitive::createRect(QRectF(-35, -35, 70, 70)));
+        
+        QMap<int, QString> nodeMap;
+        if (topo == "Half-Bridge") {
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, 0), 1, "OUT", "Right", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, -40), 2, "VDD", "Up", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 40), 3, "GND", "Down", 20.0));
+            nodeMap[1] = "out"; nodeMap[2] = "vdd_node"; nodeMap[3] = "gnd_node";
+        } else if (topo == "Push-Pull") {
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, -20), 1, "OUT1", "Right", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, 20), 2, "OUT2", "Right", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 40), 3, "GND", "Down", 20.0));
+            nodeMap[1] = "out1"; nodeMap[2] = "out2"; nodeMap[3] = "gnd_node";
+        } else if (topo == "Matrix") {
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(-40, 0), 1, "IN", "Left", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, 0), 2, "OUT", "Right", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 40), 3, "GND", "Down", 20.0));
+            nodeMap[1] = "in_node"; nodeMap[2] = "out_node"; nodeMap[3] = "gnd_node";
+        }
+        def.setSpiceNodeMapping(nodeMap);
+        return def;
+    };
+
+    // Register Power MOS Stages
+    factory.registerItemType("HALF_BRIDGE_POWER_STAGE", [createPowerStageSymbol](QPointF pos, const QJsonObject&, QGraphicsItem* parent) {
+        auto* item = new GenericComponentItem(createPowerStageSymbol("HALF_BRIDGE_POWER_STAGE", "Half-Bridge"), parent);
+        item->setPos(pos);
+        return item;
+    });
+
+    factory.registerItemType("PUSH_PULL_POWER_STAGE", [createPowerStageSymbol](QPointF pos, const QJsonObject&, QGraphicsItem* parent) {
+        auto* item = new GenericComponentItem(createPowerStageSymbol("PUSH_PULL_POWER_STAGE", "Push-Pull"), parent);
+        item->setPos(pos);
+        return item;
+    });
+
+    factory.registerItemType("MATRIX_POWER_STAGE", [createPowerStageSymbol](QPointF pos, const QJsonObject&, QGraphicsItem* parent) {
+        auto* item = new GenericComponentItem(createPowerStageSymbol("MATRIX_POWER_STAGE", "Matrix"), parent);
+        item->setPos(pos);
+        return item;
+    });
+
+    // Register Power MOS Generator (Legacy/Generic)
+    factory.registerItemType("Power MOS Stage", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new VoltageSourceItem(pos, "POWER_MOS_STAGE", VoltageSourceItem::Behavioral, parent);
+        item->setReference("VMOS");
+        return item;
+    });
     addMosAlias("pmos4", true, "BS250");
 
     // Register LTspice MESFET

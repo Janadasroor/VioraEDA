@@ -5,6 +5,8 @@
 #include <QPointF>
 #include <QString>
 
+class VoltageSourceItem;
+
 namespace WaveformEngine {
 
     // Standard Generators
@@ -34,6 +36,10 @@ namespace WaveformEngine {
     };
 
     QString convertToPwl(QVector<QPointF> points, const ExportParams& params);
+
+    // Parsing existing items
+    QVector<QPointF> pointsFromVoltageSource(const VoltageSourceItem* item);
+    QVector<QPointF> parseSpiceFunction(const QString& spiceFunc);
 }
 
 #endif // WAVEFORM_ENGINE_H

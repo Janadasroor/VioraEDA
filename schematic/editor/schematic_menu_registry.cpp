@@ -16,6 +16,7 @@
 #include "../items/blinking_led_item.h"
 #include "../items/seven_segment_display_item.h"
 #include "../items/tuning_slider_item.h"
+#include "../../ui/mos_circuit_architect.h"
 #include "../ui/simulation_panel.h"
 #include "../analysis/net_manager.h"
 #include "../tools/schematic_net_label_tool.h"
@@ -198,6 +199,41 @@ void SchematicMenuRegistry::initializeDefaultActions() {
         }
     };
     registerGlobalAction(runERC);
+
+    // --- Power Electronics Actions ---
+    ContextAction convertToMos;
+    convertToMos.label = "Convert to Power MOS Stage...";
+    convertToMos.priority = 8;
+    convertToMos.isVisible = [](const auto& items) {
+        if (items.size() != 1) return false;
+        return items.first()->itemType() == SchematicItem::VoltageSourceType;
+    };
+    convertToMos.handler = [](SchematicView* view, const auto& items) {
+        if (items.isEmpty()) return;
+        auto* vsrc = dynamic_cast<VoltageSourceItem*>(items.first());
+        if (!vsrc) return;
+
+        auto* architect = new MosCircuitArchitect(view);
+        architect->setSourceItem(vsrc);
+        architect->show();
+        architect->raise();
+        architect->activateWindow();
+    };
+    registerGlobalAction(convertToMos);
+
+    ContextAction placeMos;
+    placeMos.label = "Place Power MOS Stage...";
+    placeMos.priority = 7;
+    placeMos.isVisible = [](const auto& items) { return items.isEmpty(); };
+    placeMos.handler = [](SchematicView* view, const auto&) {
+        auto* architect = new MosCircuitArchitect(view);
+        architect->show();
+        architect->raise();
+        architect->activateWindow();
+    };
+    registerGlobalAction(placeMos);
+
+    registerGlobalAction(ContextAction::separator(5));
 
     // --- Smart Signal Actions ---
     ContextAction openLogicEditor;

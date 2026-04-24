@@ -40,6 +40,7 @@ using Flux::Model::SymbolPrimitive;
 #include "../../simulator/bridge/sim_schematic_bridge.h"
 #include "../../ui/source_control_panel.h"
 
+#include "../../ui/mos_circuit_architect.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QActionGroup>
@@ -616,6 +617,15 @@ void SchematicEditor::createToolBar() {
     toolsMenu->addAction("Clear ERC Exclusions", QKeySequence(), this, &SchematicEditor::onClearErcExclusions);
     toolsMenu->addAction("Bus Aliases...", QKeySequence(), this, &SchematicEditor::onOpenBusAliasesManager);
     toolsMenu->addAction(createComponentIcon("Netlist"), "Netlist Editor", QKeySequence(), this, &SchematicEditor::onOpenNetlistEditor);
+    toolsMenu->addSeparator();
+    
+    toolsMenu->addAction(getThemeIcon(":/icons/waveform_generator.png"), "Place Power MOS Stage...", QKeySequence(), this, [this]() {
+        auto* architect = new MosCircuitArchitect(this);
+        architect->show();
+        architect->raise();
+        architect->activateWindow();
+    });
+    
     toolsMenu->addSeparator();
 
     if (ConfigManager::instance().isFeatureEnabled("pcb_tools", false)) {

@@ -58,3 +58,4 @@ QString BVMosSynthesizer::synthesizeNetlist(const QString& subcktName,
     
     return out;
 }
+
