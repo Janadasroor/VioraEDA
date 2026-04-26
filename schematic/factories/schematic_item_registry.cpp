@@ -30,6 +30,7 @@
 #include "logic_analyzer_item.h"
 #include "oscilloscope_item.h"
 #include "smart_signal_item.h"
+#include "flux_measurement_item.h"
 #include "instrument_probe_item.h"
 #include "schematic_spice_directive_item.h"
 #include "tuning_slider_symbol_item.h"
@@ -198,7 +199,6 @@ void SchematicItemRegistry::registerBuiltInItems() {
     };
 
     addMosAlias("nmos", false, "2N7000");
-    addMosAlias("nmos", false, "2N7000");
     addMosAlias("pmos", true, "BS250");
 
     // Helper to create Power MOS Stage Symbols
@@ -210,19 +210,19 @@ void SchematicItemRegistry::registerBuiltInItems() {
         
         QMap<int, QString> nodeMap;
         if (topo == "Half-Bridge") {
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, 0), 1, "OUT", "Right", 20.0));
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, -40), 2, "VDD", "Up", 20.0));
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 40), 3, "GND", "Down", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(60, 0), 1, "OUT", "Left", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, -60), 2, "VDD", "Down", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 60), 3, "GND", "Up", 20.0));
             nodeMap[1] = "out"; nodeMap[2] = "vdd_node"; nodeMap[3] = "gnd_node";
         } else if (topo == "Push-Pull") {
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, -20), 1, "OUT1", "Right", 20.0));
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, 20), 2, "OUT2", "Right", 20.0));
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 40), 3, "GND", "Down", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(60, -20), 1, "OUT1", "Left", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(60, 20), 2, "OUT2", "Left", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 60), 3, "GND", "Up", 20.0));
             nodeMap[1] = "out1"; nodeMap[2] = "out2"; nodeMap[3] = "gnd_node";
         } else if (topo == "Matrix") {
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(-40, 0), 1, "IN", "Left", 20.0));
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(40, 0), 2, "OUT", "Right", 20.0));
-            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 40), 3, "GND", "Down", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(-60, 0), 1, "IN", "Right", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(60, 0), 2, "OUT", "Left", 20.0));
+            def.addPrimitive(SymbolPrimitive::createPin(QPointF(0, 60), 3, "GND", "Up", 20.0));
             nodeMap[1] = "in_node"; nodeMap[2] = "out_node"; nodeMap[3] = "gnd_node";
         }
         def.setSpiceNodeMapping(nodeMap);
@@ -555,6 +555,12 @@ void SchematicItemRegistry::registerBuiltInItems() {
 
     factory.registerItemType("Text", [](QPointF pos, const QJsonObject&, QGraphicsItem* parent) -> SchematicItem* {
         return new SchematicTextItem("", pos, parent);
+    });
+
+    factory.registerItemType("Flux Measurement Probe", [](QPointF pos, const QJsonObject& properties, QGraphicsItem* parent) -> SchematicItem* {
+        auto* item = new FluxMeasurementItem(pos, parent);
+        if (!properties.isEmpty()) item->fromJson(properties);
+        return item;
     });
 
     factory.registerItemType("Spice Directive", [](QPointF pos, const QJsonObject&, QGraphicsItem* parent) -> SchematicItem* {

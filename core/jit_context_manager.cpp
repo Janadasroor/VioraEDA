@@ -13,10 +13,56 @@
 
 #include "jit_context_manager.h"
 #include "simulation_manager.h"
+#include "../../simulator/core/sim_results.h"
 #include <flux/compiler/compiler_instance.h>
 #include <flux/runtime/flux_runtime.h>
 #include <QDebug>
 #include <QRegularExpression>
+
+#include "flux_design_rule_bridge.h"
+#include "flux_workspace_bridge.h"
+
+extern "C" {
+    void viora_flux_print(const char* msg) {
+        printf("[STDOUT] %s\n", msg);
+        fflush(stdout);
+        Flux::JITContextManager::instance().logMessage(QString::fromUtf8(msg));
+    }
+    
+    int flux_sim_get_vector_size(const char* name) {
+        auto* res = Flux::JITContextManager::instance().getSimulationResults();
+        if (!res || !name) return 0;
+        std::string n(name);
+        for (const auto& w : res->waveforms) {
+            if (w.name == n) return w.yData.size();
+        }
+        return 0;
+    }
+    
+    double flux_sim_get_vector_val(const char* name, int index) {
+        auto* res = Flux::JITContextManager::instance().getSimulationResults();
+        if (!res || !name) return 0.0;
+        std::string n(name);
+        for (const auto& w : res->waveforms) {
+            if (w.name == n && index >= 0 && index < w.yData.size()) {
+                return w.yData[index];
+            }
+        }
+        return 0.0;
+    }
+    
+    double flux_sim_get_vector_x(const char* name, int index) {
+        auto* res = Flux::JITContextManager::instance().getSimulationResults();
+        if (!res || !name) return 0.0;
+        std::string n(name);
+        for (const auto& w : res->waveforms) {
+            if (w.name == n && index >= 0 && index < w.xData.size()) {
+                return w.xData[index];
+            }
+        }
+        return 0.0;
+    }
+}
 
 namespace Flux {
 
@@ -46,6 +92,26 @@ JITContextManager::JITContextManager() {
     Flux::registerRuntimeFunctions(*m_jit);
     m_jit->registerFunction("flux_get_voltage", (void*)&JITContextManager::getVoltage);
     m_jit->registerFunction("flux_get_current", (void*)&JITContextManager::getCurrent);
+    
+    // Register Design Rule API
+    m_jit->registerFunction("erc_get_component_count", (void*)&flux_erc_get_component_count);
+    m_jit->registerFunction("erc_get_ref", (void*)&flux_erc_get_ref);
+    m_jit->registerFunction("erc_get_value", (void*)&flux_erc_get_value);
+    m_jit->registerFunction("erc_get_type", (void*)&flux_erc_get_type);
+    m_jit->registerFunction("erc_get_pin_count", (void*)&flux_erc_get_pin_count);
+    m_jit->registerFunction("erc_get_pin_net", (void*)&flux_erc_get_pin_net);
+    m_jit->registerFunction("erc_report", (void*)&flux_erc_report);
+    m_jit->registerFunction("erc_set_block_pins", (void*)&flux_erc_set_block_pins);
+    m_jit->registerFunction("print", (void*)&viora_flux_print);
+    m_jit->registerFunction("printf", (void*)&viora_flux_print);
+    m_jit->registerFunction("flux_sim_get_vector_size", (void*)&flux_sim_get_vector_size);
+    m_jit->registerFunction("flux_sim_get_vector_val", (void*)&flux_sim_get_vector_val);
+    m_jit->registerFunction("flux_sim_get_vector_x", (void*)&flux_sim_get_vector_x);
+    
+    // Register Workspace Bridge
+    m_jit->registerFunction("get_var", (void*)&flux_get_var);
+    m_jit->registerFunction("schematic_set_prop", (void*)&flux_set_prop);
+    m_jit->registerFunction("schematic_set_prop_str", (void*)&flux_set_prop_str);
 #endif
 }
 
@@ -87,12 +153,25 @@ bool JITContextManager::compileAndLoad(const QString& id, const QString& source,
     QString uniqueFuncName = QString("update_%1_%2").arg(safeId).arg(salt++);
 
     QString wrapped = transformedSource;
-    static const QRegularExpression updateDefRe(R"(^\s*(def\s+)?update\s*[\({])");
-    if (!updateDefRe.match(transformedSource).hasMatch()) {
-        wrapped = QString("def %1(t, inputs) {\n%2\n}").arg(uniqueFuncName, transformedSource);
+    bool isStandalone = id.startsWith("standalone_");
+
+    if (isStandalone) {
+        // Wrap standalone scripts in a callable function if they don't look like they have one
+        if (!transformedSource.contains("def main")) {
+            wrapped = QString("def %1() {\n%2\n}").arg(uniqueFuncName, transformedSource);
+        } else {
+             // If it has main, we'll try to call main directly
+             wrapped = transformedSource;
+             uniqueFuncName = "main";
+        }
     } else {
-        // Rename 'update' to uniqueFuncName
-        wrapped.replace(updateDefRe, QString("def %1(").arg(uniqueFuncName));
+        static const QRegularExpression updateDefRe(R"(^\s*(def\s+)?update\s*[\({])");
+        if (!updateDefRe.match(transformedSource).hasMatch()) {
+            wrapped = QString("def %1(t, inputs) {\n%2\n}").arg(uniqueFuncName, transformedSource);
+        } else {
+            // Rename 'update' to uniqueFuncName
+            wrapped.replace(updateDefRe, QString("def %1(").arg(uniqueFuncName));
+        }
     }
 
     CompilerOptions options;
@@ -144,6 +223,26 @@ void JITContextManager::reset() {
     Flux::registerRuntimeFunctions(*m_jit);
     m_jit->registerFunction("flux_get_voltage", (void*)&JITContextManager::getVoltage);
     m_jit->registerFunction("flux_get_current", (void*)&JITContextManager::getCurrent);
+    
+    // Register Design Rule API
+    m_jit->registerFunction("erc_get_component_count", (void*)&flux_erc_get_component_count);
+    m_jit->registerFunction("erc_get_ref", (void*)&flux_erc_get_ref);
+    m_jit->registerFunction("erc_get_value", (void*)&flux_erc_get_value);
+    m_jit->registerFunction("erc_get_type", (void*)&flux_erc_get_type);
+    m_jit->registerFunction("erc_get_pin_count", (void*)&flux_erc_get_pin_count);
+    m_jit->registerFunction("erc_get_pin_net", (void*)&flux_erc_get_pin_net);
+    m_jit->registerFunction("erc_report", (void*)&flux_erc_report);
+    m_jit->registerFunction("erc_set_block_pins", (void*)&flux_erc_set_block_pins);
+    m_jit->registerFunction("print", (void*)&viora_flux_print);
+    m_jit->registerFunction("printf", (void*)&viora_flux_print);
+    m_jit->registerFunction("flux_sim_get_vector_size", (void*)&flux_sim_get_vector_size);
+    m_jit->registerFunction("flux_sim_get_vector_val", (void*)&flux_sim_get_vector_val);
+    m_jit->registerFunction("flux_sim_get_vector_x", (void*)&flux_sim_get_vector_x);
+    
+    // Register Workspace Bridge
+    m_jit->registerFunction("get_var", (void*)&flux_get_var);
+    m_jit->registerFunction("schematic_set_prop", (void*)&flux_set_prop);
+    m_jit->registerFunction("schematic_set_prop_str", (void*)&flux_set_prop_str);
 #endif
 }
 
@@ -168,7 +267,25 @@ void JITContextManager::setInputPinMapping(const QString& id, const QStringList&
 #endif
 }
 
+void JITContextManager::setSimulationResults(const SimResults* results) {
+#ifdef HAVE_FLUXSCRIPT
+    std::lock_guard<std::mutex> lock(m_funcMutex);
+    m_lastResults = results;
+#else
+    Q_UNUSED(results);
+#endif
+}
+
+const SimResults* JITContextManager::getSimulationResults() const {
+#ifdef HAVE_FLUXSCRIPT
+    return m_lastResults;
+#else
+    return nullptr;
+#endif
+}
+
 void JITContextManager::logMessage(const QString& msg) {
+    qDebug() << "[JIT Context] logMessage:" << msg;
     Q_EMIT scriptOutput(msg);
 }
 

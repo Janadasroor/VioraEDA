@@ -59,6 +59,7 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 #include "../ui/logic_analyzer_window.h"
 #include "../ui/logic_editor_panel.h"
 #include "../items/smart_signal_item.h"
+#include "../ui/flux_script_editor_tab.h"
 
 #include <QApplication>
 #include <QFileInfo>
@@ -80,6 +81,9 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 #include "schematic_item.h"
 #include "schematic/dialogs/oscilloscope_properties_dialog.h"
 #include "schematic_menu_registry.h"
+#include "../core/flux_workspace_bridge.h"
+
+using namespace Flux::Core;
 
 SchematicEditor::SchematicEditor(QWidget *parent)
     : QMainWindow(parent),
@@ -136,10 +140,14 @@ SchematicEditor::SchematicEditor(QWidget *parent)
       m_hierarchyPanel(nullptr),
       m_hierarchyTree(nullptr),
       m_ercRules(SchematicERCRules::defaultRules()),
+      m_customRulesSet(new DesignRuleSet("Custom Rules", this)),
       m_quickOpenDialog(nullptr),
       m_miniMap(nullptr),
       m_toggleMiniMapAction(nullptr)
 {
+    // Register with Flux Bridge
+    Flux::Core::set_active_schematic_api(m_api);
+
     setWindowTitle("viospice - Schematic Editor");
     setMinimumSize(640, 480);
     resize(1024, 720);
@@ -685,6 +693,34 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     view->setFocus();
 }
 
+void SchematicEditor::addScriptTab(const QString& filePath) {
+    // Check if already open
+    if (!filePath.isEmpty()) {
+        for (int i = 0; i < m_workspaceTabs->count(); ++i) {
+            if (m_workspaceTabs->widget(i)->property("filePath").toString() == filePath) {
+                m_workspaceTabs->setCurrentIndex(i);
+                return;
+            }
+        }
+    }
+
+    auto* scriptTab = new Flux::ScriptEditorTab(m_scene, m_netManager, this);
+    QString name = filePath.isEmpty() ? "New Script.flux" : QFileInfo(filePath).fileName();
+
+    int idx = m_workspaceTabs->addTab(scriptTab, getThemeIcon(":/icons/tool_run.svg"), name);    scriptTab->setProperty("filePath", filePath);
+    scriptTab->setProperty("tabType", "script");
+    
+    if (!filePath.isEmpty()) {
+        scriptTab->openFile(filePath);
+    }
+    
+    connect(scriptTab, &Flux::ScriptEditorTab::modificationChanged, this, [this, idx](bool mod) {
+        updateTabModifiedIndicator(idx, mod);
+    });
+
+    m_workspaceTabs->setCurrentIndex(idx);
+}
+
 void SchematicEditor::onTabChanged(int index) {
     if (index < 0) {
         m_view = nullptr;
@@ -793,6 +829,26 @@ void SchematicEditor::closeTab(int index) {
     if (w == m_simulationPanel) {
         m_workspaceTabs->removeTab(index);
         return; // Don't delete the simulation panel, just hide the tab
+    }
+
+    if (auto* scriptTab = qobject_cast<Flux::ScriptEditorTab*>(w)) {
+        if (scriptTab->isModified()) {
+            QMessageBox::StandardButton reply = QMessageBox::question(
+                this, "Unsaved Changes",
+                QString("The script '%1' has unsaved changes. Save them now?")
+                    .arg(QFileInfo(scriptTab->currentFilePath()).fileName()),
+                QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel
+            );
+
+            if (reply == QMessageBox::Yes) {
+                if (!scriptTab->saveFile()) return; // Cancel close if save fails
+            } else if (reply == QMessageBox::Cancel) {
+                return;
+            }
+        }
+        m_workspaceTabs->removeTab(index);
+        scriptTab->deleteLater();
+        return;
     }
 
     // LogicEditor guard: if we are closing the scene it's currently editing

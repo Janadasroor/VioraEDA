@@ -1,7 +1,11 @@
 #include "tuning_slider_item.h"
+#include "../core/flux_workspace_bridge.h"
+#include "../core/jit_context_manager.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
 #include <QCursor>
+#include <QFile>
+#include <QTextStream>
 #include <cmath>
 
 static QString formatSpiceValue(double val) {
@@ -113,8 +117,30 @@ void TuningSliderItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event) {
 void TuningSliderItem::updateTargetValue() {
     if (m_target) {
         m_target->setValue(formatSpiceValue(m_currentValue));
-        Q_EMIT valueChanged(m_currentValue);
     }
+    
+    // Update Flux Variable if set
+    if (!m_fluxVarName.isEmpty()) {
+        Flux::Core::FluxWorkspaceBridge::setVariable(m_fluxVarName, m_currentValue);
+        
+        // Execute reactive script if linked
+        if (!m_scriptPath.isEmpty()) {
+            QFile f(m_scriptPath);
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString source = QTextStream(&f).readAll();
+                QMap<int, QString> errors;
+                if (Flux::JITContextManager::instance().compileAndLoad("reactive_slider", source, errors)) {
+                    void* addr = Flux::JITContextManager::instance().getFunctionAddress("reactive_slider");
+                    if (addr) {
+                        typedef void (*RunFunc)();
+                        reinterpret_cast<RunFunc>(addr)();
+                    }
+                }
+            }
+        }
+    }
+
+    Q_EMIT valueChanged(m_currentValue);
 }
 
 double TuningSliderItem::posToValue(double x) const {

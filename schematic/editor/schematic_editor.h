@@ -33,10 +33,11 @@
 class SchematicView;
 class SchematicPageItem;
 class SchematicSpiceDirectiveItem;
-class NetlistEditor;
 class SymbolEditor;
 class SpiceModelArchitect;
 class SourceControlPanel;
+#include "../core/design_rule.h"
+
 #include "../../symbols/models/symbol_definition.h"
 using Flux::Model::SymbolDefinition;
 
@@ -60,6 +61,7 @@ public:
 
     // Workspace Tab Management
     void addSchematicTab(const QString& name = "Untitled.sch");
+    void addScriptTab(const QString& filePath = QString());
     void openSymbolEditorWindow(const QString& name = "New Symbol",
                                 const SymbolDefinition& preBuiltDef = SymbolDefinition());
     void addSimulationTab(const QString& name = "Simulation Results");
@@ -329,6 +331,7 @@ private:
     QMap<QString, QList<QString>> m_busAliases;
     QSet<QString> m_ercExclusions;
     SchematicERCRules m_ercRules;
+    Flux::Core::DesignRuleSet* m_customRulesSet;
 
     // Toolbars
     QToolBar *m_propertyBar;

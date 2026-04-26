@@ -90,18 +90,24 @@ void DesignRuleEditor::setupUI() {
     // Basic Information
     QGroupBox* basicGroup = new QGroupBox("Basic Information");
     QFormLayout* basicLayout = new QFormLayout(basicGroup);
+    basicLayout->setSpacing(20);
+    basicLayout->setContentsMargins(15, 20, 15, 20);
+
+    QString fieldStyle = "QWidget { min-height: 42px; padding: 8px; font-size: 10pt; }";
 
     m_nameEdit = new QLineEdit();
+    m_nameEdit->setStyleSheet(fieldStyle);
     m_nameEdit->setPlaceholderText("e.g., Check Decoupling Capacitors");
     connect(m_nameEdit, &QLineEdit::textChanged, this, &DesignRuleEditor::onNameChanged);
     basicLayout->addRow("Name:", m_nameEdit);
 
     m_descriptionEdit = new QTextEdit();
-    m_descriptionEdit->setMaximumHeight(60);
+    m_descriptionEdit->setMinimumHeight(100);
     m_descriptionEdit->setPlaceholderText("Describe what this rule checks...");
     basicLayout->addRow("Description:", m_descriptionEdit);
 
     m_categoryCombo = new QComboBox();
+    m_categoryCombo->setStyleSheet(fieldStyle);
     m_categoryCombo->addItem("Electrical Rules Check (ERC)", static_cast<int>(RuleCategory::ERC));
     m_categoryCombo->addItem("Design Rules Check (DRC)", static_cast<int>(RuleCategory::DRC));
     m_categoryCombo->addItem("Custom Rule", static_cast<int>(RuleCategory::Custom));
@@ -110,6 +116,7 @@ void DesignRuleEditor::setupUI() {
     basicLayout->addRow("Category:", m_categoryCombo);
 
     m_severityCombo = new QComboBox();
+    m_severityCombo->setStyleSheet(fieldStyle);
     m_severityCombo->addItem("Information", static_cast<int>(RuleSeverity::Info));
     m_severityCombo->addItem("Warning", static_cast<int>(RuleSeverity::Warning));
     m_severityCombo->addItem("Error", static_cast<int>(RuleSeverity::Error));
@@ -119,6 +126,7 @@ void DesignRuleEditor::setupUI() {
     basicLayout->addRow("Default Severity:", m_severityCombo);
 
     m_scopeCombo = new QComboBox();
+    m_scopeCombo->setStyleSheet(fieldStyle);
     m_scopeCombo->addItem("Global", static_cast<int>(RuleScope::Global));
     m_scopeCombo->addItem("Project", static_cast<int>(RuleScope::Project));
     m_scopeCombo->addItem("Sheet", static_cast<int>(RuleScope::Sheet));
@@ -126,13 +134,16 @@ void DesignRuleEditor::setupUI() {
 
     m_enabledCheck = new QCheckBox("Enable this rule");
     m_enabledCheck->setChecked(true);
+    m_enabledCheck->setStyleSheet("QCheckBox { padding-top: 10px; font-weight: bold; }");
     basicLayout->addRow(m_enabledCheck);
 
     mainLayout->addWidget(basicGroup);
 
     // Rule Configuration
     QGroupBox* configGroup = new QGroupBox("Rule Configuration");
+    configGroup->setContentsMargins(15, 15, 15, 15);
     QVBoxLayout* configLayout = new QVBoxLayout(configGroup);
+    configLayout->setSpacing(15);
 
     m_ruleTypeStack = new QStackedWidget();
 
@@ -149,12 +160,22 @@ void DesignRuleEditor::setupUI() {
 
     m_customWidget = new QWidget();
     QVBoxLayout* customLayout = new QVBoxLayout(m_customWidget);
-    m_expressionEdit = new QTextEdit();
-    m_expressionEdit->setPlaceholderText("Python expression...");
-    m_expressionEdit->setFont(QFont("Consolas", 10));
+    m_expressionEdit = new Flux::CodeEditor(nullptr, nullptr, this);
+    m_expressionEdit->setPlaceholderText("FluxScript design rule logic...");
+    m_expressionEdit->updateCompletionKeywords({
+        "erc_get_component_count", "erc_get_ref", "erc_get_value", 
+        "erc_get_type", "erc_get_pin_count", "erc_get_pin_net", "erc_report"
+    });
     customLayout->addWidget(m_expressionEdit);
-    m_expressionHelpLabel = new QLabel("See Help for syntax");
+    
+    m_expressionHelpLabel = new QLabel(
+        "<b>FluxScript API:</b><br/>"
+        "• <i>erc_get_component_count()</i><br/>"
+        "• <i>erc_get_ref(idx)</i>, <i>erc_get_value(idx)</i>, <i>erc_get_type(idx)</i><br/>"
+        "• <i>erc_report(severity, message, comp_idx)</i> (Severity: 1=Warn, 2=Err)"
+    );
     m_expressionHelpLabel->setWordWrap(true);
+    m_expressionHelpLabel->setStyleSheet("color: #71717a; font-size: 9pt;");
     customLayout->addWidget(m_expressionHelpLabel);
     m_ruleTypeStack->addWidget(m_customWidget);
 
@@ -243,7 +264,7 @@ void DesignRuleEditor::loadRuleIntoUI() {
     }
 
     m_enabledCheck->setChecked(m_rule->enabled());
-    m_expressionEdit->setText(m_rule->expression());
+    m_expressionEdit->setPlainText(m_rule->expression());
     m_tagsEdit->setText(m_rule->tags().join(", "));
 
     m_paramsTable->setRowCount(0);
@@ -303,5 +324,13 @@ void DesignRuleEditor::onRemoveParameter() {
 }
 void DesignRuleEditor::onParameterChanged() {}
 void DesignRuleEditor::onExpressionHelp() {
-    QMessageBox::information(this, "Help", "Python expressions: for c in components: assert c.value()");
+    QMessageBox::information(this, "FluxScript Rule Example", 
+        "for i in range(0, erc_get_component_count()) {\n"
+        "    if (erc_get_type(i) == \"Resistor\") {\n"
+        "        if (erc_get_value(i) == \"TBD\") {\n"
+        "            erc_report(2, \"Value not set for resistor\", i);\n"
+        "        }\n"
+        "    }\n"
+        "}"
+    );
 }

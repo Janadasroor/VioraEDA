@@ -30,6 +30,7 @@ class MainWindow;
 #include "../ui/simulation_panel.h"
 #include "../../ui/source_control_manager.h"
 #include "config_manager.h"
+#include "../ui/flux_script_editor_tab.h"
 #include <QMessageBox>
 #include <QRegularExpression>
 #include "theme_manager.h"
@@ -616,6 +617,12 @@ void SchematicEditor::showSchematicTabLoadError(const QString& filePath, const Q
 bool SchematicEditor::openFile(const QString& filePath) {
     if (filePath.isEmpty()) return false;
 
+    // Handle FluxScript files
+    if (filePath.endsWith(".flux", Qt::CaseInsensitive)) {
+        addScriptTab(filePath);
+        return true;
+    }
+
     // Detect and handle project files (.viospice) by opening their schematic instead
     if (filePath.endsWith(".viospice", Qt::CaseInsensitive)) {
         QFile file(filePath);
@@ -812,6 +819,15 @@ void SchematicEditor::onSaveSchematic() {
     }
 
     QWidget* current = m_workspaceTabs->currentWidget();
+    if (auto* scriptTab = qobject_cast<Flux::ScriptEditorTab*>(current)) {
+        if (scriptTab->saveFile()) {
+            updateCurrentTabTitleFromFilePath(scriptTab->currentFilePath());
+            statusBar()->showMessage(QString("Saved: %1").arg(scriptTab->currentFilePath()), 3000);
+            m_isSaving = false;
+            return;
+        }
+    }
+
     if (auto* textEditor = qobject_cast<QPlainTextEdit*>(current)) {
         const QString textPath = textEditor->property("filePath").toString();
         if (!textPath.isEmpty() && isTextFile(textPath)) {
@@ -887,6 +903,25 @@ void SchematicEditor::onSaveSchematicAs() {
     }
 
     QWidget* current = m_workspaceTabs->currentWidget();
+    if (auto* scriptTab = qobject_cast<Flux::ScriptEditorTab*>(current)) {
+        QString defaultPath = scriptTab->currentFilePath();
+        if (defaultPath.isEmpty()) {
+            defaultPath = m_projectDir.isEmpty() ? QDir::homePath() : m_projectDir;
+        }
+        QString filePath = QFileDialog::getSaveFileName(
+            this, "Save FluxScript As",
+            defaultPath,
+            "FluxScript Files (*.flux);;All Files (*)"
+        );
+        if (filePath.isEmpty()) return;
+
+        if (scriptTab->saveFile(filePath)) {
+            updateCurrentTabTitleFromFilePath(filePath);
+            statusBar()->showMessage(QString("Saved: %1").arg(filePath), 3000);
+        }
+        return;
+    }
+
     if (auto* textEditor = qobject_cast<QPlainTextEdit*>(current)) {
         QString defaultPath = textEditor->property("filePath").toString();
         if (defaultPath.isEmpty()) {
@@ -1103,6 +1138,10 @@ void SchematicEditor::onResetAnnotations() {
 #include "../dialogs/bus_aliases_dialog.h"
 
 
+#include "../core/design_rule_engine.h"
+
+using namespace Flux::Core;
+
 void SchematicEditor::onRunERC() {
     // 1. Clear previous markers
     for (QGraphicsItem* item : m_scene->items()) {
@@ -1113,10 +1152,46 @@ void SchematicEditor::onRunERC() {
     }
 
     m_ercList->clear();
+
+    // 2. Run standard ERC matrix
     QList<ERCViolation> violations = SchematicERC::run(m_scene, m_projectDir, m_netManager, m_ercRules);
-    
-    if (violations.isEmpty()) {
-        statusBar()->showMessage("ERC Check Passed: No violations found. ✨", 5000);
+
+    // 3. Run Custom FluxScript Rules
+    if (m_customRulesSet) {
+        DesignRuleEngine engine;
+        engine.setRuleSet(m_customRulesSet);
+        engine.run(m_scene, m_netManager);
+
+        for (const auto& dv : engine.violations()) {
+            ERCViolation ev;
+            ev.message = dv.message;
+            ev.position = dv.position;
+            ev.netName = dv.netName;
+            ev.category = ERCViolation::Custom;
+
+            // Map severities
+            switch(dv.severity) {
+                case RuleSeverity::Critical: ev.severity = ERCViolation::Critical; break;
+                case RuleSeverity::Error:    ev.severity = ERCViolation::Error; break;
+                default:                     ev.severity = ERCViolation::Warning; break;
+            }
+
+            // Try to find the associated item in scene
+            if (!dv.objectRef.isEmpty()) {
+                for (auto* item : m_scene->items()) {
+                    if (auto* si = dynamic_cast<SchematicItem*>(item)) {
+                        if (si->reference() == dv.objectRef) {
+                            ev.item = si;
+                            break;
+                        }
+                    }
+                }
+            }
+            violations.append(ev);
+        }
+    }
+
+    if (violations.isEmpty()) {        statusBar()->showMessage("ERC Check Passed: No violations found. ✨", 5000);
         QMessageBox::information(this, "ERC Results", "No electrical rules violations found. Your schematic looks clean!");
         m_ercDock->hide();
     } else {

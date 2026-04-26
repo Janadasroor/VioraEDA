@@ -39,6 +39,11 @@ ERCDiagnosticsPanel::ERCDiagnosticsPanel(QWidget* parent) : QWidget(parent) {
     connect(m_severityFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ERCDiagnosticsPanel::onFilterChanged);
     toolbarLayout->addWidget(m_severityFilter);
 
+    QPushButton* rulesBtn = new QPushButton("Rules...");
+    rulesBtn->setToolTip("Configure Electrical Rules and Custom FluxScript Rules");
+    connect(rulesBtn, &QPushButton::clicked, this, &ERCDiagnosticsPanel::configureRulesRequested);
+    toolbarLayout->addWidget(rulesBtn);
+
     toolbarLayout->addStretch();
 
     QPushButton* aiBtn = new QPushButton("✨ AI Fix");

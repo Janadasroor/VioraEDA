@@ -2,12 +2,16 @@
 #include "../items/tuning_slider_symbol_item.h"
 #include <QFormLayout>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QPushButton>
+#include <QFileDialog>
 
 TuningSliderPropertiesDialog::TuningSliderPropertiesDialog(TuningSliderSymbolItem* item, QWidget* parent)
     : QDialog(parent) {
     setWindowTitle("Slider Properties");
+    resize(500, 350);
     
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     QFormLayout* form = new QFormLayout();
@@ -31,9 +35,22 @@ TuningSliderPropertiesDialog::TuningSliderPropertiesDialog(TuningSliderSymbolIte
     form->addRow("Max Value:", m_maxSpin);
     form->addRow("Current Value:", m_currentSpin);
 
+    // Flux Integration
+    m_fluxVarEdit = new QLineEdit(item->fluxVariableName());
+    m_fluxVarEdit->setPlaceholderText("e.g., target_freq");
+    form->addRow("Flux Variable:", m_fluxVarEdit);
+
+    QHBoxLayout* scriptLayout = new QHBoxLayout();
+    m_scriptPathEdit = new QLineEdit(item->reactiveScript());
+    QPushButton* browseBtn = new QPushButton("...");
+    browseBtn->setFixedWidth(30);
+    scriptLayout->addWidget(m_scriptPathEdit);
+    scriptLayout->addWidget(browseBtn);
+    form->addRow("Reactive Script:", scriptLayout);
+
     mainLayout->addLayout(form);
 
-    auto* note = new QLabel("Use this parameter in other components as {NAME}.");
+    auto* note = new QLabel("Reactive scripts allow one slider to control multiple components.");
     note->setStyleSheet("color: #888; font-style: italic;");
     mainLayout->addWidget(note);
 
@@ -41,4 +58,9 @@ TuningSliderPropertiesDialog::TuningSliderPropertiesDialog(TuningSliderSymbolIte
     connect(bbox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(bbox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     mainLayout->addWidget(bbox);
+
+    connect(browseBtn, &QPushButton::clicked, [this]() {
+        QString path = QFileDialog::getOpenFileName(this, "Select Reactive Script", "", "FluxScript (*.flux)");
+        if (!path.isEmpty()) m_scriptPathEdit->setText(path);
+    });
 }

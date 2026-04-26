@@ -11,6 +11,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include "../core/design_rule.h"
+#include "../ui/flux_code_editor.h"
 
 using namespace Flux::Core;
 
@@ -53,7 +54,7 @@ private:
     QWidget* m_ercWidget;
     QWidget* m_drcWidget;
     QWidget* m_customWidget;
-    QTextEdit* m_expressionEdit;
+    Flux::CodeEditor* m_expressionEdit;
     QLabel* m_expressionHelpLabel;
     QTableWidget* m_paramsTable;
     QPushButton* m_addParamBtn;

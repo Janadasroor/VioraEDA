@@ -42,6 +42,9 @@ private:
     void setupUi();
     Q_INVOKABLE void applyTheme();
     void deleteItem(const QString& path, bool isDir);
+    void createNewFile(const QString& dirPath, const QString& extension);
+    void createNewFolder(const QString& dirPath);
+    void duplicateItem(const QString& path);
     void undoLastDelete();
     QString trashDir() const;
 

@@ -35,6 +35,12 @@ public:
     double currentValue() const { return m_current; }
     void setCurrentValue(double v);
 
+    QString fluxVariableName() const { return m_fluxVarName; }
+    void setFluxVariableName(const QString& name) { m_fluxVarName = name; }
+
+    QString reactiveScript() const { return m_scriptPath; }
+    void setReactiveScript(const QString& path) { m_scriptPath = path; }
+
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
     void mouseMoveEvent(QGraphicsSceneMouseEvent* event) override;
@@ -45,9 +51,11 @@ private:
     double valueToPos(double val) const;
     void triggerRealTimeUpdate();
 
-    double m_min = 0.0;
-    double m_max = 100.0;
-    double m_current = 50.0;
+    double m_min = 0;
+    double m_max = 100;
+    double m_current = 50;
+    QString m_fluxVarName;
+    QString m_scriptPath;
     bool m_dragging = false;
 
     const double m_width = 120.0;

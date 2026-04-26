@@ -16,6 +16,7 @@
 class WaveformDrawWidget; 
 class QCheckBox;
 class WaveformViewer;
+class SchematicItem;
 class VoltageSourceItem;
 struct SimResults;
 
@@ -26,12 +27,11 @@ public:
     explicit MosCircuitArchitect(QWidget *parent = nullptr);
     ~MosCircuitArchitect() override;
 
-    void setSourceItem(VoltageSourceItem* item);
+    void setSourceItem(SchematicItem* item);
     void setPoints(const QVector<QPointF>& points);
 
 private Q_SLOTS:
     void onTopologyChanged(int index);
-    void onGenerateClicked();
     void onVerifyClicked();
     void onParameterChanged();
     void onSquareClicked();
@@ -51,7 +51,7 @@ private:
     QTextEdit* m_previewArea;
     QPushButton* m_runBtn;
     QString m_lastBitstream;
-    VoltageSourceItem* m_sourceItem;
+    SchematicItem* m_sourceItem;
 
     QList<IMosWaveformSynthesizer*> m_synthesizers;
     IMosWaveformSynthesizer* m_currentSynthesizer;

@@ -93,20 +93,23 @@ void LogicEditorPanel::setScene(QGraphicsScene* scene, NetManager* netManager) {
 void LogicEditorPanel::refreshTemplates() {
     m_templateList->clear();
     
-    // Look for templates in python/templates
-    QString templatesPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../python/templates");
+    QString appPath = QCoreApplication::applicationDirPath();
+    QString templatesPath = QDir(appPath).absoluteFilePath("../python/templates");
     if (!QFile::exists(templatesPath)) {
-        templatesPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("python/templates");
+        templatesPath = QDir(appPath).absoluteFilePath("python/templates");
     }
 
     QDir dir(templatesPath);
-    QStringList files = dir.entryList({"*.py"}, QDir::Files);
+    QStringList files = dir.entryList({"*.flux", "*.py"}, QDir::Files);
     
     for (const QString& file : files) {
         QString displayName = file.section('.', 0, 0).replace('_', ' ').toUpper();
-        auto* item = new QListWidgetItem(displayName);
+        bool isFlux = file.endsWith(".flux");
+        
+        auto* item = new QListWidgetItem(displayName + (isFlux ? "" : " (Legacy)"));
         item->setData(Qt::UserRole, dir.absoluteFilePath(file));
         item->setToolTip("Double-click to insert: " + file);
+        if (isFlux) item->setForeground(QColor("#4ade80")); // Green for Flux
         m_templateList->addItem(item);
     }
 }
@@ -117,8 +120,41 @@ void LogicEditorPanel::onTemplateDoubleClicked(QListWidgetItem* item) {
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QString content = QTextStream(&file).readAll();
         m_editor->setPlainText(content);
+        
+        // --- Pin Auto-Shaper ---
+        if (m_targetBlock) {
+            bool pinsModified = false;
+            
+            // Look for # INPUTS: pin1, pin2...
+            QRegularExpression inRe("#\\s*INPUTS:\\s*(.*)", QRegularExpression::CaseInsensitiveOption);
+            auto mIn = inRe.match(content);
+            if (mIn.hasMatch()) {
+                QStringList inPins = mIn.captured(1).split(",", Qt::SkipEmptyParts);
+                for (auto& p : inPins) p = p.trimmed();
+                m_targetBlock->setInputPins(inPins);
+                pinsModified = true;
+            }
+
+            // Look for # OUTPUTS: pin1...
+            QRegularExpression outRe("#\\s*OUTPUTS:\\s*(.*)", QRegularExpression::CaseInsensitiveOption);
+            auto mOut = outRe.match(content);
+            if (mOut.hasMatch()) {
+                QStringList outPins = mOut.captured(1).split(",", Qt::SkipEmptyParts);
+                for (auto& p : outPins) p = p.trimmed();
+                m_targetBlock->setOutputPins(outPins);
+                pinsModified = true;
+            }
+
+            if (pinsModified) {
+                m_pinMapper->setPins(m_targetBlock->inputPins(), m_targetBlock->outputPins());
+                m_targetBlock->update();
+                m_statusLabel->setText("Template loaded & Pins Auto-Shaped: " + item->text());
+            } else {
+                m_statusLabel->setText("Template loaded: " + item->text());
+            }
+        }
+
         updatePreview();
-        m_statusLabel->setText("Template loaded: " + item->text());
     }
 }
 
@@ -173,6 +209,19 @@ void LogicEditorPanel::setupUi() {
     m_stopBtn->setStyleSheet("background: #3c3c3c; color: #cccccc; padding: 6px 12px; border-radius: 4px;");
     toolLayout->addWidget(m_stopBtn);
 
+    toolLayout->addSpacing(20);
+    toolLayout->addWidget(new QLabel("Source File:"));
+    m_fileLinkEdit = new QLineEdit();
+    m_fileLinkEdit->setPlaceholderText("Link to .flux file...");
+    m_fileLinkEdit->setMinimumWidth(200);
+    m_fileLinkEdit->setStyleSheet("background: #252526; color: #ccc; border: 1px solid #3e3e42; padding: 4px;");
+    toolLayout->addWidget(m_fileLinkEdit);
+
+    m_browseFileBtn = new QPushButton("...");
+    m_browseFileBtn->setFixedWidth(30);
+    m_browseFileBtn->setStyleSheet("background: #3c3c3c; color: #ccc;");
+    toolLayout->addWidget(m_browseFileBtn);
+
     toolLayout->addStretch();
     m_engineLabel = new QLabel("Engine:");
     m_engineLabel->setStyleSheet("color: #888; font-weight: bold; margin-left: 10px;");
@@ -185,6 +234,27 @@ void LogicEditorPanel::setupUi() {
 
     connect(m_engineCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LogicEditorPanel::onEngineChanged);
     
+    connect(m_browseFileBtn, &QPushButton::clicked, [this]() {
+        QString path = QFileDialog::getOpenFileName(this, "Select FluxScript", "", "FluxScript (*.flux)");
+        if (!path.isEmpty()) m_fileLinkEdit->setText(path);
+    });
+
+    connect(m_fileLinkEdit, &QLineEdit::textChanged, [this](const QString& path) {
+        if (!m_targetBlock) return;
+        m_targetBlock->setScriptFile(path);
+        
+        if (!path.isEmpty()) {
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_editor->setPlainText(QTextStream(&f).readAll());
+                m_editor->setReadOnly(true);
+            }
+        } else {
+            m_editor->setReadOnly(false);
+            m_editor->setPlainText(m_targetBlock->fluxCode());
+        }
+    });
+
     mainLayout->addWidget(toolbar);
 
     // Tab 1: Logic Editor
@@ -499,7 +569,19 @@ void LogicEditorPanel::setTargetBlock(SmartSignalItem* item) {
         m_engineCombo->setCurrentIndex(0);  // Always FluxScript
         m_engineCombo->blockSignals(false);
 
+        m_fileLinkEdit->setText(m_targetBlock->scriptFile());
         m_editor->setPlainText(m_targetBlock->fluxCode());
+        
+        // If linked to file, load its content into editor (read-only)
+        if (!m_targetBlock->scriptFile().isEmpty()) {
+            QFile f(m_targetBlock->scriptFile());
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_editor->setPlainText(QTextStream(&f).readAll());
+                m_editor->setReadOnly(true);
+            }
+        } else {
+            m_editor->setReadOnly(false);
+        }
         
         // Populate Pins
         m_pinMapper->setPins(m_targetBlock->inputPins(), m_targetBlock->outputPins());

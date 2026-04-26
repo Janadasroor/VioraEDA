@@ -473,147 +473,243 @@ void ProjectExplorerWidget::onFilterChanged(const QString& text) {
 
 void ProjectExplorerWidget::onContextMenuRequested(const QPoint& pos) {
     QModelIndex index = m_treeView->indexAt(pos);
-    if (!index.isValid()) return;
-
-    QModelIndex sourceIndex = m_proxyModel->mapToSource(index);
-    QString path = m_model->filePath(sourceIndex);
-    if (path.isEmpty()) return;
-
-    QFileInfo info(path);
+    
     QMenu menu(this);
-
-    if (info.isFile()) {
-        QAction* openAct = menu.addAction("Open");
-        connect(openAct, &QAction::triggered, this, [this, path]() { Q_EMIT fileDoubleClicked(path); });
-
-        QAction* openExtAct = menu.addAction("Open in External Editor");
-        connect(openExtAct, &QAction::triggered, this, [path]() {
-            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
-        });
-
-        if (info.suffix().toLower() == "flxsch") {
-            menu.addSeparator();
-            QAction* netlistAct = menu.addAction("Extract Netlist");
-            connect(netlistAct, &QAction::triggered, this, [this, path]() {
-                const QString projectDir = QFileInfo(path).absolutePath();
-                const QString baseName = QFileInfo(path).completeBaseName();
-                const QString outPath = projectDir + "/" + baseName + ".cir";
-
-                // Remove stale output so we can detect fresh creation
-                QFile::remove(outPath);
-
-                QString cliPath = QCoreApplication::applicationDirPath() + "/viora";
-                if (!QFile::exists(cliPath)) {
-                    cliPath = "viora";
-                }
-
-                QProcess proc;
-                proc.setWorkingDirectory(projectDir);
-                proc.start(cliPath, {"schematic-netlist", path, "--out", outPath});
-                proc.waitForFinished(30000);
-
-                if (QFile::exists(outPath) && QFileInfo(outPath).size() > 0) {
-                    QMessageBox::information(this, "Extract Netlist",
-                        "Netlist saved to:\n" + outPath);
-                } else {
-                    QString err = QString::fromUtf8(proc.readAllStandardError());
-                    QMessageBox::warning(this, "Extract Netlist",
-                        "Failed to extract netlist.\n" + err);
-                }
-            });
-        }
-
-        const QString suffix = info.suffix().toLower();
-        if (suffix == "cir" || suffix == "spice" || suffix == "net") {
-            menu.addSeparator();
-            QAction* fromNetlistAct = menu.addAction("New Schematic from Netlist");
-            connect(fromNetlistAct, &QAction::triggered, this, [this, path]() {
-                const QString baseName = QFileInfo(path).completeBaseName();
-                const QString outDir = QFileInfo(path).absolutePath();
-                const QString outPath = outDir + "/" + baseName + "_from_netlist.flxsch";
-
-                auto result = NetlistToSchematic::convert(path, outPath);
-                if (result.success) {
-                    QMessageBox::information(this, "New Schematic from Netlist",
-                        QString("Created schematic with %1 components and %2 air wires.\n\n%3")
-                            .arg(result.componentCount)
-                            .arg(result.airWireCount)
-                            .arg(result.outputPath));
-                    Q_EMIT fileDoubleClicked(result.outputPath);
-                } else {
-                    QMessageBox::warning(this, "New Schematic from Netlist",
-                        "Failed to generate schematic:\n" + result.errorMessage);
-                }
-            });
-        }
+    QString path;
+    bool isDir = false;
+    
+    if (index.isValid()) {
+        QModelIndex sourceIndex = m_proxyModel->mapToSource(index);
+        path = m_model->filePath(sourceIndex);
+        isDir = m_model->isDir(sourceIndex);
     } else {
-        QAction* expandAct = menu.addAction(m_treeView->isExpanded(index) ? "Collapse" : "Expand");
-        connect(expandAct, &QAction::triggered, this, [this, index]() {
-            if (m_treeView->isExpanded(index)) m_treeView->collapse(index);
-            else m_treeView->expand(index);
-        });
+        path = m_rootPath;
+        isDir = true;
     }
 
+    if (path.isEmpty()) return;
+    QFileInfo info(path);
+    QString parentDir = isDir ? path : info.absolutePath();
+
+    // --- New Section ---
+    QMenu* newMenu = menu.addMenu("New...");
+    newMenu->addAction("New Schematic", [this, parentDir]() { createNewFile(parentDir, "flxsch"); });
+    newMenu->addAction("New FluxScript", [this, parentDir]() { createNewFile(parentDir, "flux"); });
+    newMenu->addAction("New SPICE Model", [this, parentDir]() { createNewFile(parentDir, "model"); });
+    newMenu->addSeparator();
+    newMenu->addAction("New Folder...", [this, parentDir]() { createNewFolder(parentDir); });
+    
     menu.addSeparator();
 
-    QAction* renameAct = menu.addAction("Rename...");
-    connect(renameAct, &QAction::triggered, this, [this, path, info]() {
-        const QString currentName = info.fileName();
-        bool ok = false;
-        QString newName = QInputDialog::getText(this, "Rename", "New name:", QLineEdit::Normal, currentName, &ok);
-        if (!ok || newName.isEmpty() || newName == currentName) return;
+    if (index.isValid()) {
+        if (!isDir) {
+            QAction* openAct = menu.addAction("Open");
+            connect(openAct, &QAction::triggered, this, [this, path]() { Q_EMIT fileDoubleClicked(path); });
 
-        const QString newPath = info.absoluteDir().absoluteFilePath(newName);
-        if (QFileInfo::exists(newPath)) {
-            QMessageBox::warning(this, "Rename Failed", "A file or folder with that name already exists.");
-            return;
+            QAction* openExtAct = menu.addAction("Open in External Editor");
+            connect(openExtAct, &QAction::triggered, this, [path]() {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+            });
+            
+            QAction* duplicateAct = menu.addAction("Duplicate");
+            connect(duplicateAct, &QAction::triggered, this, [this, path]() { duplicateItem(path); });
+
+            if (info.suffix().toLower() == "flxsch") {
+                menu.addSeparator();
+                QAction* netlistAct = menu.addAction("Extract Netlist");
+                connect(netlistAct, &QAction::triggered, this, [this, path]() {
+                    const QString projectDir = QFileInfo(path).absolutePath();
+                    const QString baseName = QFileInfo(path).completeBaseName();
+                    const QString outPath = projectDir + "/" + baseName + ".cir";
+
+                    // Remove stale output so we can detect fresh creation
+                    QFile::remove(outPath);
+
+                    QString cliPath = QCoreApplication::applicationDirPath() + "/viora";
+                    if (!QFile::exists(cliPath)) {
+                        cliPath = "viora";
+                    }
+
+                    QProcess proc;
+                    proc.setWorkingDirectory(projectDir);
+                    proc.start(cliPath, {"schematic-netlist", path, "--out", outPath});
+                    proc.waitForFinished(30000);
+
+                    if (QFile::exists(outPath) && QFileInfo(outPath).size() > 0) {
+                        QMessageBox::information(this, "Extract Netlist",
+                            "Netlist saved to:\n" + outPath);
+                    } else {
+                        QString err = QString::fromUtf8(proc.readAllStandardError());
+                        QMessageBox::warning(this, "Extract Netlist",
+                            "Failed to extract netlist.\n" + err);
+                    }
+                });
+            }
+
+            const QString suffix = info.suffix().toLower();
+            if (suffix == "cir" || suffix == "spice" || suffix == "net") {
+                menu.addSeparator();
+                QAction* fromNetlistAct = menu.addAction("New Schematic from Netlist");
+                connect(fromNetlistAct, &QAction::triggered, this, [this, path]() {
+                    const QString baseName = QFileInfo(path).completeBaseName();
+                    const QString outDir = QFileInfo(path).absolutePath();
+                    const QString outPath = outDir + "/" + baseName + "_from_netlist.flxsch";
+
+                    auto result = NetlistToSchematic::convert(path, outPath);
+                    if (result.success) {
+                        QMessageBox::information(this, "New Schematic from Netlist",
+                            QString("Created schematic with %1 components and %2 air wires.\n\n%3")
+                                .arg(result.componentCount)
+                                .arg(result.airWireCount)
+                                .arg(result.outputPath));
+                        Q_EMIT fileDoubleClicked(result.outputPath);
+                    } else {
+                        QMessageBox::warning(this, "New Schematic from Netlist",
+                            "Failed to generate schematic:\n" + result.errorMessage);
+                    }
+                });
+            }
+        } else {
+            QAction* expandAct = menu.addAction(m_treeView->isExpanded(index) ? "Collapse" : "Expand");
+            connect(expandAct, &QAction::triggered, this, [this, index]() {
+                if (m_treeView->isExpanded(index)) m_treeView->collapse(index);
+                else m_treeView->expand(index);
+            });
         }
-        bool success = info.isDir() ? QDir().rename(path, newPath) : QFile::rename(path, newPath);
-        if (!success) {
-            QMessageBox::warning(this, "Rename Failed", "Could not rename item.");
-            return;
-        }
-        onRefreshRequested();
-    });
 
-    QAction* deleteAct = menu.addAction("Delete");
-    connect(deleteAct, &QAction::triggered, this, [this, path, info]() {
-        const QString name = info.fileName();
-        QMessageBox::StandardButton reply = QMessageBox::question(
-            this, "Confirm Delete",
-            QString("Are you sure you want to delete '%1'?\n\nThe file will be moved to trash and can be restored with Undo Delete.").arg(name),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        menu.addSeparator();
 
-        if (reply != QMessageBox::Yes) return;
-        deleteItem(path, info.isDir());
-    });
+        QAction* renameAct = menu.addAction("Rename...");
+        connect(renameAct, &QAction::triggered, this, [this, path, info]() {
+            const QString currentName = info.fileName();
+            bool ok = false;
+            QString newName = QInputDialog::getText(this, "Rename", "New name:", QLineEdit::Normal, currentName, &ok);
+            if (!ok || newName.isEmpty() || newName == currentName) return;
 
-    QAction* undoAct = menu.addAction("Undo Delete  (Ctrl+Z)");
-    undoAct->setEnabled(!m_deleteHistory.isEmpty());
-    connect(undoAct, &QAction::triggered, this, [this]() { undoLastDelete(); });
-
-    menu.addSeparator();
-
-    QAction* copyPathAct = menu.addAction("Copy Path");
-    connect(copyPathAct, &QAction::triggered, this, [path]() {
-        QApplication::clipboard()->setText(path);
-    });
-
-    if (!m_rootPath.isEmpty()) {
-        const QString rel = QDir(m_rootPath).relativeFilePath(path);
-        QAction* copyRelAct = menu.addAction("Copy Relative Path");
-        connect(copyRelAct, &QAction::triggered, this, [rel]() {
-            QApplication::clipboard()->setText(rel);
+            const QString newPath = info.absoluteDir().absoluteFilePath(newName);
+            if (QFileInfo::exists(newPath)) {
+                QMessageBox::warning(this, "Rename Failed", "A file or folder with that name already exists.");
+                return;
+            }
+            bool success = info.isDir() ? QDir().rename(path, newPath) : QFile::rename(path, newPath);
+            if (!success) {
+                QMessageBox::warning(this, "Rename Failed", "Could not rename item.");
+                return;
+            }
+            onRefreshRequested();
         });
-    }
 
-    QAction* revealAct = menu.addAction("Reveal in File Manager");
-    connect(revealAct, &QAction::triggered, this, [path, info]() {
-        const QString dir = info.isDir() ? path : info.absolutePath();
-        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
-    });
+        QAction* deleteAct = menu.addAction("Delete");
+        connect(deleteAct, &QAction::triggered, this, [this, path, info]() {
+            const QString name = info.fileName();
+            QMessageBox::StandardButton reply = QMessageBox::question(
+                this, "Confirm Delete",
+                QString("Are you sure you want to delete '%1'?\n\nThe file will be moved to trash and can be restored with Undo Delete.").arg(name),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+            if (reply != QMessageBox::Yes) return;
+            deleteItem(path, info.isDir());
+        });
+
+        QAction* undoAct = menu.addAction("Undo Delete  (Ctrl+Z)");
+        undoAct->setEnabled(!m_deleteHistory.isEmpty());
+        connect(undoAct, &QAction::triggered, this, [this]() { undoLastDelete(); });
+
+        menu.addSeparator();
+
+        QAction* copyPathAct = menu.addAction("Copy Path");
+        connect(copyPathAct, &QAction::triggered, this, [path]() {
+            QApplication::clipboard()->setText(path);
+        });
+
+        if (!m_rootPath.isEmpty()) {
+            const QString rel = QDir(m_rootPath).relativeFilePath(path);
+            QAction* copyRelAct = menu.addAction("Copy Relative Path");
+            connect(copyRelAct, &QAction::triggered, this, [rel]() {
+                QApplication::clipboard()->setText(rel);
+            });
+        }
+
+        QAction* revealAct = menu.addAction("Reveal in File Manager");
+        connect(revealAct, &QAction::triggered, this, [path, info]() {
+            const QString dir = info.isDir() ? path : info.absolutePath();
+            QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+        });
+    } else {
+        // Workspace root context menu actions (when clicking empty space)
+        QAction* refreshAct = menu.addAction("Refresh Explorer");
+        connect(refreshAct, &QAction::triggered, this, &ProjectExplorerWidget::onRefreshRequested);
+    }
 
     menu.exec(m_treeView->viewport()->mapToGlobal(pos));
+}
+
+void ProjectExplorerWidget::createNewFile(const QString& dirPath, const QString& extension) {
+    bool ok;
+    QString defaultName = "untitled." + extension;
+    QString fileName = QInputDialog::getText(this, "New File", "File Name:", QLineEdit::Normal, defaultName, &ok);
+    if (!ok || fileName.isEmpty()) return;
+
+    if (!fileName.contains('.')) fileName += "." + extension;
+
+    QString fullPath = dirPath + "/" + fileName;
+    if (QFile::exists(fullPath)) {
+        QMessageBox::warning(this, "Error", "File already exists!");
+        return;
+    }
+
+    QFile file(fullPath);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        // Basic template content based on extension
+        if (extension == "flxsch") {
+            file.write("{\"version\": \"1.0\", \"items\": []}");
+        } else if (extension == "flux") {
+            file.write("// FluxScript Automation\n\nprint(\"Hello from VioSpice!\");\n");
+        }
+        file.close();
+        onRefreshRequested();
+        Q_EMIT fileDoubleClicked(fullPath);
+    } else {
+        QMessageBox::critical(this, "Error", "Could not create file.");
+    }
+}
+
+void ProjectExplorerWidget::createNewFolder(const QString& dirPath) {
+    bool ok;
+    QString folderName = QInputDialog::getText(this, "New Folder", "Folder Name:", QLineEdit::Normal, "new_folder", &ok);
+    if (!ok || folderName.isEmpty()) return;
+
+    QString fullPath = dirPath + "/" + folderName;
+    if (QDir(fullPath).exists()) {
+        QMessageBox::warning(this, "Error", "Folder already exists!");
+        return;
+    }
+
+    if (QDir().mkdir(fullPath)) {
+        onRefreshRequested();
+    } else {
+        QMessageBox::critical(this, "Error", "Could not create folder.");
+    }
+}
+
+void ProjectExplorerWidget::duplicateItem(const QString& path) {
+    QFileInfo info(path);
+    QString base = info.completeBaseName();
+    QString ext = info.suffix().isEmpty() ? "" : "." + info.suffix();
+    QString dir = info.absolutePath();
+    
+    QString newPath;
+    int i = 1;
+    do {
+        newPath = dir + "/" + base + "_copy" + (i > 1 ? QString::number(i) : "") + ext;
+        i++;
+    } while (QFile::exists(newPath));
+
+    if (QFile::copy(path, newPath)) {
+        onRefreshRequested();
+    } else {
+        QMessageBox::critical(this, "Error", "Could not duplicate file.");
+    }
 }
 
 QString ProjectExplorerWidget::trashDir() const {

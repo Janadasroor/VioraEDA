@@ -35,6 +35,8 @@ using Flux::Model::SymbolDefinition;
 using Flux::Model::SymbolPrimitive;
 #include "../items/schematic_item.h"
 #include "../items/smart_signal_item.h"
+#include "../items/flux_measurement_item.h"
+#include "../../core/jit_context_manager.h"
 #include "../ui/logic_editor_panel.h"
 #include "../items/schematic_waveform_marker.h"
 #include "../../simulator/bridge/sim_schematic_bridge.h"
@@ -210,11 +212,12 @@ QIcon SchematicEditor::createComponentIcon(const QString& name) {
         painter.drawRect(22, 10, 4, 12); // Vertical bar (door/up)
     } else if (name == "Wire") {
         return getThemeIcon(":/icons/tool_wire.svg");
-    } else if (name == "Probe" || name == "Voltage Probe" || name == "Current Probe" || name == "Power Probe" || name == "Logic Probe" || name == "Simulator") {
+    } else if (name == "Probe" || name == "Voltage Probe" || name == "Current Probe" || name == "Power Probe" || name == "Logic Probe" || name == "Flux Measurement Probe" || name == "Simulator") {
         QString iconPath = ":/icons/tool_probe.svg";
         if (name == "Voltage Probe") iconPath = ":/icons/tool_voltage_probe.svg";
         else if (name == "Current Probe") iconPath = ":/icons/tool_current_probe.svg";
         else if (name == "Power Probe") iconPath = ":/icons/tool_power_probe.svg";
+        else if (name == "Flux Measurement Probe") iconPath = ":/icons/tool_search.svg"; // Use search icon to distinguish it
         return getThemeIcon(iconPath);
     } else if (name == "Bus") {
         return getThemeIcon(":/icons/tool_bus.svg");
@@ -1179,8 +1182,8 @@ void SchematicEditor::createToolBar() {
         moreMenu->clear();
         QStringList ordered = {
             "Select", "Probe", "Voltage Probe", "Current Probe", "Power Probe",
-            "Zoom Area", "Wire", "Bus", "Bus Entry", "Net Label", "Global Label",
-            "Hierarchical Port", "Sheet", "No-Connect", "GND", "VCC",
+            "Flux Measurement Probe",
+            "Zoom Area", "Wire", "Bus", "Bus Entry", "Net Label", "Global Label",            "Hierarchical Port", "Sheet", "No-Connect", "GND", "VCC",
             "Voltmeter (DC)", "Voltmeter (AC)", "Ammeter (DC)", "Ammeter (AC)",
             "Wattmeter", "Power Meter", "Frequency Counter", "Logic Probe", "Oscilloscope Instrument",
             "Resistor", "Capacitor", "Diode", "Transistor", "IC", "RAM",
@@ -1404,12 +1407,16 @@ void SchematicEditor::createDockWidgets() {
     ercLayout->addWidget(m_ercList);
 
     QHBoxLayout* ercControlLayout = new QHBoxLayout();
+    QPushButton* rulesBtn = new QPushButton("Rules...");
     QPushButton* ignoreSelectedBtn = new QPushButton("Ignore Selected");
     QPushButton* clearIgnoredBtn = new QPushButton("Clear Ignored");
+    ercControlLayout->addWidget(rulesBtn);
     ercControlLayout->addWidget(ignoreSelectedBtn);
     ercControlLayout->addWidget(clearIgnoredBtn);
     ercControlLayout->addStretch();
     ercLayout->addLayout(ercControlLayout);
+
+    connect(rulesBtn, &QPushButton::clicked, this, &SchematicEditor::onOpenERCRulesConfig);
 
     QPushButton* aiFixBtn = new QPushButton("Ask Gemini for Fixes ✨");
     if (ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light) {
@@ -1979,11 +1986,51 @@ void SchematicEditor::connectSimulationSignals() {
         }
     });
 
-    connect(&sim, &SimManager::simulationFinished, this, [this](const SimResults&) {
+    connect(&sim, &SimManager::simulationFinished, this, [this](const SimResults& results) {
         if (m_simConfig.type != SimAnalysisType::RealTime) {
             m_simulationRunning = false;
             updateSimulationUiState(false, "Simulation finished.");
         }
+        
+#ifdef HAVE_FLUXSCRIPT
+        if (m_scene) {
+            Flux::JITContextManager::instance().setSimulationResults(&results);
+            
+            for (auto* item : m_scene->items()) {
+                if (auto* probe = dynamic_cast<FluxMeasurementItem*>(item)) {
+                    QString expr = probe->expression();
+                    
+                    // Priority: External File > Embedded Expression
+                    if (!probe->scriptFile().isEmpty()) {
+                        QFile f(probe->scriptFile());
+                        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                            expr = QTextStream(&f).readAll();
+                        }
+                    }
+
+                    if (!expr.contains("return")) {
+                        expr = "return " + expr + ";";
+                    }
+                    
+                    QMap<int, QString> errors;
+                    // Provide a unique ID per probe
+                    QString id = "probe_" + probe->id().toString().replace("-", "");
+                    if (Flux::JITContextManager::instance().compileAndLoad("standalone_" + id, expr, errors)) {
+                        void* addr = Flux::JITContextManager::instance().getFunctionAddress("standalone_" + id);
+                        if (addr) {
+                            typedef double (*RunFunc)();
+                            double val = reinterpret_cast<RunFunc>(addr)();
+                            probe->setResult(QString::number(val, 'g', 4));
+                        }
+                    } else {
+                        probe->setResult("ERR");
+                    }
+                }
+            }
+            
+            Flux::JITContextManager::instance().setSimulationResults(nullptr);
+        }
+#endif
     });
 
     connect(&sim, &SimManager::simulationStopped, this, [this]() {

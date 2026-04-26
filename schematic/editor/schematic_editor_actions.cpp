@@ -70,6 +70,7 @@
 #include "../dialogs/mos_properties_dialog.h"
 #include "../dialogs/mesfet_properties_dialog.h"
 #include "../dialogs/power_stage_properties_dialog.h"
+#include "../items/flux_measurement_item.h"
 #include "../items/generic_component_item.h"
 #include "../items/voltage_controlled_switch_item.h"
 #include "../dialogs/oscilloscope_properties_dialog.h"
@@ -865,7 +866,15 @@ void SchematicEditor::onSelectionChanged() {
 
 void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
     if (!item) return;
-    
+
+    // 0. High Priority Specialized Handlers
+    if (item->itemTypeName() == "Flux Measurement Probe") {
+        if (auto* probe = dynamic_cast<FluxMeasurementItem*>(item)) {
+            probe->openPropertiesDialog();
+            return;
+        }
+    }
+
     // 1. Specialized Smart Dialogs
     bool smartEnabled = ConfigManager::instance().isFeatureEnabled("ux.smart_properties_v2", true);
 
@@ -990,6 +999,8 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 newState["min"] = dlg.minValue();
                 newState["max"] = dlg.maxValue();
                 newState["current"] = dlg.currentValue();
+                newState["fluxVar"] = dlg.fluxVar();
+                newState["scriptPath"] = dlg.scriptPath();
                 m_undoStack->push(new BulkChangePropertyCommand(m_scene, slider, newState));
             }
             return;
@@ -1405,7 +1416,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
         }
 
         // Power Stage properties dialog
-        if (item->itemTypeName().contains("Power MOS Stage", Qt::CaseInsensitive)) {
+        if (item->itemTypeName().contains("POWER_STAGE", Qt::CaseInsensitive)) {
             if (auto* gen = dynamic_cast<GenericComponentItem*>(item)) {
                 PowerStagePropertiesDialog dlg(gen, m_undoStack, m_scene, this);
                 dlg.exec();
@@ -2235,12 +2246,13 @@ void SchematicEditor::onOpenCommandPalette() {
 }
 
 void SchematicEditor::onOpenERCRulesConfig() {
-    // Show the existing ERC Matrix Dialog
-    ERCRulesDialog dlg(m_ercRules, this);
+    // Show the existing ERC Matrix Dialog with Custom Rules support
+    ERCRulesDialog dlg(m_ercRules, m_customRulesSet, this);
     if (dlg.exec() == QDialog::Accepted) {
         m_ercRules = dlg.getRules();
+        m_customRulesSet = dlg.getCustomRules();
         m_isModified = true;
-        statusBar()->showMessage("ERC Rules updated.", 3000);
+        statusBar()->showMessage("Electrical rules updated.", 3000);
     }
 }
 

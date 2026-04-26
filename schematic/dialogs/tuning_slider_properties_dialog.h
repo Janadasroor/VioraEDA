@@ -16,9 +16,13 @@ public:
     double minValue() const { return m_minSpin->value(); }
     double maxValue() const { return m_maxSpin->value(); }
     double currentValue() const { return m_currentSpin->value(); }
+    QString fluxVar() const { return m_fluxVarEdit->text(); }
+    QString scriptPath() const { return m_scriptPathEdit->text(); }
 
 private:
     QLineEdit* m_refEdit;
+    QLineEdit* m_fluxVarEdit;
+    QLineEdit* m_scriptPathEdit;
     QDoubleSpinBox* m_minSpin;
     QDoubleSpinBox* m_maxSpin;
     QDoubleSpinBox* m_currentSpin;

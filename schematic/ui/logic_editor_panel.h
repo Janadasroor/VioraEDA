@@ -126,6 +126,9 @@ private:
     QPushButton* m_applyBtn;
     QPushButton* m_bakeBtn;
     
+    QLineEdit* m_fileLinkEdit;
+    QPushButton* m_browseFileBtn;
+    
     QPushButton* m_stepBtn;
     QPushButton* m_resumeBtn;
     QPushButton* m_stopBtn;
