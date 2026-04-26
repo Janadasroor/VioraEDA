@@ -1,5 +1,7 @@
 #include "flux_script_editor_tab.h"
 #include "flux_completer.h"
+#include "flux_workspace_bridge.h"
+#include "../../schematic/editor/schematic_api.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -13,8 +15,8 @@
 
 namespace Flux {
 
-ScriptEditorTab::ScriptEditorTab(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)
-    : QWidget(parent) {
+ScriptEditorTab::ScriptEditorTab(QGraphicsScene* scene, NetManager* netManager, SchematicAPI* api, QWidget* parent)
+    : QWidget(parent), m_api(api) {
     setupUI(scene, netManager);
 }
 
@@ -122,6 +124,14 @@ bool ScriptEditorTab::saveFile(const QString& filePath) {
 
 void ScriptEditorTab::onRunRequested() {
     m_console->append("<i style='color:#71717a;'>Running FluxScript...</i>");
+    
+    // Explicitly set the target for this execution run
+    if (m_api) {
+        Flux::Core::set_active_schematic_api(m_api);
+        m_console->append(QString("<i style='color:#3b82f6;'>Targeting: %1 (%2)</i>")
+            .arg(m_api->projectName(), QFileInfo(m_api->filePath()).fileName()));
+    }
+    
     m_editor->onRunRequested();
 }
 

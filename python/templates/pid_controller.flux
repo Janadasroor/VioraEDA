@@ -1,9 +1,7 @@
-# PID Controller Template
+# PID Controller Template (Clean)
 # INPUTS: setpoint, feedback
 # OUTPUTS: out
 
-let setpoint = inputs[0] in
-let feedback = inputs[1] in
-let error = setpoint - feedback in
-let Kp = 1.5 in
+error = setpoint - feedback
+Kp = 1.5
 error * Kp

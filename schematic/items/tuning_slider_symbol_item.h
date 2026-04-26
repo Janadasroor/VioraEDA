@@ -41,6 +41,9 @@ public:
     QString reactiveScript() const { return m_scriptPath; }
     void setReactiveScript(const QString& path) { m_scriptPath = path; }
 
+    bool isLiveUpdateEnabled() const { return m_liveUpdate; }
+    void setLiveUpdateEnabled(bool enabled) { m_liveUpdate = enabled; }
+
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
     void mouseMoveEvent(QGraphicsSceneMouseEvent* event) override;
@@ -56,6 +59,7 @@ private:
     double m_current = 50;
     QString m_fluxVarName;
     QString m_scriptPath;
+    bool m_liveUpdate = true;
     bool m_dragging = false;
 
     const double m_width = 120.0;

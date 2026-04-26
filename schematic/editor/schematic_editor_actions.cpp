@@ -1001,6 +1001,7 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
                 newState["current"] = dlg.currentValue();
                 newState["fluxVar"] = dlg.fluxVar();
                 newState["scriptPath"] = dlg.scriptPath();
+                newState["liveUpdate"] = dlg.isLiveUpdate();
                 m_undoStack->push(new BulkChangePropertyCommand(m_scene, slider, newState));
             }
             return;
@@ -2475,7 +2476,7 @@ void SchematicEditor::onRewindRequested() {
 
 void SchematicEditor::openLogicEditor(SmartSignalItem* item) {
     if (!m_logicEditorPanel) {
-        m_logicEditorPanel = new LogicEditorPanel(m_scene, m_netManager, this);
+        m_logicEditorPanel = new LogicEditorPanel(m_scene, m_netManager, m_api, this);
         connect(m_logicEditorPanel, &LogicEditorPanel::closed, this, [this]() {
             if (m_logicEditorPanel) m_logicEditorPanel->setTargetBlock(nullptr);
         });

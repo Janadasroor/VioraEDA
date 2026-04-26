@@ -97,6 +97,12 @@ public:
 
     bool load(const QString& path);
     bool save(const QString& path);
+    
+    QString filePath() const { return m_filePath; }
+    void setFilePath(const QString& path) { m_filePath = path; }
+    
+    QString projectName() const { return m_projectName; }
+    void setProjectName(const QString& name) { m_projectName = name; }
 
     // --- Utility ---
     
@@ -110,6 +116,8 @@ private:
 
     QGraphicsScene* m_scene;
     QUndoStack* m_undoStack;
+    QString m_filePath;
+    QString m_projectName;
 };
 
 #endif // SCHEMATIC_API_H
