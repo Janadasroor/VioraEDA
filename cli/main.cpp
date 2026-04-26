@@ -3845,6 +3845,8 @@ int main(int argc, char *argv[]) {
     QCommandLineOption probeAutoOption("auto", "Auto-probe all nets (schematic-probe)");
     QCommandLineOption symbolNameOption("symbol-name", "Symbol name (for KiCad .kicad_sym import)", "symname");
     QCommandLineOption timeoutOption("timeout", "Netlist run timeout (e.g. 10s, 5000ms)", "time", "10s");
+    QCommandLineOption tValueOption("time", "Time value for FluxScript template execution", "value", "0.0");
+    QCommandLineOption inputsOption("inputs", "Input values for FluxScript template (comma separated)", "values", "0.0");
     QCommandLineOption formatOption(QStringList() << "f" << "format", "Output format (netlist: spice|json, raw-export: csv|json|parquet)", "format", "spice");
     QCommandLineOption signalOption("signal", "Signal to export (repeatable, raw-export)", "signame");
     QCommandLineOption exportRawOption("export-raw", "Export raw data after netlist-run (csv|json)", "rawformat");
@@ -3896,6 +3898,8 @@ int main(int argc, char *argv[]) {
     parser.addOption(probeAutoOption);
     parser.addOption(symbolNameOption);
     parser.addOption(timeoutOption);
+    parser.addOption(tValueOption);
+    parser.addOption(inputsOption);
     parser.addOption(formatOption);
     parser.addOption(signalOption);
     parser.addOption(exportRawOption);

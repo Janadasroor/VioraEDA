@@ -47,6 +47,12 @@ private:
     int cmdRepl(const QCommandLineParser& parser,
                 const QStringList& positional,
                 bool quiet);
+    int cmdTemplateList(bool quiet);
+    int cmdTemplateRun(const QCommandLineParser& parser,
+                       const QCommandLineParser& globalParser,
+                       const QStringList& positional,
+                       const QString& outputFile,
+                       bool quiet);
     
     // Helper functions
     int generateNetlist(const QString& code,
