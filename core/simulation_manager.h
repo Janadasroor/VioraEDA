@@ -48,7 +48,8 @@ public:
     void alterSwitchResistance(const QString& resistorName, double resistance);
     void alterSwitchVoltage(const QString& controlSourceName, double voltage);
     
-    // Thread-safe update queuing for Flux smart blocks
+    // Thread-safe update queuing for real-time tuning (Flux or Sliders)
+    void queueParameterUpdate(const QString& name, double value);
     void queueFluxSourceUpdate(const QString& sourceName, double value);
 
     // --- FluxScript JIT Targets ---

@@ -499,6 +499,7 @@ QPlainTextEdit* createTextEditor(QWidget* parent, const QString& content, const 
 void SchematicEditor::setProjectContext(const QString& projectName, const QString& projectDir, const QStringList& workspaceFolders) {
     m_projectName = projectName;
     m_projectDir = projectDir;
+    if (m_api) m_api->setProjectName(projectName);
 
     if (m_projectExplorer && !projectDir.isEmpty()) {
         // Use the live workspace folders passed from ProjectManager (never stale)
@@ -739,6 +740,7 @@ bool SchematicEditor::openFile(const QString& filePath) {
     QJsonObject loadedSimulationSetup;
     if (SchematicFileIO::loadSchematic(m_scene, filePath, loadedPageSize, m_titleBlock, &embeddedScript, &loadedBusAliases, &loadedErcExclusions, &loadedSimulationSetup)) {
         m_currentFilePath = filePath;
+        if (m_api) m_api->setFilePath(filePath);
         syncWsState();
         updateGeminiProjectEffect();
         m_currentPageSize = loadedPageSize;
@@ -1018,6 +1020,7 @@ void SchematicEditor::onSaveSchematicAs() {
         }
 
         m_currentFilePath = filePath;
+        if (m_api) m_api->setFilePath(filePath);
         updateGeminiProjectEffect();
         m_isModified = false;
         if (m_undoStack) m_undoStack->setClean();

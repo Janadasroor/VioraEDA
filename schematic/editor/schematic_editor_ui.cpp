@@ -2754,6 +2754,49 @@ void SchematicEditor::onRunSimulation() {
     SimManager::instance().runNgspiceSimulation(netlist, config);
 }
 
+void SchematicEditor::runSimulationConfig(const SimulationSetupDialog::Config& uiConfig) {
+    if (!m_scene || !m_netManager) return;
+
+    SimAnalysisConfig config;
+    if (uiConfig.type == SimAnalysisType::Transient) {
+        config.type = SimAnalysisType::Transient;
+        config.tStart = 0;
+        config.tStop = uiConfig.stop;
+        config.tStep = uiConfig.step;
+        config.transientStopAtSteadyState = uiConfig.transientSteady;
+        config.transientSteadyStateTol = uiConfig.steadyStateTol;
+        config.transientSteadyStateDelay = uiConfig.steadyStateDelay;
+        config.transientStorageMode = SimTransientStorageMode::AutoDecimate;
+        config.transientMaxStoredPoints = 50000;
+    } else if (uiConfig.type == SimAnalysisType::OP) {
+        config.type = SimAnalysisType::OP;
+    } else if (uiConfig.type == SimAnalysisType::AC) {
+        config.type = SimAnalysisType::AC;
+        config.fStart = uiConfig.fStart > 0.0 ? uiConfig.fStart : 10.0;
+        config.fStop = uiConfig.fStop > 0.0 ? uiConfig.fStop : 1e6;
+        config.fPoints = uiConfig.pts > 0 ? uiConfig.pts : 10;
+    } else if (uiConfig.type == SimAnalysisType::SParameter) {
+        config.type = SimAnalysisType::SParameter;
+        config.fStart = uiConfig.fStart > 0.0 ? uiConfig.fStart : 10.0;
+        config.fStop = uiConfig.fStop > 0.0 ? uiConfig.fStop : 1e6;
+        config.fPoints = uiConfig.pts > 0 ? uiConfig.pts : 10;
+        config.rfPort1Source = uiConfig.rfPort1Source.toStdString();
+        config.rfPort2Node = uiConfig.rfPort2Node.toStdString();
+        config.rfZ0 = uiConfig.rfZ0 > 0.0 ? uiConfig.rfZ0 : 50.0;
+    } else if (uiConfig.type == SimAnalysisType::RealTime) {
+        config.type = SimAnalysisType::RealTime;
+        config.tStep = uiConfig.step > 0 ? uiConfig.step : 10e-6;
+    }
+
+    // Trigger Engine via Ngspice backend asynchronously.
+    updateSimulationUiState(true, "Generating netlist...");
+    QString netlist = SimManager::instance().generateNetlist(m_scene, m_netManager, config, m_projectDir);
+    SimManager::instance().compileFluxScripts(m_scene);
+    
+    updateSimulationUiState(true, "Starting simulation...");
+    SimManager::instance().runNgspiceSimulation(netlist, config);
+}
+
 void SchematicEditor::onPauseSimulation() {
     if (!m_simulationRunning) {
         onRunSimulation();

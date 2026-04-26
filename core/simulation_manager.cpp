@@ -779,10 +779,10 @@ void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, dou
 #endif
 }
 
-void SimulationManager::queueFluxSourceUpdate(const QString& sourceName, double value) {
+void SimulationManager::queueParameterUpdate(const QString& name, double value) {
     {
         std::lock_guard<std::mutex> lock(m_jitSyncMutex);
-        m_pendingHighPriorityUpdates[sourceName] = value;
+        m_pendingHighPriorityUpdates[name] = value;
     }
 
     // Guardrail:
@@ -792,6 +792,10 @@ void SimulationManager::queueFluxSourceUpdate(const QString& sourceName, double 
     // halt on the Qt thread, then resume only after cbBGThreadRunning confirms
     // the background thread has actually stopped.
     QMetaObject::invokeMethod(this, [this]() { requestFluxSourceSync(); }, Qt::QueuedConnection);
+}
+
+void SimulationManager::queueFluxSourceUpdate(const QString& sourceName, double value) {
+    queueParameterUpdate(sourceName, value);
 }
 
 void SimulationManager::requestFluxSourceSync() {
@@ -849,8 +853,33 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
     {
         std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
         for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
-            const QString cmd = QString("alter @%1[dc] = %2")
-                                    .arg(it.key(), QString::number(it.value(), 'g', 12));
+            const QString target = it.key();
+            const double val = it.value();
+            QString cmd;
+            
+            // Intelligent Command Generation based on Device Prefix
+            if (target.startsWith('V', Qt::CaseInsensitive) || target.startsWith('I', Qt::CaseInsensitive)) {
+                // Voltage or Current Source
+                cmd = QString("alter @%1[dc] = %2")
+                        .arg(target, QString::number(val, 'g', 12));
+            } else if (target.startsWith('R', Qt::CaseInsensitive)) {
+                // Resistor
+                cmd = QString("alter %1 %2")
+                        .arg(target, QString::number(val, 'g', 12));
+            } else if (target.startsWith('C', Qt::CaseInsensitive)) {
+                // Capacitor
+                cmd = QString("alter %1 C=%2")
+                        .arg(target, QString::number(val, 'g', 12));
+            } else if (target.startsWith('L', Qt::CaseInsensitive)) {
+                // Inductor
+                cmd = QString("alter %1 L=%2")
+                        .arg(target, QString::number(val, 'g', 12));
+            } else {
+                // Generic attempt for subcircuits or other device parameters
+                cmd = QString("alter %1 %2")
+                        .arg(target, QString::number(val, 'g', 12));
+            }
+            
             ngSpice_Command(cmd.toLatin1().data());
         }
 

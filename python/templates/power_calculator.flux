@@ -1,7 +1,5 @@
-# Instantaneous Power Template
+# Power Calculator Template (Clean)
 # INPUTS: voltage, current
 # OUTPUTS: power
 
-let v = inputs[0] in
-let i = inputs[1] in
-v * i
+voltage * current

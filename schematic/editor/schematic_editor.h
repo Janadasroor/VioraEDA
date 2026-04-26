@@ -78,6 +78,8 @@ public:
     void onClearSimulationOverlays();
     void onClearAllProbeMarkers();
     void removeProbeMarkerBySignalName(const QString& signalName);
+    
+    void runSimulationConfig(const SimulationSetupDialog::Config& config);
 
 private Q_SLOTS:
     void onZoomFit();

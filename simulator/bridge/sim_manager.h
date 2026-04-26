@@ -46,6 +46,7 @@ public:
     
     void runRealTime(QGraphicsScene* scene, NetManager* netMgr, int intervalMs = 100);
     void stopRealTime();
+    void updateParameterLive(const QString& name, double value);
 
     // FluxScript JIT Integration
     void compileFluxScripts(QGraphicsScene* scene);

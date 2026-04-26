@@ -1283,6 +1283,11 @@ void SimManager::stopRealTime() {
     Q_EMIT simulationStopped();
 }
 
+void SimManager::updateParameterLive(const QString& name, double value) {
+    if (!isRunning()) return;
+    SimulationManager::instance().queueParameterUpdate(name, value);
+}
+
 void SimManager::onInteractiveStateChanged() {
     // Interactive changes handling
 }

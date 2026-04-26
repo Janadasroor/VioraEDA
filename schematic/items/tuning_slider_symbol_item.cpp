@@ -156,7 +156,13 @@ double TuningSliderSymbolItem::valueToPos(double val) const {
 void TuningSliderSymbolItem::triggerRealTimeUpdate() {
     auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
     if (editor && editor->getSimulationPanel() && editor->getSimulationPanel()->isRealTimeMode()) {
-        editor->getSimulationPanel()->onRunSimulation();
+        if (m_liveUpdate && SimManager::instance().isRunning()) {
+            // High Performance Path: In-place alteration without restart
+            SimManager::instance().updateParameterLive(reference(), m_current);
+        } else {
+            // Legacy Path: Full restart
+            editor->getSimulationPanel()->onRunSimulation();
+        }
     }
 }
 
@@ -168,6 +174,7 @@ QJsonObject TuningSliderSymbolItem::toJson() const {
     j["current"] = m_current;
     j["fluxVar"] = m_fluxVarName;
     j["scriptPath"] = m_scriptPath;
+    j["liveUpdate"] = m_liveUpdate;
     return j;
 }
 
@@ -178,6 +185,7 @@ bool TuningSliderSymbolItem::fromJson(const QJsonObject& json) {
     m_current = json["current"].toDouble(50.0);
     m_fluxVarName = json["fluxVar"].toString();
     m_scriptPath = json["scriptPath"].toString();
+    m_liveUpdate = json["liveUpdate"].toBool(true);
     return true;
 }
 

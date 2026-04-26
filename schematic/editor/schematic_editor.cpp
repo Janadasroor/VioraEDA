@@ -674,13 +674,13 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     qDebug() << "[SchematicEditor] Initializing Logic Editor Panel...";
     if (!m_logicEditorPanel) {
         qDebug() << "[SchematicEditor] Creating NEW LogicEditorPanel...";
-        m_logicEditorPanel = new LogicEditorPanel(scene, netManager, this);
+        m_logicEditorPanel = new LogicEditorPanel(scene, netManager, m_api, this);
         connect(m_logicEditorPanel, &LogicEditorPanel::closed, this, [this]() {
             if (m_logicEditorPanel) m_logicEditorPanel->setTargetBlock(nullptr);
         });
     } else {
         qDebug() << "[SchematicEditor] Updating EXISTING LogicEditorPanel scene...";
-        m_logicEditorPanel->setScene(scene, netManager);
+        m_logicEditorPanel->setScene(scene, netManager, m_api);
     }
     qDebug() << "[SchematicEditor] Logic Editor Panel ready.";
 
@@ -704,7 +704,7 @@ void SchematicEditor::addScriptTab(const QString& filePath) {
         }
     }
 
-    auto* scriptTab = new Flux::ScriptEditorTab(m_scene, m_netManager, this);
+    auto* scriptTab = new Flux::ScriptEditorTab(m_scene, m_netManager, m_api, this);
     QString name = filePath.isEmpty() ? "New Script.flux" : QFileInfo(filePath).fileName();
 
     int idx = m_workspaceTabs->addTab(scriptTab, getThemeIcon(":/icons/tool_run.svg"), name);    scriptTab->setProperty("filePath", filePath);
@@ -785,7 +785,7 @@ void SchematicEditor::onTabChanged(int index) {
             }
         }
         
-        if (m_logicEditorPanel) m_logicEditorPanel->setScene(m_scene, m_netManager);
+        if (m_logicEditorPanel) m_logicEditorPanel->setScene(m_scene, m_netManager, m_api);
         
         // Update Mini-map if visible
         if (m_miniMap && m_miniMap->isVisible()) {
@@ -864,7 +864,7 @@ void SchematicEditor::closeTab(int index) {
             m_logicEditorPanel->flushEdits();
             // If the logic IDE's active scene is the one we're closing, null it out
             if (m_scene == view->scene()) {
-                m_logicEditorPanel->setScene(nullptr, nullptr);
+                m_logicEditorPanel->setScene(nullptr, nullptr, nullptr);
             }
         }
         

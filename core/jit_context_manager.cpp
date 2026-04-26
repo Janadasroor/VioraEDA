@@ -22,48 +22,6 @@
 #include "flux_design_rule_bridge.h"
 #include "flux_workspace_bridge.h"
 
-extern "C" {
-    void viora_flux_print(const char* msg) {
-        printf("[STDOUT] %s\n", msg);
-        fflush(stdout);
-        Flux::JITContextManager::instance().logMessage(QString::fromUtf8(msg));
-    }
-    
-    int flux_sim_get_vector_size(const char* name) {
-        auto* res = Flux::JITContextManager::instance().getSimulationResults();
-        if (!res || !name) return 0;
-        std::string n(name);
-        for (const auto& w : res->waveforms) {
-            if (w.name == n) return w.yData.size();
-        }
-        return 0;
-    }
-    
-    double flux_sim_get_vector_val(const char* name, int index) {
-        auto* res = Flux::JITContextManager::instance().getSimulationResults();
-        if (!res || !name) return 0.0;
-        std::string n(name);
-        for (const auto& w : res->waveforms) {
-            if (w.name == n && index >= 0 && index < w.yData.size()) {
-                return w.yData[index];
-            }
-        }
-        return 0.0;
-    }
-    
-    double flux_sim_get_vector_x(const char* name, int index) {
-        auto* res = Flux::JITContextManager::instance().getSimulationResults();
-        if (!res || !name) return 0.0;
-        std::string n(name);
-        for (const auto& w : res->waveforms) {
-            if (w.name == n && index >= 0 && index < w.xData.size()) {
-                return w.xData[index];
-            }
-        }
-        return 0.0;
-    }
-}
-
 namespace Flux {
 
 static QString cleanId(const QString& id) {
@@ -112,6 +70,9 @@ JITContextManager::JITContextManager() {
     m_jit->registerFunction("get_var", (void*)&flux_get_var);
     m_jit->registerFunction("schematic_set_prop", (void*)&flux_set_prop);
     m_jit->registerFunction("schematic_set_prop_str", (void*)&flux_set_prop_str);
+    m_jit->registerFunction("run_sim", (void*)&flux_run_sim);
+    m_jit->registerFunction("get_project_name", (void*)&flux_get_project_name);
+    m_jit->registerFunction("get_schematic_file", (void*)&flux_get_schematic_file);
 #endif
 }
 
@@ -243,6 +204,9 @@ void JITContextManager::reset() {
     m_jit->registerFunction("get_var", (void*)&flux_get_var);
     m_jit->registerFunction("schematic_set_prop", (void*)&flux_set_prop);
     m_jit->registerFunction("schematic_set_prop_str", (void*)&flux_set_prop_str);
+    m_jit->registerFunction("run_sim", (void*)&flux_run_sim);
+    m_jit->registerFunction("get_project_name", (void*)&flux_get_project_name);
+    m_jit->registerFunction("get_schematic_file", (void*)&flux_get_schematic_file);
 #endif
 }
 

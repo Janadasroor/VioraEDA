@@ -6,18 +6,12 @@
 #include <QString>
 #include <QGraphicsScene>
 #include "diagnostics/debugger.h"
+#include "../../python/cpp/gemini/gemini_panel.h"
+#include "visual_pin_mapper.h"
+#include "flux_code_editor.h"
+#include "../items/smart_signal_item.h"
+#include <QFileSystemWatcher>
 class NetManager;
-class QLineEdit;
-class QPushButton;
-class QLabel;
-
-namespace Flux {
-    class CodeEditor;
-}
-
-class GeminiPanel;
-class SmartSignalItem;
-class QFileSystemWatcher;
 
 /**
  * @brief A standalone Mini-IDE for editing programmable logic blocks.
@@ -25,10 +19,10 @@ class QFileSystemWatcher;
 class LogicEditorPanel : public QMainWindow {
     Q_OBJECT
 public:
-    explicit LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent = nullptr);
+    explicit LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, class SchematicAPI* api, QWidget* parent = nullptr);
     ~LogicEditorPanel() override;
 
-    void setScene(QGraphicsScene* scene, class NetManager* netManager);
+    void setScene(QGraphicsScene* scene, class NetManager* netManager, class SchematicAPI* api);
     void setTargetBlock(SmartSignalItem* item);
     bool isActive() const { return m_targetBlock != nullptr; }
     void flushEdits();
@@ -89,9 +83,12 @@ private:
     void saveCurrentToBlock();
     void updateEditorKeywords();
     void updateParametersTab();
+    void applyTemplatePinShaping(const QString& content);
+    void loadInlineFluxScript(const QString& content, const QString& statusMessage);
 
     QGraphicsScene* m_scene;
     NetManager* m_netManager;
+    class SchematicAPI* m_api;
     QPointer<SmartSignalItem> m_targetBlock;
 
     class QTabWidget* m_tabs;
@@ -134,6 +131,7 @@ private:
     QPushButton* m_stopBtn;
     
     QLabel* m_statusLabel;
+    QLabel* m_schematicLabel;
     class QComboBox* m_engineCombo;
     QLabel* m_engineLabel;
 };

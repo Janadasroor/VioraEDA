@@ -24,6 +24,7 @@
 #include <QMenuBar>
 #include <QDoubleSpinBox>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QComboBox>
@@ -40,12 +41,15 @@
 #include <QMessageBox>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include "flux_completer.h"
+#include "flux_workspace_bridge.h"
+#include "../../schematic/editor/schematic_api.h"
+#include <QFileSystemWatcher>
 #include "visual_pin_mapper.h"
 #include "../../python/cpp/gemini/gemini_panel.h"
-#include <QFileSystemWatcher>
 
-LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, QWidget* parent)
-    : QMainWindow(parent, Qt::Window), m_scene(scene), m_netManager(netManager) {
+LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, SchematicAPI* api, QWidget* parent)
+    : QMainWindow(parent, Qt::Window), m_scene(scene), m_netManager(netManager), m_api(api) {
     qDebug() << "[LogicEditorPanel] Initializing...";
     setAttribute(Qt::WA_DeleteOnClose);
     
@@ -82,79 +86,127 @@ LogicEditorPanel::~LogicEditorPanel() {
     qDebug() << "[LogicEditorPanel] Destroying...";
 }
 
-void LogicEditorPanel::setScene(QGraphicsScene* scene, NetManager* netManager) {
+void LogicEditorPanel::setScene(QGraphicsScene* scene, NetManager* netManager, SchematicAPI* api) {
     m_scene = scene;
     m_netManager = netManager;
+    m_api = api;
     
     if (m_editor) m_editor->setScene(scene, netManager);
     if (m_geminiPanel) m_geminiPanel->setNetManager(netManager);
+    
+    if (m_api && !m_api->filePath().isEmpty()) {
+        m_schematicLabel->setText("Source: " + QFileInfo(m_api->filePath()).fileName());
+    } else {
+        m_schematicLabel->setText("Source: Active Tab");
+    }
 }
 
 void LogicEditorPanel::refreshTemplates() {
     m_templateList->clear();
     
-    QString appPath = QCoreApplication::applicationDirPath();
+    // Resolve templates directory path
+    const QString appPath = QCoreApplication::applicationDirPath();
     QString templatesPath = QDir(appPath).absoluteFilePath("../python/templates");
-    if (!QFile::exists(templatesPath)) {
+    if (!QDir(templatesPath).exists()) {
         templatesPath = QDir(appPath).absoluteFilePath("python/templates");
     }
 
+    if (!QDir(templatesPath).exists()) {
+        qWarning() << "[LogicIDE] Templates directory not found:" << templatesPath;
+        return;
+    }
+
+    // Discover templates
     QDir dir(templatesPath);
-    QStringList files = dir.entryList({"*.flux", "*.py"}, QDir::Files);
+    const QStringList files = dir.entryList({"*.flux", "*.py"}, QDir::Files | QDir::NoDotAndDotDot);
     
-    for (const QString& file : files) {
-        QString displayName = file.section('.', 0, 0).replace('_', ' ').toUpper();
-        bool isFlux = file.endsWith(".flux");
+    for (const QString& fileName : files) {
+        const bool isFlux = fileName.endsWith(".flux", Qt::CaseInsensitive);
+        const QString baseName = fileName.section('.', 0, 0).replace('_', ' ').toUpper();
         
-        auto* item = new QListWidgetItem(displayName + (isFlux ? "" : " (Legacy)"));
-        item->setData(Qt::UserRole, dir.absoluteFilePath(file));
-        item->setToolTip("Double-click to insert: " + file);
-        if (isFlux) item->setForeground(QColor("#4ade80")); // Green for Flux
+        auto* item = new QListWidgetItem(baseName + (isFlux ? "" : " (Legacy)"));
+        item->setData(Qt::UserRole, dir.absoluteFilePath(fileName));
+        item->setToolTip(QString("Double-click to load: %1").arg(fileName));
+        
+        if (isFlux) {
+            item->setForeground(QColor("#4ade80")); // Professional Green for Flux
+            item->setIcon(QIcon(":/icons/tool_run.svg"));
+        } else {
+            item->setForeground(QColor("#94a3b8")); // Slate Gray for Legacy
+        }
+        
         m_templateList->addItem(item);
     }
 }
 
 void LogicEditorPanel::onTemplateDoubleClicked(QListWidgetItem* item) {
-    QString path = item->data(Qt::UserRole).toString();
+    if (!item || !m_targetBlock) return;
+
+    const QString path = item->data(Qt::UserRole).toString();
     QFile file(path);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QString content = QTextStream(&file).readAll();
-        m_editor->setPlainText(content);
-        
-        // --- Pin Auto-Shaper ---
-        if (m_targetBlock) {
-            bool pinsModified = false;
-            
-            // Look for # INPUTS: pin1, pin2...
-            QRegularExpression inRe("#\\s*INPUTS:\\s*(.*)", QRegularExpression::CaseInsensitiveOption);
-            auto mIn = inRe.match(content);
-            if (mIn.hasMatch()) {
-                QStringList inPins = mIn.captured(1).split(",", Qt::SkipEmptyParts);
-                for (auto& p : inPins) p = p.trimmed();
-                m_targetBlock->setInputPins(inPins);
-                pinsModified = true;
-            }
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_statusLabel->setText("Error: Could not open template file.");
+        return;
+    }
 
-            // Look for # OUTPUTS: pin1...
-            QRegularExpression outRe("#\\s*OUTPUTS:\\s*(.*)", QRegularExpression::CaseInsensitiveOption);
-            auto mOut = outRe.match(content);
-            if (mOut.hasMatch()) {
-                QStringList outPins = mOut.captured(1).split(",", Qt::SkipEmptyParts);
-                for (auto& p : outPins) p = p.trimmed();
-                m_targetBlock->setOutputPins(outPins);
-                pinsModified = true;
-            }
+    const QString content = QTextStream(&file).readAll();
+    loadInlineFluxScript(content, "Template loaded: " + item->text());
+    
+    // Auto-Shape block based on metadata in the script
+    applyTemplatePinShaping(content);
 
-            if (pinsModified) {
-                m_pinMapper->setPins(m_targetBlock->inputPins(), m_targetBlock->outputPins());
-                m_targetBlock->update();
-                m_statusLabel->setText("Template loaded & Pins Auto-Shaped: " + item->text());
-            } else {
-                m_statusLabel->setText("Template loaded: " + item->text());
-            }
+    updatePreview();
+}
+
+void LogicEditorPanel::loadInlineFluxScript(const QString& content, const QString& statusMessage) {
+    if (!m_targetBlock) return;
+
+    // Switching to an inline/example script should immediately detach any previous file link.
+    {
+        QSignalBlocker blocker(m_fileLinkEdit);
+        m_fileLinkEdit->clear();
+    }
+
+    m_targetBlock->setScriptFile(QString());
+    m_targetBlock->setFluxCode(content);
+    m_editor->setReadOnly(false);
+    m_editor->setPlainText(content);
+    m_statusLabel->setText(statusMessage);
+}
+
+void LogicEditorPanel::applyTemplatePinShaping(const QString& content) {
+    if (!m_targetBlock) return;
+
+    bool pinsModified = false;
+    
+    // Parse # INPUTS: pin1, pin2...
+    static const QRegularExpression inRe("#\\s*INPUTS:\\s*(.*)", QRegularExpression::CaseInsensitiveOption);
+    auto mIn = inRe.match(content);
+    if (mIn.hasMatch()) {
+        QStringList inPins = mIn.captured(1).split(",", Qt::SkipEmptyParts);
+        for (auto& p : inPins) p = p.trimmed();
+        if (!inPins.isEmpty()) {
+            m_targetBlock->setInputPins(inPins);
+            pinsModified = true;
         }
+    }
 
-        updatePreview();
+    // Parse # OUTPUTS: pin1...
+    static const QRegularExpression outRe("#\\s*OUTPUTS:\\s*(.*)", QRegularExpression::CaseInsensitiveOption);
+    auto mOut = outRe.match(content);
+    if (mOut.hasMatch()) {
+        QStringList outPins = mOut.captured(1).split(",", Qt::SkipEmptyParts);
+        for (auto& p : outPins) p = p.trimmed();
+        if (!outPins.isEmpty()) {
+            m_targetBlock->setOutputPins(outPins);
+            pinsModified = true;
+        }
+    }
+
+    if (pinsModified) {
+        m_pinMapper->setPins(m_targetBlock->inputPins(), m_targetBlock->outputPins());
+        m_targetBlock->update();
+        qDebug() << "[LogicIDE] Block auto-shaped via template metadata.";
     }
 }
 
@@ -421,6 +473,12 @@ void LogicEditorPanel::setupUi() {
     m_statusLabel = new QLabel("Ready");
     m_statusLabel->setStyleSheet("color: white; font-size: 10px;");
     footLayout->addWidget(m_statusLabel);
+    
+    footLayout->addStretch();
+    m_schematicLabel = new QLabel("Source: None");
+    m_schematicLabel->setStyleSheet("color: #bae6fd; font-size: 10px; font-weight: bold;");
+    footLayout->addWidget(m_schematicLabel);
+    
     mainLayout->addWidget(footer);
 
     connect(m_applyBtn, &QPushButton::clicked, this, &LogicEditorPanel::onApplyClicked);
@@ -587,6 +645,11 @@ void LogicEditorPanel::setTargetBlock(SmartSignalItem* item) {
         m_pinMapper->setPins(m_targetBlock->inputPins(), m_targetBlock->outputPins());
 
         m_statusLabel->setText("Editing: " + m_targetBlock->reference());
+        
+        if (m_api && !m_api->filePath().isEmpty()) {
+            m_schematicLabel->setText("Source: " + QFileInfo(m_api->filePath()).fileName());
+        }
+        
         updateEditorKeywords();
         updateParametersTab();
         
@@ -715,6 +778,8 @@ void LogicEditorPanel::removeTestCase() {
 
 void LogicEditorPanel::runTests() {
     if (!m_targetBlock) return;
+    if (m_api) Flux::Core::set_active_schematic_api(m_api);
+    
     m_console->append("<br><font color='#007acc'>[Tester] Starting Test Suite...</font>");
     QString code = m_editor->toPlainText();
     QMap<int, QString> errors;
@@ -909,6 +974,7 @@ void LogicEditorPanel::onPythonGenerated(const QString& code) {
 
 void LogicEditorPanel::onApplyClicked() {
     if (!m_targetBlock) return;
+    if (m_api) Flux::Core::set_active_schematic_api(m_api);
     
     saveCurrentToBlock();
     
@@ -932,6 +998,7 @@ void LogicEditorPanel::onApplyClicked() {
 
 void LogicEditorPanel::onBakeClicked() {
     if (!m_targetBlock) return;
+    if (m_api) Flux::Core::set_active_schematic_api(m_api);
     
     saveCurrentToBlock();
     m_statusLabel->setText("Baking to SPICE...");

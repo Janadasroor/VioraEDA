@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QFileDialog>
+#include <QCheckBox>
 
 TuningSliderPropertiesDialog::TuningSliderPropertiesDialog(TuningSliderSymbolItem* item, QWidget* parent)
     : QDialog(parent) {
@@ -30,10 +31,15 @@ TuningSliderPropertiesDialog::TuningSliderPropertiesDialog(TuningSliderSymbolIte
     m_currentSpin->setRange(-1e15, 1e15);
     m_currentSpin->setValue(item->currentValue());
 
+    m_liveCheck = new QCheckBox("Live Update (High Performance)");
+    m_liveCheck->setToolTip("Update component values without restarting the simulation. Works for R, L, C, and Sources.");
+    m_liveCheck->setChecked(item->isLiveUpdateEnabled());
+
     form->addRow("Parameter Name:", m_refEdit);
     form->addRow("Min Value:", m_minSpin);
     form->addRow("Max Value:", m_maxSpin);
     form->addRow("Current Value:", m_currentSpin);
+    form->addRow("", m_liveCheck);
 
     // Flux Integration
     m_fluxVarEdit = new QLineEdit(item->fluxVariableName());

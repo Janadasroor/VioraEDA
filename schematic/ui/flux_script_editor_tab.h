@@ -8,13 +8,14 @@ class QGraphicsScene;
 class NetManager;
 class QTextEdit;
 class QPushButton;
+class SchematicAPI;
 
 namespace Flux {
 
 class ScriptEditorTab : public QWidget {
     Q_OBJECT
 public:
-    explicit ScriptEditorTab(QGraphicsScene* scene, NetManager* netManager, QWidget* parent = nullptr);
+    explicit ScriptEditorTab(QGraphicsScene* scene, NetManager* netManager, SchematicAPI* api, QWidget* parent = nullptr);
     
     bool openFile(const QString& filePath);
     bool saveFile(const QString& filePath = QString());
@@ -35,6 +36,7 @@ private:
 
     CodeEditor* m_editor;
     QTextEdit* m_console;
+    SchematicAPI* m_api;
     QString m_filePath;
     bool m_isModified = false;
 };
