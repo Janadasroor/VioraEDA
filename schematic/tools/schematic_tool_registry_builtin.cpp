@@ -91,6 +91,7 @@ void SchematicToolRegistryBuiltIn::registerBuiltInTools() {
     registry.registerTool("Logic Analyzer", []() { return new SchematicComponentTool("Logic Analyzer"); });
     registry.registerTool("Oscilloscope Instrument", []() { return new SchematicComponentTool("Oscilloscope Instrument"); });
     registry.registerTool("Smart Signal Block", []() { return new SchematicComponentTool("SmartSignalBlock"); });
+    registry.registerTool("Flux Measurement Probe", []() { return new SchematicComponentTool("Flux Measurement Probe"); });
     
     registry.registerTool("Voltage Source (DC)", []() { return new SchematicComponentTool("Voltage_Source_DC"); });
     registry.registerTool("Voltage Source (Sine)", []() { return new SchematicComponentTool("Voltage_Source_Sine"); });

@@ -50,6 +50,12 @@ public:
         update();
     }
 
+    QString scriptFile() const { return m_scriptFile; }
+    void setScriptFile(const QString& path) {
+        m_scriptFile = path;
+        update();
+    }
+
     EngineType engineType() const { return m_engineType; }
     void setEngineType(EngineType type) { m_engineType = type; update(); }
 
@@ -91,6 +97,7 @@ private:
 
     QString m_pythonCode;
     QString m_fluxCode;
+    QString m_scriptFile;
     EngineType m_engineType = EngineType::FluxScript;
     QStringList m_inputPins;
     QStringList m_outputPins;

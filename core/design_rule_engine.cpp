@@ -12,8 +12,13 @@
 #include "../schematic/items/schematic_item.h"
 #include "../schematic/analysis/net_manager.h"
 
+#include "flux_design_rule_bridge.h"
+#include "jit_context_manager.h"
+
 namespace Flux {
 namespace Core {
+
+// ... (rest of headers)
 
 // ────────────────────────────────────────────────────────────────────────────
 // DesignRuleEngine Implementation
@@ -354,9 +359,58 @@ QList<DesignRuleViolation> DesignRuleEngine::evaluateCustomRule(
         return violations;
     }
 
-    // TODO: Implement Python/QJS expression evaluation
-    // For now, return empty list
-    // Future: Integrate with Python rule engine
+#ifdef HAVE_FLUXSCRIPT
+    // 1. Setup the bridge for this thread
+    FluxDesignRuleBridge bridge(scene, netManager);
+    FluxDesignRuleBridge::setCurrent(&bridge);
+
+    // 2. Compile and run the rule expression
+    // We wrap the expression in a 'run_rule()' function if it's just a snippet
+    QString source = rule->expression();
+    if (!source.contains("def ")) {
+        source = "def run_rule() {\n" + source + "\n}";
+    }
+
+    QMap<int, QString> errors;
+    QString ruleId = rule->id().toString();
+    if (JITContextManager::instance().compileAndLoad(ruleId, source, errors)) {
+        // Execute the rule
+        // Custom rules don't take time/inputs like simulation blocks, 
+        // they use the erc_* functions to query data.
+        void* func = JITContextManager::instance().getFunctionAddress(ruleId);
+        if (func) {
+            typedef void (*RuleFunc)();
+            reinterpret_cast<RuleFunc>(func)();
+            
+            // 3. Collect violations from the bridge
+            violations = bridge.violations();
+            
+            // Set rule metadata for each violation
+            for (auto& v : violations) {
+                v.ruleId = rule->id();
+                v.ruleName = rule->name();
+                if (v.severity == RuleSeverity::Info) v.severity = rule->defaultSeverity();
+            }
+        }
+    } else {
+        qWarning() << "FluxScript: Failed to compile custom rule" << rule->name() << ":" << errors.value(0);
+        DesignRuleViolation v;
+        v.ruleId = rule->id();
+        v.ruleName = rule->name();
+        v.severity = RuleSeverity::Error;
+        v.message = "Compilation error: " + errors.value(0);
+        violations.append(v);
+    }
+
+    FluxDesignRuleBridge::setCurrent(nullptr);
+#else
+    DesignRuleViolation v;
+    v.ruleId = rule->id();
+    v.ruleName = rule->name();
+    v.severity = RuleSeverity::Warning;
+    v.message = "FluxScript support is disabled. Custom rule skipped.";
+    violations.append(v);
+#endif
 
     return violations;
 }

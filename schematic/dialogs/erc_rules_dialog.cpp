@@ -1,26 +1,33 @@
 #include "erc_rules_dialog.h"
+#include "design_rule_editor.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QLabel>
 #include <QHeaderView>
 #include <QToolButton>
+#include <QMessageBox>
 
-ERCRulesDialog::ERCRulesDialog(const SchematicERCRules& currentRules, QWidget* parent)
-    : QDialog(parent), m_rules(currentRules) {
+ERCRulesDialog::ERCRulesDialog(const SchematicERCRules& currentRules, DesignRuleSet* customRules, QWidget* parent)
+    : QDialog(parent), m_rules(currentRules), m_customRulesSet(customRules) {
     
-    setWindowTitle("Electrical Rules Matrix");
-    resize(800, 600);
+    setWindowTitle("Electrical Rules Configuration");
+    resize(900, 700);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    m_tabWidget = new QTabWidget(this);
+
+    // --- Tab 1: Pin Matrix ---
+    QWidget* matrixPage = new QWidget();
+    QVBoxLayout* matrixLayout = new QVBoxLayout(matrixPage);
 
     QLabel* info = new QLabel("Click on a cell to cycle through severities: OK → Warning → Error → Critical");
     info->setStyleSheet("font-style: italic; color: #888;");
-    mainLayout->addWidget(info);
+    matrixLayout->addWidget(info);
 
     m_table = new QTableWidget(12, 12, this);
     setupTable();
-    mainLayout->addWidget(m_table);
+    matrixLayout->addWidget(m_table);
 
     // Legend
     QHBoxLayout* legend = new QHBoxLayout();
@@ -37,19 +44,30 @@ ERCRulesDialog::ERCRulesDialog(const SchematicERCRules& currentRules, QWidget* p
     addLegend("Error", SchematicERCRules::Error);
     addLegend("Critical", SchematicERCRules::Critical);
     legend->addStretch();
-    mainLayout->addLayout(legend);
+    matrixLayout->addLayout(legend);
 
-    QHBoxLayout* buttons = new QHBoxLayout();
     QPushButton* resetBtn = new QPushButton("Reset to Defaults");
     connect(resetBtn, &QPushButton::clicked, this, &ERCRulesDialog::onResetDefaults);
-    buttons->addWidget(resetBtn);
+    matrixLayout->addWidget(resetBtn, 0, Qt::AlignLeft);
+
+    m_tabWidget->addTab(matrixPage, "Connectivity Matrix");
+
+    // --- Tab 2: Custom Rules ---
+    QWidget* customPage = new QWidget();
+    setupCustomRulesTab(customPage);
+    m_tabWidget->addTab(customPage, "Custom Rules (FluxScript)");
+
+    mainLayout->addWidget(m_tabWidget);
+
+    // --- Global Buttons ---
+    QHBoxLayout* buttons = new QHBoxLayout();
     buttons->addStretch();
 
     QPushButton* cancelBtn = new QPushButton("Cancel");
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     buttons->addWidget(cancelBtn);
 
-    QPushButton* okBtn = new QPushButton("Apply Rules");
+    QPushButton* okBtn = new QPushButton("Apply Changes");
     okBtn->setDefault(true);
     connect(okBtn, &QPushButton::clicked, this, &QDialog::accept);
     buttons->addWidget(okBtn);
@@ -57,6 +75,84 @@ ERCRulesDialog::ERCRulesDialog(const SchematicERCRules& currentRules, QWidget* p
     mainLayout->addLayout(buttons);
 
     connect(m_table, &QTableWidget::cellClicked, this, &ERCRulesDialog::onCellClicked);
+}
+
+void ERCRulesDialog::setupCustomRulesTab(QWidget* page) {
+    QVBoxLayout* layout = new QVBoxLayout(page);
+    
+    QLabel* desc = new QLabel("Extend the ERC system with programmable FluxScript rules.");
+    desc->setStyleSheet("font-weight: bold; color: #a1a1aa;");
+    layout->addWidget(desc);
+
+    m_customRulesList = new QListWidget();
+    m_customRulesList->setAlternatingRowColors(true);
+    m_customRulesList->setStyleSheet("QListWidget::item { padding: 8px; }");
+    layout->addWidget(m_customRulesList);
+
+    QHBoxLayout* btnLayout = new QHBoxLayout();
+    QPushButton* addBtn = new QPushButton("Add New Rule...");
+    QPushButton* editBtn = new QPushButton("Edit Selected...");
+    QPushButton* removeBtn = new QPushButton("Remove");
+    
+    connect(addBtn, &QPushButton::clicked, this, &ERCRulesDialog::onAddCustomRule);
+    connect(editBtn, &QPushButton::clicked, this, &ERCRulesDialog::onEditCustomRule);
+    connect(removeBtn, &QPushButton::clicked, this, &ERCRulesDialog::onRemoveCustomRule);
+    connect(m_customRulesList, &QListWidget::itemDoubleClicked, this, &ERCRulesDialog::onEditCustomRule);
+
+    btnLayout->addWidget(addBtn);
+    btnLayout->addWidget(editBtn);
+    btnLayout->addWidget(removeBtn);
+    btnLayout->addStretch();
+    layout->addLayout(btnLayout);
+
+    updateCustomRulesList();
+}
+
+void ERCRulesDialog::updateCustomRulesList() {
+    m_customRulesList->clear();
+    if (!m_customRulesSet) return;
+
+    for (auto* rule : m_customRulesSet->rules()) {
+        QListWidgetItem* item = new QListWidgetItem(m_customRulesList);
+        item->setText(rule->name());
+        item->setToolTip(rule->description());
+        if (!rule->enabled()) item->setForeground(Qt::gray);
+        item->setData(Qt::UserRole, rule->id().toString());
+    }
+}
+
+void ERCRulesDialog::onAddCustomRule() {
+    if (!m_customRulesSet) m_customRulesSet = new DesignRuleSet("Custom Rules", this);
+    
+    DesignRule* rule = DesignRuleEditor::createRule(RuleCategory::Custom, this);
+    if (rule) {
+        m_customRulesSet->addRule(rule);
+        updateCustomRulesList();
+    }
+}
+
+void ERCRulesDialog::onEditCustomRule() {
+    auto* item = m_customRulesList->currentItem();
+    if (!item || !m_customRulesSet) return;
+
+    QUuid id(item->data(Qt::UserRole).toString());
+    DesignRule* rule = m_customRulesSet->rule(id);
+    if (rule) {
+        if (DesignRuleEditor::editRule(rule, this)) {
+            updateCustomRulesList();
+        }
+    }
+}
+
+void ERCRulesDialog::onRemoveCustomRule() {
+    auto* item = m_customRulesList->currentItem();
+    if (!item || !m_customRulesSet) return;
+
+    if (QMessageBox::question(this, "Remove Rule", "Are you sure you want to remove this custom rule?") == QMessageBox::Yes) {
+        QUuid id(item->data(Qt::UserRole).toString());
+        m_customRulesSet->removeRule(id);
+        updateCustomRulesList();
+    }
 }
 
 void ERCRulesDialog::setupTable() {

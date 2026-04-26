@@ -20,6 +20,12 @@ public:
     void setRange(double min, double max);
     void setValue(double val);
 
+    void setFluxVariableName(const QString& name) { m_fluxVarName = name; }
+    QString fluxVariableName() const { return m_fluxVarName; }
+
+    void setReactiveScript(const QString& path) { m_scriptPath = path; }
+    QString reactiveScript() const { return m_scriptPath; }
+
 Q_SIGNALS:
     void valueChanged(double newVal);
 
@@ -34,6 +40,8 @@ private:
     double valueToPos(double val) const;
 
     SchematicItem* m_target;
+    QString m_fluxVarName;
+    QString m_scriptPath;
     double m_min = 0.0;
     double m_max = 100.0;
     double m_currentValue = 50.0;

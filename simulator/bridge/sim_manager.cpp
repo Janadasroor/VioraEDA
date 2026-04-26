@@ -1512,8 +1512,16 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
                     Flux::JITContextManager::instance().setInputPinMapping(ref, smart->inputPins());
 
                     // Compile the script into the JIT
+                    QString rawCode = smart->fluxCode();
+                    if (!smart->scriptFile().isEmpty()) {
+                        QFile f(smart->scriptFile());
+                        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                            rawCode = QTextStream(&f).readAll();
+                        }
+                    }
+
                     QString fluxSource = normalizeFluxSmartBlockSource(
-                        smart->fluxCode(),
+                        rawCode,
                         smart->inputPins());
 
                     QMap<int, QString> errors;

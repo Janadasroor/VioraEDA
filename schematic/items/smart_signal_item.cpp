@@ -158,6 +158,7 @@ QJsonObject SmartSignalItem::toJson() const {
     j["type"] = itemTypeName();
     j["pythonCode"] = m_pythonCode;
     j["fluxCode"] = m_fluxCode;
+    j["scriptFile"] = m_scriptFile;
     j["engineType"] = "flux";  // FluxScript only — Python is external orchestration
 
     
@@ -206,6 +207,7 @@ bool SmartSignalItem::fromJson(const QJsonObject& json) {
     SchematicItem::fromJson(json);
     m_pythonCode = json["pythonCode"].toString();
     m_fluxCode = json["fluxCode"].toString();
+    m_scriptFile = json["scriptFile"].toString();
     m_engineType = EngineType::FluxScript;  // Always FluxScript — Python is external
 
     

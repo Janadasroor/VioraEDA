@@ -1,9 +1,13 @@
 #include "tuning_slider_symbol_item.h"
 #include "../editor/schematic_editor.h"
 #include "../ui/simulation_panel.h"
+#include "../core/flux_workspace_bridge.h"
+#include "../core/jit_context_manager.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
 #include <QApplication>
+#include <QFile>
+#include <QTextStream>
 #include <cmath>
 
 TuningSliderSymbolItem::TuningSliderSymbolItem(QPointF pos, QGraphicsItem* parent)
@@ -86,6 +90,30 @@ void TuningSliderSymbolItem::paint(QPainter* painter, const QStyleOptionGraphics
 void TuningSliderSymbolItem::setCurrentValue(double v) {
     m_current = qBound(m_min, v, m_max);
     setValue(QString::number(m_current));
+    
+    // Update Flux Variable if set
+    if (!m_fluxVarName.isEmpty()) {
+        Flux::Core::FluxWorkspaceBridge::setVariable(m_fluxVarName, m_current);
+        
+        // Execute reactive script if linked
+        if (!m_scriptPath.isEmpty()) {
+            QFile f(m_scriptPath);
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString source = QTextStream(&f).readAll();
+                QMap<int, QString> errors;
+                // Use a unique ID based on pointer to allow multiple active sliders
+                QString jitId = QString("slider_%1").arg(reinterpret_cast<quintptr>(this));
+                if (Flux::JITContextManager::instance().compileAndLoad("standalone_" + jitId, source, errors)) {
+                    void* addr = Flux::JITContextManager::instance().getFunctionAddress("standalone_" + jitId);
+                    if (addr) {
+                        typedef void (*RunFunc)();
+                        reinterpret_cast<RunFunc>(addr)();
+                    }
+                }
+            }
+        }
+    }
+
     update();
     triggerRealTimeUpdate();
 }
@@ -138,6 +166,8 @@ QJsonObject TuningSliderSymbolItem::toJson() const {
     j["min"] = m_min;
     j["max"] = m_max;
     j["current"] = m_current;
+    j["fluxVar"] = m_fluxVarName;
+    j["scriptPath"] = m_scriptPath;
     return j;
 }
 
@@ -146,6 +176,8 @@ bool TuningSliderSymbolItem::fromJson(const QJsonObject& json) {
     m_min = json["min"].toDouble(0.0);
     m_max = json["max"].toDouble(100.0);
     m_current = json["current"].toDouble(50.0);
+    m_fluxVarName = json["fluxVar"].toString();
+    m_scriptPath = json["scriptPath"].toString();
     return true;
 }
 

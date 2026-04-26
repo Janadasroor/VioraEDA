@@ -54,6 +54,10 @@ set(CORE_SOURCES
     core/design_rule_engine.h
     core/jit_context_manager.cpp
     core/jit_context_manager.h
+    core/flux_design_rule_bridge.cpp
+    core/flux_design_rule_bridge.h
+    core/flux_workspace_bridge.cpp
+    core/flux_workspace_bridge.h
     core/ws_server.cpp
     core/ws_server.h
 )
@@ -326,6 +330,8 @@ set(SCHEMATIC_SOURCES
     schematic/items/schematic_shape_item.h
     schematic/items/schematic_text_item.cpp
     schematic/items/schematic_text_item.h
+    schematic/items/flux_measurement_item.cpp
+    schematic/items/flux_measurement_item.h
     schematic/items/no_connect_item.cpp
     schematic/items/no_connect_item.h
     schematic/items/bus_item.cpp
@@ -426,6 +432,8 @@ set(SCHEMATIC_SOURCES
     schematic/ui/flux_completer.h
     schematic/ui/flux_script_panel.cpp
     schematic/ui/flux_script_panel.h
+    schematic/ui/flux_script_editor_tab.cpp
+    schematic/ui/flux_script_editor_tab.h
     schematic/ui/netlist_editor.cpp
     schematic/ui/netlist_editor.h
     schematic/ui/spice_highlighter.cpp

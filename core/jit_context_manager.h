@@ -16,6 +16,8 @@
 #pragma pop_macro("emit")
 #endif
 
+class SimResults;
+
 namespace Flux {
 
 /**
@@ -76,6 +78,10 @@ public:
     static double getVoltage(double namePtr);
     static double getCurrent(double namePtr);
     static void setSimulationData(const std::vector<double>& values);
+    
+    // Set the latest simulation results for post-processing scripts
+    void setSimulationResults(const SimResults* results);
+    const SimResults* getSimulationResults() const;
 
 Q_SIGNALS:
     void compilationFinished(bool success, QString message);
@@ -91,6 +97,7 @@ private:
     QMap<QString, QStringList> m_blockInputs;
     QMap<QString, QString> m_currentPinMap;
     std::mutex m_funcMutex;
+    const SimResults* m_lastResults = nullptr;
 #endif
 };
 

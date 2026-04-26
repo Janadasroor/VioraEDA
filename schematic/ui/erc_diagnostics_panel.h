@@ -22,6 +22,7 @@ public:
 Q_SIGNALS:
     void violationSelected(const ERCViolation& violation);
     void ignoreRequested(const ERCViolation& violation);
+    void configureRulesRequested();
     void clearIgnoredRequested();
     void aiFixRequested(const QString& violationsSummary);
 

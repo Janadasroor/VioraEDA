@@ -162,6 +162,13 @@ void CodeEditor::onRunRequested() {
     
     if (JITContextManager::instance().compileAndLoad("standalone_editor", source, errors)) {
         qDebug() << "FluxScript: Run successful.";
+        
+        // Execute the script
+        void* addr = JITContextManager::instance().getFunctionAddress("standalone_editor");
+        if (addr) {
+            typedef void (*RunFunc)();
+            reinterpret_cast<RunFunc>(addr)();
+        }
     } else {
         setErrorLines(errors);
         qDebug() << "FluxScript: Run failed with errors.";
@@ -228,7 +235,10 @@ bool CodeEditor::event(QEvent* e) {
         static QMap<QString, QString> helpDb = {
             {"V", "<b>V(node)</b><br>Returns voltage at node."},
             {"I", "<b>I(branch)</b><br>Returns current through branch."},
-            {"math", "FluxScript math library."}
+            {"math", "FluxScript math library."},
+            {"flux_sim_get_vector_size", "<b>flux_sim_get_vector_size(name)</b><br>Returns the number of samples in a simulation result vector."},
+            {"flux_sim_get_vector_val", "<b>flux_sim_get_vector_val(name, index)</b><br>Returns the value (Y-axis) of a vector at the given index."},
+            {"flux_sim_get_vector_x", "<b>flux_sim_get_vector_x(name, index)</b><br>Returns the X-axis value (time or frequency) of a vector at the given index."}
         };
 
         if (helpDb.contains(word)) {

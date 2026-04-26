@@ -366,6 +366,7 @@ void SchematicComponentsWidget::populate() {
         {"Logic Probe", "Simulation"},
         {"Logic Analyzer", "Simulation"},
         {"Oscilloscope Instrument", "Simulation"},
+        {"Flux Measurement Probe", "Simulation"},
         {"Tuning Slider", "Simulation"},
         {"Smart Signal Block", "Simulation"},
         {"Voltage Source (DC)", "Simulation"},
