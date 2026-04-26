@@ -8,6 +8,8 @@
 #endif
 
 #include <QFile>
+#include <QDir>
+#include <QCoreApplication>
 #include <QTextStream>
 #include <QCommandLineParser>
 #include <QJsonObject>
@@ -54,6 +56,14 @@ int FluxCommand::run(const QStringList& args, const QCommandLineParser& globalPa
     QCommandLineOption jsonOption("json",
         "Output results as JSON");
     parser.addOption(jsonOption);
+
+    QCommandLineOption timeOption("time",
+        "Time value for template execution", "value");
+    parser.addOption(timeOption);
+
+    QCommandLineOption inputsOption("inputs",
+        "Input values for template (comma separated)", "values");
+    parser.addOption(inputsOption);
     
     parser.addHelpOption();
     
@@ -87,11 +97,168 @@ int FluxCommand::run(const QStringList& args, const QCommandLineParser& globalPa
         return cmdEval(parser, positional, quiet);
     } else if (subcommand == "repl") {
         return cmdRepl(parser, positional, quiet);
+    } else if (subcommand == "template-list") {
+        return cmdTemplateList(quiet);
+    } else if (subcommand == "template-run") {
+        return cmdTemplateRun(parser, globalParser, positional, outputFile, quiet);
     } else {
         std::cerr << "Unknown subcommand: " << qPrintable(subcommand) << std::endl;
         printHelp();
         return 1;
     }
+}
+
+int FluxCommand::cmdTemplateList(bool quiet) {
+    QString appPath = QCoreApplication::applicationDirPath();
+    QString templatesPath = QDir(appPath).absoluteFilePath("../python/templates");
+    if (!QFile::exists(templatesPath)) {
+        templatesPath = QDir(appPath).absoluteFilePath("python/templates");
+    }
+
+    if (!QDir(templatesPath).exists()) {
+        std::cerr << "Error: Templates directory not found at " << qPrintable(templatesPath) << std::endl;
+        return 1;
+    }
+
+    QDir dir(templatesPath);
+    QStringList files = dir.entryList({"*.flux"}, QDir::Files);
+    
+    if (!quiet) {
+        std::cout << "Available FluxScript Templates:" << std::endl;
+        for (const QString& file : files) {
+            QString name = file.section('.', 0, 0);
+            std::cout << "  - " << qPrintable(name) << std::endl;
+        }
+    } else {
+        for (const QString& file : files) {
+            std::cout << qPrintable(file.section('.', 0, 0)) << std::endl;
+        }
+    }
+    
+    return 0;
+}
+
+int FluxCommand::cmdTemplateRun(const QCommandLineParser& parser,
+                               const QCommandLineParser& globalParser,
+                               const QStringList& positional,
+                               const QString& outputFile,
+                               bool quiet) {
+    if (positional.size() < 2) {
+        std::cerr << "Error: Missing template name" << std::endl;
+        return 1;
+    }
+    
+    QString templateName = positional[1];
+    if (!templateName.endsWith(".flux")) {
+        templateName += ".flux";
+    }
+
+    QString appPath = QCoreApplication::applicationDirPath();
+    QString templatesPath = QDir(appPath).absoluteFilePath("../python/templates");
+    if (!QFile::exists(templatesPath)) {
+        templatesPath = QDir(appPath).absoluteFilePath("python/templates");
+    }
+
+    QString fullPath = QDir(templatesPath).absoluteFilePath(templateName);
+    if (!QFile::exists(fullPath)) {
+        std::cerr << "Error: Template not found: " << qPrintable(templateName) << std::endl;
+        return 1;
+    }
+
+    // Read template
+    QFile file(fullPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        std::cerr << "Error: Cannot open template: " << qPrintable(fullPath) << std::endl;
+        return 1;
+    }
+    
+    QTextStream in(&file);
+    QString code = in.readAll();
+    file.close();
+
+    if (!quiet) {
+        std::cout << "Running FluxScript Template: " << qPrintable(templateName) << std::endl;
+    }
+
+#ifdef HAVE_FLUXSCRIPT
+    // Initialize JIT
+    Flux::JITEngine::instance().initialize();
+    
+    // Wrap code if it looks like a snippet
+    QString wrappedCode = code;
+    if (!code.contains("def update") && !code.contains("def main")) {
+        wrappedCode = "def update(t, inputs) {\n" + code + "\n}";
+    }
+
+    // Compile script
+    std::string error;
+    if (!Flux::JITEngine::instance().compileScript(wrappedCode.toStdString(), &error)) {
+        std::cerr << "Compilation Error in Template: " << error << std::endl;
+        return 1;
+    }
+    
+    // Check if netlist generation only
+    if (parser.isSet("netlist")) {
+        return generateNetlist(code, fullPath, outputFile, quiet);
+    }
+    
+    // Run simulation
+    if (parser.isSet("run")) {
+        return runSimulation(fullPath, outputFile, 
+                           parser.value("tran"), quiet);
+    }
+    
+    // Execute
+    QString tStr = parser.value("time");
+    if (tStr.isEmpty()) tStr = globalParser.value("time");
+    
+    QString inputsStr = parser.value("inputs");
+    if (inputsStr.isEmpty()) inputsStr = globalParser.value("inputs");
+
+    double tVal = tStr.toDouble();
+    QStringList inputStrs = inputsStr.split(",", Qt::SkipEmptyParts);
+    std::vector<double> inputs;
+    for (const QString& s : inputStrs) {
+        inputs.push_back(s.toDouble());
+    }
+    // Pad to at least a few inputs to avoid index out of bounds in common templates
+    while (inputs.size() < 10) inputs.push_back(0.0);
+
+    Flux::FluxValue result = 0.0;
+    void* addr = Flux::JITEngine::instance().getFunctionPointer("update");
+    if (addr) {
+        typedef double (*UpdateFn)(double, const double*);
+        result = reinterpret_cast<UpdateFn>(addr)(tVal, inputs.data());
+    } else {
+        addr = Flux::JITEngine::instance().getFunctionPointer("main");
+        if (addr) {
+            typedef double (*MainFn)();
+            result = reinterpret_cast<MainFn>(addr)();
+        } else {
+             std::cerr << "Execution Error: update() or main() function not found" << std::endl;
+             return 1;
+        }
+    }
+
+    if (parser.isSet("json")) {
+        QJsonObject res;
+        if (std::holds_alternative<double>(result)) res["value"] = std::get<double>(result);
+        std::cout << QJsonDocument(res).toJson(QJsonDocument::Compact).constData() << std::endl;
+    } else {
+        if (std::holds_alternative<double>(result)) {
+            std::cout << "= " << std::get<double>(result) << std::endl;
+        }
+    }
+
+    if (!quiet) {
+        std::cout << "✓ Template execution successful" << std::endl;
+    }
+#else
+    std::cerr << "Error: FluxScript support not enabled" << std::endl;
+    return 1;
+#endif
+
+    return 0;
 }
 
 int FluxCommand::cmdRun(const QCommandLineParser& parser, 
@@ -205,19 +372,24 @@ int FluxCommand::cmdEval(const QCommandLineParser& parser,
     // Initialize JIT
     Flux::JITEngine::instance().initialize();
     
+    // Wrap expression
+    QString wrappedExpr = QString("def main() {\n%1\n}").arg(expression);
+
     // Compile expression
     std::string error;
-    if (!Flux::JITEngine::instance().compileScript(expression.toStdString(), &error)) {
+    if (!Flux::JITEngine::instance().compileScript(wrappedExpr.toStdString(), &error)) {
         std::cerr << "Compilation Error: " << error << std::endl;
         return 1;
     }
     
     // Execute and get result
-    auto result = Flux::JITEngine::instance().callFunction(
-        "__anon_expr", {}, &error);
-    
-    if (!error.empty()) {
-        std::cerr << "Execution Error: " << error << std::endl;
+    Flux::FluxValue result = 0.0;
+    void* addr = Flux::JITEngine::instance().getFunctionPointer("main");
+    if (addr) {
+        typedef double (*MainFn)();
+        result = reinterpret_cast<MainFn>(addr)();
+    } else {
+        std::cerr << "Execution Error: Expression compilation failed to produce main()" << std::endl;
         return 1;
     }
     
@@ -450,19 +622,23 @@ void FluxCommand::printHelp() {
     std::cout << "  compile <file.flux> Generate SPICE netlist\n";
     std::cout << "  eval <expression>   Evaluate FluxScript expression\n";
     std::cout << "  repl                Interactive REPL mode\n";
+    std::cout << "  template-list       List available FluxScript templates\n";
+    std::cout << "  template-run <name> Run a specific template\n";
     std::cout << "\n";
     std::cout << "Options:\n";
     std::cout << "  --out <file>        Output file for results\n";
     std::cout << "  --netlist           Generate netlist only\n";
     std::cout << "  --run               Run simulation\n";
     std::cout << "  --tran <tstep,tstop> Transient parameters\n";
+    std::cout << "  --time <value>      Time value for template execution (default 0.0)\n";
+    std::cout << "  --inputs <v1,v2...> Input values for template (default 0.0)\n";
     std::cout << "  --json              Output as JSON\n";
     std::cout << "  -q, --quiet         Quiet mode\n";
     std::cout << "  -h, --help          Show help\n";
     std::cout << "\n";
     std::cout << "Examples:\n";
     std::cout << "  viora flux run circuit.flux\n";
-    std::cout << "  viora flux compile circuit.flux --out circuit.cir\n";
+    std::cout << "  viora flux template-run pwm_generator --time 0.0005 --inputs 0.8\n";
     std::cout << "  viora flux eval \"sin(pi/2)\"\n";
     std::cout << "  viora flux repl\n";
 }
