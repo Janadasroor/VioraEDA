@@ -13,12 +13,40 @@
 TuningSliderSymbolItem::TuningSliderSymbolItem(QPointF pos, QGraphicsItem* parent)
     : SchematicItem(parent) {
     setPos(pos);
-    setReference("A");
+    setReference(referencePrefix() + "1");
     setValue("50");
-    setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
+    setFlags(ItemIsSelectable | ItemSendsGeometryChanges); // Removed ItemIsMovable
+    rebuildPrimitives();
 }
 
 TuningSliderSymbolItem::~TuningSliderSymbolItem() {
+}
+
+void TuningSliderSymbolItem::rebuildPrimitives() {
+    createLabels(QPointF(0, -20), QPointF(0, m_height + 5));
+}
+
+void TuningSliderSymbolItem::onInteractivePress(const QPointF& scenePos) {
+    QPointF localPos = mapFromScene(scenePos);
+    // If we click in the slider area (bottom half)
+    if (QRectF(0, 12, m_width, m_height - 12).contains(localPos)) {
+        m_dragging = true;
+        setFlag(ItemIsMovable, false);
+        setCurrentValue(posToValue(localPos.x()));
+        fprintf(stderr, "[Slider] Interactive Press - Dragging Started\n");
+    } else {
+        // If we click the labels/top part, allow moving the whole thing
+        setFlag(ItemIsMovable, true);
+    }
+}
+
+void TuningSliderSymbolItem::onInteractiveRelease(const QPointF& scenePos) {
+    Q_UNUSED(scenePos)
+    if (m_dragging) {
+        m_dragging = false;
+        setFlag(ItemIsMovable, false);
+        fprintf(stderr, "[Slider] Interactive Release - Dragging Stopped\n");
+    }
 }
 
 QRectF TuningSliderSymbolItem::boundingRect() const {
@@ -89,7 +117,6 @@ void TuningSliderSymbolItem::paint(QPainter* painter, const QStyleOptionGraphics
 
 void TuningSliderSymbolItem::setCurrentValue(double v) {
     m_current = qBound(m_min, v, m_max);
-    setValue(QString::number(m_current));
     
     // Update Flux Variable if set
     if (!m_fluxVarName.isEmpty()) {
@@ -119,8 +146,13 @@ void TuningSliderSymbolItem::setCurrentValue(double v) {
 }
 
 void TuningSliderSymbolItem::mousePressEvent(QGraphicsSceneMouseEvent* event) {
-    if (QRectF(0, 16, m_width, 19).contains(event->pos())) {
+    // Expanded hit area (y=12 to bottom)
+    if (QRectF(0, 12, m_width, m_height - 12).contains(event->pos())) {
         m_dragging = true;
+        // Lock the item's position so it doesn't move while we drag the knob
+        setFlag(ItemIsMovable, false);
+        
+        fprintf(stderr, "[Slider] Knob Grabbed at x=%g\n", event->pos().x());
         setCurrentValue(posToValue(event->pos().x()));
         event->accept();
     } else {
@@ -138,8 +170,25 @@ void TuningSliderSymbolItem::mouseMoveEvent(QGraphicsSceneMouseEvent* event) {
 }
 
 void TuningSliderSymbolItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event) {
-    m_dragging = false;
-    SchematicItem::mouseReleaseEvent(event);
+    if (m_dragging) {
+        fprintf(stderr, "[Slider] Knob Released. Final Value=%g\n", m_current);
+        m_dragging = false;
+        // Restore moveability
+        setFlag(ItemIsMovable, true);
+        event->accept();
+    } else {
+        SchematicItem::mouseReleaseEvent(event);
+    }
+}
+
+void TuningSliderSymbolItem::hoverEnterEvent(QGraphicsSceneHoverEvent* event) {
+    setCursor(Qt::PointingHandCursor);
+    SchematicItem::hoverEnterEvent(event);
+}
+
+void TuningSliderSymbolItem::hoverLeaveEvent(QGraphicsSceneHoverEvent* event) {
+    unsetCursor();
+    SchematicItem::hoverLeaveEvent(event);
 }
 
 double TuningSliderSymbolItem::posToValue(double x) const {
@@ -155,23 +204,32 @@ double TuningSliderSymbolItem::valueToPos(double val) const {
 
 void TuningSliderSymbolItem::triggerRealTimeUpdate() {
     auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
-    if (editor && editor->getSimulationPanel() && editor->getSimulationPanel()->isRealTimeMode()) {
-        if (m_liveUpdate && SimManager::instance().isRunning()) {
-            // High Performance Path: In-place alteration without restart
-            SimManager::instance().updateParameterLive(reference(), m_current);
-        } else {
-            // Legacy Path: Full restart
-            editor->getSimulationPanel()->onRunSimulation();
-        }
+    const bool isRunning = SimManager::instance().isRunning();
+    
+    // Priority: targetParameter -> UI Label (reference)
+    QString target = m_targetParameter.trimmed();
+    if (target.isEmpty()) target = reference(); 
+
+    // Use stderr to bypass any Qt logging filters
+    fprintf(stderr, "[Slider] Live Update: Target=%s, Value=%g, Running=%d\n", 
+            target.toLocal8Bit().constData(), m_current, isRunning);
+
+    if (isRunning && m_liveUpdate) {
+        // High Performance Path: Works in both Transient and Real-Time modes
+        SimManager::instance().updateParameterLive(target, m_current);
+    } else if (editor && editor->getSimulationPanel() && editor->getSimulationPanel()->isRealTimeMode()) {
+        // Legacy Path: Only auto-restart if specifically in Real-Time mode
+        editor->getSimulationPanel()->onRunSimulation();
     }
 }
 
 QJsonObject TuningSliderSymbolItem::toJson() const {
     QJsonObject j = SchematicItem::toJson();
-    j["type"] = "TuningSlider";
+    j["type"] = "Tuning Slider";
     j["min"] = m_min;
     j["max"] = m_max;
     j["current"] = m_current;
+    j["targetParam"] = m_targetParameter;
     j["fluxVar"] = m_fluxVarName;
     j["scriptPath"] = m_scriptPath;
     j["liveUpdate"] = m_liveUpdate;
@@ -179,13 +237,18 @@ QJsonObject TuningSliderSymbolItem::toJson() const {
 }
 
 bool TuningSliderSymbolItem::fromJson(const QJsonObject& json) {
-    if (!SchematicItem::fromJson(json)) return false;
-    m_min = json["min"].toDouble(0.0);
-    m_max = json["max"].toDouble(100.0);
-    m_current = json["current"].toDouble(50.0);
-    m_fluxVarName = json["fluxVar"].toString();
-    m_scriptPath = json["scriptPath"].toString();
-    m_liveUpdate = json["liveUpdate"].toBool(true);
+    bool ok = SchematicItem::fromJson(json);
+    if (!ok) return false;
+    
+    m_min = json["min"].toDouble(m_min);
+    m_max = json["max"].toDouble(m_max);
+    m_current = json["current"].toDouble(m_current);
+    m_targetParameter = json["targetParam"].toString(m_targetParameter);
+    m_fluxVarName = json["fluxVar"].toString(m_fluxVarName);
+    m_scriptPath = json["scriptPath"].toString(m_scriptPath);
+    m_liveUpdate = json["liveUpdate"].toBool(m_liveUpdate);
+    
+    triggerRealTimeUpdate();
     return true;
 }
 

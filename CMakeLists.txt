@@ -11,8 +11,30 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# --- External Dependencies ---
+include(FetchContent)
+
+# Fetch and configure Slang (SystemVerilog Frontend)
+FetchContent_Declare(
+    slang
+    GIT_REPOSITORY https://github.com/MikePopoloski/slang.git
+    GIT_TAG        d9c9603ca6908d5b2e55e9b535fcdf28099789ad
+)
+
+# Fetch and configure Nanobind (Python Bindings)
+FetchContent_Declare(
+    nanobind
+    GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+    GIT_TAG        v2.0.0 # Use a stable version
+)
+
+# We need to ensure dependencies are handled
+FetchContent_MakeAvailable(slang nanobind)
+link_directories(${slang_BINARY_DIR}/lib)
+# -----------------------------
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
@@ -73,8 +95,6 @@ if(VIOSPICE_ENABLE_NANOBIND)
     else()
         message(STATUS "Embedded Python DISABLED (Python3 development files not found)")
     endif()
-
-    add_subdirectory(ext/nanobind)
 
     # Headless solver library (zero Qt, shared by simulator and Python bindings)
     add_library(VioSolverCore STATIC

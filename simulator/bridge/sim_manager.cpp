@@ -1,4 +1,5 @@
 #include "sim_manager.h"
+#include "slang_manager.h"
 #include "sim_schematic_bridge.h"
 #include "../core/sim_net_evaluator.h"
 #include "../core/raw_data_parser.h"
@@ -724,6 +725,7 @@ QString withStepSuffix(const QString& name, const QString& stepLabel) {
 
 SimManager& SimManager::instance() {
     static SimManager inst;
+    qDebug() << "[SimManagerWrapper] Accessing instance:" << &inst;
     return inst;
 }
 
@@ -742,6 +744,7 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
     });
 
     auto& liveSim = SimulationManager::instance();
+    qDebug() << "[SimManagerWrapper] Connecting to Core at:" << &liveSim;
     connect(&liveSim, &SimulationManager::outputReceived, this, [this](const QString& text) {
         Q_EMIT logMessage(text);
     });
@@ -752,7 +755,15 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
     connect(&liveSim, &SimulationManager::realTimeDataBatchReceived, this, [this](const std::vector<double>& times,
                                                                                   const std::vector<std::vector<double>>& values,
                                                                                   const QStringList& names) {
-        if (m_lastConfig.type == SimAnalysisType::RealTime || m_lastConfig.type == SimAnalysisType::Transient) {
+        // PERMISSIVE FIX:
+        // During shared library simulations, m_lastConfig.type might be desynced or 
+        // initialized to AC (1) while a Transient run is actually active.
+        // If we are getting data batches with time-points, we should stream them.
+        const bool isLiveCapable = (m_lastConfig.type == SimAnalysisType::RealTime || 
+                                    m_lastConfig.type == SimAnalysisType::Transient ||
+                                    m_control != nullptr);
+                                    
+        if (isLiveCapable) {
             Q_EMIT realTimeDataBatchReceived(times, values, names);
         }
     });
@@ -1065,11 +1076,6 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
             watcher->deleteLater();
             
             m_resultsPending = false;
-            if (m_stopRequested) {
-                if (safeTempFile) safeTempFile->deleteLater();
-                cleanupSimulation();
-                return;
-            }
             if (result.first) {
                 if (!m_activeStepLabel.isEmpty() || !m_pendingStepRuns.isEmpty()) {
                     mergeStepSweepResults(result.second, m_activeStepLabel, m_completedStepRuns + 1);
@@ -1142,11 +1148,6 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, safeTempFile, rawPath, proc, parseRawResults, processLogTail](int exitCode, QProcess::ExitStatus exitStatus) {
         if (proc != m_ngspiceProcess) return;
-        if (m_stopRequested) {
-            if (safeTempFile) safeTempFile->deleteLater();
-            cleanupSimulation();
-            return;
-        }
         const QString trailingText = QString::fromLocal8Bit(proc->readAllStandardOutput());
         if (!trailingText.trimmed().isEmpty()) {
             const QStringList lines = trailingText.split(QRegularExpression("[\\r\\n]+"), Qt::SkipEmptyParts);
@@ -1157,6 +1158,15 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
                 }
                 Q_EMIT logMessage(QString("[Ngspice] %1").arg(line));
             }
+        }
+        if (m_stopRequested && QFileInfo::exists(rawPath)) {
+            parseRawResults(rawPath);
+            return;
+        }
+        if (m_stopRequested) {
+            if (safeTempFile) safeTempFile->deleteLater();
+            cleanupSimulation();
+            return;
         }
         if (exitStatus != QProcess::NormalExit || exitCode != 0) {
             const QString msg = enrichNgspiceFailureMessage(
@@ -1284,7 +1294,11 @@ void SimManager::stopRealTime() {
 }
 
 void SimManager::updateParameterLive(const QString& name, double value) {
-    if (!isRunning()) return;
+    if (!isRunning()) {
+        qDebug() << "[SimManager] updateParameterLive ignored: No simulation running.";
+        return;
+    }
+    qDebug() << "[SimManager] updateParameterLive target:" << name << "value:" << value;
     SimulationManager::instance().queueParameterUpdate(name, value);
 }
 
@@ -1415,9 +1429,14 @@ QStringList SimManager::preflightCheck(QGraphicsScene* scene, NetManager* netMgr
 void SimManager::runWithNetlist(const SimNetlist& netlist) {
      Q_EMIT errorOccurred("Direct SimNetlist execution not supported with Ngspice backend yet. Use UI.");
 }
-
 bool SimManager::isRunning() const {
-    return m_control != nullptr || (m_ngspiceProcess && m_ngspiceProcess->state() != QProcess::NotRunning) || m_resultsPending;
+    if (m_stopRequested) return false;
+    if (m_control != nullptr) return true;
+    if (m_ngspiceProcess && m_ngspiceProcess->state() != QProcess::NotRunning) return true;
+    if (m_resultsPending) return true;
+    
+    // Final check: Ask the core shared library engine directly
+    return SimulationManager::instance().isRunning();
 }
 
 void SimManager::stopAll() {
@@ -1438,11 +1457,20 @@ void SimManager::stopAll() {
     }
     m_rtScene = nullptr;
     m_rtNetMgr = nullptr;
+    
     if (!sharedRunActive) {
         cleanupSimulation();
     }
-    Q_EMIT simulationPaused(false);
+    
+    // ALWAYS emit stopped to unlock UI buttons immediately.
+    // The data results will follow asynchronously via simulationFinished(results).
     Q_EMIT simulationStopped();
+    
+    if (m_paused) {
+        m_paused = false;
+        Q_EMIT simulationPaused(false);
+    }
+    
     Q_EMIT logMessage("Simulation stopped.");
 }
 
@@ -1476,47 +1504,35 @@ void SimManager::pauseSimulation(bool pause) {
 
 void SimManager::compileFluxScripts(QGraphicsScene* scene) {
     if (!scene) return;
-    
+
     // Reset JIT state to clear any old modules/functions
     Flux::JITContextManager::instance().reset();
-    
+
     m_fluxScriptTargets.clear();
     QMap<QString, SimulationManager::FluxScriptTarget> targets;
-    int compiledCount = 0;
-    
+    int fluxCompiledCount = 0;
+    int svCompiledCount = 0;
+
     for (QGraphicsItem* item : scene->items()) {
         if (auto* si = dynamic_cast<SchematicItem*>(item)) {
+            QString ref = si->reference().trimmed().toUpper();
+            if (ref.isEmpty()) continue;
+
             if (si->itemType() == SchematicItem::SmartSignalType) {
                 if (auto* smart = dynamic_cast<SmartSignalItem*>(si)) {
-                    QString ref = smart->reference().trimmed().toUpper();
-                    if (ref.isEmpty()) continue;
-                    
                     m_fluxScriptTargets[ref] = smart;
-                    
                     SimulationManager::FluxScriptTarget target;
 
-                    // 1. Map output pin sources: V[REF]_[PIN]
-                    // ONLY if we are using legacy behavioral sources.
-                    // For native A-devices, the list must be empty to bypass legacy sync.
                     if (!SimulationManager::instance().isNativeSmartSignalMode()) {
                         for (const QString& outPin : smart->outputPins()) {
                             target.outputVoltageSources << QString("V%1_%2").arg(ref, outPin.toUpper());
                         }
                     }
 
-                    // 2. Capture Pin-to-Net mapping for this component
                     target.pinToNetMap = m_pinToNetMap.value(ref);
-                    qDebug() << "[SimManager] Pin map for" << ref << "has" << target.pinToNetMap.size() << "mappings.";
-                    for (auto it = target.pinToNetMap.begin(); it != target.pinToNetMap.end(); ++it) {
-                        qDebug() << "  " << it.key() << "->" << it.value();
-                    }
-
                     targets.insert(ref, target);
-                    
-                    // Register input pin ordering with the JIT to allow V("PinName") optimization
                     Flux::JITContextManager::instance().setInputPinMapping(ref, smart->inputPins());
 
-                    // Compile the script into the JIT
                     QString rawCode = smart->fluxCode();
                     if (!smart->scriptFile().isEmpty()) {
                         QFile f(smart->scriptFile());
@@ -1525,26 +1541,76 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
                         }
                     }
 
-                    QString fluxSource = normalizeFluxSmartBlockSource(
-                        rawCode,
-                        smart->inputPins());
-
+                    QString fluxSource = normalizeFluxSmartBlockSource(rawCode, smart->inputPins());
                     QMap<int, QString> errors;
                     if (Flux::JITContextManager::instance().compileAndLoad(ref, fluxSource, errors)) {
-                        compiledCount++;
+                        fluxCompiledCount++;
                     } else {
-                        QString err = errors.value(0);
-                        Q_EMIT logMessage(QString("[FluxScript] Compilation failed for %1: %2").arg(ref, err));
+                        Q_EMIT logMessage(QString("[FluxScript] Compilation failed for %1: %2").arg(ref, errors.value(0)));
+                    }
+                }
+            } else {
+                // Check if this component is a SystemVerilog block based on properties
+                // or if it was marked during buildNetlist.
+                // For simplicity, we check if it has Verilog source attached in our map.
+                // We'll use the extraProperties to find the SV path.
+                QString svPath = si->property("systemVerilogFile").toString();
+                if (svPath.isEmpty() && si->value().endsWith(".sv", Qt::CaseInsensitive)) {
+                    svPath = si->value();
+                }
+
+                if (!svPath.isEmpty()) {
+                    QFile f(svPath);
+                    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        f.setFileName(QDir::current().absoluteFilePath(svPath));
+                        f.open(QIODevice::ReadOnly | QIODevice::Text);
+                    }
+
+                    if (f.isOpen()) {
+                        QString source = QString::fromUtf8(f.readAll());
+                        QString moduleName = si->property("systemVerilogModule").toString();
+                        if (moduleName.isEmpty()) moduleName = QFileInfo(svPath).baseName();
+
+                        QString svErr;
+                        auto ports = SlangManager::instance().extractPorts(source, moduleName, &svErr);
+                        if (!svErr.isEmpty()) {
+                            Q_EMIT logMessage(QString("[SystemVerilog] Port extraction failed for %1: %2").arg(ref, svErr));
+                        } else {
+                            QString cppSource = SlangManager::instance().translateToCpp(source, moduleName, &svErr);
+                            if (cppSource.isEmpty()) {
+                                Q_EMIT logMessage(QString("[SystemVerilog] Translation failed for %1: %2").arg(ref, svErr));
+                            } else {
+                                QMap<int, QString> errors;
+                                if (Flux::JITContextManager::instance().compileAndLoad(ref, cppSource, errors)) {
+                                    svCompiledCount++;
+
+                                    SimulationManager::FluxScriptTarget target;
+                                    QStringList inPins, outPins;
+                                    for (const auto& p : ports) {
+                                        if (p.isInput) inPins << p.name;
+                                        else {
+                                            outPins << p.name;
+                                            if (!SimulationManager::instance().isNativeSmartSignalMode()) {
+                                                target.outputVoltageSources << QString("V%1_%2").arg(ref, p.name.toUpper());
+                                            }
+                                        }
+                                    }
+                                    Flux::JITContextManager::instance().setInputPinMapping(ref, inPins);
+                                    target.pinToNetMap = m_pinToNetMap.value(ref);
+                                    targets.insert(ref, target);
+                                } else {
+                                    Q_EMIT logMessage(QString("[SystemVerilog] JIT Compilation failed for %1: %2").arg(ref, errors.value(0)));
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    
-    if (compiledCount > 0) {
-        Q_EMIT logMessage(QString("[FluxScript] Successfully JIT-compiled %1 smart blocks.").arg(compiledCount));
-    }
-    
-    // Push targets to live simulation manager for the feedback loop
+
+    if (fluxCompiledCount > 0) Q_EMIT logMessage(QString("[FluxScript] Successfully JIT-compiled %1 smart blocks.").arg(fluxCompiledCount));
+    if (svCompiledCount > 0) Q_EMIT logMessage(QString("[SystemVerilog] Successfully JIT-compiled %1 RTL blocks.").arg(svCompiledCount));
+
     SimulationManager::instance().setFluxScriptTargets(targets);
 }

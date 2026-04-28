@@ -995,7 +995,8 @@ void SchematicEditor::onItemDoubleClicked(SchematicItem* item) {
             TuningSliderPropertiesDialog dlg(slider, this);
             if (dlg.exec() == QDialog::Accepted) {
                 QJsonObject newState = slider->toJson();
-                newState["reference"] = dlg.reference();
+                // Persist the target parameter (e.g. R1)
+                newState["targetParam"] = dlg.reference(); 
                 newState["min"] = dlg.minValue();
                 newState["max"] = dlg.maxValue();
                 newState["current"] = dlg.currentValue();

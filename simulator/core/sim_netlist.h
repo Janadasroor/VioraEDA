@@ -18,7 +18,7 @@ enum class SimComponentType {
     VCVS, VCCS, CCVS, CCCS,
     B_VoltageSource, B_CurrentSource,
     LOGIC_AND, LOGIC_OR, LOGIC_XOR, LOGIC_NAND, LOGIC_NOR, LOGIC_NOT,
-    FluxScript, CSW
+    FluxScript, CSW, SystemVerilog
 };
 
 struct SimNode {
@@ -65,6 +65,8 @@ struct SimComponentInstance {
     // Python is the external orchestration layer (vspice._core / vspice.ui),
     // NOT an in-simulation engine. Behavioral sources use FluxScript exclusively.
     std::string fluxScript;
+    std::string systemVerilogSource;
+    std::string systemVerilogModule;
     std::vector<std::string> inputPinNames;
     std::vector<std::string> outputPinNames;
 

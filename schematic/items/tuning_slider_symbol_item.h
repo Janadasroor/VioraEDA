@@ -16,7 +16,9 @@ public:
 
     ItemType itemType() const override { return ItemType::CustomType; }
     QString itemTypeName() const override { return "TuningSlider"; }
+    QString referencePrefix() const override { return "SL"; }
 
+    virtual void rebuildPrimitives() override;
     QRectF boundingRect() const override;
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget) override;
 
@@ -35,6 +37,9 @@ public:
     double currentValue() const { return m_current; }
     void setCurrentValue(double v);
 
+    QString targetParameter() const { return m_targetParameter; }
+    void setTargetParameter(const QString& target) { m_targetParameter = target; }
+
     QString fluxVariableName() const { return m_fluxVarName; }
     void setFluxVariableName(const QString& name) { m_fluxVarName = name; }
 
@@ -44,10 +49,16 @@ public:
     bool isLiveUpdateEnabled() const { return m_liveUpdate; }
     void setLiveUpdateEnabled(bool enabled) { m_liveUpdate = enabled; }
 
+    bool isInteractive() const override { return true; }
+    void onInteractivePress(const QPointF& scenePos) override;
+    void onInteractiveRelease(const QPointF& scenePos) override;
+
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
     void mouseMoveEvent(QGraphicsSceneMouseEvent* event) override;
     void mouseReleaseEvent(QGraphicsSceneMouseEvent* event) override;
+    void hoverEnterEvent(QGraphicsSceneHoverEvent* event) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent* event) override;
 
 private:
     double posToValue(double x) const;
@@ -57,6 +68,7 @@ private:
     double m_min = 0;
     double m_max = 100;
     double m_current = 50;
+    QString m_targetParameter;
     QString m_fluxVarName;
     QString m_scriptPath;
     bool m_liveUpdate = true;

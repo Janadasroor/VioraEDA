@@ -5,6 +5,7 @@
 #include "../schematic/editor/schematic_api.h"
 #include "../simulator/bridge/sim_manager.h"
 #include "../../simulator/core/sim_results.h"
+#include "../ui/waveform_viewer.h"
 #include <QDebug>
 #include <QApplication>
 #include <QEventLoop>
@@ -43,17 +44,6 @@ void set_active_schematic_api(SchematicAPI* api) {
 }
 
 const char* pool_workspace_string(const QString& s) {
-    // If a design rule bridge is active, use its pool (thread-safe)
-    if (auto* b = FluxDesignRuleBridge::current()) {
-        // We need a way to call poolString. I'll make it public.
-        // For now, use global pool with a mutex
-        static std::mutex poolMutex;
-        std::lock_guard<std::mutex> lock(poolMutex);
-        g_stringPool.push_back(s.toStdString());
-        return g_stringPool.back().c_str();
-    }
-    
-    // Fallback to global pool
     static std::mutex poolMutex;
     std::lock_guard<std::mutex> lock(poolMutex);
     g_stringPool.push_back(s.toStdString());
@@ -149,6 +139,39 @@ extern "C" {
         if (!g_activeApi) return "untitled.viosch";
         return Flux::Core::pool_workspace_string(g_activeApi->filePath());
     }
+
+    const char* flux_get_open_schematics() {
+        auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
+        if (!editor) return "";
+        
+        auto* tabs = editor->findChild<QTabWidget*>();
+        if (!tabs) return "";
+        
+        QStringList names;
+        for (int i = 0; i < tabs->count(); ++i) {
+            names << tabs->tabText(i).remove("*"); // Clean modified markers
+        }
+        return Flux::Core::pool_workspace_string(names.join(","));
+    }
+
+    void flux_select_schematic(const char* fileName) {
+        if (!fileName) return;
+        auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
+        if (!editor) return;
+        
+        auto* tabs = editor->findChild<QTabWidget*>();
+        if (!tabs) return;
+
+        QString target = QString::fromUtf8(fileName).toLower();
+        for (int i = 0; i < tabs->count(); ++i) {
+            QString current = tabs->tabText(i).toLower().remove("*");
+            if (current == target) {
+                tabs->setCurrentIndex(i);
+                // The onTabChanged handler in editor will sync the API
+                break;
+            }
+        }
+    }
     
     // --- Standard Output Hook ---
     
@@ -157,5 +180,38 @@ extern "C" {
         printf("[STDOUT] %s\n", msg);
         fflush(stdout);
         Flux::JITContextManager::instance().logMessage(QString::fromUtf8(msg));
+    }
+
+    // --- Plotting ---
+
+    void flux_plot_point(const char* seriesName, double x, double y) {
+        if (!seriesName) return;
+        auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
+        if (!editor) return;
+
+        auto* viewer = editor->findChild<WaveformViewer*>();
+        if (viewer) {
+            viewer->appendPoint(QString::fromUtf8(seriesName), x, y);
+        }
+    }
+
+    void flux_register_analysis(const char* analysisType) {
+        if (!analysisType) return;
+        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Analysis: %1").arg(analysisType));
+    }
+
+    void flux_register_measure(const char* name, const char* measureType) {
+        if (!name || !measureType) return;
+        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Measurement: %1 %2").arg(name, measureType));
+    }
+
+    void flux_register_probe(const char* varName, const char* outputName) {
+        if (!varName) return;
+        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Probe: %1").arg(varName));
+    }
+
+    void flux_register_save(const char* varName) {
+        if (!varName) return;
+        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Save: %1").arg(varName));
     }
 }

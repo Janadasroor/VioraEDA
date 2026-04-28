@@ -15,6 +15,10 @@
 #include <utility>
 #include <dlfcn.h>
 
+#ifdef HAVE_NGSPICE
+extern "C" bool ngSpice_IsPaused(void);
+#endif
+
 namespace {
     /**
      * Resolves a file path case-insensitively.
@@ -119,11 +123,13 @@ namespace {
 
 SimulationManager& SimulationManager::instance() {
     static SimulationManager instance;
+    qDebug() << "[SimManagerCore] Accessing instance:" << &instance;
     return instance;
 }
 
 SimulationManager::SimulationManager(QObject* parent)
     : QObject(parent), m_isInitialized(false) {
+    qDebug() << "[SimManagerCore] Instance created at:" << this;
     m_bufferTimer = new QTimer(this);
     m_bufferTimer->setInterval(33); // ~30 FPS
     connect(m_bufferTimer, &QTimer::timeout, this, &SimulationManager::processBufferedData);
@@ -219,12 +225,11 @@ void SimulationManager::initialize() {
 }
 
 bool SimulationManager::isRunning() const {
-#ifdef HAVE_NGSPICE
-    std::lock_guard<std::mutex> lock(const_cast<SimulationManager*>(this)->m_ngspiceMutex);
-    return ngSpice_running();
-#else
-    return false;
-#endif
+    // DEADLOCK PREVENTION: 
+    // Do not acquire m_ngspiceMutex here. This function is called from 
+    // SimManager which in turn is called during data callbacks while the GUI
+    // might be holding the lock during a switch toggle.
+    return m_bgRunIssued.load();
 }
 
 bool SimulationManager::recoverEngineIfNeeded() {
@@ -375,7 +380,21 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     {
         std::lock_guard<std::mutex> lock(m_ngspiceMutex);
         ngSpice_Command(const_cast<char*>("set filetype=binary"));
+        
+        // Guardrail:
+        // ngspice shared library determines the set of exported vectors ONLY at
+        // the start of bg_run. To support "Live Probing" (adding a probe mid-run
+        // and seeing immediate data), we MUST export all nodes. If we only saved
+        // the initial probes, late-added probes would show as empty lists until
+        // the simulation completes and the .raw file is written.
+        ngSpice_Command(const_cast<char*>("save all"));
+        
         const int rc = ngSpice_Command((char*)"bg_run");
+        
+        // Secondary Force: Some shared-ngspice versions only lock the export list
+        // on the first step. Forcing it again immediately after start can help.
+        ngSpice_Command(const_cast<char*>("save all"));
+        qDebug() << "[SimManager] bg_run issued, rc =" << rc;
         if (rc != 0 || m_lastLoadFailed) {
             m_bufferTimer->stop();
             m_bgRunIssued = false;
@@ -615,11 +634,17 @@ void SimulationManager::stopSimulation() {
     }
     m_stopRequested = true;
     m_pauseRequested = false;
-    m_bgRunIssued = false; 
+    
+    // CRITICAL: Do NOT clear m_bgRunIssued here. 
+    // If we clear it now, the callback (cbBGThreadRunning) will see m_bgRunIssued=false 
+    // and assume the simulation never started or was already handled, 
+    // skipping the handleSimulationFinished() call that saves your data.
+    
     m_fluxSyncRequested = false;
     m_jitUpdateInProgress = false;
     m_haltRequested = false;
-    ngSpice_Command((char*)"bg_halt");
+
+    ngSpice_Command(const_cast<char*>("bg_halt"));
     QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
     QMetaObject::invokeMethod(this, "processBufferedData", Qt::QueuedConnection);
 #endif
@@ -713,70 +738,23 @@ void SimulationManager::alterSwitch(const QString& switchRef, bool open, double 
 #ifdef HAVE_NGSPICE
     if (!m_isInitialized) return;
 
-    // VioSpice implements switches as resistors, not voltage-controlled switches.
-    // Netlist generator creates: R<ref> n1 n2 <value>
-    //   Open state:  1e12 ohms (high resistance)
-    //   Closed state: 0.001 ohms (low resistance)
+    // VioSpice implements switches as resistors.
     QString rName = switchRef;
     if (!rName.startsWith("R", Qt::CaseInsensitive)) rName = "R" + rName;
 
     double resistance = open ? 1e12 : 0.001;
-    alterSwitchResistance(rName, resistance);
+    queueParameterUpdate(rName, resistance);
+#else
+    Q_UNUSED(switchRef) Q_UNUSED(open) Q_UNUSED(vt) Q_UNUSED(vh)
 #endif
 }
 
 void SimulationManager::alterSwitchResistance(const QString& resistorName, double resistance) {
-#ifdef HAVE_NGSPICE
-    if (!m_isInitialized) return;
-
-    // Set flag to prevent simulationFinished() from being emitted
-    // when the background thread stops due to bg_halt
-    m_switchToggleInProgress = true;
-
-    // 1. Halt the simulation (pauses, doesn't fully stop)
-    sendInternalCommand("bg_halt");
-
-    // Small delay to ensure simulation has stopped
-    QThread::msleep(20);
-
-    // 2. Alter the resistor value
-    // ngspice syntax: alter Rname R=value
-    QString cmd = QString("alter %1 R=%2").arg(resistorName, QString::number(resistance, 'g', 12));
-    ngSpice_Command(cmd.toLatin1().data());
-
-    // 3. Resume simulation (bg_resume continues from paused state, bg_run would restart)
-    sendInternalCommand("bg_resume");
-
-    // Clear flag after resume
-    m_switchToggleInProgress = false;
-#endif
+    queueParameterUpdate(resistorName, resistance);
 }
 
 void SimulationManager::alterSwitchVoltage(const QString& controlSourceName, double voltage) {
-#ifdef HAVE_NGSPICE
-    if (!m_isInitialized) return;
-
-    // Use bg_halt -> alter -> bg_resume cycle for voltage-controlled switches
-    // (for advanced users who use .model SW with VSWITCH)
-
-    // 1. Halt the simulation
-    m_switchToggleInProgress = true;
-    sendInternalCommand("bg_halt");
-
-    // Small delay to ensure simulation has stopped
-    QThread::msleep(10);
-
-    // 2. Alter the control voltage source
-    QString cmd = QString("alter %1 DC=%2").arg(controlSourceName, QString::number(voltage, 'g', 12));
-    {
-        std::lock_guard<std::mutex> lock(m_ngspiceMutex);
-        ngSpice_Command(cmd.toLatin1().data());
-    }
-
-    // 3. Resume simulation
-    sendInternalCommand("bg_resume");
-    m_switchToggleInProgress = false;
-#endif
+    queueParameterUpdate(controlSourceName, voltage);
 }
 
 void SimulationManager::queueParameterUpdate(const QString& name, double value) {
@@ -798,30 +776,39 @@ void SimulationManager::queueFluxSourceUpdate(const QString& sourceName, double 
     queueParameterUpdate(sourceName, value);
 }
 
+void SimulationManager::queueInternalCommand(const QString& cmd) {
+#ifdef HAVE_NGSPICE
+    if (m_isInitialized && m_bgRunIssued) {
+        {
+            std::lock_guard<std::mutex> lock(m_jitSyncMutex);
+            m_pendingInternalCommands.append(cmd);
+        }
+        QMetaObject::invokeMethod(this, [this]() { requestFluxSourceSync(); }, Qt::QueuedConnection);
+    }
+#else
+    Q_UNUSED(cmd)
+#endif
+}
+
 void SimulationManager::requestFluxSourceSync() {
 #ifdef HAVE_NGSPICE
     if (!m_isInitialized || !m_bgRunIssued || m_stopRequested || m_pauseRequested) return;
-    if (m_streamingCounter < 5) return;
     if (m_jitUpdateInProgress || m_fluxSyncRequested) return;
 
     {
         std::lock_guard<std::mutex> lock(m_jitSyncMutex);
-        if (m_pendingHighPriorityUpdates.isEmpty()) return;
+        if (m_pendingHighPriorityUpdates.isEmpty() && m_pendingInternalCommands.isEmpty()) return;
     }
 
     m_jitUpdateInProgress = true;
     m_fluxSyncRequested = true;
     m_haltRequested = true;
 
+    // Stable Handshake: Issue halt and release lock immediately.
+    // The cbBGThreadRunning callback will handle the actual data flush.
     {
         std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
-        if (!m_bgRunIssued || m_stopRequested || m_pauseRequested) {
-            m_haltRequested = false;
-            m_fluxSyncRequested = false;
-            m_jitUpdateInProgress = false;
-            return;
-        }
-        ngSpice_Command((char*)"bg_halt");
+        ngSpice_Command(const_cast<char*>("bg_halt"));
     }
 #endif
 }
@@ -829,12 +816,14 @@ void SimulationManager::requestFluxSourceSync() {
 void SimulationManager::applyPendingFluxSourceUpdates() {
 #ifdef HAVE_NGSPICE
     QMap<QString, double> updates;
+    QStringList commands;
     {
         std::lock_guard<std::mutex> lock(m_jitSyncMutex);
         updates.swap(m_pendingHighPriorityUpdates);
+        commands.swap(m_pendingInternalCommands);
     }
 
-    if (updates.isEmpty()) {
+    if (updates.isEmpty() && commands.isEmpty()) {
         if (m_bgRunIssued && !m_stopRequested && !m_pauseRequested) {
             m_pauseRequested = false;
             m_stopRequested = false;
@@ -842,7 +831,7 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
                 QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection);
             }
             std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
-            ngSpice_Command((char*)"bg_resume");
+            ngSpice_Command(const_cast<char*>("bg_resume"));
         }
         m_fluxSyncRequested = false;
         m_haltRequested = false;
@@ -852,35 +841,34 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
 
     {
         std::lock_guard<std::mutex> apiLock(m_ngspiceMutex);
+        
+        // 1. Process arbitrary enqueued commands (save, trace, etc.)
+        for (const QString& cmd : commands) {
+            ngSpice_Command(const_cast<char*>(cmd.toLatin1().constData()));
+        }
+
+        // 2. Process parameter updates (alter)
         for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
             const QString target = it.key();
             const double val = it.value();
-            QString cmd;
+            QString valStr = QString::number(val, 'g', 12);
             
-            // Intelligent Command Generation based on Device Prefix
+            // Comprehensive Command Generation for VioMATRIXC/ngspice
             if (target.startsWith('V', Qt::CaseInsensitive) || target.startsWith('I', Qt::CaseInsensitive)) {
-                // Voltage or Current Source
-                cmd = QString("alter @%1[dc] = %2")
-                        .arg(target, QString::number(val, 'g', 12));
+                ngSpice_Command(const_cast<char*>(QString("alter @%1[dc] = %2").arg(target, valStr).toLatin1().constData()));
+                ngSpice_Command(const_cast<char*>(QString("alter %1 dc=%2").arg(target, valStr).toLatin1().constData()));
             } else if (target.startsWith('R', Qt::CaseInsensitive)) {
-                // Resistor
-                cmd = QString("alter %1 %2")
-                        .arg(target, QString::number(val, 'g', 12));
+                ngSpice_Command(const_cast<char*>(QString("alter @%1[resistance] = %2").arg(target, valStr).toLatin1().constData()));
+                ngSpice_Command(const_cast<char*>(QString("alter %1 resistance = %2").arg(target, valStr).toLatin1().constData()));
             } else if (target.startsWith('C', Qt::CaseInsensitive)) {
-                // Capacitor
-                cmd = QString("alter %1 C=%2")
-                        .arg(target, QString::number(val, 'g', 12));
+                ngSpice_Command(const_cast<char*>(QString("alter @%1[capacitance] = %2").arg(target, valStr).toLatin1().constData()));
+                ngSpice_Command(const_cast<char*>(QString("alter %1 capacitance = %2").arg(target, valStr).toLatin1().constData()));
             } else if (target.startsWith('L', Qt::CaseInsensitive)) {
-                // Inductor
-                cmd = QString("alter %1 L=%2")
-                        .arg(target, QString::number(val, 'g', 12));
+                ngSpice_Command(const_cast<char*>(QString("alter @%1[inductance] = %2").arg(target, valStr).toLatin1().constData()));
+                ngSpice_Command(const_cast<char*>(QString("alter %1 inductance = %2").arg(target, valStr).toLatin1().constData()));
             } else {
-                // Generic attempt for subcircuits or other device parameters
-                cmd = QString("alter %1 %2")
-                        .arg(target, QString::number(val, 'g', 12));
+                ngSpice_Command(const_cast<char*>(QString("alter %1 %2").arg(target, valStr).toLatin1().constData()));
             }
-            
-            ngSpice_Command(cmd.toLatin1().data());
         }
 
         if (m_bgRunIssued && !m_stopRequested && !m_pauseRequested) {
@@ -889,7 +877,7 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
             if (m_streamingControl) {
                 QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection);
             }
-            ngSpice_Command((char*)"bg_resume");
+            ngSpice_Command(const_cast<char*>("bg_resume"));
         }
     }
 
@@ -1100,8 +1088,8 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
     }
 
     if (stopRequested) {
-        ngSpice_Command((char*)"bg_halt");
-        return 0;
+        ngSpice_Command(const_cast<char*>("bg_halt"));
+        // Don't return 0 here; continue to buffer this last point so it's not lost.
     }
 
     if (!hasControl || vecArray->veccount <= 1 || !vecArray->vecsa) {
@@ -1110,6 +1098,10 @@ int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id
 
     if (++self->m_streamingCounter % self->m_skipFactor != 0) {
         return 0;
+    }
+
+    if (self->m_streamingCounter % 500 == 0) {
+        qDebug() << "[SimManagerCore] cbSendData: point" << self->m_streamingCounter << "vectors:" << vecArray->veccount << "Instance:" << self;
     }
 
     std::vector<double> sampleValues;
@@ -1201,6 +1193,7 @@ int SimulationManager::cbSendInitData(pvecinfoall initData, int id, void* userDa
     {
         std::lock_guard<std::mutex> lock(self->m_vectorMutex);
         self->m_vectorMap.clear();
+        QStringList debugNames;
         for (int i = 0; i < initData->veccount; ++i) {
             pvecinfo v = initData->vecs[i];
             if (!v) continue;
@@ -1211,10 +1204,12 @@ int SimulationManager::cbSendInitData(pvecinfoall initData, int id, void* userDa
             vm.isVoltage = (v->is_real && !vm.name.toLower().startsWith("i("));
             vm.isScale = (v->pdvec != nullptr && v->pdvec == v->pdvecscale);
             self->m_vectorMap.push_back(vm);
+            debugNames << vm.name;
         }
+        qDebug() << "[SimManagerCore] Exported vectors:" << debugNames.join(", ") << "Instance:" << self;
     }
 
-    qDebug() << "Ngspice: streaming initialized with" << initData->veccount << "vectors.";
+    qDebug() << "[SimManagerCore] Ngspice streaming initialized with" << initData->veccount << "vectors. Instance:" << self;
     return 0;
 }
 #else
@@ -1234,24 +1229,22 @@ int SimulationManager::cbBGThreadRunning(bool finished, int id, void* userData) 
     // finished=true means the background thread has STOPPED (either halted or completed).
     // finished=false means the background thread has STARTED.
     if (finished) {
-        // Was this a manual halt we requested?
-        if (self->m_jitUpdateInProgress) {
-            QMetaObject::invokeMethod(self, [self]() { self->applyPendingFluxSourceUpdates(); }, Qt::QueuedConnection);
+        // Was this a synchronized pause or a mid-run halt?
+        if ((ngSpice_IsPaused() || self->m_haltRequested || self->m_switchToggleInProgress) && !self->m_stopRequested) {
+            if (self->m_jitUpdateInProgress) {
+                QMetaObject::invokeMethod(self, [self]() { self->applyPendingFluxSourceUpdates(); }, Qt::QueuedConnection);
+            }
+            // CRITICAL: Stop timer and flush data asynchronously to avoid recursive deadlock on m_ngspiceMutex
             QMetaObject::invokeMethod(self->m_bufferTimer, "stop", Qt::QueuedConnection);
             QMetaObject::invokeMethod(self, "processBufferedData", Qt::QueuedConnection);
             return 0;
         }
 
-        if (self->m_haltRequested || self->m_switchToggleInProgress) {
-            self->m_haltRequested = false; // Reset for next time
-            QMetaObject::invokeMethod(self->m_bufferTimer, "stop", Qt::QueuedConnection);
-            QMetaObject::invokeMethod(self, "processBufferedData", Qt::QueuedConnection);
-            return 0;
-        }
-
-        // --- NATURAL COMPLETION ---
-        // Only get here if finished=true and NO halt was requested.
+        // --- COMPLETION or MANUAL STOP ---
+        // Both cases lead here. We set bgRunIssued to false and trigger result saving.
+        // If m_stopRequested was true, we've already halted.
         self->m_bgRunIssued = false;
+        self->m_stopRequested = false;
 
         QFileInfo info(self->m_currentNetlist);
         const QString rawPath = info.absolutePath() + "/" + info.completeBaseName() + ".raw";
@@ -1265,9 +1258,10 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
     processBufferedData(); // Flush remaining
 
 #ifdef HAVE_NGSPICE
-    // m_bgRunIssued was already cleared in the callback to stop the JIT thread,
-    // so we check other status flags here.
-    if (!m_lastLoadFailed && !m_lastRunFailed && !rawPath.isEmpty()) {
+    bool wasRunning = !m_lastLoadFailed && !m_lastRunFailed && !rawPath.isEmpty();
+    qDebug() << "[SimManagerCore] handleSimulationFinished: wasRunning=" << wasRunning << "rawPath=" << rawPath;
+
+    if (wasRunning) {
         qDebug() << "[SimulationManager] handleSimulationFinished: rawPath=" << rawPath;
 
         // IMPORTANT: Do NOT emit simulationFinished() yet!
@@ -1285,7 +1279,8 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
             qDebug() << "[SimulationManager] Attempting to write raw file:" << rawPath;
             QFile::remove(rawPath);
 
-            ngSpice_Command((char*)"set filetype=binary");
+            // Parser (RawDataParser::loadRawAscii) requires ASCII files.
+            ngSpice_Command(const_cast<char*>("set filetype=ascii"));
             const QString writeCmd = "write " + rawPath;
             ngSpice_Command(writeCmd.toLatin1().data());
 

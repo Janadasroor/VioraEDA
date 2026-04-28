@@ -17,7 +17,8 @@ TuningSliderPropertiesDialog::TuningSliderPropertiesDialog(TuningSliderSymbolIte
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     QFormLayout* form = new QFormLayout();
 
-    m_refEdit = new QLineEdit(item->reference());
+    // Use targetParameter() which now safely stores the tuning target (e.g. R1)
+    m_refEdit = new QLineEdit(item->targetParameter());
     
     m_minSpin = new QDoubleSpinBox();
     m_minSpin->setRange(-1e15, 1e15);

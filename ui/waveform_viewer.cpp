@@ -45,6 +45,39 @@
 namespace {
 constexpr double kDbFloor = 1e-15;
 
+QStringList signalNameAliases(const QString& name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) return {};
+
+    QStringList aliases{trimmed};
+    if (trimmed.startsWith("V(", Qt::CaseInsensitive) && trimmed.endsWith(')')) {
+        aliases << trimmed.mid(2, trimmed.size() - 3).trimmed();
+    } else if (!(trimmed.startsWith("I(", Qt::CaseInsensitive) && trimmed.endsWith(')'))
+               && !(trimmed.startsWith("P(", Qt::CaseInsensitive) && trimmed.endsWith(')'))) {
+        aliases << QString("V(%1)").arg(trimmed);
+    }
+
+    aliases.removeDuplicates();
+    return aliases;
+}
+
+QString findSignalKeyByAlias(const QStringList& signalKeys, const QString& requestedName) {
+    if (signalKeys.contains(requestedName)) {
+        return requestedName;
+    }
+
+    const QStringList aliases = signalNameAliases(requestedName);
+    for (const QString& key : signalKeys) {
+        for (const QString& alias : aliases) {
+            if (key.compare(alias, Qt::CaseInsensitive) == 0) {
+                return key;
+            }
+        }
+    }
+
+    return QString();
+}
+
 double toDb(double value) {
     const double mag = std::max(std::abs(value), kDbFloor);
     return 20.0 * std::log10(mag);
@@ -618,6 +651,14 @@ void WaveformViewer::setupUi() {
     auto *crosshairAct = toolbar->addAction("Crosshair", QKeySequence(), this, &WaveformViewer::toggleCrosshair);
     crosshairAct->setCheckable(true);
     
+    QWidget* spacer = new QWidget();
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolbar->addWidget(spacer);
+
+    m_sourceLabel = new QLabel("Source: None", this);
+    m_sourceLabel->setStyleSheet("color: #bae6fd; font-weight: bold; font-size: 10px; margin-right: 10px;");
+    toolbar->addWidget(m_sourceLabel);
+
     layout->addWidget(toolbar);
 
     auto *mainArea = new QHBoxLayout();
@@ -794,6 +835,12 @@ void WaveformViewer::setPlotQuality(WaveformViewer::PlotQuality quality) {
     m_plotQuality = quality;
     applyPlotQualityToViews();
     updatePlot(false);
+}
+
+void WaveformViewer::setSourceSchematicName(const QString& name) {
+    if (m_sourceLabel) {
+        m_sourceLabel->setText("Source: " + (name.isEmpty() ? "Active Tab" : name));
+    }
 }
 
 void WaveformViewer::applyPlotQualityToViews() {
@@ -1086,10 +1133,13 @@ bool WaveformViewer::setSignalColor(const QString& name, const QColor& color) {
 }
 
 void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
+    const QString resolvedName = findSignalKeyByAlias(m_signals.keys(), name);
+    const QString targetName = resolvedName.isEmpty() ? name : resolvedName;
     const Qt::CheckState targetState = checked ? Qt::Checked : Qt::Unchecked;
     for (int i = 0; i < m_nodeList->count(); ++i) {
         QListWidgetItem* item = m_nodeList->item(i);
-        if (item->text().compare(name, Qt::CaseInsensitive) == 0) {
+        if (item->text().compare(targetName, Qt::CaseInsensitive) == 0 ||
+            item->text().compare(name, Qt::CaseInsensitive) == 0) {
             if (item->checkState() == targetState) {
                 return;
             }
@@ -1103,7 +1153,7 @@ void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
     }
 
     m_nodeList->blockSignals(true);
-    auto* item = new QListWidgetItem(name, m_nodeList);
+    auto* item = new QListWidgetItem(targetName, m_nodeList);
     item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
     item->setCheckState(targetState);
     updateNodeItemStyle(item);
@@ -1112,9 +1162,12 @@ void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
 }
 
 void WaveformViewer::removeSignal(const QString& name) {
-    m_signals.remove(name);
+    const QString resolvedName = findSignalKeyByAlias(m_signals.keys(), name);
+    const QString targetName = resolvedName.isEmpty() ? name : resolvedName;
+    m_signals.remove(targetName);
     for (int i = 0; i < m_nodeList->count(); ++i) {
-        if (m_nodeList->item(i)->text() == name) {
+        if (m_nodeList->item(i)->text().compare(targetName, Qt::CaseInsensitive) == 0 ||
+            m_nodeList->item(i)->text().compare(name, Qt::CaseInsensitive) == 0) {
             delete m_nodeList->takeItem(i);
             break;
         }
@@ -2938,10 +2991,11 @@ void WaveformViewer::importSignals(const QList<SignalExport>& signalExports) {
 }
 
 bool WaveformViewer::getSignalData(const QString& name, QVector<double>& time, QVector<double>& values) {
-    if (!m_signals.contains(name)) {
+    const QString resolvedName = findSignalKeyByAlias(m_signals.keys(), name);
+    if (resolvedName.isEmpty()) {
         return false;
     }
-    const auto& data = m_signals[name];
+    const auto& data = m_signals[resolvedName];
     time = data.time;
     values = data.values;
     return true;
