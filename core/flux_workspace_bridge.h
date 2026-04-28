@@ -39,9 +39,20 @@ extern "C" {
     // Project Info
     const char* flux_get_project_name();
     const char* flux_get_schematic_file();
+    const char* flux_get_open_schematics();
+    void flux_select_schematic(const char* fileName);
     
     // Standard Output
     void viora_flux_print(const char* msg);
+    
+    // Plotting
+    void flux_plot_point(const char* seriesName, double x, double y);
+    
+    // SPICE Runtime Registration
+    void flux_register_analysis(const char* analysisType);
+    void flux_register_measure(const char* name, const char* measureType);
+    void flux_register_probe(const char* varName, const char* outputName);
+    void flux_register_save(const char* varName);
 }
 
 #endif // FLUX_WORKSPACE_BRIDGE_H

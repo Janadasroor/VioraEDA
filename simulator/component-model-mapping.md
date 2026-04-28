@@ -27,6 +27,20 @@ This document defines the deterministic mapping from schematic `ECOComponent` en
 | `CustomType` | `typeName` in {"g", "g2", "vccs"} (case-insensitive) | `VCCS` | voltage-controlled current source, requires 4 pins |
 | `CustomType` | `typeName` in {"e", "e2", "vcvs"} (case-insensitive) | `VCVS` | voltage-controlled voltage source, requires 4 pins |
 | `CustomType` | Reference starts with `A` (case-insensitive) AND symbol has OTA pins | `SubcircuitInstance` | LTspice OTA, translated to B-source at netlist generation |
+| `ComponentType`/`CustomType` | `value` ends with `.sv` OR `systemVerilogFile` property set | `SystemVerilog` | RTL block, JIT-compiled via Slang to native C++ |
+
+## SystemVerilog RTL Co-Simulation
+
+SystemVerilog blocks are handled via a **high-performance JIT-compilation pipeline** powered by Slang.
+
+### SV Processing Pipeline
+
+1. **Detection**: `SimSchematicBridge` detects `.sv` extension or `systemVerilogFile` property.
+2. **Analysis**: `SlangManager` (Slang library) extracts port names and directions.
+3. **Pin Mapping**: Port names are automatically mapped to schematic pin labels (case-insensitive).
+4. **Translation**: `SlangManager` converts SV continuous assignments into a C++ "Step Function".
+5. **Compilation**: `SimManager` triggers `JITContextManager` to compile C++ into memory (LLVM).
+6. **Execution**: ngspice calls the JIT function directly via the `d_viospice_jit` code model.
 
 ## Unsupported Components Policy
 

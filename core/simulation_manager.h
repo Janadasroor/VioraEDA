@@ -51,6 +51,7 @@ public:
     // Thread-safe update queuing for real-time tuning (Flux or Sliders)
     void queueParameterUpdate(const QString& name, double value);
     void queueFluxSourceUpdate(const QString& sourceName, double value);
+    void queueInternalCommand(const QString& cmd);
 
     // --- FluxScript JIT Targets ---
     struct FluxScriptTarget {
@@ -116,6 +117,7 @@ private:
     std::thread m_jitSyncThread;
     std::mutex m_jitSyncMutex;
     QMap<QString, double> m_pendingHighPriorityUpdates;
+    QStringList m_pendingInternalCommands;
     
     QString m_currentNetlist;
     SimControl* m_streamingControl = nullptr;

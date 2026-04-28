@@ -76,6 +76,7 @@ public:
     bool hasResults() const { return m_hasLastResults; }
     void showDetailedLog();
     bool isRealTimeMode() const;
+    void setSchematicName(const QString& name);
 
     struct TabOscilloscopeState {
         SimResults lastResults;
@@ -120,6 +121,7 @@ public:
     void updateSchematicDirective();
     void updateSchematicDirectiveFromCommand(const QString& commandText);
     void cancelPendingRun();
+    void setCurrentlyHoveredNet(const QString& netName);
 
 private Q_SLOTS:
     void onAnalysisChanged(int index);
@@ -266,6 +268,7 @@ private:
     QString m_selectedSteppedAxis;
     QLabel* m_designExplorerSummaryLabel = nullptr;
     QLabel* m_designExplorerDetailLabel = nullptr;
+    QLabel* m_schematicNameLabel = nullptr;
     QTableWidget* m_designExplorerTable = nullptr;
     QPushButton* m_designExplorerCopyButton = nullptr;
     
@@ -306,6 +309,11 @@ private:
     bool m_isSimInitiator = false;
     QElapsedTimer m_liveSnapshotTimer;
     int m_liveSnapshotIntervalMs = 33; // ~30 FPS UI update ceiling
+    
+    // Performance optimization for real-time streaming with 'save all'
+    QHash<QString, QString> m_liveNameCache;
+    QSet<QString> m_schematicNets;
+    QString m_currentlyHoveredNet;
 
     // .meas post-processing
     std::vector<MeasStatement> m_measStatements;

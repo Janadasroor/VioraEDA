@@ -521,6 +521,22 @@ SimulationPanel::~SimulationPanel() {
 }
 
 namespace {
+bool isSignalInSet(const QSet<QString>& set, const QString& signalName) {
+    if (set.contains(signalName)) return true;
+    for (const QString& s : set) {
+        if (s.compare(signalName, Qt::CaseInsensitive) == 0) return true;
+    }
+    return false;
+}
+
+QString findMatchingSignalName(const QSet<QString>& set, const QString& signalName) {
+    if (set.contains(signalName)) return signalName;
+    for (const QString& s : set) {
+        if (s.compare(signalName, Qt::CaseInsensitive) == 0) return s;
+    }
+    return QString();
+}
+
 bool signalMatches(const QString& itemText, const QString& signalName) {
     const QStringList aliases = waveformNetAliases(signalName);
     
@@ -549,15 +565,46 @@ bool signalMatches(const QString& itemText, const QString& signalName) {
 QString resolveLiveSignalName(const QListWidget* signalList, const QString& signalName) {
     if (!signalList || signalName.isEmpty()) return signalName;
 
+    const QString lowerSignal = signalName.toLower();
+
+    // Pass 1: Exact or simple alias match
     for (int i = 0; i < signalList->count(); ++i) {
         const QListWidgetItem* item = signalList->item(i);
         if (!item) continue;
-        if (signalMatches(item->text(), signalName)) {
-            return item->text();
+        const QString itemText = item->text();
+        if (signalMatches(itemText, signalName) || itemText.toLower() == lowerSignal) {
+            return itemText;
+        }
+    }
+
+    // Pass 2: Handle suffixed engine names (e.g. "net1 [step=1]")
+    int bracketIdx = signalName.indexOf(" [");
+    if (bracketIdx > 0) {
+        QString baseName = signalName.left(bracketIdx).trimmed();
+        const QString lowerBase = baseName.toLower();
+        for (int i = 0; i < signalList->count(); ++i) {
+            const QListWidgetItem* item = signalList->item(i);
+            if (!item) continue;
+            const QString itemText = item->text();
+            if (signalMatches(itemText, baseName) || itemText.toLower() == lowerBase) {
+                return itemText;
+            }
         }
     }
 
     return signalName;
+}
+
+bool isEffectivelyEmptyResults(const SimResults& results) {
+    return results.waveforms.empty()
+        && results.nodeVoltages.empty()
+        && results.branchCurrents.empty()
+        && results.sensitivities.empty()
+        && results.measurements.empty()
+        && results.measurementMetadata.empty()
+        && results.sParameterResults.empty()
+        && results.diagnostics.empty()
+        && results.fixSuggestions.empty();
 }
 } // namespace
 
@@ -1059,6 +1106,7 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
 
 void SimulationPanel::addProbe(const QString& signalName) {
     if (signalName.isEmpty()) return;
+    qDebug() << "[SimPanel] addProbe called for:" << signalName << "Sim running:" << SimManager::instance().isRunning();
     
     // Check if it already exists (case-insensitive and step-aware)
     QList<QListWidgetItem*> matchedItems;
@@ -1098,7 +1146,23 @@ void SimulationPanel::addProbe(const QString& signalName) {
     }
     
     const QString matchedName = primaryMatchedItem ? primaryMatchedItem->text() : signalName;
-    qDebug() << "[PROBE_RT] addProbe requested=" << signalName;
+    
+    // Register with WaveformViewer immediately if a simulation is running
+    if (m_waveformViewer && SimManager::instance().isRunning()) {
+        QVector<double> emptyTime, emptyValues;
+        m_waveformViewer->addSignal(matchedName, emptyTime, emptyValues);
+        m_waveformViewer->setSignalChecked(matchedName, true);
+        
+        // Register in the persistent set immediately so the optimized real-time
+        // stream handler picks it up in the next batch.
+        m_persistentCheckedSignals.insert(matchedName);
+        m_persistentCheckedSignals.insert(signalName); // Also insert raw requested name
+
+        // FORCE RE-RESOLUTION:
+        // Any engine vector (e.g. 'net1') that was previously resolved to itself
+        // because no probe existed must now be re-evaluated so it maps to 'V(Net1)'.
+        m_liveNameCache.clear();
+    }
 
     auto syncProbeSelection = [this, &matchedName]() {
         if (!m_signalList) return;
@@ -1267,9 +1331,11 @@ void SimulationPanel::addProbe(const QString& signalName) {
         syncProbeSelection();
     }
     
-    // If a transient simulation is running, rebuild the live preview chart for the selected signal.
+    // If a live transient-style simulation is running, rebuild the live preview chart
+    // for the selected signal immediately so probing during an active run is visible
+    // without waiting for a full plot refresh path.
     const QString liveSeriesName = matchedName;
-    if (m_analysisType->currentIndex() == 0 && m_chart) {
+    if ((m_analysisType->currentIndex() == 0 || m_analysisType->currentIndex() == 7) && m_chart) {
         m_chart->removeAllSeries();
         m_realTimeSeries.clear();
 
@@ -1504,6 +1570,7 @@ void SimulationPanel::onClearFocusedPaneProbes() {
     }
     m_signalList->blockSignals(false);
     
+    m_liveNameCache.clear();
     m_waveformViewer->clearPane(focusedIndex);
     if (m_logOutput) {
         m_logOutput->append(QString("Cleared focused pane (%1 signals removed).").arg(paneSignals.size()));
@@ -1642,6 +1709,7 @@ void SimulationPanel::clearAllProbesPreserveX() {
 }
 
 void SimulationPanel::clearResults() {
+    m_liveNameCache.clear();
     if (m_chart) {
         m_chart->removeAllSeries();
     }
@@ -2323,6 +2391,12 @@ void SimulationPanel::setupUI() {
     QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
     sidebarLayout->setContentsMargins(8, 12, 8, 12);
     sidebarLayout->setSpacing(15);
+
+    m_schematicNameLabel = new QLabel("SOURCE: None");
+    m_schematicNameLabel->setStyleSheet(QString("QLabel { font-weight: bold; font-size: 11px; color: %1; background-color: %2; padding: 6px; border-radius: 4px; border: 1px solid %3; }")
+                                          .arg(accent, bg, borderColor));
+    m_schematicNameLabel->setAlignment(Qt::AlignCenter);
+    sidebarLayout->addWidget(m_schematicNameLabel);
 
     QLabel* settingsLabel = new QLabel("ANALYSIS SETUP");
     settingsLabel->setStyleSheet(QString("QLabel { font-weight: bold; font-size: 10px; color: %1; letter-spacing: 1px; border: none; }").arg(theme ? theme->textSecondary().name() : "#888"));
@@ -3278,6 +3352,19 @@ bool SimulationPanel::isRealTimeMode() const {
     return m_analysisType && m_analysisType->currentIndex() == 7;
 }
 
+void SimulationPanel::setSchematicName(const QString& name) {
+    if (m_schematicNameLabel) {
+        if (name.isEmpty()) {
+            m_schematicNameLabel->setText("SOURCE: Active Tab");
+        } else {
+            m_schematicNameLabel->setText("SOURCE: " + name);
+        }
+    }
+    
+    if (m_waveformViewer) {
+        m_waveformViewer->setSourceSchematicName(name);
+    }
+}
 void SimulationPanel::cancelPendingRun() {
     ++m_runRequestSerial;
     if (m_buildInProgress) {
@@ -3286,11 +3373,10 @@ void SimulationPanel::cancelPendingRun() {
             m_logOutput->append("Simulation start canceled.");
         }
     }
-    m_acceptRealTimeStream = false;
-    m_isSimInitiator = false;
-    if (g_liveStreamOwner == this) {
-        g_liveStreamOwner.clear();
-    }
+}
+
+void SimulationPanel::setCurrentlyHoveredNet(const QString& netName) {
+    m_currentlyHoveredNet = netName;
 }
 
 void SimulationPanel::onRunSimulation() {
@@ -3301,6 +3387,29 @@ void SimulationPanel::onRunSimulation() {
             g_liveStreamOwner.clear();
         }
         SimManager::instance().stopAll();
+        QPointer<SimulationPanel> self(this);
+        auto retryStart = std::make_shared<std::function<void(int)>>();
+        *retryStart = [self, retryStart](int attemptsRemaining) {
+            if (!self) return;
+            if (!SimManager::instance().isRunning()) {
+                self->onRunSimulation();
+                return;
+            }
+            if (attemptsRemaining <= 0) {
+                if (self->m_logOutput) {
+                    self->m_logOutput->append("Previous simulation is still shutting down. Try Run again.");
+                }
+                return;
+            }
+            QTimer::singleShot(75, self, [self, retryStart, attemptsRemaining]() {
+                if (!self) return;
+                (*retryStart)(attemptsRemaining - 1);
+            });
+        };
+        QTimer::singleShot(75, this, [retryStart]() {
+            (*retryStart)(10);
+        });
+        return;
     }
 
     m_logOutput->clear();
@@ -3315,8 +3424,18 @@ void SimulationPanel::onRunSimulation() {
 
     if (!m_overlayPreviousRun || !m_overlayPreviousRun->isChecked()) {
         clearResults();
+        m_persistentCheckedSignals.clear();
     }
     m_liveSnapshotTimer.invalidate();
+    m_liveNameCache.clear();
+    m_schematicNets.clear();
+    if (m_netManager) {
+        const QStringList nets = m_netManager->netNames();
+        for (const QString& n : nets) {
+            m_schematicNets.insert(n);
+            m_schematicNets.insert(n.toLower());
+        }
+    }
 
     const int idx = m_analysisType->currentIndex();
     if (idx == 7) { // Real-time
@@ -3332,8 +3451,9 @@ void SimulationPanel::onRunSimulation() {
     // Update simulation command directive on the schematic
     updateSchematicDirective();
     m_isSimInitiator = true; 
-    m_acceptRealTimeStream = (idx == 0);
-    if (idx == 0) {
+    // idx == 0 is Transient
+    m_acceptRealTimeStream = (idx == 0 || idx == 7);
+    if (m_acceptRealTimeStream) {
         g_liveStreamOwner = this;
     }
 
@@ -3676,6 +3796,13 @@ QString SimulationPanel::generateSpiceNetlist() {
 }
 
 void SimulationPanel::onSimResultsReady(const SimResults& results) {
+    qDebug() << "[SimPanel] onSimResultsReady: waveforms=" << results.waveforms.size() 
+             << "voltages=" << results.nodeVoltages.size() << "currents=" << results.branchCurrents.size();
+    
+    const int currentAnalysisIndex = m_analysisType ? m_analysisType->currentIndex() : -1;
+    const bool shouldResumeLiveStream =
+        SimManager::instance().isRunning() && (currentAnalysisIndex == 0 || currentAnalysisIndex == 7);
+
     m_acceptRealTimeStream = false; // Stop accepting real-time data immediately
     m_liveSnapshotTimer.invalidate();
     if (g_liveStreamOwner == this) {
@@ -3686,6 +3813,17 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
         m_logOutput->append(QString("Unsupported simulator results schema v%1 (expected v%2).")
                             .arg(results.schemaVersion)
                             .arg(SimResults::kSchemaVersion));
+        return;
+    }
+
+    if (isEffectivelyEmptyResults(results)) {
+        if (m_logOutput) {
+            m_logOutput->append("Simulation finished without result data; keeping previous waveforms and probes.");
+        }
+        m_acceptRealTimeStream = shouldResumeLiveStream;
+        if (shouldResumeLiveStream) {
+            g_liveStreamOwner = this;
+        }
         return;
     }
 
@@ -4248,16 +4386,20 @@ int SimulationPanel::standardChartPointBudget() const {
 
 
 void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
+    static int batchCount = 0;
+    if (++batchCount % 10 == 0) {
+        qDebug() << "[SimPanel" << this << "] Live batch arrived. Points:" << times.size() << "Vectors:" << names.size();
+    }
+
     if (g_liveStreamOwner && g_liveStreamOwner != this) {
         return;
     }
+    
     if (times.empty()) return;
     if (!m_waveformViewer) return;
     if (values.empty() || names.empty()) return;
 
     // 1. Update Probes / Schematic Labels (Live)
-    // Throttle expensive item-state propagation under high-frequency streams to
-    // keep UI responsive, while still ingesting full waveform data below.
     const bool shouldEmitLiveSnapshot =
         !m_liveSnapshotTimer.isValid() || m_liveSnapshotTimer.elapsed() >= m_liveSnapshotIntervalMs;
     if (shouldEmitLiveSnapshot && !times.empty()) {
@@ -4269,40 +4411,89 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
         QMap<QString, double> nodeVoltages;
         QMap<QString, double> currents;
 
+        // Optimization: When 'save all' is active, there can be thousands of nodes.
+        // SchematicEditor::onTimeTravelSnapshot iterates over all scene items.
+        // Only include nodes that are actually part of the schematic to avoid massive map overhead.
         for (int i = 0; i < names.size(); ++i) {
             if (i >= static_cast<int>(lastVals.size())) break;
-            QString name = names[i].trimmed();
-            double val = lastVals[i];
+            const QString& rawName = names[i];
+            const double val = lastVals[i];
             
-            if (name.startsWith("V(", Qt::CaseInsensitive) && name.endsWith(')') && name.size() > 3) {
-                QString node = name.mid(2, name.length() - 3).trimmed();
-                nodeVoltages[node] = val;
-            } else if (name.toLower().endsWith("#branch") ||
-                       (name.startsWith("I(", Qt::CaseInsensitive) && name.endsWith(')'))) {
-                currents[name] = val;
+            QString cleanName = rawName;
+            bool isVoltage = false;
+            bool isCurrent = false;
+
+            if (rawName.startsWith("V(", Qt::CaseInsensitive) && rawName.endsWith(')') && rawName.size() > 3) {
+                cleanName = rawName.mid(2, rawName.length() - 3).trimmed();
+                isVoltage = true;
+            } else if (rawName.toLower().endsWith("#branch") ||
+                       (rawName.startsWith("I(", Qt::CaseInsensitive) && rawName.endsWith(')'))) {
+                isCurrent = true;
             } else {
-                // Shared ngspice streaming can expose node vectors directly as raw
-                // names (e.g., "net2") instead of V(net2). Treat those as voltages.
-                const QString lowered = name.toLower();
-                if (!name.isEmpty() && name != "time" &&
-                    !lowered.endsWith("#branch") &&
-                    !lowered.startsWith("@")) {
-                    nodeVoltages[name] = val;
+                const QString lowered = rawName.toLower();
+                if (!rawName.isEmpty() && rawName != "time" && !lowered.endsWith("#branch") && !lowered.startsWith("@")) {
+                    isVoltage = true;
                 }
+            }
+
+            if (isVoltage) {
+                if (isSignalInSet(m_schematicNets, cleanName)) {
+                    nodeVoltages[cleanName] = val;
+                }
+            } else if (isCurrent) {
+                currents[rawName] = val;
             }
         }
         Q_EMIT timeSnapshotReady(lastT, nodeVoltages, currents);
     }
 
     // 2. Update Waveform Viewer and Scope Chart
-    // Decimate for performance: if many points arrived, only pick a subset for the chart.
-    // However, for the WaveformViewer memory buffer, we might want more.
+    // Cache the set of signals we actually care about to avoid O(N*M) lookups in the loop
+    QStringList probedAliases;
+    if (!m_currentlyHoveredNet.isEmpty()) {
+        probedAliases = waveformNetAliases(m_currentlyHoveredNet);
+    }
+
     for (int i = 0; i < names.size(); ++i) {
         if (i >= static_cast<int>(values[0].size())) break;
         
-        const QString rawName = names[i];
-        const QString name = resolveLiveSignalName(m_signalList, rawName);
-        if (i < 8) qDebug() << "[PROBE_RT] batch raw=" << rawName << "resolved=" << name << "hasSeries=" << m_realTimeSeries.contains(name) << "hasRawSeries=" << m_realTimeSeries.contains(rawName);
+        const QString& rawName = names[i];
+        
+        // Cache-optimized name resolution
+        QString name;
+        auto it = m_liveNameCache.find(rawName);
+        if (it != m_liveNameCache.end()) {
+            name = it.value();
+        } else {
+            name = resolveLiveSignalName(m_signalList, rawName);
+            m_liveNameCache.insert(rawName, name);
+        }
+
+        const bool isTime = name.compare("time", Qt::CaseInsensitive) == 0;
+
+        QString uiName = findMatchingSignalName(m_persistentCheckedSignals, name);
+        if (uiName.isEmpty()) uiName = findMatchingSignalName(m_persistentCheckedSignals, rawName);
+        const bool isChecked = !uiName.isEmpty();
+
+        bool isHovered = false;
+        if (!m_currentlyHoveredNet.isEmpty()) {
+            if (signalMatches(name, m_currentlyHoveredNet) || signalMatches(rawName, m_currentlyHoveredNet)) {
+                isHovered = true;
+                if (uiName.isEmpty()) uiName = name; // Fallback for live snapshot
+            }
+        }
+
+        if (!isTime && !isChecked && !isHovered) {
+            continue;
+        }
+
+        if (isTime) uiName = "time";
+
+        if (isChecked || isHovered) {
+             qDebug() << "[SimPanel] Streaming match:" << rawName << "->" << name << "-> UI:" << uiName 
+                      << "Checked:" << isChecked << "Hovered:" << isHovered;
+        }
+
         std::vector<double> signalValues;
         signalValues.reserve(times.size());
         for (const auto& row : values) {
@@ -4310,38 +4501,27 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
             else signalValues.push_back(0.0);
         }
 
-        m_waveformViewer->appendPoints(name, times, signalValues);
-        bool signalChecked = false;
-        if (m_waveformViewer && m_signalList) {
-            for (int row = 0; row < m_signalList->count(); ++row) {
-                QListWidgetItem* item = m_signalList->item(row);
-                if (!item) continue;
-                if (signalMatches(item->text(), rawName) || signalMatches(item->text(), name)) {
-                    signalChecked = item->checkState() == Qt::Checked;
-                    m_waveformViewer->setSignalChecked(name, signalChecked);
-                    break;
-                }
-            }
-        }
+        m_waveformViewer->appendPoints(uiName, times, signalValues);
+        m_waveformViewer->setSignalChecked(uiName, isChecked);
 
         // Update preview chart
-        if (m_chart && signalChecked && name.compare("time", Qt::CaseInsensitive) != 0) {
-            QLineSeries* series = m_realTimeSeries.value(name, nullptr);
+        if (m_chart && isChecked && !isTime) {
+            QLineSeries* series = m_realTimeSeries.value(uiName, nullptr);
             if (!series) {
                 auto axesX = m_chart->axes(Qt::Horizontal);
                 auto axesY = m_chart->axes(Qt::Vertical);
                 if (!axesX.isEmpty() && !axesY.isEmpty()) {
                     const QList<QColor> colors = {Qt::red, Qt::blue, QColor("#00aa00"), Qt::magenta, Qt::darkCyan};
                     series = new QLineSeries();
-                    series->setName(name);
+                    series->setName(uiName);
                     series->setPen(QPen(colors[m_realTimeSeries.size() % colors.size()], 1.5));
                     m_chart->addSeries(series);
                     series->attachAxis(axesX[0]);
                     series->attachAxis(axesY[0]);
-                    m_realTimeSeries[name] = series;
-                    qDebug() << "[PROBE_RT] created live preview series for" << name;
+                    m_realTimeSeries[uiName] = series;
                 }
             }
+
             if (series) {
                 // Preserve narrow pulses in the live preview. Stride sampling can lock onto
                 // one phase of a periodic signal and make a valid waveform look flat.
@@ -4371,6 +4551,10 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 }
             }
         }
+    }
+
+    if (m_waveformViewer) {
+        m_waveformViewer->updatePlot(false); // fast refresh
     }
 }
 
@@ -4403,10 +4587,21 @@ void SimulationPanel::onTimelineValueChanged(int value) {
 }
 
 void SimulationPanel::plotBuiltinResults(const SimResults& results) {
+    m_liveNameCache.clear();
+    m_schematicNets.clear();
+    if (m_netManager) {
+        const QStringList nets = m_netManager->netNames();
+        for (const QString& n : nets) {
+            m_schematicNets.insert(n);
+            m_schematicNets.insert(n.toLower());
+        }
+    }
+
     const bool buildStandardChart = shouldBuildStandardChart();
     const bool buildSpectrumChart = shouldBuildSpectrumChart();
     const int currentAnalysisIndex = m_analysisType ? m_analysisType->currentIndex() : -1;
-    const bool restoreRealTimeStream = m_isSimInitiator && (currentAnalysisIndex == 0 || currentAnalysisIndex == 7);
+    // index 0 is Transient, 7 is Real-time
+    const bool restoreRealTimeStream = (currentAnalysisIndex == 0 || currentAnalysisIndex == 7);
     const QList<WaveformViewer::SignalExport> previousWaveformSignals =
         m_waveformViewer ? m_waveformViewer->exportSignals() : QList<WaveformViewer::SignalExport>();
     int previousPaneCount = 0;

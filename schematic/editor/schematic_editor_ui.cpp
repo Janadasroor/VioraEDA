@@ -2751,6 +2751,9 @@ void SchematicEditor::onRunSimulation() {
     SimManager::instance().compileFluxScripts(m_scene);
     
     updateSimulationUiState(true, "Starting simulation...");
+    if (m_simulationPanel) {
+        m_simulationPanel->setSchematicName(QFileInfo(m_currentFilePath).fileName());
+    }
     SimManager::instance().runNgspiceSimulation(netlist, config);
 }
 
@@ -2794,6 +2797,9 @@ void SchematicEditor::runSimulationConfig(const SimulationSetupDialog::Config& u
     SimManager::instance().compileFluxScripts(m_scene);
     
     updateSimulationUiState(true, "Starting simulation...");
+    if (m_simulationPanel) {
+        m_simulationPanel->setSchematicName(QFileInfo(m_currentFilePath).fileName());
+    }
     SimManager::instance().runNgspiceSimulation(netlist, config);
 }
 

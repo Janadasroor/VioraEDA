@@ -2,6 +2,9 @@
 #define FLUX_SCRIPT_EDITOR_TAB_H
 
 #include <QWidget>
+#include <QStackedWidget>
+#include <QListWidget>
+#include <QLineEdit>
 #include "flux_code_editor.h"
 
 class QGraphicsScene;
@@ -30,11 +33,25 @@ private slots:
     void onRunRequested();
     void onContentChanged();
     void onClearConsole();
+    void onSearchTemplates(const QString& text);
+    void onTemplateSelected(QListWidgetItem* item);
+    void onCategorySelected(QListWidgetItem* current, QListWidgetItem* previous);
+    void showTemplates();
 
 private:
     void setupUI(QGraphicsScene* scene, NetManager* netManager);
+    void setupWelcomeView();
+    void updateWelcomeVisibility();
+    void refreshTemplatesList();
+    void applyFilters();
 
+    QStackedWidget* m_stack;
+    QWidget* m_editorContainer;
+    QWidget* m_welcomeView;
     CodeEditor* m_editor;
+    QListWidget* m_templateList;
+    QListWidget* m_categoryList;
+    QLineEdit* m_searchEdit;
     QTextEdit* m_console;
     SchematicAPI* m_api;
     QString m_filePath;

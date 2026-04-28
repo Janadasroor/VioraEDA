@@ -99,6 +99,7 @@ public:
     Q_INVOKABLE void updatePlot(bool autoScale = false);
     void setPlotQuality(PlotQuality quality);
     PlotQuality plotQuality() const { return m_plotQuality; }
+    void setSourceSchematicName(const QString& name);
 
     struct SignalExport {
         QString name;
@@ -170,6 +171,7 @@ private:
     ChartPane* m_focusedPane = nullptr;
     QSplitter* m_splitter;
     QListWidget *m_nodeList;
+    QLabel *m_sourceLabel;
     QLabel *m_coordLabel;
     QHBoxLayout *m_legendLayout;
     QLabel *m_xAxisTitleLabel;

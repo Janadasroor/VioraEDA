@@ -73,6 +73,13 @@ JITContextManager::JITContextManager() {
     m_jit->registerFunction("run_sim", (void*)&flux_run_sim);
     m_jit->registerFunction("get_project_name", (void*)&flux_get_project_name);
     m_jit->registerFunction("get_schematic_file", (void*)&flux_get_schematic_file);
+    m_jit->registerFunction("get_open_schematics", (void*)&flux_get_open_schematics);
+    m_jit->registerFunction("select_schematic", (void*)&flux_select_schematic);
+    m_jit->registerFunction("plot_point", (void*)&flux_plot_point);
+    m_jit->registerFunction("flux_register_analysis", (void*)&flux_register_analysis);
+    m_jit->registerFunction("flux_register_measure", (void*)&flux_register_measure);
+    m_jit->registerFunction("flux_register_probe", (void*)&flux_register_probe);
+    m_jit->registerFunction("flux_register_save", (void*)&flux_register_save);
 #endif
 }
 
@@ -207,6 +214,13 @@ void JITContextManager::reset() {
     m_jit->registerFunction("run_sim", (void*)&flux_run_sim);
     m_jit->registerFunction("get_project_name", (void*)&flux_get_project_name);
     m_jit->registerFunction("get_schematic_file", (void*)&flux_get_schematic_file);
+    m_jit->registerFunction("get_open_schematics", (void*)&flux_get_open_schematics);
+    m_jit->registerFunction("select_schematic", (void*)&flux_select_schematic);
+    m_jit->registerFunction("plot_point", (void*)&flux_plot_point);
+    m_jit->registerFunction("flux_register_analysis", (void*)&flux_register_analysis);
+    m_jit->registerFunction("flux_register_measure", (void*)&flux_register_measure);
+    m_jit->registerFunction("flux_register_probe", (void*)&flux_register_probe);
+    m_jit->registerFunction("flux_register_save", (void*)&flux_register_save);
 #endif
 }
 

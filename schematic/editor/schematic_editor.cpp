@@ -645,6 +645,12 @@ void SchematicEditor::addSchematicTab(const QString& name) {
         }
     });
 
+    connect(view, &SchematicView::netHovered, this, [this](const QString& netName) {
+        if (m_simulationPanel) {
+            m_simulationPanel->setCurrentlyHoveredNet(netName);
+        }
+    });
+
     connect(view, &SchematicView::snippetDropped, this, [this](const QString& json, const QPointF& pos) {
         onSnippetGenerated(json, pos);
     });
@@ -744,9 +750,11 @@ void SchematicEditor::onTabChanged(int index) {
         m_scene = view->scene();
         m_netManager = view->netManager();
         m_currentFilePath = view->property("filePath").toString();
+        if (m_api) m_api->setFilePath(m_currentFilePath);
 
         if (m_simulationPanel) {
             m_simulationPanel->setTargetScene(m_scene, m_netManager, m_projectDir, true);
+            m_simulationPanel->setSchematicName(QFileInfo(m_currentFilePath).fileName());
 
             // Sync editor config with the newly restored tab state
             const auto panelCfg = m_simulationPanel->getAnalysisConfig();
@@ -1944,6 +1952,7 @@ void SchematicEditor::addSimulationTab(const QString& name) {
 
     int idx = m_workspaceTabs->addTab(m_simulationPanel, getThemeIcon(":/icons/tool_oscilloscope.svg"), name);
     m_workspaceTabs->setCurrentIndex(idx);
+    m_simulationPanel->setSchematicName(QFileInfo(m_currentFilePath).fileName());
 }
 
 void SchematicEditor::addImageTab(const QString& filePath) {

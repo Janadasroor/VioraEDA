@@ -1,4 +1,5 @@
 #include "sim_schematic_bridge.h"
+#include "slang_manager.h"
 #include "../../schematic/io/netlist_generator.h"
 #include "../../schematic/analysis/schematic_connectivity.h"
 #include "../../schematic/items/schematic_item.h"
@@ -692,6 +693,11 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 r.type = SimComponentType::LOGIC_NOT;
                 return r;
             }
+            if (comp.value.endsWith(".sv", Qt::CaseInsensitive) || comp.extraProperties.contains("systemVerilogFile")) {
+                r.supported = true;
+                r.type = SimComponentType::SystemVerilog;
+                return r;
+            }
             if (comp.typeName == "OscilloscopeInstrument" ||
                 comp.typeName == "Oscilloscope Instrument" ||
                 comp.typeName == "VoltmeterInstrument" ||
@@ -1244,6 +1250,50 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
             }
             for (const auto& pin : inst.outputPinNames) {
                 inst.nodes.push_back(normalizedPinToNode.value(normalizePinToken(QString::fromStdString(pin)), 0));
+            }
+        } else if (inst.type == SimComponentType::SystemVerilog) {
+            QString svPath = comp.value;
+            if (comp.extraProperties.contains("systemVerilogFile")) {
+                svPath = comp.extraProperties["systemVerilogFile"];
+            }
+
+            if (!svPath.isEmpty()) {
+                QFile f(svPath);
+                if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    // Try relative to project dir if available
+                    // (Assuming current path is project root for now)
+                    f.setFileName(QDir::current().absoluteFilePath(svPath));
+                    f.open(QIODevice::ReadOnly | QIODevice::Text);
+                }
+
+                if (f.isOpen()) {
+                    QString source = QString::fromUtf8(f.readAll());
+                    QString moduleName = QFileInfo(svPath).baseName();
+                    if (comp.extraProperties.contains("systemVerilogModule")) {
+                        moduleName = comp.extraProperties["systemVerilogModule"];
+                    }
+
+                    QString svErr;
+                    auto ports = SlangManager::instance().extractPorts(source, moduleName, &svErr);
+                    if (!svErr.isEmpty()) {
+                        mappingWarnings.append(QString("%1 -> Verilog Error: %2").arg(comp.reference, svErr));
+                    } else {
+                        inst.systemVerilogSource = source.toStdString();
+                        inst.systemVerilogModule = moduleName.toStdString();
+
+                        for (const auto& p : ports) {
+                            if (p.isInput) inst.inputPinNames.push_back(p.name.toStdString());
+                            else inst.outputPinNames.push_back(p.name.toStdString());
+                            
+                            // Map schematic pin to node
+                            QString pinName = p.name;
+                            int nodeIdx = normalizedPinToNode.value(normalizePinToken(pinName), 0);
+                            inst.nodes.push_back(nodeIdx);
+                        }
+                    }
+                } else {
+                    mappingWarnings.append(QString("%1 -> Could not open Verilog file: %2").arg(comp.reference, svPath));
+                }
             }
         } else if (inst.type == SimComponentType::SubcircuitInstance) {
             std::map<int, int> pinNumToNode;

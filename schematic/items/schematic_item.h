@@ -94,6 +94,11 @@ public:
     // Reference designator (e.g., R1, C1, D1)
     QString reference() const { return m_reference; }
     void setReference(const QString& ref) { 
+        if (!m_reference.isEmpty() && m_reference != ref) {
+            // Log changes to help track "R1 -> U1" issues
+            // (Only log after initial setup to avoid noise)
+            qDebug() << "[Item] Reference change:" << m_reference << "->" << ref << "type:" << itemTypeName();
+        }
         m_reference = ref; 
         rebuildPrimitives();
         updateLabelText();

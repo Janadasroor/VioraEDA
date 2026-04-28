@@ -83,6 +83,7 @@ Q_SIGNALS:
     void syncSheetRequested(class SchematicSheetItem* sheet);
     void runLiveERC(const QList<SchematicItem*>& items);
     void netProbed(const QString& netName);
+    void netHovered(const QString& netName);
     void snippetDropped(const QString& json, const QPointF& pos);
     void netlistDropped(const QString& netlist, const QPointF& pos);
     void editSimulationDirective(const QString& commandText);
