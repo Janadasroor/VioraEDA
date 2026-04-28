@@ -62,6 +62,21 @@
 #include <QtConcurrent>
 #include <QFutureWatcher>
 #include <QShortcut>
+#include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMessageBox>
+#include <QTableWidget>
+#include <QSet>
+#include <QRegularExpression>
+#include <algorithm>
+#include <cmath>
+#include "virtual_instruments.h"
+#include "si_formatter.h"
+#include "../../simulator/core/sim_math.h"
+#include "../../simulator/core/sim_value_parser.h"
+#include "../../simulator/bridge/sim_schematic_bridge.h"
 
 namespace {
 struct SimBuildResult {
@@ -80,21 +95,6 @@ struct WaveformStats {
     bool valid = false;
 };
 }
-#include <QInputDialog>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QMessageBox>
-#include <QTableWidget>
-#include <QSet>
-#include <QRegularExpression>
-#include <algorithm>
-#include <cmath>
-#include "virtual_instruments.h"
-#include "si_formatter.h"
-#include "../../simulator/core/sim_math.h"
-#include "../../simulator/core/sim_value_parser.h"
-#include "../../simulator/bridge/sim_schematic_bridge.h"
 
 namespace {
 QVector<QColor> transientNetPalette() {
