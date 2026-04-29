@@ -117,7 +117,9 @@ SchematicItem* findProbeableComponentAt(SchematicView* view, const QPoint& viewP
     }
 
     // Symbol interiors are often hollow, so shape hits can miss even when the cursor is visibly over the body.
-    constexpr qreal kBodyHitRadius = 8.0;
+    // We use a generous radius to ensure interactive components like switches are caught before 
+    // the probe tool's net-detection logic (which uses its own radius) can intercept the click.
+    constexpr qreal kBodyHitRadius = 15.0;
     const QRectF sceneRect(scenePos.x() - kBodyHitRadius,
                            scenePos.y() - kBodyHitRadius,
                            kBodyHitRadius * 2.0,
@@ -538,6 +540,15 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton && m_currentTool && m_currentTool->name() == "Select") {
         QPointF scenePos = mapToScene(event->pos());
         
+        // Do not intercept clicks for interactive components! Let them handle their own interaction.
+        SchematicItem* interactiveComp = findProbeableComponentAt(this, event->pos(), scenePos);
+        if (interactiveComp && interactiveComp->isInteractive()) {
+            interactiveComp->onInteractivePress(scenePos);
+            interactiveComp->onInteractiveClick(scenePos);
+            event->accept();
+            return;
+        }
+
         // --- LTspice Style: Interactive Probing ---
         bool toolIsInstrument = m_currentTool && (m_currentTool->name().contains("meter", Qt::CaseInsensitive) || m_currentTool->name().contains("probe", Qt::CaseInsensitive));
         if (!toolIsInstrument && (m_simulationRunning || m_probingEnabled)) {

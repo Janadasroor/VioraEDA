@@ -3350,10 +3350,13 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
 
         if (isTime) uiName = "time";
 
+        // Performance: Avoid spamming qDebug for every vector in every batch
+        /*
         if (isChecked || isHovered) {
              qDebug() << "[SimPanel] Streaming match:" << rawName << "->" << name << "-> UI:" << uiName 
                       << "Checked:" << isChecked << "Hovered:" << isHovered;
         }
+        */
 
         std::vector<double> signalValues;
         signalValues.reserve(times.size());
@@ -3392,6 +3395,11 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 // this series pointer might still be technically valid in this call stack, 
                 // but we should be extremely careful.
                 series->append(points);
+
+                // Prune old points to keep live performance high (prevents UI freeze and memory exhaustion)
+                if (series->count() > 4000) {
+                    series->removePoints(0, series->count() - 2000);
+                }
                 
                 // Update axes
                 double lastT = times.back();

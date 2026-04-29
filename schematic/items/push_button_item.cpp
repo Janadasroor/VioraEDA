@@ -7,16 +7,6 @@
 #include <QJsonObject>
 
 namespace {
-void triggerInteractiveSimulationUpdateIfNeeded() {
-    auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
-    if (!editor || !editor->getSimulationPanel()) return;
-
-    const auto cfg = editor->getSimulationPanel()->getAnalysisConfig();
-    if (cfg.type == SimAnalysisType::Transient || cfg.type == SimAnalysisType::RealTime) {
-        editor->getSimulationPanel()->onRunSimulation();
-    }
-}
-
 void updatePushButtonRealTime(const QString& ref, bool pressed) {
     // Phase 1: Use alter command (proven working)
     auto& sim = SimulationManager::instance();
