@@ -8,7 +8,7 @@
 #include <QTextEdit>
 #include <QGroupBox>
 #include <QJsonDocument>
-#include "semantic_merge_engine.h"
+#include "sync/semantic_merge_engine.h"
 
 /**
  * @brief Dialog for visually resolving merge conflicts.

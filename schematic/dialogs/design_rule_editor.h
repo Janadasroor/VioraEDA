@@ -10,7 +10,7 @@
 #include <QStackedWidget>
 #include <QPushButton>
 #include <QLabel>
-#include "../core/design_rule.h"
+#include "../core/design_rules/design_rule.h"
 #include "../ui/flux_code_editor.h"
 
 using namespace Flux::Core;

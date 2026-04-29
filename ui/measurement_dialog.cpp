@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Janada Sroor
 
 #include "measurement_dialog.h"
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 #include <cmath>
 
 MeasurementDialog::MeasurementDialog(QWidget *parent) : QDialog(parent) {

@@ -6,7 +6,7 @@
 #include <QTabWidget>
 #include <QListWidget>
 #include "../analysis/schematic_erc_rules.h"
-#include "../core/design_rule.h"
+#include "../core/design_rules/design_rule.h"
 
 using namespace Flux::Core;
 

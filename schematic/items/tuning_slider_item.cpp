@@ -1,6 +1,6 @@
 #include "tuning_slider_item.h"
-#include "../core/flux_workspace_bridge.h"
-#include "../core/jit_context_manager.h"
+#include "../core/simulation/flux_workspace_bridge.h"
+#include "../core/simulation/jit_context_manager.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
 #include <QCursor>

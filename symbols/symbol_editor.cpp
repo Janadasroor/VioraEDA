@@ -22,7 +22,7 @@
 #include "symbol_library.h"
 #include "kicad_symbol_importer.h"
 #include "ltspice_symbol_importer.h"
-#include "../core/library_index.h"
+#include "../core/project/library_index.h"
 #include "../ui/property_editor.h"
 #include <QGraphicsTextItem>
 #include "theme_manager.h"
@@ -32,7 +32,7 @@
 #include "ui/ai_datasheet_import_dialog.h"
 #include "../schematic/dialogs/spice_subcircuit_import_dialog.h"
 #include "../schematic/dialogs/subcircuit_picker_dialog.h"
-#include "../core/text_resolver.h"
+#include "../core/visuals/text_resolver.h"
 #include "../simulator/bridge/model_library_manager.h"
 #include "ui/text_properties_dialog.h"
 

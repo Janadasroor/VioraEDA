@@ -1,6 +1,6 @@
 #include "command_palette.h"
-#include "../theme.h"
-#include "../theme_manager.h"
+#include "../visuals/theme.h"
+#include "../visuals/theme_manager.h"
 #include <QKeyEvent>
 #include <QPainter>
 #include <QApplication>

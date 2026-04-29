@@ -6,7 +6,7 @@
 #include "../../schematic/items/schematic_item.h"
 #include "../../schematic/items/smart_signal_item.h"
 #include "simulation_manager.h"
-#include "../../core/jit_context_manager.h"
+#include "../../core/simulation/jit_context_manager.h"
 #include "../../schematic/analysis/spice_netlist_generator.h"
 #include "../core/sim_value_parser.h"
 #include <QDebug>
@@ -1331,7 +1331,7 @@ void SimManager::onRealTimeTick() {
 
     for (auto it = sim.m_fluxScriptTargets.begin(); it != sim.m_fluxScriptTargets.end(); ++it) {
         const QString scriptId = it.key();
-        const SimulationManager::FluxScriptTarget& target = it.value();
+        const Flux::FluxScriptTarget& target = it.value();
 
         // Guardrail:
         // When outputVoltageSources is empty we are on native A-device mode.
@@ -1500,7 +1500,7 @@ void SimManager::pauseSimulation(bool pause) {
     });
 }
 
-#include "../../core/jit_context_manager.h"
+#include "../../core/simulation/jit_context_manager.h"
 
 void SimManager::compileFluxScripts(QGraphicsScene* scene) {
     if (!scene) return;
@@ -1509,7 +1509,7 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
     Flux::JITContextManager::instance().reset();
 
     m_fluxScriptTargets.clear();
-    QMap<QString, SimulationManager::FluxScriptTarget> targets;
+    QMap<QString, Flux::FluxScriptTarget> targets;
     int fluxCompiledCount = 0;
     int svCompiledCount = 0;
 
@@ -1521,7 +1521,7 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
             if (si->itemType() == SchematicItem::SmartSignalType) {
                 if (auto* smart = dynamic_cast<SmartSignalItem*>(si)) {
                     m_fluxScriptTargets[ref] = smart;
-                    SimulationManager::FluxScriptTarget target;
+                    Flux::FluxScriptTarget target;
 
                     if (!SimulationManager::instance().isNativeSmartSignalMode()) {
                         for (const QString& outPin : smart->outputPins()) {
@@ -1584,7 +1584,7 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
                                 if (Flux::JITContextManager::instance().compileAndLoad(ref, cppSource, errors)) {
                                     svCompiledCount++;
 
-                                    SimulationManager::FluxScriptTarget target;
+                                    Flux::FluxScriptTarget target;
                                     QStringList inPins, outPins;
                                     for (const auto& p : ports) {
                                         if (p.isInput) inPins << p.name;

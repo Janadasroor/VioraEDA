@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Janada Sroor
 
 #include "analysis_dialog.h"
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 #include <QHBoxLayout>
 #include <cmath>
 

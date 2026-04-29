@@ -44,7 +44,6 @@ public:
     void addProbe(const QString& signalName);
     void addDifferentialProbe(const QString& pNet, const QString& nNet);
     void removeProbe(const QString& signalName);
-    void onClearFocusedPaneProbes();
     void setEditor(SchematicEditor* editor) { m_editor = editor; }
     void clearAllProbes();
     void clearAllProbesPreserveX();
@@ -117,6 +116,9 @@ Q_SIGNALS:
     void overlayVisibilityChanged(bool showVoltage, bool showCurrent);
     void clearOverlaysRequested();
 
+public Q_SLOTS:
+    void onClearFocusedPaneProbes();
+
 public:
     void updateSchematicDirective();
     void updateSchematicDirectiveFromCommand(const QString& commandText);
@@ -124,6 +126,7 @@ public:
     void setCurrentlyHoveredNet(const QString& netName);
 
 private Q_SLOTS:
+    // --- UI Events & Simulation Callbacks ---
     void onAnalysisChanged(int index);
     void onLogReceived(const QString& msg);
     void onSimulationFinished();
@@ -199,6 +202,7 @@ private:
     int standardChartPointBudget() const;
     void syncSignalListFromWaveformViewer();
 
+    // --- Members & State ---
     QGraphicsScene* m_scene = nullptr;
     SchematicEditor* m_editor = nullptr;
     NetManager* m_netManager = nullptr;

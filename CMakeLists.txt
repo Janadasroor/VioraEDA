@@ -264,7 +264,7 @@ if(BUILD_VIOSPICE_APP)
     # Main executable
     qt_add_executable(viospice
         main.cpp
-        core/python_embed.cpp
+        core/python/python_embed.cpp
         resources/resources.qrc
     )
 

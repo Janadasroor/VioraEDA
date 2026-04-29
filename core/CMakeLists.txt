@@ -3,17 +3,22 @@ set(LOCAL_CORE_SOURCES ${CORE_SOURCES})
 list(TRANSFORM LOCAL_CORE_SOURCES PREPEND "${CMAKE_SOURCE_DIR}/")
 
 list(APPEND LOCAL_CORE_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/flux_script_engine.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/simulation/flux_script_engine.cpp"
 )
 
 qt6_wrap_cpp(VIO_CORE_MOC_SOURCES
-    jit_context_manager.h
+    simulation/jit_context_manager.h
 )
 
 add_library(VioCore STATIC ${LOCAL_CORE_SOURCES} ${VIO_CORE_MOC_SOURCES})
 set_target_properties(VioCore PROPERTIES AUTOMOC ON)
 vioraeda_configure_module_target(VioCore)
 target_link_libraries(VioCore PUBLIC FluxScript)
+
+if(Python3_FOUND)
+    target_include_directories(VioCore PRIVATE ${Python3_INCLUDE_DIRS})
+    target_link_libraries(VioCore PRIVATE ${Python3_LIBRARIES})
+endif()
 
 # Headless library for Clean Architecture models and engines
 set(HEADLESS_SOURCES

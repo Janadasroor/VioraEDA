@@ -1,6 +1,6 @@
 #include "gemini_bridge.h"
-#include "../core/theme_manager.h"
-#include "../core/config_manager.h"
+#include "../core/visuals/theme_manager.h"
+#include "../core/project/config_manager.h"
 #include <QColor>
 #include <QPalette>
 #include <QDebug>

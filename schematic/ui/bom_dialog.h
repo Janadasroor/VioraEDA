@@ -4,7 +4,7 @@
 #include <QDialog>
 #include <QTableWidget>
 #include <QPushButton>
-#include "../core/bom_manager.h"
+#include "../core/project/bom_manager.h"
 
 class BOMDialog : public QDialog {
     Q_OBJECT

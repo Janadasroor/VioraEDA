@@ -17,6 +17,8 @@
 #include <ngspice/sharedspice.h>
 #endif
 
+#include "simulation_types.h"
+
 class SimControl;
 
 /**
@@ -54,11 +56,7 @@ public:
     void queueInternalCommand(const QString& cmd);
 
     // --- FluxScript JIT Targets ---
-    struct FluxScriptTarget {
-        QStringList outputVoltageSources;
-        QMap<QString, QString> pinToNetMap;
-    };
-    void setFluxScriptTargets(const QMap<QString, FluxScriptTarget>& targets);
+    void setFluxScriptTargets(const QMap<QString, Flux::FluxScriptTarget>& targets);
     void clearFluxScriptTargets();
     void setSkipFactor(int factor);
 
@@ -70,14 +68,12 @@ public:
     };
     int getVectorIndex(const QString& name) const;
     bool isRunning() const;
+    bool isJitUpdateInProgress() const { return m_jitUpdateInProgress; }
 
-    QMap<QString, FluxScriptTarget> m_fluxScriptTargets;
+    QMap<QString, Flux::FluxScriptTarget> m_fluxScriptTargets;
     std::mutex m_fluxTargetsMutex;
     std::vector<VectorMap> m_vectorMap;
     mutable std::mutex m_vectorMutex;
-    
-    // Protection for ngspice API calls
-    std::mutex m_ngspiceMutex;
 
 Q_SIGNALS:
     void outputReceived(const QString& text);
@@ -107,7 +103,6 @@ private:
     std::atomic<bool> m_bgRunIssued{false};
     std::atomic<bool> m_stopRequested{false};
     std::atomic<bool> m_pauseRequested{false};
-    std::atomic<bool> m_switchToggleInProgress{false};
     std::atomic<bool> m_jitUpdateInProgress{false};
     std::atomic<bool> m_haltRequested{false};
     std::atomic<bool> m_fluxSyncRequested{false};

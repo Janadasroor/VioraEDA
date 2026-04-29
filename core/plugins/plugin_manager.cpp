@@ -1,6 +1,6 @@
 #include "plugin_manager.h"
 #include "../interfaces/plugin_sdk_version.h"
-#include "../config_manager.h"
+#include "../project/config_manager.h"
 #include <QDir>
 #include <QCoreApplication>
 #include <QDebug>

@@ -1,4 +1,4 @@
-#include "../core/semantic_merge_engine.h"
+#include "../core/sync/semantic_merge_engine.h"
 #include "../core/merge_conflict_dialog.h"
 #include <QCoreApplication>
 #include <QFile>

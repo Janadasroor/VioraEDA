@@ -1,5 +1,5 @@
 #include "spice_model_architect.h"
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>

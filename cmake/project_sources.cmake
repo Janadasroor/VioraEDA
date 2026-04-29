@@ -2,42 +2,49 @@
 # CORE MODULE - Shared utilities, theme, project management
 # =============================================================================
 set(CORE_SOURCES
-    core/theme.cpp
-    core/theme.h
-    core/theme_manager.cpp
-    core/theme_manager.h
-    core/project.cpp
-    core/project.h
-    core/recent_projects.cpp
-    core/recent_projects.h
-    core/recent_workspaces.cpp
-    core/recent_workspaces.h
+    core/visuals/theme.cpp
+    core/visuals/theme.h
+    core/visuals/theme_manager.cpp
+    core/visuals/theme_manager.h
+    core/project/project.cpp
+    core/project/project.h
+    core/project/recent_projects.cpp
+    core/project/recent_projects.h
+    core/project/recent_workspaces.cpp
+    core/project/recent_workspaces.h
     core/settings_dialog.cpp
     core/settings_dialog.h
-    core/config_manager.cpp
-    core/config_manager.h
-    core/sync_manager.h
+    core/project/config_manager.cpp
+    core/project/config_manager.h
+    core/sync/sync_manager.h
     core/pcb_sync_dialog.cpp
     core/pcb_sync_dialog.h
-    core/semantic_merge_engine.cpp
-    core/semantic_merge_engine.h
+    core/sync/semantic_merge_engine.cpp
+    core/sync/semantic_merge_engine.h
     core/merge_conflict_dialog.cpp
     core/merge_conflict_dialog.h
-    core/eco_types.h
-    core/library_index.cpp
-    core/library_index.h
-    core/assignment_validator.cpp
-    core/assignment_validator.h
-    core/net_class.cpp
-    core/net_class.h
-    core/simulation_manager.cpp
-    core/simulation_manager.h
+    core/sync/eco_types.h
+    core/project/library_index.cpp
+    core/project/library_index.h
+    core/design_rules/assignment_validator.cpp
+    core/design_rules/assignment_validator.h
+    core/design_rules/net_class.cpp
+    core/design_rules/net_class.h
+    core/simulation/simulation_manager.cpp
+    core/simulation/simulation_manager.h
+    core/simulation/simulation_types.h
+    core/simulation/netlist_processor.cpp
+    core/simulation/netlist_processor.h
+    core/simulation/spice_backend.cpp
+    core/simulation/spice_backend.h
+    core/simulation/jit_bridge.cpp
+    core/simulation/jit_bridge.h
     core/diagnostics/debugger.cpp
     core/diagnostics/debugger.h
-    core/bom_manager.cpp
-    core/bom_manager.h
-    core/remote_display_server.cpp
-    core/remote_display_server.h
+    core/project/bom_manager.cpp
+    core/project/bom_manager.h
+    core/simulation/remote_display_server.cpp
+    core/simulation/remote_display_server.h
     core/plugins/plugin_manager.cpp
     core/plugins/plugin_manager.h
     core/plugins/plugin_catalog_client.cpp
@@ -48,23 +55,26 @@ set(CORE_SOURCES
     core/ui/selection_filter_widget.h
     core/ui/command_palette.cpp
     core/ui/command_palette.h
-    core/design_rule.cpp
-    core/design_rule.h
-    core/design_rule_engine.cpp
-    core/design_rule_engine.h
-    core/jit_context_manager.cpp
-    core/jit_context_manager.h
-    core/flux_design_rule_bridge.cpp
-    core/flux_design_rule_bridge.h
-    core/flux_workspace_bridge.cpp
-    core/flux_workspace_bridge.h
-    core/ws_server.cpp
-    core/ws_server.h
+    core/design_rules/design_rule.cpp
+    core/design_rules/design_rule.h
+    core/design_rules/design_rule_engine.cpp
+    core/design_rules/design_rule_engine.h
+    core/simulation/jit_context_manager.cpp
+    core/simulation/jit_context_manager.h
+    core/design_rules/flux_design_rule_bridge.cpp
+    core/design_rules/flux_design_rule_bridge.h
+    core/simulation/flux_workspace_bridge.cpp
+    core/simulation/flux_workspace_bridge.h
+    core/simulation/flux_script_engine.cpp
+    core/simulation/flux_script_engine.h
+    core/sync/ws_server.cpp
+    core/sync/ws_server.h
 )
 
 if(VIOSPICE_ENABLE_PYTHON)
     list(APPEND CORE_SOURCES
-        core/flux_python.h
+        core/python/python_embed.cpp
+        core/python/flux_python.h
     )
 endif()
 
@@ -449,6 +459,8 @@ set(SCHEMATIC_SOURCES
     schematic/ui/schematic_hierarchy_panel.cpp
     schematic/ui/schematic_hierarchy_panel.h
     schematic/ui/simulation_panel.cpp
+    schematic/ui/simulation_panel_ui.cpp
+    schematic/ui/simulation_panel_plot.cpp
     schematic/ui/simulation_panel.h
     schematic/ui/simulation_log_dialog.cpp
     schematic/ui/simulation_log_dialog.h

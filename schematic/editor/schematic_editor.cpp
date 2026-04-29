@@ -81,7 +81,7 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 #include "schematic_item.h"
 #include "schematic/dialogs/oscilloscope_properties_dialog.h"
 #include "schematic_menu_registry.h"
-#include "../core/flux_workspace_bridge.h"
+#include "../core/simulation/flux_workspace_bridge.h"
 
 using namespace Flux::Core;
 

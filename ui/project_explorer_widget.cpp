@@ -1,6 +1,6 @@
 #include "project_explorer_widget.h"
 #include "../schematic/io/netlist_to_schematic.h"
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 #include <QHeaderView>
 #include <QSortFilterProxyModel>
 #include <QMenu>

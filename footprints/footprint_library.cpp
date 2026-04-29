@@ -1,5 +1,5 @@
 #include "footprint_library.h"
-#include "../core/library_index.h"
+#include "../core/project/library_index.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>

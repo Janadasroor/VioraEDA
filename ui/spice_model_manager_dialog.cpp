@@ -15,8 +15,8 @@
 #include <QDir>
 #include <utility>
 #include <initializer_list>
-#include "../core/theme_manager.h"
-#include "../core/config_manager.h"
+#include "../core/visuals/theme_manager.h"
+#include "../core/project/config_manager.h"
 #include <QTextBrowser>
 #include <QScrollBar>
 #include <QStyledItemDelegate>

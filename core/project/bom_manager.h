@@ -5,7 +5,7 @@
 #include <QList>
 #include <QMap>
 #include <QVector>
-#include "../core/eco_types.h"
+#include "../sync/eco_types.h"
 
 struct BOMEntry {
     QString value;

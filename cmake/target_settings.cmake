@@ -1,6 +1,12 @@
 set(VIORAEDA_COMMON_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/project
+    ${CMAKE_SOURCE_DIR}/core/simulation
+    ${CMAKE_SOURCE_DIR}/core/design_rules
+    ${CMAKE_SOURCE_DIR}/core/sync
+    ${CMAKE_SOURCE_DIR}/core/visuals
+    ${CMAKE_SOURCE_DIR}/core/python
     ${CMAKE_SOURCE_DIR}/schematic/analysis
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/symbols

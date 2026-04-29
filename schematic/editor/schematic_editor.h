@@ -36,7 +36,7 @@ class SchematicSpiceDirectiveItem;
 class SymbolEditor;
 class SpiceModelArchitect;
 class SourceControlPanel;
-#include "../core/design_rule.h"
+#include "../core/design_rules/design_rule.h"
 
 #include "../../symbols/models/symbol_definition.h"
 using Flux::Model::SymbolDefinition;

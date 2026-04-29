@@ -3,8 +3,8 @@
 
 #include "waveform_viewer.h"
 #include "waveform_expression_dialog.h"
-#include "../core/theme_manager.h"
-#include "../core/si_formatter.h"
+#include "../core/visuals/theme_manager.h"
+#include "../core/visuals/si_formatter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFile>
@@ -40,7 +40,7 @@
 #include <numeric>
 #include <QGraphicsTextItem>
 #include <QGraphicsSimpleTextItem>
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 
 namespace {
 constexpr double kDbFloor = 1e-15;

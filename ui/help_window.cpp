@@ -1,5 +1,5 @@
 #include "help_window.h"
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFile>

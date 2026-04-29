@@ -10,7 +10,7 @@
 #include <QSemaphore>
 #include <QElapsedTimer>
 #include <QThreadPool>
-#include "../core/design_rule.h"
+#include "design_rule.h"
 #include "../schematic/analysis/schematic_erc_rules.h"
 
 class QGraphicsScene;

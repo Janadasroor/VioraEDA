@@ -2,7 +2,7 @@
 // VS Code-style quick open dialog for searching and opening recent files
 
 #include "quick_open_dialog.h"
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 #include <QKeyEvent>
 #include <QFileInfo>
 #include <QDir>

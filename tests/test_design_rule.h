@@ -3,7 +3,7 @@
 
 #include <QObject>
 #include <QTest>
-#include "../core/design_rule.h"
+#include "../core/design_rules/design_rule.h"
 
 using namespace Flux::Core;
 

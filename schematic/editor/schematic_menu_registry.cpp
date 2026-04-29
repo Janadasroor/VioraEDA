@@ -238,7 +238,7 @@ void SchematicMenuRegistry::initializeDefaultActions() {
     // --- Smart Signal Actions ---
     ContextAction openLogicEditor;
     openLogicEditor.label = "Open Logic Editor...";
-    openLogicEditor.icon = QIcon(":/icons/tool_code.svg");
+    openLogicEditor.icon = QIcon(":/icons/tool_src.png");
     openLogicEditor.priority = 100;
     openLogicEditor.isVisible = [](const auto& items) {
         if (items.size() != 1) return false;

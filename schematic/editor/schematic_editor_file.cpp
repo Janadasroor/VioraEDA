@@ -1141,7 +1141,7 @@ void SchematicEditor::onResetAnnotations() {
 #include "../dialogs/bus_aliases_dialog.h"
 
 
-#include "../core/design_rule_engine.h"
+#include "../core/design_rules/design_rule_engine.h"
 
 using namespace Flux::Core;
 

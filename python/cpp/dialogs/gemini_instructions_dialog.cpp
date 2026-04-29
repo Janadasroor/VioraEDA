@@ -1,5 +1,5 @@
 #include "gemini_instructions_dialog.h"
-#include "../core/config_manager.h"
+#include "../core/project/config_manager.h"
 #include "theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>

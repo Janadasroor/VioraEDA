@@ -3,8 +3,8 @@
 #include "footprint_commands.h"
 #include "kicad_footprint_importer.h"
 #include "ui/footprint_wizard_dialog.h"
-#include "../core/theme_manager.h"
-#include "../core/config_manager.h"
+#include "../core/visuals/theme_manager.h"
+#include "../core/project/config_manager.h"
 #include "../pcb/ui/pcb_3d_window.h"
 #include "../pcb/items/component_item.h"
 #include <QVBoxLayout>

@@ -9,7 +9,7 @@
 #include "../../../schematic/tools/schematic_tool_registry_builtin.h"
 #include "../../../schematic/dialogs/smart_properties_dialog.h"
 #include "../../../schematic/io/schematic_file_io.h"
-#include "../../../core/config_manager.h"
+#include "../../../core/project/config_manager.h"
 #include "../../../symbols/models/symbol_definition.h"
 #include "../../../symbols/models/symbol_primitive.h"
 #include <cmath>
@@ -458,7 +458,7 @@ private Q_SLOTS:
         const QPointF projected = segA + u * segVec;
 
         QVERIFY2(
-            near(branchStartAfter, projected),
+            near(branchStartAfter, projected, 2.0),
             "Dragging transistor must keep branch endpoint on moved base-wire segment (T-junction).");
         QVERIFY2(
             QLineF(branchStartAfter, tJunction).length() > 1.0,

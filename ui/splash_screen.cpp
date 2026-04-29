@@ -4,7 +4,7 @@
 #include <QScreen>
 #include <QPainter>
 #include <QPainterPath>
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 
 SplashScreen::SplashScreen(QWidget* parent) : QWidget(parent, Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint) {
     setAttribute(Qt::WA_TranslucentBackground);

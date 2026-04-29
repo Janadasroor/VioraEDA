@@ -36,7 +36,7 @@ using Flux::Model::SymbolPrimitive;
 #include "../items/schematic_item.h"
 #include "../items/smart_signal_item.h"
 #include "../items/flux_measurement_item.h"
-#include "../../core/jit_context_manager.h"
+#include "../../core/simulation/jit_context_manager.h"
 #include "../ui/logic_editor_panel.h"
 #include "../items/schematic_waveform_marker.h"
 #include "../../simulator/bridge/sim_schematic_bridge.h"

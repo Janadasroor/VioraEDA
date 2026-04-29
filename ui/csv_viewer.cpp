@@ -1,5 +1,5 @@
 #include "csv_viewer.h"
-#include "../core/theme_manager.h"
+#include "../core/visuals/theme_manager.h"
 #include <QFile>
 #include <QTextStream>
 #include <QHeaderView>

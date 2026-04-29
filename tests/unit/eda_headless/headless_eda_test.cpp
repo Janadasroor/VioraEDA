@@ -13,7 +13,7 @@
 #include "../../../schematic/models/schematic_page_model.h"
 #include "../../../schematic/models/erc_engine.h"
 #include "../../../schematic/analysis/netlist_engine.h"
-#include "../../../core/sync_engine.h"
+#include "../../../core/sync/sync_engine.h"
 
 using namespace Flux::Model;
 using namespace Flux::Analysis;
