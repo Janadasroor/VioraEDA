@@ -46,12 +46,12 @@ The ERC diagnostics panel now automatically detects which ngspice library is loa
 ### Features
 *   **Automatic Detection**: Uses `dladdr()` to find the actual library path loaded at runtime.
 *   **Visual Indicator**: 
-    *   🔧 **VioMATRIXC (Custom Fork)** - Green indicator with full feature list
-    *   ⚙️ **System ngspice** - Yellow indicator with standard features warning
+    *   **VioMATRIXC (Custom Fork)** - Green indicator with full feature list
+    *   **System ngspice** - Yellow indicator with standard features warning
 *   **Library Path Display**: Shows the exact `.so` file being used, so you can immediately identify if you're using your custom build or the system library.
 *   **Status Messages**:
-    *   `✅ Full feature set (WAV, LTspice compat, XSPICE)` - When VioMATRIXC is detected
-    *   `⚠️ Standard features only` - When system ngspice is detected
+    *   `[Success] Full feature set (WAV, LTspice compat, XSPICE)` - When VioMATRIXC is detected
+    *   `[Warning] Standard features only` - When system ngspice is detected
 
 ### Implementation
 *   Added `updateLibraryInfo()` method to `ERCDiagnosticsPanel` that queries `dladdr()` for `ngSpice_Init` and `ngSpice_Command` symbols.

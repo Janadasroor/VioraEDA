@@ -4,7 +4,7 @@
 
 **Circuit Style Transfer** is an AI-powered feature that intelligently analyzes your schematic and applies visual transformations to improve clarity, consistency, and professional appearance. Using Google Gemini AI with context-aware analysis, this feature automatically detects layout issues and recommends optimal styling based on circuit type, density, and industry standards.
 
-## ✨ Smart Features
+## Features Smart Features
 
 ### Context-Aware Analysis
 The AI automatically analyzes your schematic to understand:
@@ -22,7 +22,7 @@ Instead of manual selection, the AI:
 4. **Explains** the reasoning behind the recommendation
 5. **Applies** transformations with issue-specific fixes
 
-## 🎨 Style Presets
+## Style Style Presets
 
 Seven professionally-designed style presets are available:
 
@@ -36,7 +36,7 @@ Seven professionally-designed style presets are available:
 | `clean_modern` | **Clean Modern** | Modern minimalist aesthetic with maximum spacing and clarity. Best for presentations and publications. |
 | `vintage` | **Vintage Textbook** | Classic textbook style with traditional symbols and generous whitespace. Nostalgic and educational. |
 
-### ✨ What Gets Transformed
+### Features What Gets Transformed
 
 The AI style transfer adjusts:
 
@@ -123,7 +123,7 @@ You: "Improve this schematic's appearance"
 AI: <ACTION>Analyzing schematic context...</ACTION>
     <ACTION>Calling transfer_schematic_style()...</ACTION>
 
-📊 Analysis Complete
+Analytics Analysis Complete
 
 **Circuit Type:** Analog Signal Processing
 **Complexity:** Moderate (23 components)
@@ -153,7 +153,7 @@ You: "Yes"
 AI: <ACTION>Applying Clean Modern style...</ACTION>
     <ACTION>Generating transformation commands...</ACTION>
 
-✅ Style transfer complete! 23 components updated with Clean Modern styling.
+[Success] Style transfer complete! 23 components updated with Clean Modern styling.
 ```
 
 **Example 2: Direct Style Application**
@@ -163,7 +163,7 @@ You: "Apply TI style like in application notes"
 
 AI: <ACTION>Analyzing schematic for TI style compatibility...</ACTION>
 
-✅ TI Style Analysis
+[Success] TI Style Analysis
 
 **Circuit Match:** Excellent (power supply circuit)
 **Components Affected:** 15
@@ -182,7 +182,7 @@ You: "Yes, apply it"
 
 AI: <ACTION>Applying Texas Instruments style...</ACTION>
 
-✅ TI style applied successfully!
+[Success] TI style applied successfully!
 ```
 
 ## Technical Implementation

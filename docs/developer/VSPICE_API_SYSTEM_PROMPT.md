@@ -309,9 +309,9 @@ for comp in nl.components:
 The `vspice` module provides **data structures, parsers, and a simulation runner**.
 The following are NOT available in `vspice`:
 
-- ❌ Direct ngspice shared library linking (uses `viora` subprocess)
-- ❌ Creating .raw waveform files directly
-- ❌ Zero-copy NumPy views for waveform data (uses lists)
+- Direct ngspice shared library linking (uses `viora` subprocess)
+- Creating .raw waveform files directly
+- Zero-copy NumPy views for waveform data (uses lists)
 
 ## Running Simulations
 
