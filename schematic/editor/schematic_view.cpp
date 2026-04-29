@@ -607,6 +607,15 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
             } else {
                 // Not over a wire/label, check for component body
                 SchematicItem* compItem = findProbeableComponentAt(this, event->pos(), scenePos);
+                
+                // Do not intercept clicks for interactive components! Let them handle their own interaction.
+                if (compItem && compItem->isInteractive()) {
+                    compItem->onInteractivePress(scenePos);
+                    compItem->onInteractiveClick(scenePos);
+                    event->accept();
+                    return;
+                }
+
                 const bool powerHeld = event->modifiers() & Qt::ShiftModifier;
                 const bool ctrlHeld = event->modifiers() & Qt::ControlModifier;
 
