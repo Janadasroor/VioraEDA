@@ -13,10 +13,122 @@
 #include <QTextStream>
 #include <QMetaObject>
 #include <QRegularExpression>
+#include <QElapsedTimer>
 #include <utility>
 #include <dlfcn.h>
 
 using namespace Flux;
+
+void CommandWorker::execute(const QString& cmd) { 
+    if (cmd.startsWith("alter", Qt::CaseInsensitive)) {
+        executeSequence(QStringList() << cmd);
+    } else {
+        SpiceBackend::instance().execute(cmd); 
+    }
+}
+void CommandWorker::executeSequence(const QStringList& cmds) {
+    if (cmds.isEmpty() || !m_manager) return;
+
+    bool needsResume = false;
+
+    if (m_manager->isRunning()) {
+        qDebug() << "[SimWorker] Requesting bg_halt for alteration...";
+        
+        // Signal that we are intentionally halting — prevents auto-resume in the callback
+        m_manager->m_haltRequested = true;
+        
+        {
+            std::lock_guard<std::mutex> lock(m_manager->m_workerSyncMutex);
+            m_manager->m_ngspiceIsHalted = false; // Reset so we can wait for the new pause event
+        }
+        
+        SpiceBackend::instance().execute("bg_halt");
+        needsResume = true;
+        
+        // Wait for the sync-pause callback to confirm the halt.
+        // cbBGThreadRunning(finished=true, isPaused=true) will set m_ngspiceIsHalted=true.
+        {
+            std::unique_lock<std::mutex> lock(m_manager->m_workerSyncMutex);
+            bool halted = m_manager->m_workerSyncCond.wait_for(lock, std::chrono::milliseconds(500), [this] {
+                return m_manager->m_ngspiceIsHalted;
+            });
+            if (halted) {
+                qDebug() << "[SimWorker] Halt confirmed at sync point.";
+            } else {
+                qDebug() << "[SimWorker] Warning: Halt timed out. Sim may have finished. Proceeding.";
+                needsResume = false; // Thread may be dead — don't try to resume
+                m_manager->m_haltRequested = false;
+            }
+        }
+    }
+
+    // Apply alter commands while engine is safely halted at sync point
+    // (ngSpice_Command will execute them since fl_paused=true && !fl_exited)
+    for (const QString& cmd : cmds) {
+        SpiceBackend::instance().execute(cmd);
+    }
+
+    m_manager->m_jitUpdateInProgress = false;
+
+    if (needsResume) {
+        qDebug() << "[SimWorker] Resuming simulation...";
+        // NOTE: m_haltRequested stays true until handleEngineStateChange confirms actual resume
+        // This prevents spurious halt detection race condition
+        m_manager->m_autoResumeCounter = 0;
+        m_manager->m_streamingCounter = 0; 
+        SpiceBackend::instance().execute("bg_resume");
+        
+        // Wait for ngspice callback indicating actual resume (!finished && !isPaused)
+        // or indicating bg thread has exited (finished && !isPaused)
+        {
+            std::unique_lock<std::mutex> lock(m_manager->m_workerSyncMutex);
+            bool gotCallback = m_manager->m_workerSyncCond.wait_for(lock, std::chrono::milliseconds(500), [this] {
+                // Wait for any state change from halted
+                return !m_manager->m_ngspiceIsHalted || m_manager->m_state == SimulationState::Finished;
+            });
+            
+            if (!gotCallback) {
+                // Timeout - check current state
+                qDebug() << "[SimWorker] Resume callback timeout, checking state...";
+                bool isPaused = SpiceBackend::instance().isPaused();
+                qDebug() << "[SimWorker] isPaused=" << isPaused << "ngspiceIsHalted=" << m_manager->m_ngspiceIsHalted;
+                
+                if (!isPaused && !m_manager->m_ngspiceIsHalted) {
+                    // ngspice reports not paused and not halted - bg thread exited
+                    // Need to restart with bg_run
+                    qDebug() << "[SimWorker] Bg thread exited after alter, restarting with bg_run...";
+                    SpiceBackend::instance().execute("bg_run");
+                    m_manager->m_haltRequested = false;
+                } else {
+                    // Still paused, try resume command
+                    qDebug() << "[SimWorker] Trying resume command...";
+                    SpiceBackend::instance().execute("resume");
+                    
+                    bool resumed = m_manager->m_workerSyncCond.wait_for(lock, std::chrono::milliseconds(500), [this] {
+                        return !m_manager->m_ngspiceIsHalted;
+                    });
+                    
+                    if (!resumed) {
+                        // Last resort: try bg_run
+                        qDebug() << "[SimWorker] Resume failed, trying bg_run...";
+                        SpiceBackend::instance().execute("bg_run");
+                    }
+                    m_manager->m_haltRequested = false;
+                }
+            } else {
+                // Got callback - check if we're running or finished
+                if (m_manager->m_state == SimulationState::Running) {
+                    qDebug() << "[SimWorker] Resume succeeded - now Running.";
+                } else if (m_manager->m_state == SimulationState::Finished) {
+                    qDebug() << "[SimWorker] Bg thread finished, restarting with bg_run...";
+                    SpiceBackend::instance().execute("bg_run");
+                    m_manager->m_haltRequested = false;
+                }
+            }
+        }
+    }
+}
+void CommandWorker::loadCircuit(char** deck) { SpiceBackend::instance().loadCircuit(deck); }
 
 namespace {
     QString normalizeStreamVectorName(const QString& rawName) {
@@ -59,9 +171,51 @@ SimulationManager::SimulationManager(QObject* parent)
     m_bufferTimer = new QTimer(this);
     m_bufferTimer->setInterval(33); // ~30 FPS
     connect(m_bufferTimer, &QTimer::timeout, this, &SimulationManager::processBufferedData);
+
+    m_workerThread = new QThread(this);
+    m_worker = new CommandWorker();
+    m_worker->setManager(this);
+    m_worker->moveToThread(m_workerThread);
+    m_workerThread->start();
 }
 
-SimulationManager::~SimulationManager() {}
+SimulationManager::~SimulationManager() {
+    m_workerThread->quit();
+    m_workerThread->wait();
+    delete m_worker;
+}
+
+void SimulationManager::setState(SimulationState newState) {
+    if (m_state == newState) return;
+    QString oldStateStr = stateString();
+    m_state = newState;
+    qDebug() << "[SimManager] State transition:" << stateString() << "(from" << oldStateStr << ")";
+}
+
+QString SimulationManager::stateString() const {
+    switch (m_state) {
+        case SimulationState::Idle:     return "Idle";
+        case SimulationState::Loading:  return "Loading";
+        case SimulationState::Running:  return "Running";
+        case SimulationState::Halted:   return "Halted";
+        case SimulationState::Paused:   return "Paused";
+        case SimulationState::Stopping: return "Stopping";
+        case SimulationState::Finished: return "Finished";
+        case SimulationState::Error:    return "Error";
+    }
+    return "Unknown";
+}
+
+void SimulationManager::sendCommandAsync(const QString& cmd) {
+    qDebug() << "[SimManager] Async command queued:" << cmd;
+    QMetaObject::invokeMethod(m_worker, "execute", Qt::QueuedConnection, Q_ARG(QString, cmd));
+}
+
+void SimulationManager::loadCircuitAsync(char** deck) {
+    QMetaObject::invokeMethod(m_worker, "loadCircuit", Qt::QueuedConnection, Q_ARG(char**, deck));
+}
+
+
 
 bool SimulationManager::isAvailable() const {
 #ifdef HAVE_NGSPICE
@@ -123,7 +277,7 @@ void SimulationManager::initialize() {
 }
 
 bool SimulationManager::isRunning() const {
-    return m_bgRunIssued.load();
+    return m_state == SimulationState::Running || m_state == SimulationState::Halted;
 }
 
 bool SimulationManager::recoverEngineIfNeeded() {
@@ -131,9 +285,8 @@ bool SimulationManager::recoverEngineIfNeeded() {
     if (!m_engineRecoveryRequired.exchange(false)) return true;
 
     qWarning() << "[SimManager] Recovering engine after fatal state.";
-    m_bgRunIssued = false;
+    setState(SimulationState::Stopping);
     m_stopRequested = false;
-    m_pauseRequested = false;
 
     if (m_bufferTimer) m_bufferTimer->stop();
 
@@ -162,9 +315,7 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     
     m_lastLoadFailed = false;
     m_lastRunFailed = false;
-    m_bgRunIssued = false;
     m_stopRequested = false;
-    m_pauseRequested = false;
     m_haltRequested = false;
     m_fluxSyncRequested = false;
     m_jitUpdateInProgress = false;
@@ -174,7 +325,8 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     { std::lock_guard<std::mutex> lock(m_logMutex); m_logBuffer.clear(); }
     
     m_streamingCounter = 0;
-    m_skipFactor = 1;
+    m_skipFactor = 1; // High resolution for real-time interaction
+    m_autoResumeCounter = 0;
     if (control) m_bufferTimer->start(); else m_bufferTimer->stop();
 
     QString error;
@@ -190,21 +342,24 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     }
 
     Q_EMIT simulationStarted();
+    
+    // Apply any GUI parameters (like switch states) before starting
+    applyPendingFluxSourceUpdates();
+    
     SpiceBackend::instance().execute("set filetype=binary");
     SpiceBackend::instance().execute("save all");
     
+    setState(SimulationState::Running);
     int rc = SpiceBackend::instance().execute("bg_run");
-    SpiceBackend::instance().execute("save all");
 
     if (rc != 0 || m_lastLoadFailed) {
         m_bufferTimer->stop();
-        m_bgRunIssued = false;
+        setState(SimulationState::Error);
         QString finalErr = m_lastErrorMessage.isEmpty() ? "Ngspice failed to start simulation." : m_lastErrorMessage;
         Q_EMIT errorOccurred(finalErr);
         Q_EMIT simulationFinished();
         return;
     }
-    m_bgRunIssued = true;
 #endif
 }
 
@@ -219,6 +374,23 @@ bool SimulationManager::validateNetlist(const QString& netlist, QString* errorOu
 
 bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut) {
 #ifdef HAVE_NGSPICE
+    // Ensure background thread is stopped before resetting
+    if (m_state == SimulationState::Running || m_state == SimulationState::Halted) {
+        m_haltRequested = true;
+        {
+            std::lock_guard<std::mutex> lock(m_workerSyncMutex);
+            m_ngspiceIsHalted = false;
+        }
+        SpiceBackend::instance().execute("bg_halt");
+        
+        // Wait for halt confirmation
+        std::unique_lock<std::mutex> lock(m_workerSyncMutex);
+        m_workerSyncCond.wait_for(lock, std::chrono::milliseconds(500), [this] {
+            return m_ngspiceIsHalted;
+        });
+    }
+    
+    setState(SimulationState::Loading);
     SpiceBackend::instance().execute("reset");
     SpiceBackend::instance().execute("set ngbehavior=ltps");
     SpiceBackend::instance().execute("set filetype=binary");
@@ -236,6 +408,7 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
     m_circStorage.reserve(processResult.lines.size() + 1);
     m_circPtrs.reserve(processResult.lines.size() + 1);
     for (const QString& line : processResult.lines) {
+        qDebug() << "[SimManager] Netlist line:" << line;
         m_circStorage.push_back(line.toLatin1());
         m_circPtrs.push_back(m_circStorage.back().data());
     }
@@ -267,8 +440,9 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
 void SimulationManager::stopSimulation() {
 #ifdef HAVE_NGSPICE
     { std::lock_guard<std::mutex> lock(m_controlMutex); m_streamingControl = nullptr; }
+    m_haltRequested = true;
     m_stopRequested = true;
-    SpiceBackend::instance().execute("bg_halt");
+    sendCommandAsync("bg_halt");
     QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
     QMetaObject::invokeMethod(this, "processBufferedData", Qt::QueuedConnection);
 #endif
@@ -276,11 +450,12 @@ void SimulationManager::stopSimulation() {
 
 void SimulationManager::shutdown() {
 #ifdef HAVE_NGSPICE
-    m_bgRunIssued = false;
+    setState(SimulationState::Stopping);
     SpiceBackend::instance().execute("bg_halt");
     SpiceBackend::instance().execute("quit");
     m_bufferTimer->stop();
     m_isInitialized = false;
+    setState(SimulationState::Idle);
 #endif
 }
 
@@ -309,8 +484,15 @@ void SimulationManager::setParameter(const QString& name, double value) {
 void SimulationManager::sendInternalCommand(const QString& command) {
 #ifdef HAVE_NGSPICE
     if (!m_isInitialized) return;
-    if (command == "bg_halt") { m_haltRequested = true; m_bufferTimer->stop(); }
-    else if (command == "bg_resume") { m_pauseRequested = false; if (m_streamingControl) m_bufferTimer->start(); }
+    if (command == "bg_halt") { 
+        m_haltRequested = true; 
+        m_bufferTimer->stop(); 
+    }
+    else if (command == "bg_resume") { 
+        // NOTE: Don't set Running state here - wait for handleEngineStateChange callback
+        // to confirm ngspice has actually resumed. This prevents race conditions.
+        if (m_streamingControl) m_bufferTimer->start(); 
+    }
     SpiceBackend::instance().execute(command);
 #endif
 }
@@ -339,7 +521,7 @@ void SimulationManager::queueFluxSourceUpdate(const QString& sourceName, double 
 
 void SimulationManager::queueInternalCommand(const QString& cmd) {
 #ifdef HAVE_NGSPICE
-    if (m_isInitialized && m_bgRunIssued) {
+    if (m_isInitialized && isRunning()) {
         { std::lock_guard<std::mutex> lock(m_jitSyncMutex); m_pendingInternalCommands.append(cmd); }
         QMetaObject::invokeMethod(this, [this]() { requestFluxSourceSync(); }, Qt::QueuedConnection);
     }
@@ -348,14 +530,14 @@ void SimulationManager::queueInternalCommand(const QString& cmd) {
 
 void SimulationManager::requestFluxSourceSync() {
 #ifdef HAVE_NGSPICE
-    if (!m_isInitialized || !m_bgRunIssued || m_stopRequested || m_pauseRequested) return;
+    if (!m_isInitialized || m_stopRequested) return;
     if (m_jitUpdateInProgress || m_fluxSyncRequested) return;
 
     { std::lock_guard<std::mutex> lock(m_jitSyncMutex);
       if (m_pendingHighPriorityUpdates.isEmpty() && m_pendingInternalCommands.isEmpty()) return; }
 
-    m_jitUpdateInProgress = true; m_fluxSyncRequested = true; m_haltRequested = true;
-    SpiceBackend::instance().execute("bg_halt");
+    m_jitUpdateInProgress = true; m_fluxSyncRequested = true; 
+    QMetaObject::invokeMethod(this, "applyPendingFluxSourceUpdates", Qt::QueuedConnection);
 #endif
 }
 
@@ -365,49 +547,41 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
     { std::lock_guard<std::mutex> lock(m_jitSyncMutex);
       updates.swap(m_pendingHighPriorityUpdates); commands.swap(m_pendingInternalCommands); }
 
-    if (updates.isEmpty() && commands.isEmpty()) {
-        if (m_bgRunIssued && !m_stopRequested && !m_pauseRequested) {
-            if (m_streamingControl) m_bufferTimer->start();
-            SpiceBackend::instance().execute("bg_resume");
-        }
-        m_fluxSyncRequested = false; m_haltRequested = false; m_jitUpdateInProgress = false;
-        return;
-    }
-
-    for (const QString& cmd : commands) SpiceBackend::instance().execute(cmd);
+    QStringList spiceCmds;
+    for (const QString& cmd : commands) spiceCmds << cmd;
+    
     for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
-        QString target = it.key(); double val = it.value(); QString valStr = QString::number(val, 'g', 12);
-        if (target.startsWith('V', Qt::CaseInsensitive) || target.startsWith('I', Qt::CaseInsensitive)) {
-            SpiceBackend::instance().execute(QString("alter @%1[dc] = %2").arg(target, valStr));
-            SpiceBackend::instance().execute(QString("alter %1 dc=%2").arg(target, valStr));
-        } else if (target.startsWith('R', Qt::CaseInsensitive)) {
-            SpiceBackend::instance().execute(QString("alter @%1[resistance] = %2").arg(target, valStr));
-            SpiceBackend::instance().execute(QString("alter %1 resistance = %2").arg(target, valStr));
-        } else if (target.startsWith('C', Qt::CaseInsensitive)) {
-            SpiceBackend::instance().execute(QString("alter @%1[capacitance] = %2").arg(target, valStr));
-            SpiceBackend::instance().execute(QString("alter %1 capacitance = %2").arg(target, valStr));
-        } else if (target.startsWith('L', Qt::CaseInsensitive)) {
-            SpiceBackend::instance().execute(QString("alter @%1[inductance] = %2").arg(target, valStr));
-            SpiceBackend::instance().execute(QString("alter %1 inductance = %2").arg(target, valStr));
+        QString target = it.key();
+        double val = it.value();
+        QString valStr = QString::number(val, 'g', 12);
+        
+        if (target.startsWith('r', Qt::CaseInsensitive)) {
+            // For resistors, use the @device[param] syntax which is more stable for live updates
+            spiceCmds << QString("alter @%1[resistance] %2").arg(target, valStr);
+        } else if (target.startsWith('v', Qt::CaseInsensitive) || target.startsWith('i', Qt::CaseInsensitive)) {
+            spiceCmds << QString("alter %1 dc %2").arg(target, valStr);
         } else {
-            SpiceBackend::instance().execute(QString("alter %1 %2").arg(target, valStr));
+            spiceCmds << QString("alter %1 %2").arg(target, valStr);
         }
     }
 
-    if (m_bgRunIssued && !m_stopRequested && !m_pauseRequested) {
-        if (m_streamingControl) m_bufferTimer->start();
-        SpiceBackend::instance().execute("bg_resume");
-    }
-    m_fluxSyncRequested = false; m_haltRequested = false; m_jitUpdateInProgress = false;
-
-    bool hasMore = false;
-    { std::lock_guard<std::mutex> lock(m_jitSyncMutex); hasMore = !m_pendingHighPriorityUpdates.isEmpty(); }
-    if (hasMore) QMetaObject::invokeMethod(this, [this]() { requestFluxSourceSync(); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_worker, [this, spiceCmds]() {
+        m_worker->executeSequence(spiceCmds);
+        
+        // Notify manager that sequence is done
+        QMetaObject::invokeMethod(this, [this]() {
+            m_fluxSyncRequested = false;
+            
+            bool hasMore = false;
+            { std::lock_guard<std::mutex> lock(m_jitSyncMutex); hasMore = !m_pendingHighPriorityUpdates.isEmpty(); }
+            if (hasMore) requestFluxSourceSync();
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
 #endif
 }
 
 void SimulationManager::processBufferedData() {
-    std::vector<SimDataPoint> batch; std::vector<QString> logBatch;
+    std::deque<SimDataPoint> batch; std::vector<QString> logBatch;
     { std::lock_guard<std::mutex> lock(m_bufferMutex); if (!m_simBuffer.empty()) m_simBuffer.swap(batch); }
     { std::lock_guard<std::mutex> lock(m_logMutex); if (!m_logBuffer.empty()) m_logBuffer.swap(logBatch); }
 
@@ -421,7 +595,9 @@ void SimulationManager::processBufferedData() {
     { std::lock_guard<std::mutex> lock(m_vectorMutex);
       for (const auto& v : m_vectorMap) if (!v.isScale) names << v.name; }
 
-    Q_EMIT realTimeDataBatchReceived(times, valueRows, names);
+    if (!times.empty()) {
+        Q_EMIT realTimeDataBatchReceived(times, valueRows, names);
+    }
 }
 
 int SimulationManager::cbSendChar(char* output, int id, void* userData) {
@@ -443,6 +619,7 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
         if (isRunFail) self->m_lastRunFailed = true;
         if (self->m_lastErrorMessage.isEmpty() && (isErr || isRunFail)) self->m_lastErrorMessage = msg.trimmed();
         self->m_logBuffer.push_back(msg);
+        qDebug() << "[Ngspice]" << msg.trimmed();
     }
     return 0;
 }
@@ -486,75 +663,158 @@ void SimulationManager::setSkipFactor(int factor) { m_skipFactor = std::max(1, f
 int SimulationManager::cbSendData(pvecvaluesall vecArray, int numStructs, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (!self || !vecArray) return 0;
+    self->handleIncomingData(vecArray, numStructs);
+    return 0;
+}
+
+void SimulationManager::handleIncomingData(void* vecArrayPtr, int numStructs) {
+    pvecvaluesall vecArray = static_cast<pvecvaluesall>(vecArrayPtr);
+    if (!vecArray || vecArray->veccount < 1 || !vecArray->vecsa) return;
     
-    bool stopReq = false;
-    { std::lock_guard<std::mutex> lock(self->m_controlMutex); if (self->m_streamingControl) stopReq = self->m_streamingControl->stopRequested; }
-    if (stopReq) SpiceBackend::instance().execute("bg_halt");
+    // Safety check for stop request
+    if (m_stopRequested.load()) return;
 
-    if (vecArray->veccount <= 1 || !vecArray->vecsa || ++self->m_streamingCounter % self->m_skipFactor != 0) return 0;
+    int count = ++m_streamingCounter;
+    if (count % m_skipFactor != 0) return;
 
-    std::vector<double> sampleValues; sampleValues.reserve(vecArray->veccount);
-    double timeValue = 0.0; bool haveScale = false;
+    std::vector<double> sampleValues; 
+    sampleValues.reserve(vecArray->veccount);
+    double timeValue = 0.0; 
+    bool haveScale = false;
+    
     for (int i = 0; i < vecArray->veccount; ++i) {
         pvecvalues v = vecArray->vecsa[i];
-        if (!v) { sampleValues.push_back(0.0); continue; }
+        if (!v) { 
+            sampleValues.push_back(0.0); 
+            continue; 
+        }
         sampleValues.push_back(v->creal);
-        if (v->is_scale && !haveScale) { timeValue = v->creal; haveScale = true; }
+        if (v->is_scale && !haveScale) { 
+            timeValue = v->creal; 
+            haveScale = true; 
+        }
     }
-    if (!haveScale) return 0;
+    
+    if (!haveScale && vecArray->veccount > 0) {
+        timeValue = vecArray->vecsa[0]->creal;
+        haveScale = true;
+    }
+    
+    if (!haveScale) return;
 
     {
-        std::lock_guard<std::mutex> targetLock(self->m_fluxTargetsMutex);
-        JitBridge::instance().executeFeedbackLoop(sampleValues, timeValue, self->m_fluxScriptTargets);
+        std::lock_guard<std::mutex> lock(m_bufferMutex);
+        m_simBuffer.push_back({timeValue, std::move(sampleValues)});
+        if (m_simBuffer.size() > 10000) m_simBuffer.pop_front();
     }
-
-    { std::lock_guard<std::mutex> lock(self->m_bufferMutex);
-      self->m_simBuffer.push_back({timeValue, std::move(sampleValues)});
-      if (self->m_simBuffer.size() > 2000) self->m_simBuffer.erase(self->m_simBuffer.begin(), self->m_simBuffer.begin() + (self->m_simBuffer.size() - 2000)); }
-    return 0;
 }
 
 int SimulationManager::cbSendInitData(pvecinfoall initData, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (!self || !initData) return 0;
-    std::lock_guard<std::mutex> lock(self->m_vectorMutex);
-    self->m_vectorMap.clear();
+    self->handleAnalysisMetadata(initData);
+    return 0;
+}
+
+void SimulationManager::handleAnalysisMetadata(void* initDataPtr) {
+    pvecinfoall initData = static_cast<pvecinfoall>(initDataPtr);
+    bool isPaused = SpiceBackend::instance().isPaused();
+    qDebug() << "[SimManager] Analysis started:" << initData->title << "Type:" << initData->type << "isPaused=" << isPaused << "ngspiceIsHalted=" << m_ngspiceIsHalted;
+    
+    std::lock_guard<std::mutex> lock(m_vectorMutex);
+    m_vectorMap.clear();
     for (int i = 0; i < initData->veccount; ++i) {
         pvecinfo v = initData->vecs[i]; if (!v) continue;
         VectorMap vm; vm.index = i;
         vm.name = normalizeStreamVectorName(QString::fromLatin1(v->vecname));
         vm.isVoltage = (v->is_real && !vm.name.toLower().startsWith("i("));
         vm.isScale = (v->pdvec != nullptr && v->pdvec == v->pdvecscale);
-        self->m_vectorMap.push_back(vm);
+        m_vectorMap.push_back(vm);
     }
-    return 0;
 }
 #endif
 
 int SimulationManager::cbBGThreadRunning(bool finished, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
-    if (!self || !finished) return 0;
+    if (!self) return 0;
+    qDebug() << "[SimManager] cbBGThreadRunning: finished=" << finished << "id=" << id;
+    self->handleEngineStateChange(finished, id);
+    return 0;
+}
 
-    if (!self->m_stopRequested && (SpiceBackend::instance().isPaused() || self->m_haltRequested)) {
-        if (self->m_jitUpdateInProgress) QMetaObject::invokeMethod(self, [self]() { self->applyPendingFluxSourceUpdates(); }, Qt::QueuedConnection);
-        QMetaObject::invokeMethod(self->m_bufferTimer, "stop", Qt::QueuedConnection);
-        QMetaObject::invokeMethod(self, "processBufferedData", Qt::QueuedConnection);
-        return 0;
+void SimulationManager::handleEngineStateChange(bool finished, int id) {
+    bool isPaused = SpiceBackend::instance().isPaused();
+    bool stopRequested = m_stopRequested.load();
+    qDebug() << "[SimManager] handleEngineStateChange: finished=" << finished << "isPaused=" << isPaused 
+             << "haltRequested=" << m_haltRequested.load() << "stopRequested=" << stopRequested;
+
+    // Determine raw path if we have a netlist file path
+    QString rawPath;
+    if (m_currentNetlist.endsWith(".cir", Qt::CaseInsensitive)) {
+        rawPath = m_currentNetlist;
+        rawPath.replace(".cir", ".raw", Qt::CaseInsensitive);
+    } else if (!m_currentNetlist.isEmpty() && QFileInfo::exists(m_currentNetlist)) {
+        QFileInfo fi(m_currentNetlist);
+        rawPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".raw";
     }
 
-    self->m_bgRunIssued = false; self->m_stopRequested = false;
-    QFileInfo info(self->m_currentNetlist);
-    QString rawPath = info.absolutePath() + "/" + info.completeBaseName() + ".raw";
-    QMetaObject::invokeMethod(self, [self, rawPath]() { self->handleSimulationFinished(rawPath); }, Qt::QueuedConnection);
-    return 0;
+    if (finished && isPaused) {
+        // === Halted at Sync Point ===
+        if (stopRequested) {
+            // User requested stop, treat as finished
+            setState(SimulationState::Finished);
+            {
+                std::lock_guard<std::mutex> lock(m_workerSyncMutex);
+                m_ngspiceIsHalted = true; // Unlock worker
+            }
+            m_workerSyncCond.notify_all();
+            QMetaObject::invokeMethod(this, "handleSimulationFinished", Qt::QueuedConnection, Q_ARG(QString, rawPath));
+        } else {
+            setState(SimulationState::Halted);
+            {
+                std::lock_guard<std::mutex> lock(m_workerSyncMutex);
+                m_ngspiceIsHalted = true;
+            }
+            m_workerSyncCond.notify_all();
+            
+            if (!m_haltRequested.load()) {
+                static QElapsedTimer lastAutoResume;
+                if (!lastAutoResume.isValid() || lastAutoResume.elapsed() > 200) {
+                    lastAutoResume.restart();
+                    qDebug() << "[SimManager] Spurious halt. Auto-resuming...";
+                    SpiceBackend::instance().execute("bg_resume");
+                }
+            }
+        }
+    } else if (finished && !isPaused) {
+        // === Engine Terminated ===
+        setState(SimulationState::Finished);
+        m_stopRequested = false;
+        m_haltRequested = false;
+        
+        {
+            std::lock_guard<std::mutex> lock(m_workerSyncMutex);
+            m_ngspiceIsHalted = false; // Reset for next run
+        }
+        m_workerSyncCond.notify_all();
+        
+        QMetaObject::invokeMethod(this, "handleSimulationFinished", Qt::QueuedConnection, Q_ARG(QString, rawPath));
+    } else if (!finished && !isPaused) {
+        // === Engine Running/Resumed ===
+        setState(SimulationState::Running);
+        m_haltRequested = false; 
+        {
+            std::lock_guard<std::mutex> lock(m_workerSyncMutex);
+            m_ngspiceIsHalted = false;
+        }
+        m_workerSyncCond.notify_all();
+    }
 }
 
 void SimulationManager::handleSimulationFinished(const QString& rawPath) {
     m_bufferTimer->stop(); 
     processBufferedData();
-    m_bgRunIssued = false; 
     m_stopRequested = false; 
-    m_pauseRequested = false;
 
 #ifdef HAVE_NGSPICE
     if (!m_lastLoadFailed && !m_lastRunFailed && !rawPath.isEmpty()) {
@@ -573,6 +833,8 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
 }
 
 void SimulationManager::clearCircuits() {
-    SpiceBackend::instance().execute("reset");
+    m_haltRequested = true;
+    sendCommandAsync("bg_halt");
+    sendCommandAsync("reset");
     m_circStorage.clear(); m_circPtrs.clear();
 }

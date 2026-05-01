@@ -778,6 +778,15 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
     });
     
     m_resultsPending = false;
+
+    connect(&liveSim, &SimulationManager::simulationFinished, this, [this]() {
+        if (!m_resultsPending) {
+            // Only cleanup immediately if we aren't waiting for raw results parsing.
+            // If results are pending, cleanup will happen in the parse callback.
+            cleanupSimulation();
+            Q_EMIT simulationStopped();
+        }
+    });
 }
 
 void SimManager::runDCOP(QGraphicsScene* scene, NetManager* netMgr) {

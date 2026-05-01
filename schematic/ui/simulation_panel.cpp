@@ -1147,21 +1147,53 @@ void SimulationPanel::addProbe(const QString& signalName) {
     
     const QString matchedName = primaryMatchedItem ? primaryMatchedItem->text() : signalName;
     
-    // Register with WaveformViewer immediately if a simulation is running
-    if (m_waveformViewer && SimManager::instance().isRunning()) {
-        QVector<double> emptyTime, emptyValues;
-        m_waveformViewer->addSignal(matchedName, emptyTime, emptyValues);
-        m_waveformViewer->setSignalChecked(matchedName, true);
-        
-        // Register in the persistent set immediately so the optimized real-time
-        // stream handler picks it up in the next batch.
-        m_persistentCheckedSignals.insert(matchedName);
-        m_persistentCheckedSignals.insert(signalName); // Also insert raw requested name
-
-        // FORCE RE-RESOLUTION:
-        // Any engine vector (e.g. 'net1') that was previously resolved to itself
-        // because no probe existed must now be re-evaluated so it maps to 'V(Net1)'.
-        m_liveNameCache.clear();
+    // Register with WaveformViewer
+    if (m_waveformViewer) {
+        // If simulation is running, add with empty data for live streaming
+        // If simulation has finished, add with existing results (if available)
+        if (SimManager::instance().isRunning()) {
+            QVector<double> emptyTime, emptyValues;
+            m_waveformViewer->addSignal(matchedName, emptyTime, emptyValues);
+            m_waveformViewer->setSignalChecked(matchedName, true);
+            
+            // Register in the persistent set immediately so the optimized real-time
+            // stream handler picks it up in the next batch.
+            m_persistentCheckedSignals.insert(matchedName);
+            m_persistentCheckedSignals.insert(signalName);
+            m_liveNameCache.clear();
+        } else if (m_hasLastResults) {
+            // Simulation finished - try to plot from existing results
+            const SimWaveform* w = findWaveByNetAliases(m_lastResults.waveforms, matchedName);
+            if (!w) {
+                // Try direct name match
+                for (const auto& wave : m_lastResults.waveforms) {
+                    QString wName = QString::fromStdString(wave.name);
+                    if (wName.compare(matchedName, Qt::CaseInsensitive) == 0) {
+                        w = &wave;
+                        break;
+                    }
+                }
+            }
+            if (w) {
+                QVector<double> time, values;
+                time.reserve(static_cast<int>(w->xData.size()));
+                values.reserve(static_cast<int>(w->yData.size()));
+                for (size_t i = 0; i < w->xData.size(); ++i) time.append(w->xData[i]);
+                for (size_t i = 0; i < w->yData.size(); ++i) values.append(w->yData[i]);
+                m_waveformViewer->addSignal(matchedName, time, values);
+                m_waveformViewer->setSignalChecked(matchedName, true);
+            } else {
+                // No data for this signal, add empty
+                QVector<double> emptyTime, emptyValues;
+                m_waveformViewer->addSignal(matchedName, emptyTime, emptyValues);
+                m_waveformViewer->setSignalChecked(matchedName, true);
+            }
+        } else {
+            // No simulation run yet - add empty signal
+            QVector<double> emptyTime, emptyValues;
+            m_waveformViewer->addSignal(matchedName, emptyTime, emptyValues);
+            m_waveformViewer->setSignalChecked(matchedName, true);
+        }
     }
 
     auto syncProbeSelection = [this, &matchedName]() {
@@ -3267,7 +3299,7 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
         if (!m_liveSnapshotTimer.isValid()) m_liveSnapshotTimer.start();
         else m_liveSnapshotTimer.restart();
 
-        double lastT = times.back();
+        double lastT = times.empty() ? 0.0 : times.back();
         const std::vector<double>& lastVals = values.back();
         QMap<QString, double> nodeVoltages;
         QMap<QString, double> currents;
@@ -3402,7 +3434,7 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 }
                 
                 // Update axes
-                double lastT = times.back();
+                double lastT = times.empty() ? 0.0 : times.back();
                 double maxVal = -1e9, minVal = 1e9;
                 for(double v : signalValues) {
                     if (v > maxVal) maxVal = v;

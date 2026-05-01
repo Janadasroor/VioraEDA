@@ -32,6 +32,16 @@ bool SpiceBackend::initialize(SendChar* cbChar, SendStat* cbStat, ControlledExit
 }
 
 int SpiceBackend::execute(const QString& command) {
+    qDebug() << "[SpiceBackend] Executing:" << command;
+    if (command == "bg_resume" || command == "bg_halt") {
+        // Special case: these are thread-safe and MUST NOT take the mutex to avoid deadlocks in callbacks
+#ifdef HAVE_NGSPICE
+        return ngSpice_Command(const_cast<char*>(command.toLatin1().constData()));
+#else
+        return -1;
+#endif
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
 #ifdef HAVE_NGSPICE
     return ngSpice_Command(const_cast<char*>(command.toLatin1().constData()));

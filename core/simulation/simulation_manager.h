@@ -12,21 +12,53 @@
 #include <mutex>
 #include <atomic>
 #include <thread>
+#include <deque>
 
 #ifdef HAVE_NGSPICE
 #include <ngspice/sharedspice.h>
 #endif
 
 #include "simulation_types.h"
+#include <condition_variable>
+#include <mutex>
 
 class SimControl;
+class SimulationManager;
 
 /**
  * @brief Manages interaction with the Ngspice simulation engine
  */
+// Background Command Worker
+class CommandWorker : public QObject {
+    Q_OBJECT
+public:
+    explicit CommandWorker(QObject* parent = nullptr) : QObject(parent) {}
+    void setManager(SimulationManager* m) { m_manager = m; }
+public slots:
+    void execute(const QString& cmd);
+    void executeSequence(const QStringList& cmds);
+    void loadCircuit(char** deck);
+private:
+    SimulationManager* m_manager = nullptr;
+};
+
+/**
+ * @brief Represents the current operational state of the simulation engine.
+ */
+enum class SimulationState {
+    Idle,           ///< No simulation loaded or running
+    Loading,        ///< Circuit netlist is being loaded/parsed
+    Running,        ///< Simulation background thread is active and producing data
+    Halted,         ///< Simulation is paused at a sync point for interaction
+    Paused,         ///< Simulation is manually paused by the user
+    Stopping,       ///< Shutdown sequence in progress
+    Finished,       ///< Simulation completed naturally
+    Error           ///< Simulation failed or crashed
+};
+
 class SimulationManager : public QObject {
     Q_OBJECT
-
+    friend class CommandWorker;
 public:
     static SimulationManager& instance();
 
@@ -84,27 +116,44 @@ Q_SIGNALS:
     void realTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
 
 public Q_SLOTS:
-    void handleSimulationFinished(const QString& rawPath);
+    void handleSimulationFinished(const QString& error);
     void processBufferedData();
     void clearCircuits();
     bool loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut);
     void applyPendingFluxSourceUpdates();
     void requestFluxSourceSync();
 
+    // --- State Accessors ---
+    SimulationState state() const { return m_state; }
+    QString stateString() const;
+
 private:
+    // Internal Callback Handlers
+    void handleIncomingData(void* vecArray, int numStructs);
+    void handleAnalysisMetadata(void* initData);
+    void handleEngineStateChange(bool finished, int id);
     explicit SimulationManager(QObject* parent = nullptr);
     ~SimulationManager();
+    
+    CommandWorker* m_worker = nullptr;
+    QThread* m_workerThread = nullptr;
+    void sendCommandAsync(const QString& cmd);
+    void loadCircuitAsync(char** deck);
+    
     bool recoverEngineIfNeeded();
+
+    void setState(SimulationState newState);
+    std::atomic<SimulationState> m_state{SimulationState::Idle};
 
     bool m_isInitialized;
     bool m_lastLoadFailed = false;
     std::atomic<bool> m_lastRunFailed{false};
     QString m_lastErrorMessage;
-    std::atomic<bool> m_bgRunIssued{false};
+    
+    // Control Flags
     std::atomic<bool> m_stopRequested{false};
-    std::atomic<bool> m_pauseRequested{false};
-    std::atomic<bool> m_jitUpdateInProgress{false};
     std::atomic<bool> m_haltRequested{false};
+    std::atomic<bool> m_jitUpdateInProgress{false};
     std::atomic<bool> m_fluxSyncRequested{false};
     std::atomic<bool> m_engineRecoveryRequired{false};
     
@@ -114,6 +163,7 @@ private:
     QMap<QString, double> m_pendingHighPriorityUpdates;
     QStringList m_pendingInternalCommands;
     
+    int m_autoResumeCounter = 0;
     QString m_currentNetlist;
     SimControl* m_streamingControl = nullptr;
     
@@ -121,11 +171,11 @@ private:
         double time;
         std::vector<double> values;
     };
-    std::vector<SimDataPoint> m_simBuffer;
+    std::deque<SimDataPoint> m_simBuffer;
     std::mutex m_bufferMutex;
     QTimer* m_bufferTimer = nullptr;
-    int m_streamingCounter = 0;
-    int m_skipFactor = 1;
+    std::atomic<int> m_streamingCounter{0};
+    std::atomic<int> m_skipFactor{1};
 
     std::vector<QString> m_logBuffer;
     std::mutex m_logMutex;
@@ -147,6 +197,12 @@ private:
     static int cbSendInitData(void* initData, int id, void* userData);
     static int cbBGThreadRunning(bool finished, int id, void* userData);
 #endif
+
+public:
+    // Synchronization for worker thread
+    std::mutex m_workerSyncMutex;
+    std::condition_variable m_workerSyncCond;
+    bool m_ngspiceIsHalted = false;
 };
 
 #endif // SIMULATION_MANAGER_H

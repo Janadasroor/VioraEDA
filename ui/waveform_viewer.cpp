@@ -1003,6 +1003,15 @@ void WaveformViewer::appendPoints(const QString& name, const std::vector<double>
         sig.values.resize(oldSize + values.size());
         std::copy(times.begin(), times.end(), sig.time.begin() + oldSize);
         std::copy(values.begin(), values.end(), sig.values.begin() + oldSize);
+
+        // Prune old points to prevent OOM and UI freeze during long real-time streams
+        const int maxPoints = 50000;
+        if (sig.time.size() > maxPoints) {
+            const int keepCount = 30000;
+            const int removeCount = sig.time.size() - keepCount;
+            sig.time.erase(sig.time.begin(), sig.time.begin() + removeCount);
+            sig.values.erase(sig.values.begin(), sig.values.begin() + removeCount);
+        }
     }
     
     if (m_blockUpdates) return;

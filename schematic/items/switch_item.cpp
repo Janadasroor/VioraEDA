@@ -104,8 +104,8 @@ SchematicItem* SwitchItem::clone() const {
 
 void SwitchItem::setOpen(bool open) {
     m_isOpen = open;
-    setValue(m_isOpen ? "1e12" : "0.001");
-    setParamExpression("resistance", m_isOpen ? "1e12" : "0.001");
+    setValue(m_isOpen ? "1Meg" : "0.1");
+    setParamExpression("resistance", m_isOpen ? "1Meg" : "0.1");
     syncParamExpressions();
     update();
 }
