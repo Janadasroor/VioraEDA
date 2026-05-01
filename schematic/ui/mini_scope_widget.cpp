@@ -43,6 +43,69 @@ MiniScopeWidget::MiniScopeWidget(QWidget* parent) : QWidget(parent) {
     setStyleSheet("background-color: #0a0a0a; border: 2px solid #333; border-radius: 2px;");
 }
 
+void MiniScopeWidget::appendMultiTraceData(const QMap<QString, QVector<QPointF>>& traces) {
+    QList<QColor> palette = {
+        QColor(34, 197, 94),  // Green
+        QColor(59, 130, 246), // Blue
+        QColor(249, 115, 22), // Orange
+        QColor(168, 85, 247), // Purple
+        QColor(236, 72, 153)  // Pink
+    };
+    static int colorIdxOffset = 0;
+
+    for (auto it = traces.begin(); it != traces.end(); ++it) {
+        if (it.value().isEmpty()) continue;
+
+        if (!m_traces.contains(it.key())) {
+            TraceData data;
+            data.color = palette[colorIdxOffset % palette.size()];
+            colorIdxOffset++;
+            m_traces[it.key()] = data;
+        }
+
+        auto& target = m_traces[it.key()];
+        target.points.append(it.value());
+
+        // Prune for performance (MiniScope is for preview)
+        const int maxMiniPoints = 10000;
+        if (target.points.size() > maxMiniPoints) {
+            target.points.remove(0, target.points.size() - 5000);
+        }
+
+        calculateMeasurements(it.key(), target.points);
+    }
+
+    // Recalculate global bounds
+    bool first = true;
+    for (const auto& trace : m_traces) {
+        if (trace.points.isEmpty()) continue;
+        if (first) {
+            m_globalMinY = trace.minV;
+            m_globalMaxY = trace.maxV;
+            m_minX = trace.points.first().x();
+            m_maxX = trace.points.last().x();
+            first = false;
+        } else {
+            m_globalMinY = std::min(m_globalMinY, trace.minV);
+            m_globalMaxY = std::max(m_globalMaxY, trace.maxV);
+            m_minX = std::min(m_minX, trace.points.first().x());
+            m_maxX = std::max(m_maxX, trace.points.last().x());
+        }
+    }
+
+    // Add padding
+    double range = m_globalMaxY - m_globalMinY;
+    if (range < 0.1) {
+        m_globalMinY -= 0.5;
+        m_globalMaxY += 0.5;
+    } else {
+        m_globalMinY -= range * 0.1;
+        m_globalMaxY += range * 0.1;
+    }
+
+    update();
+}
+
 void MiniScopeWidget::setMultiTraceData(const QMap<QString, QVector<QPointF>>& traces) {
     m_traces.clear();
     

@@ -20,6 +20,7 @@ public:
      * @brief Updates the waveform data for multiple traces.
      */
     void setMultiTraceData(const QMap<QString, QVector<QPointF>>& traces);
+    void appendMultiTraceData(const QMap<QString, QVector<QPointF>>& traces);
     void setData(const QVector<QPointF>& points);
     
     /**

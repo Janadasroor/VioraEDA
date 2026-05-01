@@ -31,6 +31,7 @@ public:
      * Filters for nets connected specifically to this instrument.
      */
     void updateResults(const SimResults& results, NetManager* netManager);
+    void updateRealTimeData(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
 
     /**
      * @brief Clear existing traces.

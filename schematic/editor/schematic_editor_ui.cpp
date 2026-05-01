@@ -1699,6 +1699,7 @@ void SchematicEditor::createDockWidgets() {
         m_simulationPanel->setAnalysisConfig(pCfg);
 
         connect(m_simulationPanel, &SimulationPanel::resultsReady, this, &SchematicEditor::onSimulationResultsReady);
+        connect(m_simulationPanel, &SimulationPanel::realTimeBatchReady, this, &SchematicEditor::onRealTimeDataBatchReceived);
         connect(m_simulationPanel, &SimulationPanel::timeSnapshotReady, this, &SchematicEditor::onTimeTravelSnapshot);
         connect(m_simulationPanel, &SimulationPanel::probeRequested, this, [this]() {
             m_view->setCurrentTool("Probe");

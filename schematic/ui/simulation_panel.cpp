@@ -3399,6 +3399,7 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
 
         m_waveformViewer->appendPoints(uiName, times, signalValues);
         m_waveformViewer->setSignalChecked(uiName, isChecked);
+        Q_EMIT realTimeBatchReady(times, values, names);
 
         // Update preview chart
         if (m_chart && isChecked && !isTime) {
@@ -3429,8 +3430,9 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 series->append(points);
 
                 // Prune old points to keep live performance high (prevents UI freeze and memory exhaustion)
-                if (series->count() > 4000) {
-                    series->removePoints(0, series->count() - 2000);
+                // Use a larger limit for modern charts
+                if (series->count() > 100000) {
+                    series->removePoints(0, series->count() - 50000);
                 }
                 
                 // Update axes

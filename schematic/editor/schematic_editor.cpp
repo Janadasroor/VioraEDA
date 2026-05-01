@@ -1649,6 +1649,12 @@ void SchematicEditor::onSimulationResultsReady(const SimResults& results) {
     }
 }
 
+void SchematicEditor::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
+    for (auto* win : m_oscilloscopeWindows) {
+        win->updateRealTimeData(times, values, names);
+    }
+}
+
 void SchematicEditor::onOscilloscopeWindowClosing(const QUuid& id) {
     m_oscilloscopeWindows.remove(id);
 }

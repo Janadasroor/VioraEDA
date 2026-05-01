@@ -176,6 +176,7 @@ private Q_SLOTS:
     void onSimulationPaused(bool paused);
     void onTimeTravelSnapshot(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& currents);
     void onOverlayVisibilityChanged(bool showVoltage, bool showCurrent);
+    void onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
     
     // Manipulation slots
     void onRotateCW();

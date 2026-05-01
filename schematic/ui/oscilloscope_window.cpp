@@ -141,6 +141,43 @@ void OscilloscopeWindow::setupUI() {
     connect(m_clearMemBtn, &QPushButton::clicked, this, &OscilloscopeWindow::onClearMemoriesClicked);
 }
 
+void OscilloscopeWindow::updateRealTimeData(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
+    if (times.empty() || values.empty() || names.isEmpty()) return;
+
+    QMap<QString, QVector<QPointF>> visibleTraces;
+    
+    for (int i = 0; i < 4; ++i) {
+        if (!m_config.channels[i].enabled) continue;
+        
+        QString traceName = QString("V(%1_%2)").arg(m_itemName).arg(i); 
+        int vectorIdx = -1;
+        for (int n = 0; n < names.size(); ++n) {
+            if (names[n] == traceName) {
+                vectorIdx = n;
+                break;
+            }
+        }
+
+        if (vectorIdx >= 0 && vectorIdx < (int)values.size()) {
+            const auto& vec = values[vectorIdx];
+            QVector<QPointF> points;
+            points.reserve(times.size());
+
+            double scale = m_config.channels[i].scale;
+            double offset = m_config.channels[i].offset;
+
+            for (size_t s = 0; s < times.size(); ++s) {
+                points.append(QPointF(times[s], (vec[s] * scale) + offset));
+            }
+            visibleTraces[QString("CH%1").arg(i+1)] = points;
+        }
+    }
+
+    if (!visibleTraces.isEmpty()) {
+        m_scopeDisplay->appendMultiTraceData(visibleTraces);
+    }
+}
+
 void OscilloscopeWindow::updateResults(const SimResults& results, NetManager* netManager) {
     if (!netManager) return;
     m_lastNetManager = netManager;

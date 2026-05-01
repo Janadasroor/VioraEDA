@@ -108,6 +108,7 @@ public:
 
 Q_SIGNALS:
     void resultsReady(const SimResults& results);
+    void realTimeBatchReady(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
     void timeSnapshotReady(double t, const QMap<QString, double>& nodeVoltages, const QMap<QString, double>& branchCurrents);
     void probeRequested();
     void placementToolRequested(const QString& toolName);
