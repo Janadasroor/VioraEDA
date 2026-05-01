@@ -57,7 +57,9 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 #include "../../simulator/core/sim_results.h"
 #include "../ui/simulation_panel.h"
 #include "../ui/logic_analyzer_window.h"
+#ifdef HAVE_PYTHON
 #include "../ui/logic_editor_panel.h"
+#endif
 #include "../items/smart_signal_item.h"
 #include "../ui/flux_script_editor_tab.h"
 
@@ -107,7 +109,9 @@ SchematicEditor::SchematicEditor(QWidget *parent)
       m_toggleHeatmapAction(nullptr),
       m_geminiDock(nullptr),
       m_geminiPanel(nullptr),
+#ifdef HAVE_PYTHON
       m_logicEditorPanel(nullptr),
+#endif
       m_sourceControlDock(nullptr),
       m_sourceControlPanel(nullptr),
       m_oscilloscopeDock(nullptr),
@@ -676,6 +680,7 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     qDebug() << "[SchematicEditor] Updating page frame...";
     updatePageFrame();
 
+#ifdef HAVE_PYTHON
     // Create or update Logic Editor (standalone IDE)
     qDebug() << "[SchematicEditor] Initializing Logic Editor Panel...";
     if (!m_logicEditorPanel) {
@@ -689,6 +694,7 @@ void SchematicEditor::addSchematicTab(const QString& name) {
         m_logicEditorPanel->setScene(scene, netManager, m_api);
     }
     qDebug() << "[SchematicEditor] Logic Editor Panel ready.";
+#endif
 
     if (m_geminiPanel) {
         view->setGeminiPanel(m_geminiPanel);
@@ -1650,8 +1656,43 @@ void SchematicEditor::onSimulationResultsReady(const SimResults& results) {
 }
 
 void SchematicEditor::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
+    if (times.empty() || values.empty()) return;
+    
+    qDebug() << "DBG: Real-time data batch received, samples:" << times.size() << "signals:" << names.size();
+
     for (auto* win : m_oscilloscopeWindows) {
         win->updateRealTimeData(times, values, names);
+    }
+
+    // --- Update Schematic Item States (LEDs, 7-Segments, etc) ---
+    QMap<QString, double> nodeVoltages;
+    QMap<QString, double> currents;
+    
+    for (int i = 0; i < names.size(); ++i) {
+        QString name = names[i];
+        double lastVal = values.back()[i];
+        
+        // Parse "V(node)" or "I(branch)"
+        if (name.startsWith("V(", Qt::CaseInsensitive) && name.endsWith(")")) {
+            QString node = name.mid(2, name.length() - 3);
+            nodeVoltages[node] = lastVal;
+        } else if (name.startsWith("I(", Qt::CaseInsensitive) && name.endsWith(")")) {
+            QString branch = name.mid(2, name.length() - 3);
+            currents[branch] = lastVal;
+        } else if (name.endsWith("#branch", Qt::CaseInsensitive)) {
+            QString branch = name.left(name.length() - 7);
+            currents[branch] = lastVal;
+        } else {
+            nodeVoltages[name] = lastVal;
+        }
+    }
+
+    if (m_scene) {
+        for (auto* item : m_scene->items()) {
+            if (auto* si = dynamic_cast<SchematicItem*>(item)) {
+                si->setSimState(nodeVoltages, currents);
+            }
+        }
     }
 }
 

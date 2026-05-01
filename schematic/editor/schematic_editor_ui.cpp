@@ -37,7 +37,9 @@ using Flux::Model::SymbolPrimitive;
 #include "../items/smart_signal_item.h"
 #include "../items/flux_measurement_item.h"
 #include "../../core/simulation/jit_context_manager.h"
+#ifdef HAVE_PYTHON
 #include "../ui/logic_editor_panel.h"
+#endif
 #include "../items/schematic_waveform_marker.h"
 #include "../../simulator/bridge/sim_schematic_bridge.h"
 #include "../../ui/source_control_panel.h"
@@ -2042,6 +2044,8 @@ void SchematicEditor::connectSimulationSignals() {
 
     connect(&sim, &SimManager::simulationPaused, this, &SchematicEditor::onSimulationPaused);
 
+    connect(&sim, &SimManager::realTimeDataBatchReceived, this, &SchematicEditor::onRealTimeDataBatchReceived);
+
     connect(&sim, &SimManager::errorOccurred, this, [this](const QString& message) {
         m_simulationRunning = false;
         updateSimulationUiState(false, "Simulation error.");
@@ -2355,10 +2359,12 @@ void SchematicEditor::onRunSimulation() {
         }
     }
 
+#ifdef HAVE_PYTHON
     // Auto-save pending Smart Signal code edits before building simulator netlist.
     if (m_logicEditorPanel) {
         m_logicEditorPanel->flushEdits();
     }
+#endif
 
     // Auto-annotate if duplicate references exist OR unannotated components found (prevents netlist collisions).
     {

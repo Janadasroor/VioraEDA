@@ -819,7 +819,7 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
 #ifdef HAVE_NGSPICE
     if (!m_lastLoadFailed && !m_lastRunFailed && !rawPath.isEmpty()) {
         QTimer::singleShot(200, this, [this, rawPath]() {
-            SpiceBackend::instance().execute("set filetype=ascii");
+            SpiceBackend::instance().execute("set filetype=binary");
             SpiceBackend::instance().execute("write " + rawPath);
             QThread::msleep(200);
             if (QFile::exists(rawPath) && QFileInfo(rawPath).size() > 0) Q_EMIT rawResultsReady(rawPath);

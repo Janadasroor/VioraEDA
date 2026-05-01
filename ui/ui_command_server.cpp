@@ -20,6 +20,7 @@ UICommandServer& UICommandServer::instance() {
 }
 
 bool UICommandServer::start(int port) {
+#if VIOSPICE_HAS_QT_WEBSOCKETS
     if (m_server && m_server->isListening()) {
         return true;
     }
@@ -40,9 +41,14 @@ bool UICommandServer::start(int port) {
 
     qDebug() << "UICommandServer listening on port" << port;
     return true;
+#else
+    Q_UNUSED(port);
+    return false;
+#endif
 }
 
 void UICommandServer::stop() {
+#if VIOSPICE_HAS_QT_WEBSOCKETS
     if (!m_server) return;
 
     // Disconnect all clients
@@ -57,10 +63,15 @@ void UICommandServer::stop() {
     m_server = nullptr;
 
     qDebug() << "UICommandServer stopped";
+#endif
 }
 
 bool UICommandServer::isRunning() const {
+#if VIOSPICE_HAS_QT_WEBSOCKETS
     return m_server && m_server->isListening();
+#else
+    return false;
+#endif
 }
 
 void UICommandServer::registerCommand(const QString& cmd, CommandHandler handler) {
@@ -68,6 +79,7 @@ void UICommandServer::registerCommand(const QString& cmd, CommandHandler handler
 }
 
 void UICommandServer::broadcastToClients(const QVariantMap& message) {
+#if VIOSPICE_HAS_QT_WEBSOCKETS
     QJsonDocument doc = QJsonDocument::fromVariant(message);
     QByteArray data = doc.toJson(QJsonDocument::Compact);
 
@@ -75,8 +87,12 @@ void UICommandServer::broadcastToClients(const QVariantMap& message) {
     for (QWebSocket* client : m_clients) {
         client->sendTextMessage(QString::fromUtf8(data));
     }
+#else
+    Q_UNUSED(message);
+#endif
 }
 
+#if VIOSPICE_HAS_QT_WEBSOCKETS
 void UICommandServer::onNewConnection() {
     QWebSocket* socket = m_server->nextPendingConnection();
     if (!socket) return;
@@ -123,6 +139,11 @@ void UICommandServer::onDisconnected() {
     qDebug() << "UICommandServer: Python client disconnected";
     client->deleteLater();
 }
+#else
+void UICommandServer::onNewConnection() {}
+void UICommandServer::onTextMessageReceived(const QString&) {}
+void UICommandServer::onDisconnected() {}
+#endif
 
 QVariantMap UICommandServer::handleCommand(const QVariantMap& request) {
     QVariantMap response;
@@ -230,12 +251,14 @@ QVariantMap UICommandServer::handleCommand(const QVariantMap& request) {
     return response;
 }
 
+#if VIOSPICE_HAS_QT_WEBSOCKETS
 void UICommandServer::sendResponse(QWebSocket* client, const QVariantMap& response) {
     if (!client || client->state() != QAbstractSocket::ConnectedState) return;
 
     QJsonDocument doc = QJsonDocument::fromVariant(response);
     client->sendTextMessage(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
 }
+#endif
 
 void UICommandServer::onMenuItemTriggered(const QString& id) {
     MenuItem item;

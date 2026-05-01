@@ -520,6 +520,16 @@ void SevenSegmentDisplayItem::setSimState(const QMap<QString, double>& nodeVolta
     auto pinNetName = [&](int pinIndex) -> QString { return pinNet(pinIndex).trimmed(); };
     auto readPinVoltage = [&](int pinIndex) -> double { return lookupNodeVoltage(nodeVoltages, pinNetName(pinIndex)); };
 
+    if (!nodeVoltages.isEmpty()) {
+        QString segmentsStr;
+        for (int i = 0; i < segmentCount(); ++i) {
+            segmentsStr += QString("%1:%2V ").arg(pinName(i)).arg(readPinVoltage(i));
+        }
+        qDebug() << "DBG: 7-Seg" << reference() << "setSimState. Type:" << (m_commonType == CommonType::CommonAnode ? "CA" : "CC")
+                 << "Com1:" << pinNetName(comPin1Index()) << "=" << readPinVoltage(comPin1Index()) << "V"
+                 << "Segments:" << segmentsStr;
+    }
+
     const QString com1Net = pinNetName(comPin1Index());
     const QString com2Net = pinNetName(comPin2Index());
     const bool hasCom1 = !com1Net.isEmpty();

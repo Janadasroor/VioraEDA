@@ -321,7 +321,9 @@ private:
     class GeminiPanel* m_geminiPanel = nullptr;
     bool m_allowGeminiDockInit = false;
 
+#ifdef HAVE_PYTHON
     class LogicEditorPanel *m_logicEditorPanel;
+#endif
 
     QDockWidget *m_sourceControlDock;
     SourceControlPanel *m_sourceControlPanel;

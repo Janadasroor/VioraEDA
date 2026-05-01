@@ -732,6 +732,9 @@ SimManager& SimManager::instance() {
 SimManager::~SimManager() = default;
 
 SimManager::SimManager(QObject* parent) : QObject(parent) {
+    qRegisterMetaType<std::vector<double>>("std::vector<double>");
+    qRegisterMetaType<std::vector<std::vector<double>>>("std::vector<std::vector<double>>");
+
     m_rtTimer = new QTimer(this);
     connect(m_rtTimer, &QTimer::timeout, this, &SimManager::onRealTimeTick);
 

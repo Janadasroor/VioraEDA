@@ -21,7 +21,9 @@ add_library(VioUI STATIC ${VIOUI_SOURCES})
 set_target_properties(VioUI PROPERTIES AUTOMOC ON)
 vioraeda_configure_module_target(VioUI)
 target_link_libraries(VioUI PUBLIC VioCore VioSymbols VioSchematic VioFootprints VioraPCBCore)
-target_link_libraries(VioUI PRIVATE Qt${QT_VERSION_MAJOR}::WebSockets)
+if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
+    target_link_libraries(VioUI PRIVATE Qt${QT_VERSION_MAJOR}::WebSockets)
+endif()
 
 # Enable Python embedding in UI components
 if(Python3_FOUND)

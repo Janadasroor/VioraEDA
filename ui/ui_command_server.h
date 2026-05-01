@@ -2,8 +2,10 @@
 #define UI_COMMAND_SERVER_H
 
 #include <QObject>
+#if VIOSPICE_HAS_QT_WEBSOCKETS
 #include <QWebSocketServer>
 #include <QWebSocket>
+#endif
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -67,10 +69,11 @@ private:
     ~UICommandServer();
 
     QVariantMap handleCommand(const QVariantMap& request);
+#if VIOSPICE_HAS_QT_WEBSOCKETS
     void sendResponse(QWebSocket* client, const QVariantMap& response);
-
     QWebSocketServer* m_server = nullptr;
     QList<QWebSocket*> m_clients;
+#endif
     int m_port = 18790;
     std::mutex m_mutex;
 

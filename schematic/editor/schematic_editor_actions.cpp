@@ -21,7 +21,9 @@
 #include "../items/switch_item.h"
 #include "../items/led_item.h"
 #include "../items/smart_signal_item.h"
+#ifdef HAVE_PYTHON
 #include "../ui/logic_editor_panel.h"
+#endif
 #include "../ui/logic_analyzer_window.h"
 #include "../ui/schematic_components_widget.h"
 #include "../ui/library_browser_dialog.h"
@@ -2476,6 +2478,7 @@ void SchematicEditor::onRewindRequested() {
 }
 
 void SchematicEditor::openLogicEditor(SmartSignalItem* item) {
+#ifdef HAVE_PYTHON
     if (!m_logicEditorPanel) {
         m_logicEditorPanel = new LogicEditorPanel(m_scene, m_netManager, m_api, this);
         connect(m_logicEditorPanel, &LogicEditorPanel::closed, this, [this]() {
@@ -2486,4 +2489,7 @@ void SchematicEditor::openLogicEditor(SmartSignalItem* item) {
     if (m_logicEditorPanel) {
         m_logicEditorPanel->setTargetBlock(item);
     }
+#else
+    Q_UNUSED(item);
+#endif
 }
