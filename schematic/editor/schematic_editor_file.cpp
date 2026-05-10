@@ -752,7 +752,7 @@ bool SchematicEditor::openFile(const QString& filePath) {
         if (!loadedSimulationSetup.isEmpty()) {
             m_simConfig = SimulationSetupDialog::Config::fromJson(loadedSimulationSetup);
             m_simConfigured = true;
-            qDebug() << "[SchematicEditor] Loaded sim config: type=" << static_cast<int>(m_simConfig.type) << "rfPort1Source=" << m_simConfig.rfPort1Source;
+//            qDebug() << "[SchematicEditor] Loaded sim config: type=" << static_cast<int>(m_simConfig.type) << "rfPort1Source=" << m_simConfig.rfPort1Source;
         }
         if (m_simulationPanel) {
             SimulationPanel::AnalysisConfig pCfg;
@@ -769,7 +769,7 @@ bool SchematicEditor::openFile(const QString& filePath) {
             pCfg.rfPort2Node = m_simConfig.rfPort2Node;
             pCfg.rfZ0 = m_simConfig.rfZ0;
             pCfg.commandText = m_simConfig.commandText;
-            qDebug() << "[SchematicEditor] Setting panel config: type=" << static_cast<int>(pCfg.type) << "rfPort1Source=" << pCfg.rfPort1Source;
+//            qDebug() << "[SchematicEditor] Setting panel config: type=" << static_cast<int>(pCfg.type) << "rfPort1Source=" << pCfg.rfPort1Source;
             m_simulationPanel->setAnalysisConfig(pCfg);
 
             // Sync schematic directive with saved command text

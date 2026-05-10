@@ -3,8 +3,8 @@ list(TRANSFORM VIOUI_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/../")
 
 # Add UI Command Server files
 list(APPEND VIOUI_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/ui_command_server.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ui_command_server.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app_command_server.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app_command_server.cpp"
 )
 
 # Add Python REPL Console files
@@ -34,7 +34,7 @@ endif()
 
 # Disable AUTOUIC for files without .ui files
 set_source_files_properties(
-    "${CMAKE_CURRENT_SOURCE_DIR}/ui_command_server.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app_command_server.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/python_executor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/python_hooks.cpp"
     PROPERTIES SKIP_AUTOUIC ON

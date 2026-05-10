@@ -5,6 +5,8 @@
 #include "../core/ui/project_audit_dialog.h"
 #include "schematic_editor.h"
 #include "python_console_widget.h"
+#include "python_executor.h"
+#include "app_command_server.h"
 #include "symbol_editor.h"
 #include "calculator_dialog.h"
 #include "spice_model_manager_dialog.h"
@@ -68,7 +70,7 @@
 
 namespace {
 bool pcbToolsEnabled() {
-    return ConfigManager::instance().isFeatureEnabled("pcb_tools", false);
+    return ConfigManager::instance().isFeatureEnabled("pcb_tools", true);
 }
 
 struct PassivePartEntry {
@@ -444,7 +446,7 @@ bool importStandardPassiveModelFile(QWidget* parent,
 
 ProjectManager::ProjectManager(QWidget* parent)
     : QMainWindow(parent), m_workspaceDirty(false), m_workspaceFilePath(QString()) {
-    setWindowTitle("viospice");
+    setWindowTitle("viospice & viora");
     setMinimumSize(900, 600);
     
     applyKiCadStyle();
@@ -477,6 +479,27 @@ ProjectManager::ProjectManager(QWidget* parent)
     }
     
     refreshProjectTree();
+
+    // Setup UI Command Server hooks
+    auto& uiSrv = UICommandServer::instance();
+    uiSrv.setShowMessageFn([this](const QString& title, const QString& text) {
+        QMessageBox::information(this, title, text);
+    });
+    uiSrv.setRunPythonCodeFn([](const QString& code) -> QVariantMap {
+        int isError = 0;
+        char* output = py_executor_execute(code.toUtf8().constData(), &isError);
+        QVariantMap resp;
+        resp["ok"] = !isError;
+        resp["output"] = QString::fromUtf8(output);
+        py_executor_free(output);
+        return resp;
+    });
+    uiSrv.setOpenSchematicFn([this](const QString& path) {
+        launchSchematicEditor(path);
+        this->show();
+        this->raise();
+        return true;
+    });
 
     // Restore UI State
     QByteArray geom = ConfigManager::instance().windowGeometry("ProjectManager");
@@ -648,7 +671,7 @@ QWidget* ProjectManager::createLauncherArea() {
         logoRow->setSpacing(12);
         logoRow->setContentsMargins(0,0,0,0);
 
-        QLabel* title = new QLabel("viospice");
+        QLabel* title = new QLabel("viospice & viora");
         title->setObjectName("WelcomeTitle");
         logoRow->addWidget(title);
 
@@ -657,7 +680,7 @@ QWidget* ProjectManager::createLauncherArea() {
         logoRow->addWidget(chip);
         logoRow->addStretch();
 
-        QLabel* subtitle = new QLabel("Professional Electronic Design Automation");
+        QLabel* subtitle = new QLabel("Modern AEDA Ecosystem & High-Performance Simulation");
         subtitle->setObjectName("WelcomeSubtitle");
 
         // CTA buttons
@@ -807,8 +830,6 @@ QWidget* ProjectManager::createLauncherArea() {
                 ":/icons/toolbar_netlist.png", QColor("#06b6d4"), &ProjectManager::openSpiceModelManager);
         addUtil("Calculator Tools",  "Resistance, trace width, and impedance calculators",
                 ":/icons/calculator_tools.png", QColor("#f59e0b"), &ProjectManager::openCalculatorTools);
-        addUtil("OpenCode AI",         "AI-powered circuit design, simulation, and analysis",
-                ":/icons/tool_search.svg",      QColor("#3b82f6"), &ProjectManager::launchOpenCode);
         addUtil("Plugins Manager",   "Manage extensions, importers, and add-ons",
                 ":/icons/plugins_manager.png",  QColor("#8b5cf6"), &ProjectManager::openPluginsManager);
         addUtil("Help Documentation","Software guides, tutorials, and documentation",
@@ -830,7 +851,7 @@ QWidget* ProjectManager::createLauncherArea() {
     layout->addStretch();
 
     // Footer
-    QLabel* footer = new QLabel("viospice v0.2.0  ·  Modern Electronic Design Automation");
+    QLabel* footer = new QLabel("viospice & viora v0.2.0  ·  Modern AEDA Ecosystem");
     footer->setObjectName("VersionFooter");
     footer->setAlignment(Qt::AlignCenter);
     layout->addWidget(footer);
@@ -1388,7 +1409,7 @@ void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
     }
 
     QAction* openAction = menu.addAction("Open");
-    connect(openAction, &QAction::triggered, [=]() {
+    connect(openAction, &QAction::triggered, [this, item]() {
         onProjectTreeItemDoubleClicked(item, 0);
     });
 
@@ -1478,7 +1499,7 @@ void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
     }
 
     QAction* showInExplorer = menu.addAction("Show in File Manager");
-    connect(showInExplorer, &QAction::triggered, [=]() {
+    connect(showInExplorer, &QAction::triggered, [info]() {
         QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
     });
 
@@ -1486,7 +1507,7 @@ void ProjectManager::onProjectTreeContextMenu(const QPoint& pos) {
         menu.addSeparator();
         QAction* deleteAction = menu.addAction("Delete");
         deleteAction->setIcon(QIcon(":/icons/tool_delete.svg"));
-        connect(deleteAction, &QAction::triggered, [=]() {
+        connect(deleteAction, &QAction::triggered, [this, path, info]() {
              if (QMessageBox::question(this, "Delete", "Are you sure you want to delete " + info.fileName() + "?\nThis cannot be undone.") == QMessageBox::Yes) {
                  if (info.isDir()) QDir(path).removeRecursively();
                  else QFile::remove(path);
@@ -1612,7 +1633,7 @@ void ProjectManager::updateThemeStyle() {
 
         // Section headers
         "QLabel#SectionHeader {"
-        "  color:%12; font-size:10px; font-weight:700; letter-spacing:2px;"
+        "  color:%11; font-size:10px; font-weight:700; letter-spacing:2px;"
         "  text-transform:uppercase; background:transparent; padding:4px 0 2px 0;"
         "}"
 
@@ -1632,7 +1653,7 @@ void ProjectManager::updateThemeStyle() {
 
         // Version footer
         "QLabel#VersionFooter {"
-        "  color:%12; font-size:11px; padding:8px 0;"
+        "  color:%11; font-size:11px; padding:8px 0;"
         "  background:transparent;"
         "}"
 
@@ -1657,8 +1678,7 @@ void ProjectManager::updateThemeStyle() {
     .arg(toolbarBg)      // 8
     .arg(treeHover)      // 9
     .arg(inputBg)        // 10
-    .arg(treeHover)      // 11
-    .arg(sectionFg)      // 12
+    .arg(sectionFg)      // 11
     );
 }
 
@@ -1703,8 +1723,6 @@ void ProjectManager::createMenuBar() {
         toolsMenu->addAction("Footprint Editor", QKeySequence(), this, &ProjectManager::openFootprintEditor);
     }
     toolsMenu->addSeparator();
-    toolsMenu->addAction("💻 OpenCode AI (Ctrl+Shift+O)", QKeySequence("Ctrl+Shift+O"), this, &ProjectManager::launchOpenCode);
-    toolsMenu->addSeparator();
     toolsMenu->addAction("🐍 Python Console", QKeySequence("Ctrl+Shift+P"), this, &ProjectManager::showPythonConsole);
     toolsMenu->addSeparator();
     QMenu* importersMenu = toolsMenu->addMenu("Importers");
@@ -1727,7 +1745,7 @@ void ProjectManager::createMenuBar() {
 
     QAction* devHelpAction = helpMenu->addAction("&Engineering Technical Docs", QKeySequence("Ctrl+Shift+F1"), this, &ProjectManager::showDeveloperHelp);
     helpMenu->addAction("Project &Health Audit...", QKeySequence(), this, &ProjectManager::onProjectAudit);
-    m_aboutAction = helpMenu->addAction("&About viospice", QKeySequence(), this, &ProjectManager::showAbout);
+    m_aboutAction = helpMenu->addAction("&About viospice & viora", QKeySequence(), this, &ProjectManager::showAbout);
 }
 
 void ProjectManager::createNewProject() {
@@ -2773,43 +2791,6 @@ void ProjectManager::onSettings() {
         // Apply global changes if needed, though most are persisted in ConfigManager
         statusBar()->showMessage("Global settings updated.", 3000);
     }
-}
-
-void ProjectManager::launchOpenCode() {
-    QString appPath;
-    QStringList candidates = {
-        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/linux-unpacked/@opencode-aidesktop-electron",
-        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/opencode-electron-linux-x86_64.AppImage",
-        "/opt/opencode/opencode",
-        "/usr/local/bin/opencode",
-    };
-
-    for (const auto& candidate : candidates) {
-        if (QFile::exists(candidate)) {
-            appPath = candidate;
-            break;
-        }
-    }
-
-    if (appPath.isEmpty()) {
-        QProcess proc;
-        proc.start("which", {"opencode"});
-        proc.waitForFinished(1000);
-        if (proc.exitCode() == 0) {
-            appPath = QString::fromLocal8Bit(proc.readAllStandardOutput()).trimmed();
-        }
-    }
-
-    if (appPath.isEmpty()) {
-        QMessageBox::warning(this, "OpenCode Not Found",
-            "Could not find the OpenCode Electron app.\n\n"
-            "Build it: cd packages/desktop-electron && bun run build && bun run package:linux\n"
-            "Or download from https://opencode.ai");
-        return;
-    }
-
-    QProcess::startDetached(appPath);
-    statusBar()->showMessage("Launched OpenCode Desktop", 3000);
 }
 
 void ProjectManager::showPythonConsole() {

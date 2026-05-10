@@ -839,13 +839,14 @@ void ProjectExplorerWidget::applyTheme() {
         "QTreeView::item { padding: 6px 8px; border-radius: 4px; margin: 1px 10px 1px 0px; height: 24px; color: %2; font-size: 13px; }"
         "QTreeView::item:hover:!selected { background-color: %7; }"
         "QTreeView::item:selected { "
-        "   background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %4, stop:0.04 %4, stop:0.041 rgba(86, 156, 214, 20), stop:1 rgba(86, 156, 214, 10));"
+        "   background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %4, stop:0.04 %4, stop:0.041 %8, stop:1 %8);"
         "   color: %4; font-weight: bold; border-radius: 0px; "
         "}"
         "QTreeView::branch { background-color: transparent; }"
         "QTreeView::branch:has-children:closed:has-siblings, QTreeView::branch:has-children:closed:!has-siblings { image: url(%9); }"
         "QTreeView::branch:open:has-children:has-siblings, QTreeView::branch:open:has-children:!has-siblings { image: url(%10); }"
-    ).arg(bg, fg, border, accent, inputBg, altRow, hoverBg, selectionBg, rightPath, downPath));
+    ).arg(bg, fg, border, accent, inputBg, altRow, hoverBg, selectionBg, rightPath)
+     .arg(downPath));
 
     if (m_titleLabel) {
         m_titleLabel->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1; text-transform: uppercase; letter-spacing: 0.5px;")

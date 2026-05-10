@@ -10,6 +10,7 @@
 
 class SchematicItem : public QObject, public QGraphicsItem {
     Q_OBJECT
+    Q_INTERFACES(QGraphicsItem)
 public:
     enum class TransformAction {
         RotateCW,
@@ -97,7 +98,7 @@ public:
         if (!m_reference.isEmpty() && m_reference != ref) {
             // Log changes to help track "R1 -> U1" issues
             // (Only log after initial setup to avoid noise)
-            qDebug() << "[Item] Reference change:" << m_reference << "->" << ref << "type:" << itemTypeName();
+//            qDebug() << "[Item] Reference change:" << m_reference << "->" << ref << "type:" << itemTypeName();
         }
         m_reference = ref; 
         rebuildPrimitives();

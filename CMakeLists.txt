@@ -54,33 +54,76 @@ else()
 endif()
 
 # --- VIOSPICE ENGINE Support ---
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-find_package(VIOSPICE_ENGINE)
-if(VIOSPICE_ENGINE_FOUND)
-    message(STATUS "VIOSPICE ENGINE found: ${VIOSPICE_ENGINE_LIBRARIES}")
-    message(STATUS "VIOSPICE ENGINE include dirs: ${VIOSPICE_ENGINE_INCLUDE_DIRS}")
-    add_compile_definitions(HAVE_NGSPICE) # Keep for code compatibility
-else()
-    message(WARNING "VIOSPICE ENGINE not found. Simulation features will be disabled.")
-endif()
-# -----------------------
+include(FetchContent)
 
-# Prefer the custom VioMATRIXC engine over any system ngspice install.
-# This repo relies on engine-local symbols such as `viospice_jit_lookup`, so
-# accidentally resolving `/usr/local/lib/libngspice.so.0` will break native
-# SmartSignal code models even if the app still links successfully.
-set(VIOSPICE_PREFERRED_ENGINE_LIB "/home/jnd/cpp_projects/VioMATRIXC/releasesh/src/.libs/libngspice.so")
-if(NOT EXISTS "${VIOSPICE_PREFERRED_ENGINE_LIB}")
-    set(VIOSPICE_PREFERRED_ENGINE_LIB "/home/jnd/cpp_projects/VioMATRIXC/release/src/.libs/libngspice.so")
-endif()
-if(EXISTS "${VIOSPICE_PREFERRED_ENGINE_LIB}")
-    get_filename_component(VIOSPICE_PREFERRED_ENGINE_DIR "${VIOSPICE_PREFERRED_ENGINE_LIB}" DIRECTORY)
-else()
-    set(VIOSPICE_PREFERRED_ENGINE_LIB "${VIOSPICE_ENGINE_LIBRARY}")
-    if(VIOSPICE_ENGINE_FOUND)
-        get_filename_component(VIOSPICE_PREFERRED_ENGINE_DIR "${VIOSPICE_ENGINE_LIBRARY}" DIRECTORY)
+# Fetch VioMATRIXC Engine
+FetchContent_Declare(
+    viomatrixc
+    GIT_REPOSITORY https://github.com/Janadasroor/VioMATRIXC.git
+    GIT_TAG        main
+)
+FetchContent_GetProperties(viomatrixc)
+if(NOT viomatrixc_POPULATED)
+    message(STATUS "Fetching and building VioMATRIXC engine...")
+    FetchContent_Populate(viomatrixc)
+    
+    # We only build it if the library doesn't exist yet
+    if(APPLE)
+        set(NGSPICE_LIB_NAME "libngspice.dylib")
+    elseif(WIN32)
+        set(NGSPICE_LIB_NAME "libngspice.dll")
+    else()
+        set(NGSPICE_LIB_NAME "libngspice.so")
     endif()
+
+    if(NOT EXISTS "${viomatrixc_SOURCE_DIR}/src/.libs/${NGSPICE_LIB_NAME}")
+        if(WIN32)
+            message(WARNING "Automatic VioMATRIXC build on Windows requires a Unix-like environment (MSYS2/MinGW). Please build it manually if this fails.")
+            set(SH_CMD "sh")
+        else()
+            set(SH_CMD "sh")
+        endif()
+
+        execute_process(
+            COMMAND ${SH_CMD} ./autogen.sh
+            WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
+            RESULT_VARIABLE res_autogen
+        )
+        execute_process(
+            COMMAND ${SH_CMD} ./configure --with-ngshared --enable-cider --enable-vicompat --prefix=${CMAKE_BINARY_DIR}/viospice_engine
+            WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
+            RESULT_VARIABLE res_config
+        )
+        execute_process(
+            COMMAND make -j8
+            WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
+            RESULT_VARIABLE res_make
+        )
+        if(NOT res_make EQUAL 0)
+            message(FATAL_ERROR "Failed to build VioMATRIXC!")
+        endif()
+    endif()
+    
+    # Copy the compiled code models (.cm files) to the build directory so VioSpice can load them
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cm")
+    set(CM_DIRS "analog" "digital" "spice2poly" "tlines" "xtradev" "xtraevt")
+    foreach(DIR ${CM_DIRS})
+        set(CM_FILE "${viomatrixc_SOURCE_DIR}/src/xspice/icm/${DIR}/${DIR}.cm")
+        if(EXISTS "${CM_FILE}")
+            file(COPY "${CM_FILE}" DESTINATION "${CMAKE_BINARY_DIR}/cm")
+            message(STATUS "Copied ${DIR}.cm")
+        endif()
+    endforeach()
 endif()
+
+set(VIOSPICE_ENGINE_INCLUDE_DIRS "${viomatrixc_SOURCE_DIR}/src/include")
+set(VIOSPICE_PREFERRED_ENGINE_DIR "${viomatrixc_SOURCE_DIR}/src/.libs")
+set(VIOSPICE_PREFERRED_ENGINE_LIB "${viomatrixc_SOURCE_DIR}/src/.libs/${NGSPICE_LIB_NAME}")
+
+add_compile_definitions(HAVE_NGSPICE)
+set(VIOSPICE_ENGINE_FOUND TRUE)
+message(STATUS "VIOSPICE ENGINE found: ${VIOSPICE_PREFERRED_ENGINE_LIB}")
+# -----------------------
 
 # --- nanobind Python Bindings ---
 option(VIOSPICE_ENABLE_NANOBIND "Build Python bindings via nanobind" ON)
@@ -145,7 +188,17 @@ endif()
 # -----------------------
 
 # --- FluxScript Support ---
-add_subdirectory(../fluxscript fluxscript_build)
+set(FLUX_VIO_MATRIXC_LIB_DIR "${VIOSPICE_PREFERRED_ENGINE_DIR}" CACHE STRING "Path to VioMATRIXC libngspice directory" FORCE)
+
+FetchContent_Declare(
+    FluxScript
+    GIT_REPOSITORY https://github.com/Janadasroor/fluxscript.git
+    GIT_TAG        master
+)
+FetchContent_MakeAvailable(FluxScript)
+
+add_compile_definitions(FLUXSCRIPT_EXAMPLES_DIR="${fluxscript_SOURCE_DIR}/examples")
+
 add_definitions(-DHAVE_FLUXSCRIPT)
 # -----------------------
 

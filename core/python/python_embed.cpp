@@ -42,11 +42,10 @@ void initEmbeddedPython() {
     QString projectDir = QFileInfo(exePath).dir().absolutePath() + "/..";
     QString vspicePythonDir = QDir(projectDir).absoluteFilePath("python");
 
-    // Also check VIOSPICE_PYTHON env var and user site-packages
+    // Add user site-packages dynamically using the site module
     PyRun_SimpleString(
-        "import sys, os\n"
-        "# Add user site-packages\n"
-        "_p = os.path.expanduser('~/.local/lib/python3.12/site-packages')\n"
+        "import sys, os, site\n"
+        "_p = site.getusersitepackages()\n"
         "if _p not in sys.path:\n"
         "    sys.path.insert(0, _p)\n"
         "del _p\n"

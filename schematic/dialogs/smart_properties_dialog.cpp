@@ -113,7 +113,7 @@ void SmartPropertiesDialog::createFieldWidget(const PropertyField& field, QFormL
         else if (auto* pe = qobject_cast<QPlainTextEdit*>(widget))
             connect(pe, &QPlainTextEdit::textChanged, this, &SmartPropertiesDialog::onFieldChanged);
         else if (auto* cb = qobject_cast<QCheckBox*>(widget))
-            connect(cb, &QCheckBox::stateChanged, this, &SmartPropertiesDialog::onFieldChanged);
+            connect(cb, &QCheckBox::checkStateChanged, this, &SmartPropertiesDialog::onFieldChanged);
         else if (auto* cmb = qobject_cast<QComboBox*>(widget))
             connect(cmb, &QComboBox::currentIndexChanged, this, &SmartPropertiesDialog::onFieldChanged);
         else if (auto* sb = qobject_cast<QSpinBox*>(widget))

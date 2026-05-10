@@ -373,7 +373,13 @@ int FluxCommand::cmdEval(const QCommandLineParser& parser,
     Flux::JITEngine::instance().initialize();
     
     // Wrap expression
-    QString wrappedExpr = QString("def main() {\n%1\n}").arg(expression);
+    bool hasArgs = parser.isSet("time") || parser.isSet("inputs");
+    QString wrappedExpr;
+    if (hasArgs) {
+        wrappedExpr = QString("def update(t, inputs) {\n%1\n}").arg(expression);
+    } else {
+        wrappedExpr = QString("def main() {\n%1\n}").arg(expression);
+    }
 
     // Compile expression
     std::string error;
@@ -384,13 +390,30 @@ int FluxCommand::cmdEval(const QCommandLineParser& parser,
     
     // Execute and get result
     Flux::FluxValue result = 0.0;
-    void* addr = Flux::JITEngine::instance().getFunctionPointer("main");
-    if (addr) {
-        typedef double (*MainFn)();
-        result = reinterpret_cast<MainFn>(addr)();
+    if (hasArgs) {
+        void* addr = Flux::JITEngine::instance().getFunctionPointer("update");
+        if (addr) {
+            double tVal = parser.value("time").toDouble();
+            QStringList inputStrs = parser.value("inputs").split(",", Qt::SkipEmptyParts);
+            std::vector<double> inputs;
+            for (const QString& s : inputStrs) inputs.push_back(s.toDouble());
+            while (inputs.size() < 10) inputs.push_back(0.0);
+
+            typedef double (*UpdateFn)(double, const double*);
+            result = reinterpret_cast<UpdateFn>(addr)(tVal, inputs.data());
+        } else {
+            std::cerr << "Execution Error: update() function not found" << std::endl;
+            return 1;
+        }
     } else {
-        std::cerr << "Execution Error: Expression compilation failed to produce main()" << std::endl;
-        return 1;
+        void* addr = Flux::JITEngine::instance().getFunctionPointer("main");
+        if (addr) {
+            typedef double (*MainFn)();
+            result = reinterpret_cast<MainFn>(addr)();
+        } else {
+            std::cerr << "Execution Error: main() function not found" << std::endl;
+            return 1;
+        }
     }
     
     // Print result

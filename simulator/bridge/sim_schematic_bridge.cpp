@@ -1263,7 +1263,10 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
                     // Try relative to project dir if available
                     // (Assuming current path is project root for now)
                     f.setFileName(QDir::current().absoluteFilePath(svPath));
-                    f.open(QIODevice::ReadOnly | QIODevice::Text);
+                    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        mappingWarnings.append(QString("%1 -> Failed to open Verilog source: %2").arg(comp.reference, svPath));
+                        continue;
+                    }
                 }
 
                 if (f.isOpen()) {

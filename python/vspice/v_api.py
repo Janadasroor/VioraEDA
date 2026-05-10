@@ -119,8 +119,8 @@ class _EditorAPI:
             from vspice.ui import get_proxy
             proxy = get_proxy()
             if proxy and proxy.is_connected():
-                result = proxy.run_python_code(f"__v_editor_open('{path}')")
-                return result.get("success", False)
+                result = proxy.open_schematic(path)
+                return result.get("ok", False)
         except Exception:
             pass
         return False

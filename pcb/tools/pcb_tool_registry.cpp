@@ -11,7 +11,6 @@ void PCBToolRegistry::registerTool(const QString& toolName, ToolCreator creator)
         qWarning() << "Tool" << toolName << "is already registered. Overwriting.";
     }
     m_toolCreators[toolName] = creator;
-    qDebug() << "Registered PCB tool:" << toolName;
 }
 
 PCBTool* PCBToolRegistry::createTool(const QString& toolName) {

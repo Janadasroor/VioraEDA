@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt5Compat.GraphicalEffects
+import QtQuick.Effects
 
 Rectangle {
     id: headerRoot
@@ -235,7 +235,10 @@ Rectangle {
                 cache: true
                 asynchronous: true
                 layer.enabled: true
-                layer.effect: ColorOverlay { color: btn.hovered ? "white" : btn.fontColor }
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: btn.hovered ? "white" : btn.fontColor
+                }
             }
 
             Text {

@@ -28,6 +28,7 @@
 #include "../gerber/gerber_view.h"
 #include <QPdfWriter>
 #include <QPrinter>
+#include <QStandardPaths>
 #include <QSvgGenerator>
 #include "ui/selection_filter_widget.h"
 #include "theme_manager.h"
@@ -418,11 +419,6 @@ void MainWindow::createMenuBar() {
     QAction* paletteAction = toolsMenu->addAction("Command Palette...");
     paletteAction->setShortcut(QKeySequence("Ctrl+K"));
     connect(paletteAction, &QAction::triggered, this, &MainWindow::onOpenCommandPalette);
-
-    toolsMenu->addSeparator();
-    QAction* openCodeAction = toolsMenu->addAction("💻 Open Code Editor (OpenCode)");
-    openCodeAction->setShortcut(QKeySequence("Ctrl+Shift+O"));
-    connect(openCodeAction, &QAction::triggered, this, &MainWindow::onLaunchOpenCode);
 }
 
 void MainWindow::createToolBar() {
@@ -4157,40 +4153,4 @@ void MainWindow::onGenerateDesignReport() {
 
     DesignReportDialog* dlg = new DesignReportDialog(m_scene, this);
     dlg->exec();
-}
-
-void MainWindow::onLaunchOpenCode() {
-    QString appPath;
-    QStringList candidates = {
-        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/linux-unpacked/@opencode-aidesktop-electron",
-        QDir::homePath() + "/qt_projects/opencode/packages/desktop-electron/dist/opencode-electron-linux-x86_64.AppImage",
-        "/opt/opencode/opencode",
-        "/usr/local/bin/opencode",
-    };
-
-    for (const auto& candidate : candidates) {
-        if (QFile::exists(candidate)) {
-            appPath = candidate;
-            break;
-        }
-    }
-
-    if (appPath.isEmpty()) {
-        QProcess proc;
-        proc.start("which", {"opencode"});
-        proc.waitForFinished(1000);
-        if (proc.exitCode() == 0) {
-            appPath = QString::fromLocal8Bit(proc.readAllStandardOutput()).trimmed();
-        }
-    }
-
-    if (appPath.isEmpty()) {
-        QMessageBox::warning(this, "OpenCode Not Found",
-            "Could not find the OpenCode Electron app.\n\n"
-            "Build it: cd packages/desktop-electron && bun run package:linux");
-        return;
-    }
-
-    QProcess::startDetached(appPath);
-    statusBar()->showMessage("Launched OpenCode Desktop", 3000);
 }

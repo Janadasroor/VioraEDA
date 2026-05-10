@@ -81,6 +81,7 @@ void ScriptEditorTab::setupUI(QGraphicsScene* scene, NetManager* netManager) {
     
     m_console = new QTextEdit();
     m_console->setReadOnly(true);
+    m_console->document()->setMaximumBlockCount(2000);
     m_console->setStyleSheet(
         "QTextEdit { background: #1a1a1a; color: #e0e0e0; border-top: 2px solid #333; font-family: 'Consolas', monospace; font-size: 10pt; }"
     );
@@ -186,9 +187,15 @@ void ScriptEditorTab::refreshTemplatesList() {
     struct Source { QString path; QString category; };
     QList<Source> sources = {
         { QDir(appPath).absoluteFilePath("../python/templates"), "SIMULATION" },
-        { QDir(appPath).absoluteFilePath("../python/automation"), "AUTOMATION" },
-        { "/home/jnd/qt_projects/fluxscript/examples", "EXAMPLES" }
+        { QDir(appPath).absoluteFilePath("../python/automation"), "AUTOMATION" }
     };
+
+#ifdef FLUXSCRIPT_EXAMPLES_DIR
+    Source examplesSrc;
+    examplesSrc.path = QString::fromUtf8(FLUXSCRIPT_EXAMPLES_DIR);
+    examplesSrc.category = "EXAMPLES";
+    sources.append(examplesSrc);
+#endif
 
     for (const auto& src : sources) {
         QDir dir(src.path);

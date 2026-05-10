@@ -13,7 +13,6 @@ void SchematicToolRegistry::registerTool(const QString& toolName, ToolCreator cr
         qWarning() << "Schematic tool" << toolName << "is already registered. Overwriting.";
     }
     m_toolCreators[toolName] = creator;
-    qDebug() << "Registered schematic tool:" << toolName;
 }
 
 SchematicTool* SchematicToolRegistry::createTool(const QString& toolName) {

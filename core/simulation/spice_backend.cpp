@@ -1,7 +1,9 @@
 #include "spice_backend.h"
 #include <QLibrary>
 #include <QDebug>
+#ifndef Q_OS_WIN
 #include <dlfcn.h>
+#endif
 
 #ifdef HAVE_NGSPICE
 extern "C" bool ngSpice_IsPaused(void);
@@ -70,21 +72,21 @@ bool SpiceBackend::isPaused() const {
 void* SpiceBackend::resolveSymbol(const char* symbolName) {
     if (!symbolName || !*symbolName) return nullptr;
 
+#ifndef Q_OS_WIN
     if (void* sym = dlsym(RTLD_DEFAULT, symbolName)) {
         return sym;
     }
+#endif
 
-    Dl_info info;
-    if (dladdr((void*)ngSpice_Init, &info) && info.dli_fname) {
-        QLibrary loadedNgspice(QString::fromLocal8Bit(info.dli_fname));
-        if (QFunctionPointer sym = loadedNgspice.resolve(symbolName)) {
+    // Try to resolve from the ngspice library using QLibrary.
+    // Qt handles platform-specific extensions (.so, .dll, .dylib) automatically.
+    QStringList libNames = {"ngspice", "libngspice", "libngspice-0"};
+    for (const QString& lib : libNames) {
+        if (QFunctionPointer sym = QLibrary::resolve(lib, symbolName)) {
             return reinterpret_cast<void*>(sym);
         }
     }
 
-    if (QFunctionPointer sym = QLibrary::resolve("libngspice", symbolName)) {
-        return reinterpret_cast<void*>(sym);
-    }
     return nullptr;
 }
 

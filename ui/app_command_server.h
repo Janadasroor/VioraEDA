@@ -6,6 +6,8 @@
 #include <QWebSocketServer>
 #include <QWebSocket>
 #endif
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -16,17 +18,6 @@
 
 /**
  * @brief WebSocket server that allows Python scripts to interact with the GUI.
- *
- * Commands supported:
- *   - show_message: Show a message dialog
- *   - add_menu_item: Add a menu item that triggers a Python callback
- *   - remove_menu_item: Remove a previously added menu item
- *   - run_python_code: Execute Python code in the client's context
- *   - get_schematic_context: Get info about the current schematic
- *   - create_dock: Create a dock widget (placeholder for future expansion)
- *
- * Python clients connect via websockets and send JSON commands.
- * The server responds with JSON results.
  */
 class UICommandServer : public QObject {
     Q_OBJECT
@@ -74,6 +65,10 @@ private:
     QWebSocketServer* m_server = nullptr;
     QList<QWebSocket*> m_clients;
 #endif
+    // Fallback TCP Server (always available)
+    QTcpServer* m_tcpServer = nullptr;
+    QList<QTcpSocket*> m_tcpClients;
+
     int m_port = 18790;
     std::mutex m_mutex;
 
@@ -98,6 +93,7 @@ private:
     std::function<void(const QString& menu, const QString& label)> m_removeMenuItemFn;
     std::function<QVariantMap()> m_getSchematicContextFn;
     std::function<QVariantMap(const QString& code)> m_runPythonCodeFn;
+    std::function<bool(const QString& path)> m_openSchematicFn;
 
 public:
     // Set UI integration hooks (called by the GUI on startup)
@@ -106,6 +102,7 @@ public:
     void setRemoveMenuItemFn(std::function<void(const QString&, const QString&)> fn) { m_removeMenuItemFn = std::move(fn); }
     void setGetSchematicContextFn(std::function<QVariantMap()> fn) { m_getSchematicContextFn = std::move(fn); }
     void setRunPythonCodeFn(std::function<QVariantMap(const QString&)> fn) { m_runPythonCodeFn = std::move(fn); }
+    void setOpenSchematicFn(std::function<bool(const QString&)> fn) { m_openSchematicFn = std::move(fn); }
 };
 
 #endif // UI_COMMAND_SERVER_H

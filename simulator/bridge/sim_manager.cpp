@@ -1575,7 +1575,10 @@ void SimManager::compileFluxScripts(QGraphicsScene* scene) {
                     QFile f(svPath);
                     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
                         f.setFileName(QDir::current().absoluteFilePath(svPath));
-                        f.open(QIODevice::ReadOnly | QIODevice::Text);
+                        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                            Q_EMIT logMessage(QString("[SystemVerilog] Failed to open source file: %1").arg(svPath));
+                            continue;
+                        }
                     }
 
                     if (f.isOpen()) {

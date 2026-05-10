@@ -1,0 +1,17 @@
+{
+  "metadata": {"application": "viospice", "version": 1},
+  "items": [
+    {
+      "type": "SmartSignalBlock",
+      "reference": "SB1",
+      "fluxCode": "def update(t, inputs) { 5.0 }",
+      "engineType": "flux",
+      "inputs": ["IN1"],
+      "outputs": ["OUT"]
+    },
+    {
+      "type": "Spice Directive",
+      "text": "RLOAD OUT 0 1k\nV1 IN1 0 0\n.tran 10u 1m"
+    }
+  ]
+}

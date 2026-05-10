@@ -6,7 +6,8 @@
 #include "schematic/ui/netlist_editor.h"
 #include "ui/csv_viewer.h"
 #include "ui/project_manager.h"
-#include "ui/ui_command_server.h"
+#include "ui/app_command_server.h"
+#include "config_manager.h"
 #include "symbols/symbol_editor.h"
 #include "schematic/factories/schematic_item_registry.h"
 #include "schematic/tools/schematic_tool_registry_builtin.h"
@@ -39,11 +40,19 @@ extern "C" {
 #include "ui/python_hooks.h"
 }
 
+#include <QStandardPaths>
+
 int main(int argc, char *argv[])
 {
     // MANDATORY: Setup custom simulation engine environment BEFORE any engine code is loaded
-    qputenv("SPICE_SCRIPTS", "/home/jnd/.viospice");
-    qputenv("SPICE_LIB_DIR", "/home/jnd/.viospice");
+    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (appDataPath.isEmpty()) {
+        appDataPath = QDir::homePath() + "/.viospice";
+    }
+    QDir().mkpath(appDataPath);
+
+    qputenv("SPICE_SCRIPTS", appDataPath.toUtf8());
+    qputenv("SPICE_LIB_DIR", appDataPath.toUtf8());
 
     // Enable ASan-friendly exit behavior
     qputenv("ASAN_OPTIONS", "detect_leaks=1");
@@ -77,8 +86,13 @@ int main(int argc, char *argv[])
     PCBItemRegistry::registerBuiltInItems();
     PCBToolRegistryBuiltIn::registerBuiltInTools();
 
-    SymbolLibraryManager::instance();
     FootprintLibraryManager::instance();
+
+    // Start UI Command Server for Python interaction
+    if (ConfigManager::instance().isFeatureEnabled("ui_command_server", true)) {
+        int port = ConfigManager::instance().toolProperty("Connectivity", "Port", 18790).toInt();
+        UICommandServer::instance().start(port);
+    }
 
     QMetaObject::invokeMethod(qApp, [splash, fileToOpen]() {
         if (!fileToOpen.isEmpty()) {

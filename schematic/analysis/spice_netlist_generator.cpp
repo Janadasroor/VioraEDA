@@ -1501,6 +1501,11 @@ QString rewriteLtspiceDirectiveLine(const QString& line, QStringList* warnings =
                 const QString head = bExprMatch.captured(1);
                 const QString kind = bExprMatch.captured(2);
                 QString expr = bExprMatch.captured(3).trimmed();
+
+                // Normalize logical operators: ngspice prefers && and || for logic
+                expr.replace(" & ", " && ");
+                expr.replace(" | ", " || ");
+
                 if (!(expr.startsWith('{') && expr.endsWith('}'))) {
                     lines[i] = QString("%1%2={%3}").arg(head, kind, expr);
                     if (warnings && !out.contains("\n")) { // Only warn once for simple lines

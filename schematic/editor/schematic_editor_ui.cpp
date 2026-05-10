@@ -520,7 +520,7 @@ void SchematicEditor::createToolBar() {
     editMenu->addSeparator();
     editMenu->addAction(getThemeIcon(":/icons/tool_search.svg"), "Find and Replace...", QKeySequence::Find, this, &SchematicEditor::onOpenFindReplace);
     editMenu->addSeparator();
-    QAction* batchEditAction = editMenu->addAction(getThemeIcon(":/icons/tool_edit.svg"), "Batch Edit Values...", this, &SchematicEditor::onBatchEdit);
+    QAction* batchEditAction = editMenu->addAction(getThemeIcon(":/icons/tool_pen.svg"), "Batch Edit Values...", this, &SchematicEditor::onBatchEdit);
     batchEditAction->setShortcut(QKeySequence("Ctrl+E"));
     batchEditAction->setShortcutContext(Qt::ApplicationShortcut);
     batchEditAction->setToolTip("Edit values of multiple selected components simultaneously");
@@ -633,7 +633,7 @@ void SchematicEditor::createToolBar() {
     
     toolsMenu->addSeparator();
 
-    if (ConfigManager::instance().isFeatureEnabled("pcb_tools", false)) {
+    if (ConfigManager::instance().isFeatureEnabled("pcb_tools", true)) {
         QAction* syncAction = toolsMenu->addAction(createComponentIcon("Sync"), "🔄 Update PCB from Schematic...", QKeySequence("Ctrl+Shift+U"), this, &SchematicEditor::onSendToPCB);
         syncAction->setToolTip("Generate ECO and push changes to the PCB editor");
     }

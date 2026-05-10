@@ -36,7 +36,24 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <filesystem>
+#include <fstream>
+#include <array>
+#include <algorithm>
+#include <atomic>
+#include <ctime>
+
+#ifdef _WIN32
+#include <io.h>
+#define POPEN _popen
+#define PCLOSE _pclose
+#else
 #include <unistd.h>
+#define POPEN popen
+#define PCLOSE pclose
+#endif
+
+namespace fs = std::filesystem;
 
 namespace nb = nanobind;
 
@@ -737,158 +754,132 @@ Returns (ok: bool, diagnostics: list[SimParseDiagnostic]).
               nb::dict result;
 
               // Write netlist to temp file
-              char tmpfile[] = "/tmp/vspice_XXXXXX.cir";
-              int fd = mkstemps(tmpfile, 4);
-              if (fd < 0) { result["ok"] = false; result["error"] = "Failed to create temp file"; return result; }
-              ssize_t written = write(fd, netlist_text.data(), netlist_text.size());
-              if (written < 0) { close(fd); unlink(tmpfile); result["ok"] = false; result["error"] = "Failed to write temp file"; return result; }
-              close(fd);
+              std::error_code ec;
+              fs::path tmp_dir = fs::temp_directory_path(ec);
+              if (ec) { tmp_dir = "."; }
+              
+              static std::atomic<int> counter{0};
+              std::string filename = "vspice_" + std::to_string(std::time(nullptr)) + "_" + std::to_string(counter++) + ".cir";
+              fs::path tmpfile = tmp_dir / filename;
 
-              // Derive raw file path (viora creates same_basename.raw)
-              // tmpfile is "/tmp/vspice_XXXXXX.cir" -> raw is "/tmp/vspice_XXXXXX.raw"
-              std::string raw_path = tmpfile;
-              size_t dotPos = raw_path.rfind('.');
-              if (dotPos != std::string::npos) raw_path.resize(dotPos);
-              raw_path += ".raw";
+              std::ofstream ofs(tmpfile);
+              if (!ofs) { result["ok"] = false; result["error"] = "Failed to create temp file: " + tmpfile.string(); return result; }
+              ofs << netlist_text;
+              ofs.close();
+
+              // Derive raw file path
+              fs::path raw_path = tmpfile;
+              raw_path.replace_extension(".raw");
 
               // Find viora
               std::string cmd = viora_path;
               if (cmd.empty()) {
-                  FILE* which = popen("which viora 2>/dev/null", "r");
-                  if (which) {
-                      char buf[1024];
-                      if (fgets(buf, sizeof(buf), which)) {
-                          cmd = buf;
-                          size_t nl = cmd.find('\n');
-                          if (nl != std::string::npos) cmd.resize(nl);
+#ifdef _WIN32
+                  std::array<std::string, 2> names = {"viospice.exe", "viora.exe"};
+#else
+                  std::array<std::string, 2> names = {"viospice", "viora"};
+#endif
+                  
+                  // Try current dir and common build subdirs first
+                  const char* search_roots[] = { ".", "build", "build-debug", "build-asan", "bin", nullptr };
+                  for (int i = 0; search_roots[i]; ++i) {
+                      for (const auto& name : names) {
+                          fs::path p = fs::path(search_roots[i]) / name;
+                          if (fs::exists(p)) { cmd = p.string(); break; }
                       }
-                      pclose(which);
+                      if (!cmd.empty()) break;
                   }
+
                   if (cmd.empty()) {
-                      const char* paths[] = { "build/viora", "build-debug/viora", "build-asan/viora", nullptr };
-                      for (int i = 0; paths[i]; ++i) {
-                          FILE* test = fopen(paths[i], "r");
-                          if (test) { fclose(test); cmd = paths[i]; break; }
+                      // Try to find in PATH
+                      const char* path_env = std::getenv("PATH");
+                      if (path_env) {
+                          std::string path_str(path_env);
+#ifdef _WIN32
+                          char delim = ';';
+#else
+                          char delim = ':';
+#endif
+                          std::stringstream ss(path_str);
+                          std::string item;
+                          while (std::getline(ss, item, delim)) {
+                              for (const auto& name : names) {
+                                  fs::path p = fs::path(item) / name;
+                                  if (fs::exists(p)) { cmd = p.string(); break; }
+                              }
+                              if (!cmd.empty()) break;
+                          }
                       }
                   }
-                  if (cmd.empty()) {
-                      unlink(tmpfile);
-                      result["ok"] = false;
-                      result["error"] = "viora not found. Install it or pass viora_path.";
-                      return result;
-                  }
+              }
+
+              if (cmd.empty()) {
+                  fs::remove(tmpfile, ec);
+                  result["ok"] = false;
+                  result["error"] = "viora not found. Install it or pass viora_path.";
+                  return result;
               }
 
               // Build command
-              std::ostringstream oss;
-              oss << cmd << " netlist-run " << tmpfile << " --json";
-              if (!analysis.empty()) oss << " --analysis " << analysis;
-              if (!stop_time.empty()) oss << " --stop " << stop_time;
-              if (!step_time.empty()) oss << " --step " << step_time;
-              if (timeout_seconds > 0) oss << " --timeout " << timeout_seconds;
-              oss << " 2>/dev/null";
+              std::string run_cmd = "\"" + cmd + "\" netlist-run \"" + tmpfile.string() + "\"";
+              if (analysis == "tran") {
+                  run_cmd += " --tran --stop " + stop_time + " --step " + step_time;
+              } else if (analysis == "op") {
+                  run_cmd += " --op";
+              }
 
-              // Execute
-              FILE* pipe = popen(oss.str().c_str(), "r");
+              // Shell out
+              FILE* pipe = POPEN((run_cmd + " 2>&1").c_str(), "r");
               if (!pipe) {
-                  unlink(tmpfile); unlink(raw_path.c_str());
-                  result["ok"] = false; result["error"] = "Failed to execute viora";
+                  fs::remove(tmpfile, ec);
+                  result["ok"] = false;
+                  result["error"] = "Failed to start viora process";
                   return result;
               }
-              std::string vio_out;
+
               char buf[4096];
-              while (fgets(buf, sizeof(buf), pipe)) vio_out += buf;
-              int rc = pclose(pipe);
+              std::string output;
+              while (fgets(buf, sizeof(buf), pipe)) {
+                  output += buf;
+              }
+              int rc = PCLOSE(pipe);
 
-              unlink(tmpfile);
-
-              if (rc != 0) {
+              // Parse results
+              if (fs::exists(raw_path)) {
+                  RawData raw;
+                  std::string raw_err;
+                  if (RawDataParser::loadRawAscii(raw_path.string(), &raw, &raw_err)) {
+                      SimResults res = raw.toSimResults();
+                      result["ok"] = true;
+                      result["waveforms"] = nb::cast(res.waveforms);
+                      result["nodes"] = nb::cast(res.nodeVoltages);
+                      result["branches"] = nb::cast(res.branchCurrents);
+                  } else {
+                      result["ok"] = false;
+                      result["error"] = "Failed to parse .raw results: " + raw_err;
+                      result["output"] = output;
+                  }
+              } else {
                   result["ok"] = false;
-                  result["error"] = "viora returned non-zero exit code";
-                  result["viora_output"] = vio_out;
-                  return result;
+                  result["error"] = "Simulation did not produce a .raw file (exit code " + std::to_string(rc) + ")";
+                  result["output"] = output;
               }
 
-              // Parse the .raw file if it exists
-              RawData raw;
-              std::string raw_error;
-              bool has_raw = RawDataParser::loadRawAscii(raw_path, &raw, &raw_error);
-              unlink(raw_path.c_str());
-
-              if (!has_raw) {
-                  result["ok"] = false;
-                  result["error"] = "Simulation ran but no results: " + raw_error;
-                  return result;
-              }
-
-              // Convert to structured result
-              result["ok"] = true;
-              result["analysis"] = analysis.empty() ? "op" : analysis;
-
-              // Time/frequency axis
-              std::vector<double> axis;
-              if (!raw.x.empty()) axis = raw.x;
-
-              // Waveforms
-              nb::list waveforms;
-              for (size_t i = 1; i < raw.varNames.size(); ++i) {
-                  nb::dict wf;
-                  wf["name"] = raw.varNames[i];
-                  wf["x"] = nb::cast(axis);
-                  if (i - 1 < raw.y.size()) {
-                      wf["y"] = nb::cast(std::vector<double>(raw.y[i-1].begin(), raw.y[i-1].end()));
-                  }
-                  if (i - 1 < raw.yPhase.size() && raw.hasPhase.size() > i-1 && raw.hasPhase[i-1]) {
-                      wf["phase"] = nb::cast(std::vector<double>(raw.yPhase[i-1].begin(), raw.yPhase[i-1].end()));
-                  }
-                  waveforms.append(wf);
-              }
-              result["waveforms"] = waveforms;
-
-              // OP results (first point only)
-              if (raw.numPoints == 1) {
-                  nb::dict node_voltages;
-                  nb::dict branch_currents;
-                  for (size_t i = 1; i < raw.varNames.size(); ++i) {
-                      std::string name = raw.varNames[i];
-                      double val = (i - 1 < raw.y.size() && !raw.y[i-1].empty()) ? raw.y[i-1][0] : 0.0;
-                      // Extract node/branch from V(name) or I(name)
-                      if (name.size() > 2 && name[1] == '(' && name.back() == ')') {
-                          std::string inner = name.substr(2, name.size() - 3);
-                          if (name[0] == 'V' || name[0] == 'v') node_voltages[inner.c_str()] = val;
-                          else if (name[0] == 'I' || name[0] == 'i') branch_currents[inner.c_str()] = val;
-                      }
-                  }
-                  result["node_voltages"] = node_voltages;
-                  result["branch_currents"] = branch_currents;
-              }
+              // Cleanup
+              fs::remove(tmpfile, ec);
+              fs::remove(raw_path, ec);
 
               return result;
           },
           nb::arg("netlist_text"),
-          nb::arg("analysis") = "op",
-          nb::arg("stop_time") = "",
-          nb::arg("step_time") = "",
+          nb::arg("analysis") = "tran",
+          nb::arg("stop_time") = "100u",
+          nb::arg("step_time") = "1u",
           nb::arg("viora_path") = "",
-          nb::arg("timeout_seconds") = 60,
-          R"(Run a SPICE netlist simulation via viora and parse results.
+          nb::arg("timeout_seconds") = 30,
+          R"(Run a simulation using the viora command-line tool.
 
-Args:
-    netlist_text: SPICE netlist as a string
-    analysis: 'op', 'tran', 'ac', or 'dc'
-    stop_time: Stop time for transient (e.g. '10m')
-    step_time: Step size for transient (e.g. '100u')
-    viora_path: Path to viora binary (auto-detected if empty)
-    timeout_seconds: Max simulation time
-
-Returns:
-    dict with keys:
-        ok: bool — whether simulation succeeded
-        analysis: str
-        waveforms: list[dict] — each with name, x, y, [phase]
-        node_voltages: dict[str, float] — for OP analysis
-        branch_currents: dict[str, float] — for OP analysis
-        error: str — on failure
+This shells out to the 'viora' binary, runs the simulation, and parses the resulting .raw file.
 )");
 
     // -----------------------------------------------------------------------

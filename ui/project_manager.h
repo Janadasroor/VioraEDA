@@ -54,7 +54,6 @@ private Q_SLOTS:
     void openCalculatorTools();
     void openPluginsManager();
     void openSpiceModelManager();
-    void launchOpenCode();
     void showPythonConsole();
     void importLtspiceBatch();
     void importKicadBatch();

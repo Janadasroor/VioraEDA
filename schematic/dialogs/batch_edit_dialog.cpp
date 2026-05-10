@@ -154,7 +154,7 @@ void BatchEditDialog::populateTable() {
         QCheckBox* check = new QCheckBox();
         check->setChecked(true);
         check->setProperty("row", row);
-        connect(check, &QCheckBox::stateChanged, this, [this, row](int state) {
+        connect(check, &QCheckBox::checkStateChanged, this, [this, row](Qt::CheckState state) {
             QTableWidgetItem* refItem = m_tableWidget->item(row, 1);
             if (refItem) {
                 refItem->setForeground(state == Qt::Checked ? QColor("#000000") : QColor("#999999"));

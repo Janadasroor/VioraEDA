@@ -118,7 +118,7 @@ ScriptPanel::ScriptPanel(QGraphicsScene* scene, NetManager* netManager, QWidget*
     connect(stepBtn, &QPushButton::clicked, []() { Debugger::instance().step(); });
     connect(stopBtn, &QPushButton::clicked, []() { Debugger::instance().stop(); });
 
-    connect(&Debugger::instance(), &Debugger::stateChanged, [=](DebugState state) {
+    connect(&Debugger::instance(), &Debugger::stateChanged, [this, resumeBtn, stepBtn, stopBtn, runBtn](DebugState state) {
         bool paused = (state == DebugState::Paused);
         bool stopped = (state == DebugState::Stopped);
         

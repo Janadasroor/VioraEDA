@@ -250,16 +250,16 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     applyTheme();
 
     // Set default tool
-    qDebug() << "DBG: before setCurrentTool, m_view=" << m_view;
+    // qDebug() << "DBG: before setCurrentTool, m_view=" << m_view;
     if (m_view) m_view->setCurrentTool("Select");
-    qDebug() << "DBG: after setCurrentTool";
+    // qDebug() << "DBG: after setCurrentTool";
 
     // Smart Cross-Probing from PCB
     connect(&SyncManager::instance(), &SyncManager::crossProbeReceived, this, &SchematicEditor::onCrossProbeReceived);
     
     // ECO / Netlist Synchronization from PCB or Reverse Engineering
     connect(&SyncManager::instance(), &SyncManager::ecoAvailable, this, &SchematicEditor::handleIncomingECO);
-    qDebug() << "DBG: after signal connections";
+    // qDebug() << "DBG: after signal connections";
 
     // Auto-Save Setup
     if (ConfigManager::instance().autoSaveEnabled()) {
@@ -267,11 +267,11 @@ SchematicEditor::SchematicEditor(QWidget *parent)
         connect(timer, &QTimer::timeout, this, &SchematicEditor::onSaveSchematic);
         timer->start(ConfigManager::instance().autoSaveInterval() * 60000);
     }
-    qDebug() << "DBG: after auto-save";
+    // qDebug() << "DBG: after auto-save";
 
     // Restore Session
     QStringList openFiles = ConfigManager::instance().toolProperty("SchematicEditor", "openFiles").toStringList();
-    qDebug() << "DBG: session openFiles=" << openFiles;
+    // qDebug() << "DBG: session openFiles=" << openFiles;
     if (!openFiles.isEmpty()) {
         for (const QString& path : openFiles) {
             if (QFile::exists(path)) openFile(path);
@@ -281,7 +281,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
             m_workspaceTabs->setCurrentIndex(activeIdx);
         }
     }
-    qDebug() << "DBG: constructor done";
+    // qDebug() << "DBG: constructor done";
 }
 
 SchematicEditor::~SchematicEditor() {
@@ -677,23 +677,23 @@ void SchematicEditor::addSchematicTab(const QString& name) {
     m_scene = scene;
     m_netManager = netManager;
     m_pageFrame = nullptr; // Let updatePageFrame create it for this new scene
-    qDebug() << "[SchematicEditor] Updating page frame...";
+//    qDebug() << "[SchematicEditor] Updating page frame...";
     updatePageFrame();
 
 #ifdef HAVE_PYTHON
     // Create or update Logic Editor (standalone IDE)
-    qDebug() << "[SchematicEditor] Initializing Logic Editor Panel...";
+//    qDebug() << "[SchematicEditor] Initializing Logic Editor Panel...";
     if (!m_logicEditorPanel) {
-        qDebug() << "[SchematicEditor] Creating NEW LogicEditorPanel...";
+//        qDebug() << "[SchematicEditor] Creating NEW LogicEditorPanel...";
         m_logicEditorPanel = new LogicEditorPanel(scene, netManager, m_api, this);
         connect(m_logicEditorPanel, &LogicEditorPanel::closed, this, [this]() {
             if (m_logicEditorPanel) m_logicEditorPanel->setTargetBlock(nullptr);
         });
     } else {
-        qDebug() << "[SchematicEditor] Updating EXISTING LogicEditorPanel scene...";
+//        qDebug() << "[SchematicEditor] Updating EXISTING LogicEditorPanel scene...";
         m_logicEditorPanel->setScene(scene, netManager, m_api);
     }
-    qDebug() << "[SchematicEditor] Logic Editor Panel ready.";
+//    qDebug() << "[SchematicEditor] Logic Editor Panel ready.";
 #endif
 
     if (m_geminiPanel) {
@@ -1658,7 +1658,7 @@ void SchematicEditor::onSimulationResultsReady(const SimResults& results) {
 void SchematicEditor::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
     if (times.empty() || values.empty()) return;
     
-    qDebug() << "DBG: Real-time data batch received, samples:" << times.size() << "signals:" << names.size();
+//    qDebug() << "DBG: Real-time data batch received, samples:" << times.size() << "signals:" << names.size();
 
     for (auto* win : m_oscilloscopeWindows) {
         win->updateRealTimeData(times, values, names);

@@ -77,6 +77,7 @@ void SettingsDialog::setupUI() {
     addNavItem("PCB", ":/icons/nav_pcb.svg");
     addNavItem("Libraries", ":/icons/folder_open.svg");
     addNavItem("AI Assistant", ":/icons/tool_search.svg");
+    addNavItem("Connectivity", ":/icons/tool_pad_settings.svg");
     
     sidebarLayout->addWidget(m_navMenu);
     mainLayout->addWidget(sidebar);
@@ -294,6 +295,36 @@ void SettingsDialog::setupUI() {
     layAI->addStretch();
     m_pagesStack->addWidget(pageAI);
 
+    // Page 6: Connectivity
+    QWidget* pageConn = new QWidget();
+    QVBoxLayout* layConn = new QVBoxLayout(pageConn);
+    layConn->setSpacing(15);
+
+    QGroupBox* grpUiServer = new QGroupBox("UI Command Server (Python/MCP Interaction)");
+    QVBoxLayout* layUiServer = new QVBoxLayout(grpUiServer);
+    
+    m_enableUiServerCheck = new QCheckBox("Enable UI Command Server");
+    layUiServer->addWidget(m_enableUiServerCheck);
+
+    QFormLayout* formConn = new QFormLayout();
+    m_uiServerPortSpin = new QSpinBox();
+    m_uiServerPortSpin->setRange(1024, 65535);
+    formConn->addRow("Server Port:", m_uiServerPortSpin);
+    layUiServer->addLayout(formConn);
+
+    QLabel* connDesc = new QLabel(
+        "The UI Command Server allows external scripts (Python, MCP, CLI) to interact with "
+        "the running VioSpice GUI. This is required for 'Launch' commands and real-time "
+        "automation."
+    );
+    connDesc->setWordWrap(true);
+    connDesc->setStyleSheet(QString("color: %1; margin-top: 10px;").arg(textSec));
+    layUiServer->addWidget(connDesc);
+    layConn->addWidget(grpUiServer);
+
+    layConn->addStretch();
+    m_pagesStack->addWidget(pageConn);
+
     contentLayout->addWidget(m_pagesStack);
 
     // Bottom Action Buttons
@@ -344,7 +375,7 @@ void SettingsDialog::loadSettings() {
     m_maxIterSpin->setValue(config.maxIterations());
     m_showFullSimulationPanelCheck->setChecked(
         config.toolProperty("SimulationPanel", "showFullPanelInDock", false).toBool());
-    m_enablePcbEditorsCheck->setChecked(config.isFeatureEnabled("pcb_tools", false));
+    m_enablePcbEditorsCheck->setChecked(config.isFeatureEnabled("pcb_tools", true));
 
     m_geminiKeyEdit->setText(config.geminiApiKey());
     
@@ -365,6 +396,10 @@ void SettingsDialog::loadSettings() {
     m_aiChatCheck->setChecked(config.aiChatEnabled());
     m_aiOverlayCheck->setChecked(config.aiOverlayEnabled());
     m_aiErcCheck->setChecked(config.aiErcEnabled());
+
+    // Connectivity
+    m_enableUiServerCheck->setChecked(config.isFeatureEnabled("ui_command_server", true));
+    m_uiServerPortSpin->setValue(config.toolProperty("Connectivity", "Port", 18790).toInt());
 
     m_symbolPathsEdit->setPlainText(config.rawSymbolPaths().join("\n"));
     m_modelPathsEdit->setPlainText(config.rawModelPaths().join("\n"));
@@ -406,6 +441,10 @@ void SettingsDialog::onAccept() {
     config.setAiChatEnabled(m_aiChatCheck->isChecked());
     config.setAiOverlayEnabled(m_aiOverlayCheck->isChecked());
     config.setAiErcEnabled(m_aiErcCheck->isChecked());
+
+    // Connectivity
+    config.setFeatureEnabled("ui_command_server", m_enableUiServerCheck->isChecked());
+    config.setToolProperty("Connectivity", "Port", m_uiServerPortSpin->value());
 
     config.setSymbolPaths(m_symbolPathsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));
     config.setModelPaths(m_modelPathsEdit->toPlainText().split('\n', Qt::SkipEmptyParts));

@@ -65,6 +65,10 @@ private:
     QCheckBox* m_kicadDisabledCheck;
     QCheckBox* m_kicadBasicsOnlyCheck;
 
+    // Connectivity
+    QCheckBox* m_enableUiServerCheck;
+    QSpinBox* m_uiServerPortSpin;
+
     QListWidget* m_navMenu;
     QStackedWidget* m_pagesStack;
 };

@@ -288,8 +288,8 @@ void SimulationPanel::setupUI() {
     m_steadyTolEdit = new QLineEdit();
     m_steadyDelayEdit = new QLineEdit();
     m_autoNetTableCheck = new QCheckBox("Auto net table on transient run");
-    m_autoNetTableCheck->setChecked(true);
-    ConfigManager::instance().setToolProperty("SimulationPanel", "showTransientNetTable", true);
+    bool autoNetDefault = ConfigManager::instance().toolProperty("SimulationPanel", "showTransientNetTable", true).toBool();
+    m_autoNetTableCheck->setChecked(autoNetDefault);
     for(auto* l : {m_param1, m_param2, m_param3, m_param4, m_param5, m_param6}) l->setStyleSheet(inputStyle);
     for (auto* l : {m_steadyTolEdit, m_steadyDelayEdit}) l->setStyleSheet(inputStyle);
     m_steadyTolEdit->setPlaceholderText("0.01");
@@ -1113,7 +1113,7 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
         }
     }
 
-    qDebug() << "[SimulationPanel::setAnalysisConfig] mapped to idx=" << idx;
+//    qDebug() << "[SimulationPanel::setAnalysisConfig] mapped to idx=" << idx;
 
     if (idx >= 0 && idx < m_analysisType->count()) {
         m_analysisType->setCurrentIndex(idx);

@@ -11,7 +11,6 @@ void PCBItemFactory::registerItemType(const QString& typeName, CreatorFunction c
         qWarning() << "Item type" << typeName << "is already registered. Overwriting.";
     }
     m_creators[typeName] = creator;
-    qDebug() << "Registered PCB item type:" << typeName;
 }
 
 PCBItem* PCBItemFactory::createItem(const QString& typeName, QPointF pos,

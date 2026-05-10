@@ -309,7 +309,7 @@ void SchematicView::setCurrentTool(const QString& toolName) {
     if (tool) {
         setCurrentTool(tool);
         Q_EMIT toolChanged(toolName);
-        qDebug() << "Switched to schematic tool:" << toolName;
+//        qDebug() << "Switched to schematic tool:" << toolName;
     } else {
         qWarning() << "Failed to create schematic tool:" << toolName;
     }
@@ -1232,7 +1232,9 @@ void SchematicView::keyPressEvent(QKeyEvent *event) {
 
     if (event->key() == Qt::Key_Escape && m_currentTool) {
         // Special case: Esc finishes polygon if we have points
-        QMouseEvent fakeEvent(QEvent::MouseButtonPress, mapFromGlobal(QCursor::pos()), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+        QPointF localPos = mapFromGlobal(QCursor::pos());
+        QPointF globalPos = QCursor::pos();
+        QMouseEvent fakeEvent(QEvent::MouseButtonPress, localPos, globalPos, Qt::RightButton, Qt::RightButton, Qt::NoModifier);
         m_currentTool->mousePressEvent(&fakeEvent);
         if (fakeEvent.isAccepted()) {
             event->accept();
@@ -1379,7 +1381,7 @@ void SchematicView::contextMenuEvent(QContextMenuEvent *event) {
     if (m_currentTool) m_currentTool->ensureView(this);
     // Only forward to specific tools that need it (not Select tool)
     if (m_currentTool && m_currentTool->name() != "Select") {
-        QMouseEvent fakeEvent(QEvent::MouseButtonPress, event->pos(), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+        QMouseEvent fakeEvent(QEvent::MouseButtonPress, event->pos(), event->globalPos(), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
         m_currentTool->mousePressEvent(&fakeEvent);
         if (fakeEvent.isAccepted()) {
             return;
@@ -1852,7 +1854,8 @@ void SchematicView::handleAutoScroll() {
 
     // Update tool to handle new mouse position after scroll
     QPoint pos = mapFromGlobal(QCursor::pos());
-    QMouseEvent mouseEvent(QEvent::MouseMove, pos, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QPoint globalPos = QCursor::pos();
+    QMouseEvent mouseEvent(QEvent::MouseMove, pos, globalPos, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     mouseMoveEvent(&mouseEvent);
 }
 

@@ -1,0 +1,52 @@
+{
+  "metadata": {
+    "application": "viospice",
+    "version": 1
+  },
+  "items": [
+    {
+      "type": "SmartSignalBlock",
+      "reference": "SB1",
+      "x": 0,
+      "y": 0,
+      "fluxCode": "def update(t, inputs) {\n    f_sine = 50.0;\n    f_carrier = 10000.0;\n    mod = 0.8;\n    s = (sin(2.0 * 3.14159 * f_sine * t) * 0.5 * mod) + 0.5;\n    p = 1.0 / f_carrier;\n    lt = t - (floor(t / p) * p);\n    tri = if lt < (p / 2.0) then (lt / (p / 2.0)) else (1.0 - (lt - p / 2.0) / (p / 2.0));\n    if s > tri then 5.0 else 0.0;\n}",
+      "engineType": "flux",
+      "inputs": ["DUMMY"],
+      "outputs": ["PWM_OUT"]
+    },
+    {
+      "type": "Voltage_Source_DC",
+      "reference": "V_DUMMY",
+      "value": "0",
+      "nodes": ["DUMMY", "0"]
+    },
+    {
+      "type": "Resistor",
+      "reference": "RF1",
+      "value": "1k",
+      "nodes": ["PWM_OUT", "AVG_OUT"]
+    },
+    {
+      "type": "Capacitor",
+      "reference": "CF1",
+      "value": "10u",
+      "nodes": ["AVG_OUT", "0"]
+    },
+    {
+      "type": "Resistor",
+      "reference": "RLOAD",
+      "value": "10k",
+      "nodes": ["PWM_OUT", "0"]
+    },
+    {
+      "type": "Resistor",
+      "reference": "RSHUNT",
+      "value": "100Meg",
+      "nodes": ["AVG_OUT", "0"]
+    },
+    {
+      "type": "Spice Directive",
+      "text": ".tran 1u 20m\n.options gmin=1e-9"
+    }
+  ]
+}

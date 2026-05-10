@@ -15,13 +15,11 @@ void SchematicItemFactory::registerItemType(const QString& typeName, CreatorFunc
         qWarning() << "Schematic item type" << typeName << "is already registered. Overwriting.";
     }
     m_creators[typeName] = creator;
-    qDebug() << "Registered schematic item type:" << typeName;
 }
 
 SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF pos,
                                                const QJsonObject& properties,
                                                QGraphicsItem* parent) {
-    qDebug() << "SchematicItemFactory: Creating item of type:" << typeName;
     SchematicItem* item = nullptr;
 
     const QSet<QString> powerTypes = {
@@ -59,12 +57,10 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
                                     typeName == "14-Segment Display" ||
                                     typeName == "16-Segment Display");
 
-    // Prefer external symbols if they exist (override built-ins), except for power, source, instruments and explicit JFET types.
     if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet && !isBjtAlias && !isMosAlias && !isMesfet && !isSpecializedItem) {
         if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(typeName)) {
             item = new GenericComponentItem(*def, parent);
             item->setPos(pos);
-            qDebug() << "SchematicItemFactory: Created library symbol item:" << typeName;
         }
     }
 
@@ -72,7 +68,6 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
         auto it = m_creators.find(typeName);
         if (it != m_creators.end()) {
             item = it.value()(pos, properties, parent);
-            qDebug() << "SchematicItemFactory: Created built-in item:" << typeName;
         } else {
             qWarning() << "SchematicItemFactory Error: Unknown item type:" << typeName;
             return nullptr;

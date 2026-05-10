@@ -1,4 +1,4 @@
-#include "ui_command_server.h"
+#include "app_command_server.h"
 
 #include <QDebug>
 #include <QAction>
@@ -42,36 +42,76 @@ bool UICommandServer::start(int port) {
     qDebug() << "UICommandServer listening on port" << port;
     return true;
 #else
-    Q_UNUSED(port);
-    return false;
+    if (m_tcpServer && m_tcpServer->isListening()) {
+        return true;
+    }
+
+    m_tcpServer = new QTcpServer(this);
+    if (!m_tcpServer->listen(QHostAddress::LocalHost, port)) {
+        qWarning() << "UICommandServer: TCP Fallback failed to listen on port" << port;
+        delete m_tcpServer;
+        m_tcpServer = nullptr;
+        return false;
+    }
+
+    m_port = port;
+    connect(m_tcpServer, &QTcpServer::newConnection, this, [this]() {
+        QTcpSocket* socket = m_tcpServer->nextPendingConnection();
+        if (!socket) return;
+        m_tcpClients.append(socket);
+        connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
+            QByteArray data = socket->readAll();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isNull()) {
+                QVariantMap response = handleCommand(doc.toVariant().toMap());
+                socket->write(QJsonDocument::fromVariant(response).toJson(QJsonDocument::Compact));
+                socket->flush();
+            }
+        });
+        connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
+            m_tcpClients.removeAll(socket);
+            socket->deleteLater();
+        });
+    });
+
+    qDebug() << "UICommandServer: TCP Fallback listening on port" << port;
+    return true;
 #endif
 }
 
 void UICommandServer::stop() {
 #if VIOSPICE_HAS_QT_WEBSOCKETS
-    if (!m_server) return;
+    if (m_server) {
+        // Disconnect all clients
+        for (QWebSocket* client : m_clients) {
+            client->close();
+            client->deleteLater();
+        }
+        m_clients.clear();
 
-    // Disconnect all clients
-    for (QWebSocket* client : m_clients) {
-        client->close();
-        client->deleteLater();
+        m_server->close();
+        delete m_server;
+        m_server = nullptr;
     }
-    m_clients.clear();
-
-    m_server->close();
-    delete m_server;
-    m_server = nullptr;
-
-    qDebug() << "UICommandServer stopped";
 #endif
+    if (m_tcpServer) {
+        for (QTcpSocket* socket : m_tcpClients) {
+            socket->disconnectFromHost();
+            socket->deleteLater();
+        }
+        m_tcpClients.clear();
+        m_tcpServer->close();
+        delete m_tcpServer;
+        m_tcpServer = nullptr;
+    }
+    qDebug() << "UICommandServer stopped";
 }
 
 bool UICommandServer::isRunning() const {
 #if VIOSPICE_HAS_QT_WEBSOCKETS
-    return m_server && m_server->isListening();
-#else
-    return false;
+    if (m_server && m_server->isListening()) return true;
 #endif
+    return m_tcpServer && m_tcpServer->isListening();
 }
 
 void UICommandServer::registerCommand(const QString& cmd, CommandHandler handler) {
@@ -227,6 +267,15 @@ QVariantMap UICommandServer::handleCommand(const QVariantMap& request) {
         } else {
             response["ok"] = false;
             response["error"] = "Python code execution not available";
+        }
+    }
+    else if (cmd == "open_schematic") {
+        QString path = params.value("path").toString();
+        if (m_openSchematicFn) {
+            response["ok"] = m_openSchematicFn(path);
+        } else {
+            response["ok"] = false;
+            response["error"] = "Open schematic not available";
         }
     }
     else if (cmd == "get_schematic_context") {

@@ -549,7 +549,7 @@ bool SymbolLibrary::load(const QString& filePath) {
     }
     locker.unlock();
     
-    qDebug() << "Loaded library:" << m_name << "with" << m_symbols.size() << "symbols";
+//    qDebug() << "Loaded library:" << m_name << "with" << m_symbols.size() << "symbols";
     return true;
 }
 

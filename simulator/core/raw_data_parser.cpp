@@ -91,30 +91,8 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
         return false;
     }
 
-    std::ostringstream ss;
-    ss << file.rdbuf();
-    std::string allData = ss.str();
-    file.close();
-
-    if (allData.empty()) {
-        if (error) *error = "Raw file is empty: " + path;
-        return false;
-    }
-
-    const char* dataPtr = allData.data();
-    const char* endPtr = dataPtr + allData.size();
-
-    auto readLine = [&]() -> std::string {
-        const char* start = dataPtr;
-        while (dataPtr < endPtr && *dataPtr != '\n' && *dataPtr != '\r') {
-            dataPtr++;
-        }
-        std::string line(start, dataPtr - start);
-        if (dataPtr < endPtr && *dataPtr == '\r') dataPtr++;
-        if (dataPtr < endPtr && *dataPtr == '\n') dataPtr++;
-        return trim(line);
-    };
-
+    RawData data;
+    std::string line;
     bool collectingData = false;
     bool isComplex = false;
     bool isBinaryFormat = false;
@@ -122,12 +100,20 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
     int numPoints = 0;
     std::vector<std::string> varNames;
 
-    RawData data;
+    auto readHeaderLine = [&]() -> std::string {
+        std::string l;
+        if (std::getline(file, l)) {
+            return trim(l);
+        }
+        return "";
+    };
 
-    while (dataPtr < endPtr) {
-        const char* currentLineStart = dataPtr;
-        std::string line = readLine();
-        if (line.empty()) continue;
+    while (file) {
+        line = readHeaderLine();
+        if (line.empty()) {
+            if (file.eof()) break;
+            continue;
+        }
 
         if (line.rfind("No. Variables:", 0) == 0) {
             try { numVariables = std::stoi(trim(line.substr(14))); } catch (...) { numVariables = 0; }
@@ -152,7 +138,7 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
             if (flags.find("complex") != std::string::npos) isComplex = true;
         } else if (line.rfind("Variables:", 0) == 0) {
             for (int i = 0; i < numVariables; ++i) {
-                std::string vLine = readLine();
+                std::string vLine = readHeaderLine();
                 auto parts = tokenize(vLine);
                 if (parts.size() >= 2) {
                     varNames.push_back(normalizeWaveformName(parts[1]));
@@ -165,17 +151,16 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
             isBinaryFormat = false;
             break;
         } else if (line.rfind("Binary:", 0) == 0) {
-            // Found binary marker. The actual data starts immediately after the newline.
             collectingData = true;
             isBinaryFormat = true;
             break;
         }
     }
 
-    if (!collectingData || varNames.empty() || numVariables <= 0 || numVariables > 100000 || numPoints < 0 || numPoints > 100000000) {
+    if (!collectingData || varNames.empty() || numVariables <= 0 || numVariables > 100000) {
         if (error) {
             std::ostringstream oss;
-            oss << "Raw file had invalid or excessive metadata: Vars=" << numVariables << ", Points=" << numPoints;
+            oss << "Raw file had invalid or excessive metadata: Vars=" << numVariables;
             *error = oss.str();
         }
         return false;
@@ -185,131 +170,109 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
     data.numPoints = numPoints;
     data.varNames = std::move(varNames);
 
+    if (numVariables > 5000) {
+        if (error) *error = "Too many variables in raw file (>5000).";
+        return false;
+    }
+
     try {
-        if (numPoints > 0) {
-            data.x.reserve(numPoints);
+        if (numVariables > 0) {
             data.y.resize(numVariables - 1);
             data.yPhase.resize(numVariables - 1);
             data.hasPhase.resize(numVariables - 1, false);
-            for (int i = 0; i < (int)data.y.size(); ++i) data.y[i].reserve(numPoints);
-            for (int i = 0; i < (int)data.yPhase.size(); ++i) data.yPhase[i].reserve(numPoints);
+            
+            // Hard limit to 100M points to prevent OOM/mimalloc corruption
+            if (numPoints > 0 && numPoints < 100000000) {
+                data.x.reserve(numPoints);
+                for (int i = 0; i < (int)data.y.size(); ++i) data.y[i].reserve(numPoints);
+                for (int i = 0; i < (int)data.yPhase.size(); ++i) data.yPhase[i].reserve(numPoints);
+            } else if (numPoints >= 100000000) {
+                 if (error) *error = "Simulation results exceed 100 million points. Aborting to prevent crash.";
+                 return false;
+            }
 
-            // TRUST ACTUAL DATA: 
-            // In shared mode or manual stops, the engine might write 'No. Points: 0' 
-            // in the header but then dump actual values. We should trust the tokens.
             if (isBinaryFormat) {
-                size_t doublesPerPoint = (size_t)numVariables;
-                if (isComplex) doublesPerPoint *= 2;
-                size_t availableBytes = endPtr - dataPtr;
-                int actualPoints = (doublesPerPoint > 0) ? (int)(availableBytes / (doublesPerPoint * sizeof(double))) : 0;
-                
-                // If header said 0 but we have bytes, believe the bytes
-                int parsePoints = (numPoints > 0) ? std::min(numPoints, actualPoints) : actualPoints;
+                // Skip any trailing whitespace/newlines after "Binary:" marker
+                char c;
+                while (file.get(c) && (c == '\n' || c == '\r'));
+                if (!file.eof()) file.unget();
 
-                data.x.reserve(parsePoints);
-                for (int i = 0; i < (int)data.y.size(); ++i) data.y[i].reserve(parsePoints);
-                for (int i = 0; i < (int)data.yPhase.size(); ++i) data.yPhase[i].reserve(parsePoints);
-
-                const double* ptr = reinterpret_cast<const double*>(dataPtr);
-                for (int p = 0; p < parsePoints; ++p) {
-                    // First double is the index (time/frequency)
-                    data.x.push_back(*ptr++);
+                int pointsParsed = 0;
+                while (file) {
+                    double xVal;
+                    if (!file.read(reinterpret_cast<char*>(&xVal), sizeof(double))) break;
+                    data.x.push_back(xVal);
 
                     for (int v = 1; v < numVariables; ++v) {
                         if (isComplex) {
-                            double re = *ptr++;
-                            double im = *ptr++;
+                            double re, im;
+                            file.read(reinterpret_cast<char*>(&re), sizeof(double));
+                            file.read(reinterpret_cast<char*>(&im), sizeof(double));
                             double mag = std::hypot(re, im);
-                            double phase = std::atan2(im, re) * 180.0 / std::acos(-1.0);
+                            double phase = std::atan2(im, re) * 180.0 / 3.14159265358979323846;
                             data.y[v - 1].push_back(mag);
                             data.yPhase[v - 1].push_back(phase);
                             data.hasPhase[v - 1] = true;
                         } else {
-                            data.y[v - 1].push_back(*ptr++);
+                            double val;
+                            file.read(reinterpret_cast<char*>(&val), sizeof(double));
+                            data.y[v - 1].push_back(val);
                         }
                     }
+                    pointsParsed++;
+                    if (numPoints > 0 && pointsParsed >= numPoints) break;
                 }
-                data.numPoints = parsePoints;
+                data.numPoints = pointsParsed;
             } else {
-                std::vector<std::string> allTokens;
-                {
-                    while (dataPtr < endPtr) {
-                        const char* start = dataPtr;
-                        while (dataPtr < endPtr && !std::isspace(static_cast<unsigned char>(*dataPtr))) dataPtr++;
-                        if (dataPtr > start) {
-                            allTokens.emplace_back(start, dataPtr - start);
-                        }
-                        while (dataPtr < endPtr && std::isspace(static_cast<unsigned char>(*dataPtr))) dataPtr++;
-                    }
-                }
-
-                size_t tokenIdx = 0;
-                auto parseComplexToken = [&](const std::string& token, double& mag, double& phase, bool& isComplexVal) -> bool {
-                    std::string t = token;
-                    if (t.size() >= 2 && t.front() == '(' && t.back() == ')') {
-                        t = t.substr(1, t.size() - 2);
-                    }
-
-                    size_t commaPos = t.find(',');
+                int pointsParsed = 0;
+                std::string token;
+                
+                auto parseComplex = [&](const std::string& t, double& mag, double& phase, bool& isComplexVal) {
+                    std::string s = t;
+                    if (s.size() >= 2 && s.front() == '(' && s.back() == ')') s = s.substr(1, s.size() - 2);
+                    size_t commaPos = s.find(',');
                     if (commaPos != std::string::npos) {
-                        std::string reStr = trim(t.substr(0, commaPos));
-                        std::string imStr = trim(t.substr(commaPos + 1));
-                        double reVal = 0.0, imVal = 0.0;
-                        if (parseDouble(reStr, reVal) && parseDouble(imStr, imVal)) {
-                            mag = std::hypot(reVal, imVal);
-                            phase = std::atan2(imVal, reVal) * 180.0 / std::acos(-1.0);
-                            isComplexVal = true;
-                            return true;
-                        }
-                    }
-
-                    double val;
-                    if (parseDouble(t, val)) {
-                        mag = val;
+                        double re = 0.0, im = 0.0;
+                        parseDouble(s.substr(0, commaPos), re);
+                        parseDouble(s.substr(commaPos + 1), im);
+                        mag = std::hypot(re, im);
+                        phase = std::atan2(im, re) * 180.0 / 3.14159265358979323846;
+                        isComplexVal = true;
+                    } else {
+                        parseDouble(s, mag);
                         phase = 0.0;
                         isComplexVal = false;
-                        return true;
                     }
-                    return false;
                 };
 
-                // Belief-based looping for ASCII: consume tokens until exhausted
-                int pointsParsed = 0;
-                while (tokenIdx < allTokens.size()) {
-                    tokenIdx++; // skip index
-
-                    // X value
-                    if (tokenIdx < allTokens.size()) {
-                        std::string xTok = allTokens[tokenIdx++];
-                        double xVal = 0.0;
-                        size_t commaPos = xTok.find(',');
-                        if (commaPos != std::string::npos) {
-                            std::string reStr = trim(xTok.substr(0, commaPos));
-                            parseDouble(reStr, xVal);
-                        } else {
-                            parseDouble(xTok, xVal);
-                        }
-                        data.x.push_back(xVal);
+                while (file >> token) {
+                    // Token is the index, skip it
+                    if (!(file >> token)) break; // This is the X value
+                    
+                    double xVal = 0.0;
+                    size_t commaPos = token.find(',');
+                    if (commaPos != std::string::npos) {
+                        parseDouble(token.substr(0, commaPos), xVal);
                     } else {
-                        break;
+                        parseDouble(token, xVal);
                     }
+                    data.x.push_back(xVal);
 
                     for (int v = 1; v < numVariables; ++v) {
+                        if (!(file >> token)) break;
                         double mag = 0.0, phase = 0.0;
                         bool isComplexVal = false;
-                        if (tokenIdx < allTokens.size()) {
-                            parseComplexToken(allTokens[tokenIdx++], mag, phase, isComplexVal);
-                        }
+                        parseComplex(token, mag, phase, isComplexVal);
+                        
                         data.y[v - 1].push_back(mag);
                         data.yPhase[v - 1].push_back(phase);
                         if (isComplexVal) data.hasPhase[v - 1] = true;
                     }
                     pointsParsed++;
-                    // Guard against runaway loop if file is weird
                     if (numPoints > 0 && pointsParsed >= numPoints) break;
                 }
                 data.numPoints = pointsParsed;
-            } // end if (isBinaryFormat) ... else
+            }
         }
     } catch (const std::bad_alloc&) {
         if (error) *error = "Memory allocation failed for simulation results.";

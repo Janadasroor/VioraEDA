@@ -287,7 +287,7 @@ bool SchematicFileIO::loadSchematic(QGraphicsScene* scene, const QString& filePa
         return false;
     }
     
-    qDebug() << "Schematic loaded successfully from" << filePath;
+//    qDebug() << "Schematic loaded successfully from" << filePath;
     return true;
 }
 

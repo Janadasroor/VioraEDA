@@ -50,7 +50,7 @@
 
 LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager, SchematicAPI* api, QWidget* parent)
     : QMainWindow(parent, Qt::Window), m_scene(scene), m_netManager(netManager), m_api(api) {
-    qDebug() << "[LogicEditorPanel] Initializing...";
+//    qDebug() << "[LogicEditorPanel] Initializing...";
     setAttribute(Qt::WA_DeleteOnClose);
     
     setWindowTitle("viospice Logic IDE");
@@ -61,17 +61,17 @@ LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager
     m_previewTimer->setInterval(500);
     connect(m_previewTimer, &QTimer::timeout, this, &LogicEditorPanel::updatePreview);
 
-    qDebug() << "[LogicEditorPanel] Setting up UI...";
+//    qDebug() << "[LogicEditorPanel] Setting up UI...";
     setupUi();
-    qDebug() << "[LogicEditorPanel] Setting up menus...";
+//    qDebug() << "[LogicEditorPanel] Setting up menus...";
     setupMenus();
-    qDebug() << "[LogicEditorPanel] Creating shortcuts...";
+//    qDebug() << "[LogicEditorPanel] Creating shortcuts...";
     createShortcuts();
-    qDebug() << "[LogicEditorPanel] Refreshing templates...";
+//    qDebug() << "[LogicEditorPanel] Refreshing templates...";
     refreshTemplates();
 
     // Setup Template Watcher
-    qDebug() << "[LogicEditorPanel] Setting up template watcher...";
+//    qDebug() << "[LogicEditorPanel] Setting up template watcher...";
     m_templateWatcher = new QFileSystemWatcher(this);
     QString templatesPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../python/templates");
     if (!QFile::exists(templatesPath)) {
@@ -83,7 +83,7 @@ LogicEditorPanel::LogicEditorPanel(QGraphicsScene* scene, NetManager* netManager
 }
 
 LogicEditorPanel::~LogicEditorPanel() {
-    qDebug() << "[LogicEditorPanel] Destroying...";
+//    qDebug() << "[LogicEditorPanel] Destroying...";
 }
 
 void LogicEditorPanel::setScene(QGraphicsScene* scene, NetManager* netManager, SchematicAPI* api) {

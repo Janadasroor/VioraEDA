@@ -43,7 +43,7 @@ class Classifier(nn.Module):
 def ensure_dataset(dataset_path: Path) -> None:
     if dataset_path.exists():
         return
-    subprocess.run(["python3", str(GENERATOR_PATH)], check=True)
+    subprocess.run([sys.executable or "python3", str(GENERATOR_PATH)], check=True)
 
 
 def build_tensor_dataset(dataset_path: str):

@@ -1,4 +1,5 @@
 #include "spice_model_architect.h"
+#include "python/cpp/core/flux_script_manager.h"
 #include "../core/visuals/theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -186,8 +187,8 @@ void SpiceModelArchitect::runAutoArchitect(const QString& pdfPath) {
     progress.setWindowModality(Qt::WindowModal);
     progress.show();
 
-    // In a real environment, we'd use the bundled python from venv
-    QString pythonPath = "python3"; 
+    // Use the bundled python from venv if available, fallback safely
+    QString pythonPath = FluxScriptManager::getPythonExecutable();
     
     // Attempt to locate script relative to app or project root
     QString scriptPath = QApplication::applicationDirPath() + "/../python/scripts/run_spice_model_agent.py";

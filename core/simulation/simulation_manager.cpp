@@ -4,6 +4,7 @@
 #include "jit_bridge.h"
 #include "simulator/core/sim_results.h"
 #include "jit_context_manager.h"
+#include <QCoreApplication>
 #include <QDebug>
 #include <QThread>
 #include <QFile>
@@ -15,7 +16,6 @@
 #include <QRegularExpression>
 #include <QElapsedTimer>
 #include <utility>
-#include <dlfcn.h>
 
 using namespace Flux;
 
@@ -226,16 +226,13 @@ bool SimulationManager::isAvailable() const {
 }
 
 bool SimulationManager::supportsNativeLogicADevices() const {
-    void* sym = SpiceBackend::instance().resolveSymbol("ngSpice_Init");
-    if (!sym) return false;
-
-    Dl_info info;
-    if (dladdr(sym, &info) && info.dli_fname) {
-        QString libPath = QString::fromLocal8Bit(info.dli_fname);
-        return libPath.contains("VioMATRIXC", Qt::CaseInsensitive) ||
-               libPath.contains("releasesh", Qt::CaseInsensitive);
-    }
+#ifdef HAVE_NGSPICE
+    // ngSpice_IsPaused is a custom symbol only present in the VioMATRIXC patched engine.
+    void* sym = SpiceBackend::instance().resolveSymbol("ngSpice_IsPaused");
+    return sym != nullptr;
+#else
     return false;
+#endif
 }
 
 bool SimulationManager::isNativeSmartSignalMode() const {
@@ -247,11 +244,18 @@ QString SimulationManager::lastErrorMessage() const {
     return m_lastErrorMessage;
 }
 
+#include <QStandardPaths>
+
 void SimulationManager::initialize() {
     if (m_isInitialized) return;
 
 #ifdef HAVE_NGSPICE
-    QString scriptsPath = "/home/jnd/.viospice";
+    QString scriptsPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (scriptsPath.isEmpty()) {
+        scriptsPath = QDir::homePath() + "/.viospice";
+    }
+    QDir().mkpath(scriptsPath);
+
     qputenv("SPICE_SCRIPTS", scriptsPath.toUtf8());
     qputenv("SPICE_LIB_DIR", scriptsPath.toUtf8());
 
@@ -260,11 +264,11 @@ void SimulationManager::initialize() {
     );
 
     if (m_isInitialized) {
-        QString cmDir = "/home/jnd/cpp_projects/VioMATRIXC/releasesh/src/xspice/icm";
-        QStringList cmSubDirs = {"analog", "digital", "spice2poly", "table", "tlines", "xtradev", "xtraevt"};
+        QString cmDir = QCoreApplication::applicationDirPath() + "/cm";
+        QStringList cmSubDirs = {"analog", "digital", "spice2poly", "tlines", "xtradev", "xtraevt"};
         
         for (const QString& sub : cmSubDirs) {
-            QString cmPath = QString("%1/%2/%2.cm").arg(cmDir, sub);
+            QString cmPath = QString("%1/%2.cm").arg(cmDir, sub);
             if (QFile::exists(cmPath)) {
                 SpiceBackend::instance().execute(QString("codemodel %1").arg(cmPath));
             }
@@ -758,8 +762,11 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
         rawPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".raw";
     }
 
-    if (finished && isPaused) {
+    if (finished && (isPaused || m_haltRequested.load())) {
         // === Halted at Sync Point ===
+        if (m_haltRequested.load() && !isPaused) {
+            qDebug() << "[SimManager] Engine stopped but halt was requested. Forcing Halted state.";
+        }
         if (stopRequested) {
             // User requested stop, treat as finished
             setState(SimulationState::Finished);

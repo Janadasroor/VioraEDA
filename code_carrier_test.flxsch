@@ -1,0 +1,16 @@
+{
+  "metadata": {"application": "viospice", "version": 1},
+  "items": [
+    {
+      "type": "SmartSignalBlock",
+      "reference": "SB1",
+      "fluxCode": "def update(t, inputs) { 5.0 }",
+      "engineType": "flux",
+      "excludeFromSim": true
+    },
+    {
+      "type": "Spice Directive",
+      "text": "A_SB1 [0] OUT viospice_jit_model_SB1\n.model viospice_jit_model_SB1 viospice_jit (jit_id=\"SB1\")\nRLOAD OUT 0 1k\n.tran 10u 1m"
+    }
+  ]
+}

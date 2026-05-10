@@ -92,8 +92,13 @@ python3 python/scripts/ml_dataset_api.py --port 8787
 ```
 
 Documentation: [docs/ML_DATASET_API.md](docs/ML_DATASET_API.md)
+
 ML engineer guide: [docs/ML_ENGINEER_GUIDE.md](docs/ML_ENGINEER_GUIDE.md)
 Examples: [examples/ml_api/README.md](examples/ml_api/README.md)
+
+## Licensing Compliance
+
+VioSpice is licensed under the Apache License, Version 2.0. To ensure full compliance and avoid "GPL infection," the underlying simulation engine (**VioMATRIXC**) is built without GPL-licensed components (specifically the XSpice table models). This ensures that the entire VioSpice binary distribution is compatible with permissive open-source licensing.
 
 ## License
 

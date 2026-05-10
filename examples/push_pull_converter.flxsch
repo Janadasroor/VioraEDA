@@ -1,0 +1,24 @@
+{
+  "metadata": {"application": "viospice", "version": 1},
+  "items": [
+    {
+      "type": "SmartSignalBlock",
+      "reference": "DRV1",
+      "fluxCode": "def update(t, inputs) {\n    f = 50000.0;\n    p = 1.0 / f;\n    dt = 0.05 * p;\n    lt = t - (floor(t / p) * p);\n    if lt < (p/2.0 - dt) then 10.0 else 0.0;\n}",
+      "engineType": "flux",
+      "excludeFromSim": true
+    },
+    {
+      "type": "SmartSignalBlock",
+      "reference": "DRV2",
+      "fluxCode": "def update(t, inputs) {\n    f = 50000.0;\n    p = 1.0 / f;\n    dt = 0.05 * p;\n    lt = t - (floor(t / p) * p);\n    if (lt > p/2.0) and (lt < (p - dt)) then 10.0 else 0.0;\n}",
+      "engineType": "flux",
+      "excludeFromSim": true
+    },
+    {
+      "type": "Spice Directive",
+      "text": "* Push-Pull Converter\nVIN CT 0 12\nL1 P1 CT 10u\nL2 CT P2 10u\nL3 S1 0 40u\nL4 0 S2 40u\nK1 L1 L2 L3 L4 0.99\nM1 P1 GATE1 0 0 VNMOS\nM2 P2 GATE2 0 0 VNMOS\n.model VNMOS NMOS(Vto=2.5 Kp=20)\nD1 S1 OUT VDIODE\nD2 S2 OUT VDIODE\n.model VDIODE D(Ron=0.01 Roff=1Meg Vfwd=0.7)\nCLOAD OUT 0 100u\nRLOAD OUT 0 10\nA_DRV1 [0] GATE1 viospice_jit_model_DRV1\n.model viospice_jit_model_DRV1 viospice_jit (jit_id=\"DRV1\")\nA_DRV2 [0] GATE2 viospice_jit_model_DRV2\n.model viospice_jit_model_DRV2 viospice_jit (jit_id=\"DRV2\")\n.tran 1u 500u\n.options robust",
+      "x": 0, "y": 0
+    }
+  ]
+}

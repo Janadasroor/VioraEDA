@@ -25,6 +25,7 @@
 #include "../utils/schematic_url_encoder.h"
 #include <QLoggingCategory>
 #include <QProcess>
+#include "python/cpp/core/flux_script_manager.h"
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -2303,6 +2304,12 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
         SimManager::instance().compileFluxScripts(&scene);
         // ------------------------------
 
+        QString netlistText = result.netlist;
+        if (parser.isSet("robust")) {
+            netlistText += "\n.options gmin=1e-9 abstol=1e-10 reltol=1e-3 chgtol=1e-13 method=gear\n";
+            netlistText += ".options rshunt=10Meg\n";
+        }
+
         const QString baseName = QFileInfo(filePath).completeBaseName();
         const QString tempPattern = QDir::tempPath() + "/viospice_netlist_" + baseName + "_XXXXXX.cir";
         tempNetlist = std::make_unique<QTemporaryFile>(tempPattern);
@@ -2310,10 +2317,10 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
             std::cerr << "Error: Failed to create temporary netlist." << std::endl;
             return false;
         }
-        tempNetlist->write(result.netlist.toUtf8());
+        tempNetlist->write(netlistText.toUtf8());
         tempNetlist->flush();
         runPath = tempNetlist->fileName();
-    } else if (applyCompat && suffix == "cir") {
+    } else if ((applyCompat || parser.isSet("robust")) && suffix == "cir") {
         QFile inFile(filePath);
         if (!inFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             std::cerr << "Error: Cannot read netlist file: " << filePath.toStdString() << std::endl;
@@ -2322,20 +2329,20 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
         QString rawNetlist = QString::fromUtf8(inFile.readAll());
         inFile.close();
 
-        QString compatNetlist = SpiceNetlistGenerator::generateCompatibilityLayer(rawNetlist);
-        if (compatNetlist.isEmpty()) {
-            std::cerr << "Error: Failed to apply compatibility layer to netlist." << std::endl;
-            return false;
+        QString finalNetlist = applyCompat ? SpiceNetlistGenerator::generateCompatibilityLayer(rawNetlist) : rawNetlist;
+        if (parser.isSet("robust")) {
+            finalNetlist += "\n.options gmin=1e-9 abstol=1e-10 reltol=1e-3 chgtol=1e-13 method=gear\n";
+            finalNetlist += ".options rshunt=10Meg\n";
         }
 
         const QString baseName = QFileInfo(filePath).completeBaseName();
-        const QString tempPattern = QDir::tempPath() + "/viospice_compat_" + baseName + "_XXXXXX.cir";
+        const QString tempPattern = QDir::tempPath() + "/viospice_run_" + baseName + "_XXXXXX.cir";
         tempNetlist = std::make_unique<QTemporaryFile>(tempPattern);
         if (!tempNetlist->open()) {
             std::cerr << "Error: Failed to create temporary netlist." << std::endl;
             return false;
         }
-        tempNetlist->write(compatNetlist.toUtf8());
+        tempNetlist->write(finalNetlist.toUtf8());
         tempNetlist->flush();
         runPath = tempNetlist->fileName();
     }
@@ -2399,7 +2406,8 @@ bool runNetlistRun(const QString& filePath, const QCommandLineParser& parser) {
     }
 
     const bool timedOut = !finished;
-
+    QThread::msleep(100); // Cooldown to ensure background thread processing of results finishes
+    
     const QFileInfo info(runPath);
     const QString rawPath = info.absolutePath() + "/" + info.completeBaseName() + ".raw";
     QString exportRawFormat = parser.value("export-raw").trimmed().toLower();
@@ -3331,7 +3339,9 @@ bool runRawExport(const QString& filePath, const QCommandLineParser& parser) {
             "pq.write_table(table, sys.argv[2])\n"
         );
         args << "-c" << script << temp.fileName() << outPath;
-        proc.start(QStringLiteral("python3"), args);
+        
+        QString pythonExe = FluxScriptManager::getPythonExecutable();
+        proc.start(pythonExe, args);
         if (!proc.waitForFinished(60000)) {
             std::cerr << "Error: parquet export timed out." << std::endl;
             return false;
@@ -3339,7 +3349,7 @@ bool runRawExport(const QString& filePath, const QCommandLineParser& parser) {
         if (proc.exitCode() != 0) {
             const QByteArray err = proc.readAllStandardError();
             std::cerr << "Error: parquet export failed. " << err.toStdString()
-                      << "Hint: install pyarrow in a venv: python3 -m venv .venv && . .venv/bin/activate && pip install pyarrow"
+                      << "Hint: install pyarrow in a venv: " << pythonExe.toStdString() << " -m venv .venv && . .venv/bin/activate && pip install pyarrow"
                       << std::endl;
             return false;
         }
@@ -3874,7 +3884,9 @@ int main(int argc, char *argv[]) {
     QCommandLineOption shareUploadOption("upload", "Upload to server instead of URL (share)");
     QCommandLineOption shareCopyOption("copy", "Copy URL to clipboard after sharing", "copy");
     QCommandLineOption shareServerOption("server", "Share server URL", "url", "http://localhost:8765");
+    QCommandLineOption robustOption("robust", "Enable robust simulation mode (adds damping and improves convergence)");
     QCommandLineOption compatOption("compat", "Apply LTspice compatibility layer to raw netlist before running (netlist-run)");
+    parser.addOption(robustOption);
     parser.addOption(compatOption);
     parser.addOption(shareTitleOption);
     parser.addOption(shareDescOption);
@@ -4148,6 +4160,7 @@ int main(int argc, char *argv[]) {
             if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
                 // Simplified SimResults conversion for CLI
                 results.analysisType = t;
+                double maxVoltage = 0.0;
                 for (int i = 0; i < (int)rd.varNames.size(); ++i) {
                     if (i == 0) continue; // skip time/frequency
                     SimWaveform wave;
@@ -4156,15 +4169,20 @@ int main(int argc, char *argv[]) {
                     wave.yData = std::vector<double>(rd.y[i-1].begin(), rd.y[i-1].end());
                     results.waveforms.push_back(wave);
                     
-                    // Populate summaries for AI context (use first point for non-OP as a "current state" hint)
+                    // Populate summaries
                     if (!rd.y[i-1].empty()) {
+                        double lastVal = rd.y[i-1].back();
+                        maxVoltage = std::max(maxVoltage, std::abs(lastVal));
                         QString qName = QString::fromStdString(wave.name);
                         if (qName.startsWith("V(", Qt::CaseInsensitive)) {
-                             results.nodeVoltages[qName.mid(2, qName.size() - 3).toStdString()] = rd.y[i-1][0];
+                             results.nodeVoltages[qName.mid(2, qName.size() - 3).toStdString()] = lastVal;
                         } else if (qName.startsWith("I(", Qt::CaseInsensitive)) {
-                             results.branchCurrents[qName.mid(2, qName.size() - 3).toStdString()] = rd.y[i-1][0];
+                             results.branchCurrents[qName.mid(2, qName.size() - 3).toStdString()] = lastVal;
                         }
                     }
+                }
+                if (maxVoltage > 10000.0 && !g_quiet) {
+                    std::cerr << "Warning: Extreme voltage detected (>10kV). Circuit may be unstable or unphysical." << std::endl;
                 }
                 success = true;
             }
@@ -4172,20 +4190,22 @@ int main(int argc, char *argv[]) {
 
         sm.runSimulation(tempNetlist.fileName(), nullptr);
         
-        // Active wait loop instead of loop.exec() to ensure JIT updates are applied
-        while (!success && !lastError.length()) {
+        // Active wait loop with safety timeout
+        QElapsedTimer activeTimer;
+        activeTimer.start();
+        while (!success && !lastError.length() && activeTimer.elapsed() < 30000) {
             QCoreApplication::processEvents();
-            
-            static QElapsedTimer lastUpdate;
-            if (!lastUpdate.isValid() || lastUpdate.elapsed() > 2) {
-                SimulationManager::instance().applyPendingFluxSourceUpdates();
-                lastUpdate.restart();
+            SimulationManager::instance().applyPendingFluxSourceUpdates();
+            QThread::msleep(5);
+            if (!sm.isRunning() && !success) {
+                // Give it one more loop to process the final event
+                QCoreApplication::processEvents();
+                if (!success) break;
             }
-            
-            QThread::msleep(2);
-            if (!sm.isRunning()) break;
         }
 
+        sm.shutdown(); // Ensure backend is fully stopped before cleanup
+        QThread::msleep(50); // Final cooldown to avoid race with RawDataParser
         
         QFile::remove(tempNetlist.fileName());
         QFile::remove(tempNetlist.fileName() + ".raw");

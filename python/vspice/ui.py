@@ -33,6 +33,7 @@ Usage:
 """
 
 import json
+import socket
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -59,39 +60,48 @@ class UIProxy:
         self._request_id = 0
 
     def connect(self, timeout: float = 5.0) -> bool:
-        """Connect to the UI command server."""
-        if websocket is None:
-            raise ImportError(
-                "websocket-client is required. Install with: pip install websocket-client"
-            )
-
+        """Connect to the UI command server (WebSocket with TCP fallback)."""
         if self._connected:
             return True
 
+        # Try WebSocket first if available
+        if websocket is not None:
+            try:
+                self.ws = websocket.create_connection(
+                    self.url, timeout=timeout, enable_multithread=True
+                )
+                self._connected = True
+                self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
+                self._recv_thread.start()
+                return True
+            except Exception:
+                pass
+
+        # Fallback to Raw TCP
         try:
-            self.ws = websocket.create_connection(
-                self.url, timeout=timeout, enable_multithread=True
-            )
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(timeout)
+            self.sock.connect((self.host, self.port))
             self._connected = True
-
-            # Start background thread to receive messages
-            self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
+            self.ws = None # Ensure WS is marked as none
+            self._recv_thread = threading.Thread(target=self._recv_loop_tcp, daemon=True)
             self._recv_thread.start()
-
             return True
         except Exception as e:
             self._connected = False
-            raise ConnectionError(f"Failed to connect to {self.url}: {e}")
+            raise ConnectionError(f"Failed to connect to {self.host}:{self.port} (WS and TCP): {e}")
 
     def disconnect(self):
         """Disconnect from the server."""
         self._connected = False
         if self.ws:
-            try:
-                self.ws.close()
-            except Exception:
-                pass
+            try: self.ws.close()
+            except: pass
             self.ws = None
+        if hasattr(self, 'sock') and self.sock:
+            try: self.sock.close()
+            except: pass
+            self.sock = None
 
     def is_connected(self) -> bool:
         """Check if connected to the server."""
@@ -99,7 +109,7 @@ class UIProxy:
 
     def _send_request(self, cmd: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Send a command and wait for response."""
-        if not self._connected or not self.ws:
+        if not self._connected:
             raise ConnectionError("Not connected to UI server. Call connect() first.")
 
         with self._lock:
@@ -107,7 +117,12 @@ class UIProxy:
             req_id = self._request_id
 
         request = {"id": req_id, "cmd": cmd, "params": params or {}}
-        self.ws.send(json.dumps(request))
+        data = json.dumps(request)
+        
+        if self.ws:
+            self.ws.send(data)
+        elif hasattr(self, 'sock') and self.sock:
+            self.sock.sendall(data.encode('utf-8'))
 
         # Wait for response with timeout
         start = time.time()
@@ -119,40 +134,48 @@ class UIProxy:
 
         raise TimeoutError(f"No response for command '{cmd}' within 10 seconds")
 
+    def _recv_loop_tcp(self):
+        """Background thread to receive messages over TCP."""
+        while self._connected and hasattr(self, 'sock') and self.sock:
+            try:
+                msg = self.sock.recv(16384).decode('utf-8')
+                if not msg: break
+                self._handle_message(msg)
+            except Exception:
+                break
+        self._connected = False
+
     def _recv_loop(self):
-        """Background thread to receive messages."""
+        """Background thread to receive messages over WebSocket."""
         while self._connected and self.ws:
             try:
                 msg = self.ws.recv()
-                if not msg:
-                    break
-
-                data = json.loads(msg)
-
-                # Check if it's a response to a request
-                req_id = data.get("id")
-                if req_id is not None:
-                    with self._lock:
-                        self._response_queue[req_id] = data
-                else:
-                    # It's a broadcast (e.g., menu_item_triggered)
-                    msg_type = data.get("type", "")
-                    if msg_type == "menu_item_triggered":
-                        for cb in self._menu_item_callbacks:
-                            try:
-                                cb(data)
-                            except Exception:
-                                pass
-                    else:
-                        for cb in self._callbacks:
-                            try:
-                                cb(data)
-                            except Exception:
-                                pass
+                if not msg: break
+                self._handle_message(msg)
             except Exception:
                 break
-
         self._connected = False
+
+    def _handle_message(self, msg: str):
+        """Process a message received from the server."""
+        try:
+            data = json.loads(msg)
+            req_id = data.get("id")
+            if req_id is not None:
+                with self._lock:
+                    self._response_queue[req_id] = data
+            else:
+                msg_type = data.get("type", "")
+                if msg_type == "menu_item_triggered":
+                    for cb in self._menu_item_callbacks:
+                        try: cb(data)
+                        except: pass
+                else:
+                    for cb in self._callbacks:
+                        try: cb(data)
+                        except: pass
+        except Exception:
+            pass
 
     def on_broadcast(self, callback: Callable[[Dict[str, Any]], None]):
         """Register a callback for all broadcast messages."""
@@ -202,6 +225,10 @@ class UIProxy:
     def run_python_code(self, code: str) -> Dict[str, Any]:
         """Execute Python code in the GUI's Python context."""
         return self._send_request("run_python_code", {"code": code})
+
+    def open_schematic(self, path: str) -> Dict[str, Any]:
+        """Open a schematic or netlist file in the GUI."""
+        return self._send_request("open_schematic", {"path": path})
 
     def get_schematic_context(self) -> Dict[str, Any]:
         """Get information about the current schematic."""
