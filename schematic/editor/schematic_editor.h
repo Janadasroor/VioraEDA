@@ -249,6 +249,7 @@ private:
     void onItemsHighlighted(const QStringList& references);
     void onSnippetGenerated(const QString& jsonSnippet, const QPointF& pos = QPointF());
     QList<ERCViolation> getErcViolations() const;
+    void syncSimConfigFromSchematic();
     void updateCurrentTabTitleFromFilePath(const QString& filePath);
     SymbolDefinition buildSymbolFromSelection() const;
     void applyDirectiveText(SchematicSpiceDirectiveItem* item, const QString& newText);

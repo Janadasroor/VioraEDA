@@ -26,6 +26,7 @@ public:
         double fStart = 10;
         double fStop = 1e6;
         int pts = 100;
+        SimAcSweepType acSweepType = SimAcSweepType::Decade;
         int rtIntervalMs = 50;
         double rtStep = 1e-3;
         QString commandText;
@@ -34,6 +35,7 @@ public:
         QString rfPort1Source = "V1";
         QString rfPort2Node = "OUT";
         double rfZ0 = 50.0;
+        QString dcSource = "V1";
 
         QJsonObject toJson() const;
         static Config fromJson(const QJsonObject& obj);
@@ -64,6 +66,7 @@ private:
     QCheckBox* m_steadyCheck;
     QLineEdit* m_steadyTolEdit;
     QLineEdit* m_steadyDelayEdit;
+    QComboBox* m_acSweepType;
 };
 
 #endif // SIMULATION_SETUP_DIALOG_H

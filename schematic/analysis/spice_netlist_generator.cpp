@@ -4990,7 +4990,10 @@ QString SpiceNetlistGenerator::buildCommand(const SimulationParams& params) {
             const QString pts = safeNumber(params.step, 10.0);
             const QString start = safeNumber(params.start, 10.0);
             const QString stop = safeNumber(params.stop, 1e6);
-            return QString(".ac dec %1 %2 %3").arg(pts, start, stop);
+            QString type = "dec";
+            if (params.acSweepType == SimAcSweepType::Octave) type = "oct";
+            else if (params.acSweepType == SimAcSweepType::Linear) type = "lin";
+            return QString(".ac %1 %2 %3 %4").arg(type, pts, start, stop);
         }
         case OP:
             return ".op";

@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QList>
 #include <QMap>
+#include "../../simulator/core/sim_results.h"
 
 namespace Flux {
 namespace Model {
@@ -35,6 +36,7 @@ public:
 
     struct SimulationParams {
         SimulationType type;
+        SimAcSweepType acSweepType = SimAcSweepType::Decade;
         QString start;
         QString stop;
         QString step;

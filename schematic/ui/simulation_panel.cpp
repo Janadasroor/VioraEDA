@@ -1830,13 +1830,21 @@ void SimulationPanel::updateSchematicDirective() {
     } else if (idx == 1) {
         cmdParams.type = SpiceNetlistGenerator::OP;
     } else if (idx == 2) {
+        cmdParams.type = SpiceNetlistGenerator::DC;
+        cmdParams.dcSource = m_param4 ? m_param4->text().trimmed() : QString("V1");
+        cmdParams.dcStart = m_param1 ? m_param1->text().trimmed() : QString("0");
+        cmdParams.dcStop = m_param2 ? m_param2->text().trimmed() : QString("5");
+        cmdParams.dcStep = m_param3 ? m_param3->text().trimmed() : QString("0.1");
+    } else if (idx == 3) {
         cmdParams.type = SpiceNetlistGenerator::AC;
+        if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
         cmdParams.start = m_param1 ? (m_param1->text().trimmed().isEmpty() ? "10" : m_param1->text().trimmed()) : "10";
         cmdParams.stop = m_param2 ? (m_param2->text().trimmed().isEmpty() ? "1Meg" : m_param2->text().trimmed()) : "1Meg";
         cmdParams.step = m_param3 ? (m_param3->text().trimmed().isEmpty() ? "10" : m_param3->text().trimmed()) : "10";
         cmdParams.rfPort1Source = m_param4 ? m_param4->text().trimmed() : "V1";
-    } else if (idx == 3) {
+    } else if (idx == 4) {
         cmdParams.type = SpiceNetlistGenerator::SParameter;
+        if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
         // Frequency and other params come from the same m_param widgets
         cmdParams.start = m_param1 ? m_param1->text().trimmed() : "10";
         cmdParams.stop = m_param2 ? m_param2->text().trimmed() : "1Meg";
@@ -1918,13 +1926,21 @@ void SimulationPanel::updateCommandDisplay() {
     } else if (idx == 1) {
         cmdParams.type = SpiceNetlistGenerator::OP;
     } else if (idx == 2) {
+        cmdParams.type = SpiceNetlistGenerator::DC;
+        cmdParams.dcSource = m_param4 ? m_param4->text().trimmed() : QString("V1");
+        cmdParams.dcStart = m_param1 ? m_param1->text().trimmed() : QString("0");
+        cmdParams.dcStop = m_param2 ? m_param2->text().trimmed() : QString("5");
+        cmdParams.dcStep = m_param3 ? m_param3->text().trimmed() : QString("0.1");
+    } else if (idx == 3) {
         cmdParams.type = SpiceNetlistGenerator::AC;
+        if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
         cmdParams.start = m_param1 ? m_param1->text() : QString("10");
         cmdParams.stop = m_param2 ? m_param2->text() : QString("1Meg");
         cmdParams.step = m_param3 ? m_param3->text() : QString("10");
         cmdParams.rfPort1Source = m_param4 ? m_param4->text() : QString("V1");
-    } else if (idx == 3) {
+    } else if (idx == 4) {
         cmdParams.type = SpiceNetlistGenerator::SParameter;
+        if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
         cmdParams.start = m_param1 ? m_param1->text() : QString("10");
         cmdParams.stop = m_param2 ? m_param2->text() : QString("1Meg");
         cmdParams.step = m_param3 ? m_param3->text() : QString("10");
@@ -1964,7 +1980,7 @@ void SimulationPanel::parseCommandText(const QString& command, bool skipTypeOver
             m_param1->blockSignals(false);
             m_param2->blockSignals(false);
         }
-    } else if (cmd.startsWith(".ac")) {
+    } else if (cmd.startsWith(".dc")) {
         if (!skipTypeOverride) {
             m_analysisType->blockSignals(true);
             m_analysisType->setCurrentIndex(2);
@@ -1972,8 +1988,29 @@ void SimulationPanel::parseCommandText(const QString& command, bool skipTypeOver
         }
 
         QStringList parts = cmd.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        // .ac dec <pts> <fstart> <fstop>
         if (parts.size() >= 5) {
+            m_param4->setText(parts[1]); // source
+            m_param1->setText(parts[2]); // start
+            m_param2->setText(parts[3]); // stop
+            m_param3->setText(parts[4]); // step
+        }
+    } else if (cmd.startsWith(".ac")) {
+        if (!skipTypeOverride) {
+            m_analysisType->blockSignals(true);
+            m_analysisType->setCurrentIndex(3);
+            m_analysisType->blockSignals(false);
+        }
+
+        QStringList parts = cmd.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        // .ac <type> <pts> <fstart> <fstop>
+        if (parts.size() >= 5) {
+            if (m_acSweepType) {
+                m_acSweepType->blockSignals(true);
+                if (parts[1] == "dec") m_acSweepType->setCurrentIndex(0);
+                else if (parts[1] == "oct") m_acSweepType->setCurrentIndex(1);
+                else if (parts[1] == "lin") m_acSweepType->setCurrentIndex(2);
+                m_acSweepType->blockSignals(false);
+            }
             m_param1->blockSignals(true);
             m_param2->blockSignals(true);
             m_param3->blockSignals(true);
@@ -2376,7 +2413,7 @@ void SimulationPanel::onRunSimulation() {
 
     const quint64 runRequestSerial = ++m_runRequestSerial;
     auto* watcher = new QFutureWatcher<SimBuildResult>(this);
-    connect(watcher, &QFutureWatcher<SimBuildResult>::finished, this, [this, watcher, runRequestSerial, idx, tStop, tStep, fStart, fStop, pts, steadyEnabled, steadyTolText, steadyDelayText, rfPort1Text, rfPort2Text, rfZ0]() {
+    connect(watcher, &QFutureWatcher<SimBuildResult>::finished, this, [this, watcher, runRequestSerial, idx, tStop, tStep, fStart, fStop, pts, ptsText, steadyEnabled, steadyTolText, steadyDelayText, rfPort1Text, rfPort2Text, rfZ0]() {
         const SimBuildResult result = watcher->result();
         watcher->deleteLater();
 
@@ -2435,14 +2472,23 @@ void SimulationPanel::onRunSimulation() {
             config.type = SimAnalysisType::OP;
             break;
         case 2:
+            config.type = SimAnalysisType::DC;
+            config.dcSource = rfPort1Text.toStdString();
+            config.dcStart = fStart;
+            config.dcStop = fStop;
+            config.dcStep = parseValue(ptsText, 0.1);
+            break;
+        case 3:
             config.type = SimAnalysisType::AC;
+            if (m_acSweepType) config.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
             config.fStart = fStart;
             config.fStop = fStop;
             config.fPoints = pts;
             config.rfPort1Source = rfPort1Text.toStdString();
             break;
-        case 3:
+        case 4:
             config.type = SimAnalysisType::SParameter;
+            if (m_acSweepType) config.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
             config.fStart = fStart;
             config.fStop = fStop;
             config.fPoints = pts;
@@ -2450,13 +2496,13 @@ void SimulationPanel::onRunSimulation() {
             config.rfPort2Node = rfPort2Text.toStdString();
             config.rfZ0 = rfZ0;
             break;
-        case 4:
+        case 5:
             config.type = SimAnalysisType::MonteCarlo;
             break;
-        case 5:
+        case 6:
             config.type = SimAnalysisType::ParametricSweep;
             break;
-        case 6:
+        case 7:
             config.type = SimAnalysisType::Sensitivity;
             break;
         default:

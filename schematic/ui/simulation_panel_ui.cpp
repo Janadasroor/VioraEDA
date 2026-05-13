@@ -258,10 +258,16 @@ void SimulationPanel::setupUI() {
     configForm->setLabelAlignment(Qt::AlignRight);
 
     m_analysisType = new QComboBox();
-    m_analysisType->addItems({"Transient", "DC OP", "AC Sweep", "RF S-Parameter", "Monte Carlo", "Parametric Sweep", "Sensitivity", "Real-time Mode"});
+    m_analysisType->addItems({"Transient", "DC OP", "DC Sweep", "AC Sweep", "RF S-Parameter", "Monte Carlo", "Parametric Sweep", "Sensitivity", "Real-time Mode"});
     m_analysisType->setCurrentIndex(1);
     m_analysisType->setStyleSheet(inputStyle);
     configForm->addRow("Type:", m_analysisType);
+
+    m_acSweepType = new QComboBox();
+    m_acSweepType->addItems({"Decade", "Octave", "Linear"});
+    m_acSweepType->setStyleSheet(inputStyle);
+    m_acSweepType->setVisible(false); // Only for AC
+    configForm->addRow("Sweep Type:", m_acSweepType);
 
     m_commandLine = new QLineEdit(".op");
     m_commandLine->setStyleSheet(commandStyle);
@@ -705,6 +711,7 @@ void SimulationPanel::setupUI() {
     connect(m_steadyCheck, &QCheckBox::toggled, this, &SimulationPanel::updateSchematicDirective);
     connect(m_steadyTolEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
     connect(m_steadyDelayEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateSchematicDirective);
     connect(m_autoNetTableCheck, &QCheckBox::toggled, this, [this](bool enabled) {
         ConfigManager::instance().setToolProperty("SimulationPanel", "showTransientNetTable", enabled);
         if (!enabled) {
@@ -735,6 +742,8 @@ void SimulationPanel::setupUI() {
     connect(m_steadyCheck, &QCheckBox::toggled, this, &SimulationPanel::updateCommandDisplay);
     connect(m_steadyTolEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
     connect(m_steadyDelayEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onAcSweepTypeChanged);
+    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateCommandDisplay);
     connect(m_commandLine, &QLineEdit::editingFinished, this, [this]() {
         parseCommandText(m_commandLine->text());
     });
@@ -848,14 +857,14 @@ void SimulationPanel::onViewNetlist() {
 void SimulationPanel::onAnalysisChanged(int index) {
     SimManager::instance().stopRealTime();
     if (m_waveformViewer) {
-        m_waveformViewer->setAcMode(index == 2 || index == 3); // AC or S-Parameter
+        m_waveformViewer->setAcMode(index == 3 || index == 4); // AC or S-Parameter
     }
     Q_EMIT analysisModeChanged();
 
     QFormLayout* layout = qobject_cast<QFormLayout*>(m_param1->parentWidget()->layout());
     if (!layout) return;
     
-    auto setLabel = [&](QLineEdit* field, const QString& text) {
+    auto setLabel = [&](QWidget* field, const QString& text) {
         if (auto* lbl = qobject_cast<QLabel*>(layout->labelForField(field)))
             lbl->setText(text);
     };
@@ -867,43 +876,62 @@ void SimulationPanel::onAnalysisChanged(int index) {
         setLabel(m_steadyTolEdit, "ssTol:");
         setLabel(m_steadyDelayEdit, "ssDelay:");
         m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
+        m_acSweepType->setVisible(false);
         m_steadyCheck->setVisible(true); m_steadyTolEdit->setVisible(true); m_steadyDelayEdit->setVisible(true);
         m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("1u"); m_param2->setText("10m"); m_param3->setText("0");
     } else if (index == 1) { // DC OP
         m_param1->setVisible(false); m_param2->setVisible(false); m_param3->setVisible(false);
+        m_acSweepType->setVisible(false);
         m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
         m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
-    } else if (index == 2) { // AC Sweep
-        setLabel(m_param1, "Start Freq:");
-        setLabel(m_param2, "Stop Freq:");
-        setLabel(m_param3, "Points/Dec:");
+    } else if (index == 2) { // DC Sweep
+        setLabel(m_param1, "Start:");
+        setLabel(m_param2, "Stop:");
+        setLabel(m_param3, "Step:");
         setLabel(m_param4, "Source:");
         m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
         m_param4->setVisible(true);
+        m_acSweepType->setVisible(false);
+        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
+        m_param5->setVisible(false); m_param6->setVisible(false);
+        m_param1->setText("0"); m_param2->setText("5"); m_param3->setText("0.1");
+        if (m_param4->text().isEmpty()) m_param4->setText("V1");
+    } else if (index == 3) { // AC Sweep
+        setLabel(m_param1, "Start Freq:");
+        setLabel(m_param2, "Stop Freq:");
+        setLabel(m_param3, "Points:");
+        setLabel(m_param4, "Source:");
+        m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
+        m_param4->setVisible(true);
+        m_acSweepType->setVisible(true);
         m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
         m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("10"); m_param2->setText("1Meg"); m_param3->setText("10");
         if (m_param4->text().isEmpty()) m_param4->setText("V1");
-    } else if (index == 3) { // RF S-Parameter
+        onAcSweepTypeChanged();
+    } else if (index == 4) { // RF S-Parameter
         setLabel(m_param1, "Start Freq:");
         setLabel(m_param2, "Stop Freq:");
-        setLabel(m_param3, "Points/Dec:");
+        setLabel(m_param3, "Points:");
         setLabel(m_param4, "Port 1 Src:");
         setLabel(m_param5, "Port 2 Node:");
-        setLabel(m_param6, "Ref Z0:");
+        setLabel(m_param6, "Z0:");
         m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
         m_param4->setVisible(true); m_param5->setVisible(true); m_param6->setVisible(true);
+        m_acSweepType->setVisible(true);
+        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
         m_param1->setText("10"); m_param2->setText("1Meg"); m_param3->setText("10");
-        m_param4->setText("V1"); m_param5->setText("OUT"); m_param6->setText("50");
-    } else if (index == 4) { // Monte Carlo
+        if (m_param4->text().isEmpty()) m_param4->setText("V1");
+        if (m_param5->text().isEmpty()) m_param5->setText("OUT");
+        onAcSweepTypeChanged();
+    } else if (index == 5) { // Monte Carlo
         setLabel(m_param1, "Runs:");
         m_param1->setVisible(true); m_param2->setVisible(false); m_param3->setVisible(false);
         m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
         m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("10");
-    } else if (index == 5) { // Parametric Sweep
+    } else if (index == 6) { // Parametric Sweep
         setLabel(m_param1, "Component:");
         setLabel(m_param2, "Param:");
         setLabel(m_param3, "Start:");
@@ -914,13 +942,13 @@ void SimulationPanel::onAnalysisChanged(int index) {
         m_param4->setVisible(true); m_param5->setVisible(true); m_param6->setVisible(false);
         m_param1->setText("R1"); m_param2->setText("resistance"); m_param3->setText("1k");
         m_param4->setText("10k"); m_param5->setText("10");
-    } else if (index == 6) { // Sensitivity
+    } else if (index == 7) { // Sensitivity
         setLabel(m_param1, "Target Signal:");
         m_param1->setVisible(true); m_param2->setVisible(false); m_param3->setVisible(false);
         m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
         m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("V(Out)");
-    } else if (index == 7) { // Real-time
+    } else if (index == 8) { // Real-time
         setLabel(m_param1, "Update (ms):");
         m_param1->setVisible(true); m_param2->setVisible(false); m_param3->setVisible(false);
         m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
@@ -1105,15 +1133,16 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
     switch (cfg.type) {
         case SimAnalysisType::Transient: idx = 0; break;
         case SimAnalysisType::OP:        idx = 1; break;
-        case SimAnalysisType::AC:        idx = 2; break;
-        case SimAnalysisType::SParameter: idx = 3; break;
-        case SimAnalysisType::MonteCarlo: idx = 4; break;
-        case SimAnalysisType::ParametricSweep: idx = 5; break;
-        case SimAnalysisType::Sensitivity: idx = 6; break;
-        case SimAnalysisType::RealTime: idx = 7; break;
+        case SimAnalysisType::DC:        idx = 2; break;
+        case SimAnalysisType::AC:        idx = 3; break;
+        case SimAnalysisType::SParameter: idx = 4; break;
+        case SimAnalysisType::MonteCarlo: idx = 5; break;
+        case SimAnalysisType::ParametricSweep: idx = 6; break;
+        case SimAnalysisType::Sensitivity: idx = 7; break;
+        case SimAnalysisType::RealTime: idx = 8; break;
         default: {
             // Check for explicit SParameter enum value 12
-            if (static_cast<int>(cfg.type) == 12) idx = 3;
+            if (static_cast<int>(cfg.type) == 12) idx = 4;
             else idx = 0;
             break;
         }
@@ -1136,20 +1165,27 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
             if (m_steadyCheck) m_steadyCheck->setChecked(cfg.transientSteady);
             if (m_steadyTolEdit) m_steadyTolEdit->setText(cfg.steadyStateTol > 0.0 ? QString::number(cfg.steadyStateTol, 'g', 12) : QString());
             if (m_steadyDelayEdit) m_steadyDelayEdit->setText(cfg.steadyStateDelay > 0.0 ? QString::number(cfg.steadyStateDelay, 'g', 12) : QString());
-        } else if (idx == 2) {
+        } else if (idx == 2) { // DC Sweep
+            m_param1->setText(QString::number(cfg.fStart, 'g', 12));
+            m_param2->setText(QString::number(cfg.fStop, 'g', 12));
+            m_param3->setText(QString::number(cfg.step, 'g', 12));
+            m_param4->setText(cfg.dcSource);
+        } else if (idx == 3) { // AC Sweep
             const double fStart = (cfg.fStart > 0.0) ? cfg.fStart : 10.0;
             const double fStop = (cfg.fStop > 0.0) ? cfg.fStop : 1e6;
             const int pts = (cfg.pts > 0) ? cfg.pts : 10;
             m_param1->setText(QString::number(fStart, 'g', 12));
             m_param2->setText(QString::number(fStop, 'g', 12));
             m_param3->setText(QString::number(pts));
-        } else if (idx == 3) { // RF S-Parameter
+            if (m_acSweepType) m_acSweepType->setCurrentIndex(static_cast<int>(cfg.acSweepType));
+        } else if (idx == 4) { // RF S-Parameter
             m_param1->setText(QString::number(cfg.fStart, 'g', 12));
             m_param2->setText(QString::number(cfg.fStop, 'g', 12));
             m_param3->setText(QString::number(cfg.pts));
             m_param4->setText(cfg.rfPort1Source);
             m_param5->setText(cfg.rfPort2Node);
-            m_param6->setText(QString::number(cfg.rfZ0, 'g', 10));
+            m_param6->setText(QString::number(cfg.rfZ0, 'g', 12));
+            if (m_acSweepType) m_acSweepType->setCurrentIndex(static_cast<int>(cfg.acSweepType));
         }
     }
 
@@ -1157,7 +1193,7 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
         m_commandLine->setText(cfg.commandText);
         // Use skipTypeOverride=true so that the analysisType ComboBox (just set above)
         // is not reset back by a commandText like ".ac ..." when SParameter is selected.
-        const bool isSParameter = (idx == 3);
+        const bool isSParameter = (idx == 4);
         parseCommandText(cfg.commandText, isSParameter);
     } else {
         updateCommandDisplay();
@@ -1178,25 +1214,33 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
     } else if (idx == 1) {
         cfg.type = SimAnalysisType::OP;
     } else if (idx == 2) {
+        cfg.type = SimAnalysisType::DC;
+        cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 0);
+        cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 5);
+        cfg.step = parseValue(m_param3 ? m_param3->text() : QString(), 0.1);
+        cfg.dcSource = m_param4 ? m_param4->text().trimmed() : "V1";
+    } else if (idx == 3) {
         cfg.type = SimAnalysisType::AC;
         cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 10);
         cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 1e6);
         cfg.pts = std::max(1, (m_param3 ? m_param3->text().trimmed().toInt() : 10));
-    } else if (idx == 3) {
+        if (m_acSweepType) cfg.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
+    } else if (idx == 4) {
         cfg.type = SimAnalysisType::SParameter;
         cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 10);
         cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 1e6);
         cfg.pts = std::max(1, (m_param3 ? m_param3->text().trimmed().toInt() : 10));
+        if (m_acSweepType) cfg.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
         cfg.rfPort1Source = m_param4 ? m_param4->text().trimmed() : "V1";
         cfg.rfPort2Node = m_param5 ? m_param5->text().trimmed() : "OUT";
         cfg.rfZ0 = parseValue(m_param6 ? m_param6->text().trimmed() : QString(), 50.0);
-    } else if (idx == 4) {
-        cfg.type = SimAnalysisType::MonteCarlo;
     } else if (idx == 5) {
-        cfg.type = SimAnalysisType::ParametricSweep;
+        cfg.type = SimAnalysisType::MonteCarlo;
     } else if (idx == 6) {
-        cfg.type = SimAnalysisType::Sensitivity;
+        cfg.type = SimAnalysisType::ParametricSweep;
     } else if (idx == 7) {
+        cfg.type = SimAnalysisType::Sensitivity;
+    } else if (idx == 8) {
         cfg.type = SimAnalysisType::RealTime;
     }
     
@@ -1205,7 +1249,7 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
 }
 
 bool SimulationPanel::isRealTimeMode() const {
-    return m_analysisType && m_analysisType->currentIndex() == 7;
+    return m_analysisType && m_analysisType->currentIndex() == 8;
 }
 
 void SimulationPanel::setSchematicName(const QString& name) {
@@ -1220,6 +1264,19 @@ void SimulationPanel::setSchematicName(const QString& name) {
     if (m_waveformViewer) {
         m_waveformViewer->setSourceSchematicName(name);
     }
+}
+
+void SimulationPanel::onAcSweepTypeChanged() {
+    QFormLayout* layout = qobject_cast<QFormLayout*>(m_param1->parentWidget()->layout());
+    if (!layout) return;
+    
+    auto* ptsLabel = qobject_cast<QLabel*>(layout->labelForField(m_param3));
+    if (!ptsLabel) return;
+
+    int typeIdx = m_acSweepType->currentIndex();
+    if (typeIdx == 0) ptsLabel->setText("Pts/Dec:");
+    else if (typeIdx == 1) ptsLabel->setText("Pts/Oct:");
+    else if (typeIdx == 2) ptsLabel->setText("Total Pts:");
 }
 
 

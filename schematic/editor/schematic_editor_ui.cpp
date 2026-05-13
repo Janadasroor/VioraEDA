@@ -2114,7 +2114,22 @@ void SchematicEditor::onIssueItemDoubleClicked(QListWidgetItem* item) {
     }
 }
 
+void SchematicEditor::syncSimConfigFromSchematic() {
+    if (!m_scene) return;
+    for (auto* item : m_scene->items()) {
+        if (auto* directive = dynamic_cast<SchematicSpiceDirectiveItem*>(item)) {
+            QString text = directive->text().trimmed();
+            if (SpiceDirectiveClassifier::classify(text).target == SpiceDirectiveEditTarget::SimulationSetup) {
+                m_simConfig.commandText = text;
+                m_simConfigured = true;
+                break;
+            }
+        }
+    }
+}
+
 void SchematicEditor::onOpenSimulationSetup() {
+    syncSimConfigFromSchematic();
     SimulationSetupDialog dlg(this);
     dlg.setConfig(m_simConfig);
     if (dlg.exec() == QDialog::Accepted) {
@@ -2324,6 +2339,9 @@ void SchematicEditor::onRunSimulation() {
         onPauseSimulation(); // Toggle pause/resume if already running
         return;
     }
+
+    // Try to sync with schematic directive before running
+    syncSimConfigFromSchematic();
 
     // Show analysis setup dialog if the user hasn't configured the simulation yet
     if (!m_simConfigured) {
@@ -2742,11 +2760,19 @@ void SchematicEditor::onRunSimulation() {
         config.fStart = m_simConfig.fStart > 0.0 ? m_simConfig.fStart : 10.0;
         config.fStop = m_simConfig.fStop > 0.0 ? m_simConfig.fStop : 1e6;
         config.fPoints = m_simConfig.pts > 0 ? m_simConfig.pts : 10;
+        config.acSweepType = m_simConfig.acSweepType;
+    } else if (m_simConfig.type == SimAnalysisType::DC) {
+        config.type = SimAnalysisType::DC;
+        config.dcSource = m_simConfig.dcSource.toStdString();
+        config.dcStart = m_simConfig.fStart;
+        config.dcStop = m_simConfig.fStop;
+        config.dcStep = m_simConfig.step;
     } else if (m_simConfig.type == SimAnalysisType::SParameter) {
         config.type = SimAnalysisType::SParameter;
         config.fStart = m_simConfig.fStart > 0.0 ? m_simConfig.fStart : 10.0;
         config.fStop = m_simConfig.fStop > 0.0 ? m_simConfig.fStop : 1e6;
         config.fPoints = m_simConfig.pts > 0 ? m_simConfig.pts : 10;
+        config.acSweepType = m_simConfig.acSweepType;
         config.rfPort1Source = m_simConfig.rfPort1Source.toStdString();
         config.rfPort2Node = m_simConfig.rfPort2Node.toStdString();
         config.rfZ0 = m_simConfig.rfZ0 > 0.0 ? m_simConfig.rfZ0 : 50.0;
@@ -2785,11 +2811,19 @@ void SchematicEditor::runSimulationConfig(const SimulationSetupDialog::Config& u
         config.fStart = uiConfig.fStart > 0.0 ? uiConfig.fStart : 10.0;
         config.fStop = uiConfig.fStop > 0.0 ? uiConfig.fStop : 1e6;
         config.fPoints = uiConfig.pts > 0 ? uiConfig.pts : 10;
+        config.acSweepType = uiConfig.acSweepType;
+    } else if (uiConfig.type == SimAnalysisType::DC) {
+        config.type = SimAnalysisType::DC;
+        config.dcSource = uiConfig.dcSource.toStdString();
+        config.dcStart = uiConfig.fStart;
+        config.dcStop = uiConfig.fStop;
+        config.dcStep = uiConfig.step;
     } else if (uiConfig.type == SimAnalysisType::SParameter) {
         config.type = SimAnalysisType::SParameter;
         config.fStart = uiConfig.fStart > 0.0 ? uiConfig.fStart : 10.0;
         config.fStop = uiConfig.fStop > 0.0 ? uiConfig.fStop : 1e6;
         config.fPoints = uiConfig.pts > 0 ? uiConfig.pts : 10;
+        config.acSweepType = uiConfig.acSweepType;
         config.rfPort1Source = uiConfig.rfPort1Source.toStdString();
         config.rfPort2Node = uiConfig.rfPort2Node.toStdString();
         config.rfZ0 = uiConfig.rfZ0 > 0.0 ? uiConfig.rfZ0 : 50.0;

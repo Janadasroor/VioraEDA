@@ -62,8 +62,10 @@ public:
         double fStart;
         double fStop;
         int pts;
+        SimAcSweepType acSweepType = SimAcSweepType::Decade;
         QString commandText;
         QString rfPort1Source;
+        QString dcSource;
         QString rfPort2Node;
         double rfZ0;
     };
@@ -129,6 +131,7 @@ public:
 private Q_SLOTS:
     // --- UI Events & Simulation Callbacks ---
     void onAnalysisChanged(int index);
+    void onAcSweepTypeChanged();
     void onLogReceived(const QString& msg);
     void onSimulationFinished();
     void onViewNetlist();
@@ -217,7 +220,7 @@ private:
     
     // UI Elements
     QComboBox* m_analysisType = nullptr;
-    QWidget* m_paramWidget = nullptr;
+    QComboBox* m_acSweepType = nullptr;
     QLineEdit* m_commandLine = nullptr;
     QLineEdit* m_param1 = nullptr; // e.g., Start Time / Start Freq
     QLineEdit* m_param2 = nullptr; // e.g., Stop Time / Stop Freq

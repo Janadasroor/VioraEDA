@@ -30,8 +30,15 @@ enum class SimTransientStorageMode {
     AutoDecimate  // Store all points, then decimate when storage cap is exceeded.
 };
 
+enum class SimAcSweepType {
+    Decade,
+    Octave,
+    Linear
+};
+
 struct SimAnalysisConfig {
     SimAnalysisType type;
+    SimAcSweepType acSweepType = SimAcSweepType::Decade;
     double tStart = 0, tStop = 0.01, tStep = 1e-5;
     bool transientStopAtSteadyState = false;
     double transientSteadyStateTol = 0.0;
@@ -40,6 +47,10 @@ struct SimAnalysisConfig {
     int fPoints = 10;
     int mcRuns = 10; // Number of Monte Carlo iterations
     SimAnalysisType mcBaseAnalysis = SimAnalysisType::OP; // Analysis to run under MC
+    
+    // DC Sweep settings
+    std::string dcSource; // e.g. "V1"
+    double dcStart = 0.0, dcStop = 5.0, dcStep = 0.1;
 
     // Sensitivity analysis settings
     std::string sensitivityTargetSignal; // e.g. "V(N2)"
