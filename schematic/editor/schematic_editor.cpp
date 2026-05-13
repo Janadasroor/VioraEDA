@@ -1992,9 +1992,13 @@ void SchematicEditor::addSimulationTab(const QString& name) {
     if (!m_scene || !m_netManager || !m_simulationPanel) return;
 
     if (m_oscilloscopeDock) {
-        refreshOscilloscopeDockContent();
-        m_oscilloscopeDock->setFloating(false);
-        m_oscilloscopeDock->show();
+        bool needsOsc = (m_simConfig.type == SimAnalysisType::Transient || 
+                         m_simConfig.type == SimAnalysisType::RealTime);
+        if (needsOsc) {
+            refreshOscilloscopeDockContent();
+            m_oscilloscopeDock->setFloating(false);
+            m_oscilloscopeDock->show();
+        }
     }
 
     int idx = m_workspaceTabs->addTab(m_simulationPanel, getThemeIcon(":/icons/tool_oscilloscope.svg"), name);

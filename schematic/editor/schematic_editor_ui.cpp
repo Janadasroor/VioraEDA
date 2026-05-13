@@ -2504,9 +2504,13 @@ void SchematicEditor::onRunSimulation() {
     // Avoid blocking the UI with a full net rebuild here.
 
     if (m_oscilloscopeDock && m_simulationPanel) {
-        refreshOscilloscopeDockContent();
-        m_oscilloscopeDock->setFloating(false);
-        m_oscilloscopeDock->show();
+        bool needsOsc = (m_simConfig.type == SimAnalysisType::Transient || 
+                         m_simConfig.type == SimAnalysisType::RealTime);
+        if (needsOsc) {
+            refreshOscilloscopeDockContent();
+            m_oscilloscopeDock->setFloating(false);
+            m_oscilloscopeDock->show();
+        }
     }
 
     if (m_simulationPanel) {
