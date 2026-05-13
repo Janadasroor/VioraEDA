@@ -7,7 +7,7 @@
 
 class SchematicShapeItem : public SchematicItem {
 public:
-    enum ShapeType { Rectangle, Circle, Line, Polygon, Bezier };
+    enum ShapeType { Rectangle, Circle, Line, Polygon, Bezier, Arc };
 
     SchematicShapeItem(ShapeType type, QPointF start = QPointF(), QPointF end = QPointF(), QGraphicsItem* parent = nullptr);
     virtual ~SchematicShapeItem() = default;

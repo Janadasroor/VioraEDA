@@ -1106,7 +1106,6 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
 
 void SimulationPanel::addProbe(const QString& signalName) {
     if (signalName.isEmpty()) return;
-    qDebug() << "[SimPanel] addProbe called for:" << signalName << "Sim running:" << SimManager::instance().isRunning();
     
     // Check if it already exists (case-insensitive and step-aware)
     QList<QListWidgetItem*> matchedItems;
@@ -1795,6 +1794,7 @@ void SimulationPanel::setTargetScene(QGraphicsScene* scene, NetManager* netManag
         if (m_timelineSlider) m_timelineSlider->setValue(0);
         if (m_timelineLabel) m_timelineLabel->setText("t = 0");
         if (m_measurementsTable) m_measurementsTable->clearContents();
+        if (m_waveformViewer) m_waveformViewer->clear();
 
         // Restore state for the new tab if we have saved data
         auto it = m_tabStates.find(scene);
@@ -2142,6 +2142,7 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
 
     if (m_waveformViewer && !state.waveformSignals.isEmpty()) {
         m_waveformViewer->beginBatchUpdate();
+        m_waveformViewer->setAcMode(m_lastResults.analysisType == SimAnalysisType::AC);
         m_waveformViewer->ensurePaneCount(state.waveformPaneCount);
         m_waveformViewer->importSignals(state.waveformSignals);
         m_waveformViewer->setFocusedPaneIndex(state.waveformFocusedPaneIndex);
@@ -2523,8 +2524,6 @@ void SimulationPanel::onRunSimulation() {
         for (const auto& d : preflight.diagnostics()) {
             result.diagnostics.append(QString::fromStdString(d));
         }
-
-        qDebug() << "[SimulationPanel] Running simulation with idx=" << idx;
 
         if (idx == 2 || idx == 3) { // AC Sweep or S-Parameter (which uses .ac)
             for (QGraphicsItem* gi : tempScene.items()) {

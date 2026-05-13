@@ -776,6 +776,7 @@ void WaveformViewer::setupStyle() {
 }
 
 void WaveformViewer::clear() {
+    m_acMode = false; // Reset to default mode
     m_signals.clear();
     m_pointCounters.clear();
     m_nodeList->blockSignals(true);
@@ -783,7 +784,11 @@ void WaveformViewer::clear() {
     m_nodeList->blockSignals(false);
     
     for (auto* p : m_panes) {
-        if (p->chart) p->chart->removeAllSeries();
+        if (p->chart) {
+            p->chart->removeAllSeries();
+            if (p->axisY) p->axisY->setTitleText("Value"); // Default title
+            if (p->axisX) p->axisX->setTitleText("Time (s)"); // Default title
+        }
         if (p->view) p->view->setCursorPositions(m_cursor1X, 0, m_cursor2X, 0, nullptr);
     }
     m_activeSeriesName.clear();

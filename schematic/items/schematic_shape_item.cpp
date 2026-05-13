@@ -1,9 +1,11 @@
 #include "schematic_shape_item.h"
 #include "theme_manager.h"
 #include <QPainter>
+#include <QPainterPath>
 #include <QStyleOptionGraphicsItem>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <cmath>
 
 SchematicShapeItem::SchematicShapeItem(ShapeType type, QPointF start, QPointF end, QGraphicsItem* parent)
     : SchematicItem(parent), m_shapeType(type), m_start(start), m_end(end)
@@ -27,6 +29,7 @@ QString SchematicShapeItem::itemTypeName() const {
         case Line: return "Line";
         case Polygon: return "Polygon";
         case Bezier: return "Bezier";
+        case Arc: return "Arc";
     }
     return "Unknown";
 }
@@ -43,7 +46,7 @@ QJsonObject SchematicShapeItem::toJson() const {
     json["end_x"] = m_end.x();
     json["end_y"] = m_end.y();
     
-    if (m_shapeType == Polygon || m_shapeType == Bezier) {
+    if (m_shapeType == Polygon || m_shapeType == Bezier || m_shapeType == Arc) {
         QJsonArray pts;
         for (const auto& p : m_points) {
             QJsonObject pt; pt["x"] = p.x(); pt["y"] = p.y();
@@ -99,6 +102,7 @@ bool SchematicShapeItem::fromJson(const QJsonObject& json) {
     else if (typeStr == "Line") m_shapeType = Line;
     else if (typeStr == "Polygon") m_shapeType = Polygon;
     else if (typeStr == "Bezier") m_shapeType = Bezier;
+    else if (typeStr == "Arc") m_shapeType = Arc;
     
     return true;
 }
@@ -155,10 +159,13 @@ void SchematicShapeItem::setPreviewOpen(bool open) {
 }
 
 QRectF SchematicShapeItem::boundingRect() const {
-    if ((m_shapeType == Polygon || m_shapeType == Bezier) && !m_points.isEmpty()) {
+    if ((m_shapeType == Polygon || m_shapeType == Bezier || m_shapeType == Arc) && !m_points.isEmpty()) {
         QRectF r(m_points.first(), QSizeF(0,0));
         for (const auto& p : m_points) {
             r = r.united(QRectF(p, QSizeF(0,0)));
+        }
+        if (m_shapeType == Arc) {
+            r = r.united(QRectF(m_start, m_end));
         }
         return r.normalized().adjusted(-5, -5, 5, 5);
     }
@@ -193,5 +200,27 @@ void SchematicShapeItem::paint(QPainter *painter, const QStyleOptionGraphicsItem
         path.moveTo(m_points[0]);
         path.cubicTo(m_points[1], m_points[2], m_points[3]);
         painter->drawPath(path);
+    } else if (m_shapeType == Arc && m_points.size() >= 2) {
+        QRectF rect = QRectF(m_start, m_end).normalized();
+        QPointF center = rect.center();
+        
+        auto getAngle = [&](const QPointF& p) {
+            QPointF relative = p - center;
+            // Adjust for ellipse non-circularity
+            qreal x = relative.x() / (rect.width() / 2.0);
+            qreal y = -relative.y() / (rect.height() / 2.0); // Y is down in Qt
+            return std::atan2(y, x);
+        };
+
+        qreal angle1 = getAngle(m_points[0]);
+        qreal angle2 = getAngle(m_points[1]);
+        
+        int startAngle = qRound(angle1 * 180.0 / M_PI * 16.0);
+        int endAngle = qRound(angle2 * 180.0 / M_PI * 16.0);
+        
+        int spanAngle = endAngle - startAngle;
+        if (spanAngle < 0) spanAngle += 360 * 16;
+        
+        painter->drawArc(rect, startAngle, spanAngle);
     }
 }

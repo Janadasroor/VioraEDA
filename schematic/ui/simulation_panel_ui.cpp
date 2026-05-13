@@ -847,6 +847,9 @@ void SimulationPanel::onViewNetlist() {
 
 void SimulationPanel::onAnalysisChanged(int index) {
     SimManager::instance().stopRealTime();
+    if (m_waveformViewer) {
+        m_waveformViewer->setAcMode(index == 2 || index == 3); // AC or S-Parameter
+    }
     Q_EMIT analysisModeChanged();
 
     QFormLayout* layout = qobject_cast<QFormLayout*>(m_param1->parentWidget()->layout());

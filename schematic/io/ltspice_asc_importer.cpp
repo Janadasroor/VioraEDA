@@ -105,15 +105,22 @@ QString resolveLibrarySymbolCaseInsensitive(const QString& query) {
 QString resolveLtspiceSymbolToType(const QString& rawName) {
     static const QMap<QString, QString> aliases = {
         {"res", "Resistor"},
+        {"res2", "Resistor"},
         {"rn55upright", "Resistor"},
         {"uprightpowerresistor", "Resistor"},
         {"cap", "Capacitor_NonPolar"},
+        {"cap2", "Capacitor_NonPolar"},
         {"smcap", "Capacitor_NonPolar"},
         {"polcap", "Capacitor_Polarized"},
+        {"polcap2", "Capacitor_Polarized"},
         {"ind", "Inductor"},
         {"ind2", "Inductor"},
         {"voltage", "voltage"},
+        {"battery", "voltage"},
+        {"signal", "voltage"},
         {"current", "current"},
+        {"load", "current"},
+        {"load2", "current"},
         {"diode", "Diode"},
         {"smdiode", "Diode"},
         {"schottky", "Diode"},
@@ -129,6 +136,7 @@ QString resolveLtspiceSymbolToType(const QString& rawName) {
         {"pnp", "pnp"},
         {"pnp2", "pnp2"},
         {"pnp4", "pnp4"},
+        {"lpnp", "pnp"},
         {"nmos", "nmos"},
         {"nmos4", "nmos4"},
         {"pmos", "pmos"},
@@ -292,11 +300,16 @@ void addLine(QGraphicsScene* scene, const QList<int>& nums, const QStringList& t
     scene->addItem(shape);
 }
 
-void addArcFallback(QGraphicsScene* scene, const QList<int>& nums) {
+void addArc(QGraphicsScene* scene, const QList<int>& nums) {
     if (!scene || nums.size() < 8) return;
-    auto* shape = new SchematicShapeItem(SchematicShapeItem::Line,
-                                         QPointF(nums[4], nums[5]),
-                                         QPointF(nums[6], nums[7]));
+    // LTspice ARC: x1 y1 x2 y2 x3 y3 x4 y4
+    // (x1, y1) (x2, y2) is bounding box
+    // (x3, y3) is start point
+    // (x4, y4) is end point
+    auto* shape = new SchematicShapeItem(SchematicShapeItem::Arc,
+                                         QPointF(nums[0], nums[1]),
+                                         QPointF(nums[2], nums[3]));
+    shape->setPoints({QPointF(nums[4], nums[5]), QPointF(nums[6], nums[7])});
     scene->addItem(shape);
 }
 
@@ -542,7 +555,7 @@ bool LtspiceAscImporter::importFile(QGraphicsScene* scene,
 
         if (cmd == "ARC") {
             const QStringList tokens = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-            addArcFallback(scene, extractAllInts(tokens, 1));
+            addArc(scene, extractAllInts(tokens, 1));
             continue;
         }
     }
