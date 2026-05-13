@@ -104,6 +104,7 @@ void SimulationSetupDialog::setupUI() {
 
     auto* btnLayout = new QHBoxLayout();
     auto* okBtn = new QPushButton("Apply");
+    okBtn->setDefault(true);
     auto* cancelBtn = new QPushButton("Cancel");
     connect(okBtn, &QPushButton::clicked, this, &QDialog::accept);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);

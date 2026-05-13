@@ -448,8 +448,16 @@ set(SCHEMATIC_SOURCES
     schematic/ui/netlist_editor.h
     schematic/ui/spice_highlighter.cpp
     schematic/ui/spice_highlighter.h
-    schematic/ui/logic_editor_panel.cpp
-    schematic/ui/logic_editor_panel.h
+)
+
+if(VIOSPICE_ENABLE_PYTHON)
+    list(APPEND SCHEMATIC_SOURCES
+        schematic/ui/logic_editor_panel.cpp
+        schematic/ui/logic_editor_panel.h
+    )
+endif()
+
+list(APPEND SCHEMATIC_SOURCES
     schematic/ui/mini_scope_widget.cpp
     schematic/ui/mini_scope_widget.h
     schematic/ui/model_browser_widget.cpp
@@ -498,13 +506,6 @@ set(SCHEMATIC_SOURCES
     schematic/schematic_primitives.cpp
     schematic/schematic_primitives.h
 )
-
-if(NOT VIOSPICE_ENABLE_PYTHON)
-    list(REMOVE_ITEM SCHEMATIC_SOURCES
-        schematic/ui/logic_editor_panel.cpp
-        schematic/ui/logic_editor_panel.h
-    )
-endif()
 
 # =============================================================================
 # UI MODULE - Project manager and shared UI

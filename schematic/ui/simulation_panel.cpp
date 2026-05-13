@@ -1834,6 +1834,7 @@ void SimulationPanel::updateSchematicDirective() {
         cmdParams.start = m_param1 ? (m_param1->text().trimmed().isEmpty() ? "10" : m_param1->text().trimmed()) : "10";
         cmdParams.stop = m_param2 ? (m_param2->text().trimmed().isEmpty() ? "1Meg" : m_param2->text().trimmed()) : "1Meg";
         cmdParams.step = m_param3 ? (m_param3->text().trimmed().isEmpty() ? "10" : m_param3->text().trimmed()) : "10";
+        cmdParams.rfPort1Source = m_param4 ? m_param4->text().trimmed() : "V1";
     } else if (idx == 3) {
         cmdParams.type = SpiceNetlistGenerator::SParameter;
         // Frequency and other params come from the same m_param widgets
@@ -1921,6 +1922,7 @@ void SimulationPanel::updateCommandDisplay() {
         cmdParams.start = m_param1 ? m_param1->text() : QString("10");
         cmdParams.stop = m_param2 ? m_param2->text() : QString("1Meg");
         cmdParams.step = m_param3 ? m_param3->text() : QString("10");
+        cmdParams.rfPort1Source = m_param4 ? m_param4->text() : QString("V1");
     } else if (idx == 3) {
         cmdParams.type = SpiceNetlistGenerator::SParameter;
         cmdParams.start = m_param1 ? m_param1->text() : QString("10");
@@ -2436,6 +2438,7 @@ void SimulationPanel::onRunSimulation() {
             config.fStart = fStart;
             config.fStop = fStop;
             config.fPoints = pts;
+            config.rfPort1Source = rfPort1Text.toStdString();
             break;
         case 3:
             config.type = SimAnalysisType::SParameter;
@@ -2563,6 +2566,7 @@ void SimulationPanel::onRunSimulation() {
             params.start = fStartText.isEmpty() ? "10" : fStartText;
             params.stop = fStopText.isEmpty() ? "1Meg" : fStopText;
             params.step = ptsText.isEmpty() ? "10" : ptsText;
+            params.rfPort1Source = rfPort1Text;
         } else if (idx == 3) {
             params.type = SpiceNetlistGenerator::SParameter;
             params.start = fStartText.isEmpty() ? "10" : fStartText;
@@ -2670,7 +2674,8 @@ QString SimulationPanel::generateSpiceNetlist() {
         params.type = SpiceNetlistGenerator::AC;
         params.start = m_param1->text();
         params.stop = m_param2->text();
-        params.step = m_param3->text(); 
+        params.step = m_param3->text();
+        params.rfPort1Source = m_param4 ? m_param4->text() : QString();
     } else if (typeIndex == 3) {
         params.type = SpiceNetlistGenerator::SParameter;
         params.start = m_param1->text();
@@ -3644,9 +3649,8 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         m_chart->legend()->hide();
     }
 
-    int analysisIdx = m_analysisType->currentIndex();
     if (m_waveformViewer) {
-        m_waveformViewer->setAcMode(analysisIdx == 2);
+        m_waveformViewer->setAcMode(results.analysisType == SimAnalysisType::AC);
     }
     QAbstractAxis* axisX = nullptr;
     QAbstractAxis* axisYBase = nullptr;
@@ -3697,7 +3701,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         return axis;
     };
     
-    if (buildStandardChart && analysisIdx == 2) { // AC Sweep / Bode Plot
+    if (buildStandardChart && results.analysisType == SimAnalysisType::AC) { // AC Sweep / Bode Plot
         auto* logX = new QLogValueAxis();
         logX->setTitleText("Frequency (Hz)");
         logX->setBase(10.0);
@@ -3711,7 +3715,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         axisYPhase->setGridLineVisible(false);
         m_chart->addAxis(axisYPhase, Qt::AlignRight);
     } else if (buildStandardChart) {
-        if (analysisIdx == 3) {
+        if (results.analysisType == SimAnalysisType::SParameter) {
             auto* valX = new QValueAxis();
             valX->setTitleText("Run Number");
             axisX = valX;
@@ -3734,7 +3738,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         m_chart->addAxis(axisX, Qt::AlignBottom);
     }
 
-    if (buildStandardChart && analysisIdx == 2) {
+    if (buildStandardChart && results.analysisType == SimAnalysisType::AC) {
         QValueAxis* axisY = new QValueAxis();
         axisY->setTitleText("Magnitude (dB)");
         axisY->setGridLinePen(QPen(QColor("#d0d0d0"), 1, Qt::DotLine));
@@ -3751,7 +3755,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             else { minY = std::min(minY, lo); maxY = std::max(maxY, hi); }
         }
         const QString unit = detectYUnit();
-        const QString title = (analysisIdx == 3) ? axisLabelFromSchema(results.yAxisName)
+        const QString title = (results.analysisType == SimAnalysisType::SParameter) ? axisLabelFromSchema(results.yAxisName)
                                                  : axisLabelFromSchema(results.yAxisName) + " (" + unit + ")";
         auto* axisY = buildSIAxis(minY, maxY, title);
         axisY->setGridLinePen(QPen(QColor("#d0d0d0"), 1, Qt::DotLine));
@@ -3774,7 +3778,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         series->setPen(QPen(waveColor, 1.5));
         
         QLineSeries* phaseSeries = nullptr;
-        if (analysisIdx == 2 && !wave.yPhase.empty()) {
+        if (results.analysisType == SimAnalysisType::AC && !wave.yPhase.empty()) {
             phaseSeries = new QLineSeries();
             phaseSeries->setUseOpenGL(shouldUseOpenGLRendering());
             phaseSeries->setName(series->name() + " (Phase)");
@@ -3786,7 +3790,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
 
         const int targetPoints = standardChartPointBudget();
         
-        if (analysisIdx == 2) {
+        if (results.analysisType == SimAnalysisType::AC) {
             // AC Magnitude in dB
             std::vector<double> dbData;
             dbData.reserve(wave.yData.size());
@@ -3810,7 +3814,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         }
 
         if (m_waveformViewer) {
-            if (analysisIdx == 2 && !wave.yPhase.empty()) {
+            if (results.analysisType == SimAnalysisType::AC && !wave.yPhase.empty()) {
                 m_waveformViewer->addSignal(QString::fromStdString(wave.name),
                                             QVector<double>(wave.xData.begin(), wave.xData.end()),
                                             QVector<double>(wave.yData.begin(), wave.yData.end()),
@@ -3901,7 +3905,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             avgVal = sum / static_cast<double>(wave.yData.size());
         }
 
-        if (buildSpectrumChart && !showSteppedMeasurementPlot && analysisIdx == 0 && wave.yData.size() >= 64) {
+        if (buildSpectrumChart && !showSteppedMeasurementPlot && results.analysisType == SimAnalysisType::Transient && wave.yData.size() >= 64) {
             int nfft = 1024;
             std::vector<double> resampled = SimMath::resample(wave.xData, wave.yData, nfft);
             std::vector<std::complex<double>> complexIn(nfft);
@@ -3935,7 +3939,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             m_measurementsTable->setItem(row, 3, new QTableWidgetItem(QString::number(rmsVal, 'f', 3)));
             const double freqHz = estimateFrequency(wave);
             QString freqStr = (freqHz > 0.0) ? QString("%1 Hz").arg(QString::number(freqHz, 'g', 4)) : "-";
-            if (analysisIdx == 0) {
+            if (results.analysisType == SimAnalysisType::Transient) {
                 const double fftPeak = estimateFftPeakHz(wave);
                 if (fftPeak > 0.0) freqStr = QString("%1 (FFT %2)").arg(freqStr == "-" ? QString("~") : freqStr).arg(QString::number(fftPeak, 'g', 4));
             }

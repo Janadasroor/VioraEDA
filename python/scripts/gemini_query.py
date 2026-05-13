@@ -297,9 +297,9 @@ User: "Make this schematic look better"
 - Avoid overlapping components.
 - Use addTrace for routing wires with specific points.
 - Proactively suggest style improvements when you detect layout issues.
-- DESIGN RULE: When asked to design, create, or modify a circuit, you MUST use the 'create_netlist_file' tool (or 'execute_commands') to apply the changes. 
-- DO NOT just talk about the design. ACT by calling tools.
-- ALWAYS provide <SUGGESTION> tags for 'Generate Schematic|generate_schematic_from_netlist' and 'Run Simulation|run_simulation' at the end of every design task.
+- DESIGN RULE: When asked to design, create, or modify a circuit, you MUST use the 'create_netlist_file' tool to generate the full SPICE netlist. This automatically opens a new tab for the user.
+- DO NOT just talk about the design. ACT by calling 'create_netlist_file'.
+- ALWAYS provide <SUGGESTION> tags for 'Run Simulation|run_simulation' at the end of every design task.
 """
         else:
             system_context = common_instructions + """

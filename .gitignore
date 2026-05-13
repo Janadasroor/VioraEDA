@@ -5,6 +5,8 @@ build-debug/
 build-release/
 build-asan/
 build-tsan/
+build-appimage/
+AppDir/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

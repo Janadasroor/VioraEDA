@@ -132,9 +132,28 @@ void CommandWorker::loadCircuit(char** deck) { SpiceBackend::instance().loadCirc
 
 namespace {
     QString normalizeStreamVectorName(const QString& rawName) {
-        const QString q = rawName.trimmed();
+        QString q = rawName.trimmed();
         if (q.isEmpty()) return rawName;
 
+        // 1. Deep cleanup: Remove @ and preserve terminal if present (e.g., [IB], [B], etc.)
+        // Transform I(@Q1[IB]) -> I(Q1[B]) or @D1[id] -> I(D1)
+        static const QRegularExpression deepCleanupRe(
+            "(?:I|V)?\\s*\\(?\\s*@\\s*([A-Za-z0-9_.$:+-]+)(?:\\[\\s*i?([a-z]+)\\s*\\])?\\s*\\)?",
+            QRegularExpression::CaseInsensitiveOption);
+        
+        if (const auto m = deepCleanupRe.match(q); m.hasMatch()) {
+            QString ref = m.captured(1).toUpper();
+            QString term = m.captured(2).toUpper();
+            if (term.isEmpty() || term == "I" || term == "D" || term == "C") {
+                // For simple devices or Collector/Drain (default), just use I(REF)
+                return QString("I(%1)").arg(ref);
+            } else {
+                // For other terminals (Base, Emitter, Gate, etc.), use I(REF[TERM])
+                return QString("I(%1[%2])").arg(ref, term);
+            }
+        }
+
+        // 2. Standard branch normalization: v1#branch -> I(V1)
         static const QRegularExpression branchRe(
             "^\\s*([A-Za-z0-9_.$:+-]+)\\s*#\\s*branch\\s*$",
             QRegularExpression::CaseInsensitiveOption);
@@ -142,13 +161,7 @@ namespace {
             return QString("I(%1)").arg(m.captured(1).toUpper());
         }
 
-        static const QRegularExpression deviceCurrentRe(
-            "^@\\s*([A-Za-z0-9_.$:+-]+)\\s*\\[\\s*i[a-z]*\\s*\\]$",
-            QRegularExpression::CaseInsensitiveOption);
-        if (const auto m = deviceCurrentRe.match(q); m.hasMatch()) {
-            return QString("I(%1)").arg(m.captured(1).toUpper());
-        }
-
+        // 3. General wrapper normalization: v(net1) -> V(NET1)
         static const QRegularExpression wrapperRe(
             "^(v|i)\\s*\\(\\s*(.+)\\s*\\)$",
             QRegularExpression::CaseInsensitiveOption);
@@ -157,7 +170,7 @@ namespace {
                 .arg(m.captured(1).toUpper(), m.captured(2).trimmed().toUpper());
         }
 
-        return q;
+        return q.toUpper();
     }
 }
 
@@ -330,12 +343,17 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     
     m_streamingCounter = 0;
     m_skipFactor = 1; // High resolution for real-time interaction
-    m_autoResumeCounter = 0;
-    if (control) m_bufferTimer->start(); else m_bufferTimer->stop();
+    
+    // Cleanup stale raw file
+    QFile::remove("/tmp/viospice.raw");
+    // If already running, stop first (with wait)
+    if (m_state == SimulationState::Running || m_state == SimulationState::Halted) {
+        stopSimulation();
+    }
 
     QString error;
     if (!loadNetlistInternal(netlist, true, &error)) {
-        m_bufferTimer->stop();
+        QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
         if (!error.isEmpty()) Q_EMIT errorOccurred(error);
         return;
     }
@@ -350,10 +368,12 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     // Apply any GUI parameters (like switch states) before starting
     applyPendingFluxSourceUpdates();
     
+    // Note: ".save all" is already added by SpiceNetlistGenerator to the deck.
+    // Explicitly setting filetype to binary for performance.
     SpiceBackend::instance().execute("set filetype=binary");
-    SpiceBackend::instance().execute("save all");
     
     setState(SimulationState::Running);
+    if (m_streamingControl) QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection);
     int rc = SpiceBackend::instance().execute("bg_run");
 
     if (rc != 0 || m_lastLoadFailed) {
@@ -395,6 +415,7 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
     }
     
     setState(SimulationState::Loading);
+    SpiceBackend::instance().execute("destroy all");
     SpiceBackend::instance().execute("reset");
     SpiceBackend::instance().execute("set ngbehavior=ltps");
     SpiceBackend::instance().execute("set filetype=binary");
@@ -490,12 +511,12 @@ void SimulationManager::sendInternalCommand(const QString& command) {
     if (!m_isInitialized) return;
     if (command == "bg_halt") { 
         m_haltRequested = true; 
-        m_bufferTimer->stop(); 
+        QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
     }
     else if (command == "bg_resume") { 
         // NOTE: Don't set Running state here - wait for handleEngineStateChange callback
         // to confirm ngspice has actually resumed. This prevents race conditions.
-        if (m_streamingControl) m_bufferTimer->start(); 
+        if (m_streamingControl) QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection);
     }
     SpiceBackend::instance().execute(command);
 #endif
@@ -688,18 +709,29 @@ void SimulationManager::handleIncomingData(void* vecArrayPtr, int numStructs) {
     
     for (int i = 0; i < vecArray->veccount; ++i) {
         pvecvalues v = vecArray->vecsa[i];
-        if (!v) { 
-            sampleValues.push_back(0.0); 
+        if (!v) continue; 
+
+        if (v->is_scale) {
+            if (!haveScale) {
+                timeValue = v->creal;
+                haveScale = true;
+            }
+            // Skip adding scale vector (Time) to the sampleValues vector
+            // so it aligns perfectly with the 'names' list which filters out isScale.
             continue; 
         }
-        sampleValues.push_back(v->creal);
-        if (v->is_scale && !haveScale) { 
-            timeValue = v->creal; 
-            haveScale = true; 
+        
+        if (v->is_complex) {
+            // Calculate magnitude for AC/Complex results
+            double mag = std::sqrt(v->creal * v->creal + v->cimag * v->cimag);
+            sampleValues.push_back(mag);
+        } else {
+            sampleValues.push_back(v->creal);
         }
     }
     
-    if (!haveScale && vecArray->veccount > 0) {
+    // Fallback if no scale vector was explicitly marked
+    if (!haveScale && vecArray->veccount > 0 && vecArray->vecsa[0]) {
         timeValue = vecArray->vecsa[0]->creal;
         haveScale = true;
     }
@@ -722,18 +754,35 @@ int SimulationManager::cbSendInitData(pvecinfoall initData, int id, void* userDa
 
 void SimulationManager::handleAnalysisMetadata(void* initDataPtr) {
     pvecinfoall initData = static_cast<pvecinfoall>(initDataPtr);
+    if (!initData) return;
+
     bool isPaused = SpiceBackend::instance().isPaused();
-    qDebug() << "[SimManager] Analysis started:" << initData->title << "Type:" << initData->type << "isPaused=" << isPaused << "ngspiceIsHalted=" << m_ngspiceIsHalted;
+    qDebug() << "[SimManager] Analysis metadata received. Title:" << (initData->title ? initData->title : "N/A") 
+             << "Type:" << (initData->type ? initData->type : "N/A") 
+             << "Vectors:" << initData->veccount;
     
     std::lock_guard<std::mutex> lock(m_vectorMutex);
     m_vectorMap.clear();
+    if (!initData->vecs) return;
+
     for (int i = 0; i < initData->veccount; ++i) {
-        pvecinfo v = initData->vecs[i]; if (!v) continue;
-        VectorMap vm; vm.index = i;
+        pvecinfo v = initData->vecs[i]; 
+        if (!v || !v->vecname) continue;
+
+        VectorMap vm; 
+        vm.index = i;
         vm.name = normalizeStreamVectorName(QString::fromLatin1(v->vecname));
         vm.isVoltage = (v->is_real && !vm.name.toLower().startsWith("i("));
         vm.isScale = (v->pdvec != nullptr && v->pdvec == v->pdvecscale);
+        
+        if (vm.isScale) continue;
+
         m_vectorMap.push_back(vm);
+    }
+    
+    qDebug() << "[SimManager] Analysis started with" << m_vectorMap.size() << "plottable vectors.";
+    for (const auto& vm : m_vectorMap) {
+        qDebug() << "  - Vector[" << vm.index << "]:" << vm.name << (vm.isVoltage ? "(V)" : "(I)");
     }
 }
 #endif
@@ -760,6 +809,9 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
     } else if (!m_currentNetlist.isEmpty() && QFileInfo::exists(m_currentNetlist)) {
         QFileInfo fi(m_currentNetlist);
         rawPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".raw";
+    } else {
+        // Default for temporary netlists
+        rawPath = "/tmp/viospice.raw";
     }
 
     if (finished && (isPaused || m_haltRequested.load())) {
@@ -809,6 +861,7 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
     } else if (!finished && !isPaused) {
         // === Engine Running/Resumed ===
         setState(SimulationState::Running);
+        if (m_streamingControl) QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection);
         m_haltRequested = false; 
         {
             std::lock_guard<std::mutex> lock(m_workerSyncMutex);
@@ -819,7 +872,7 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
 }
 
 void SimulationManager::handleSimulationFinished(const QString& rawPath) {
-    m_bufferTimer->stop(); 
+    QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection); 
     processBufferedData();
     m_stopRequested = false; 
 

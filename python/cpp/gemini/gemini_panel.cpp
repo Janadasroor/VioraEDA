@@ -264,7 +264,33 @@ GeminiPanel::GeminiPanel(QGraphicsScene* scene, QWidget* parent)
             return;
         }
 
-        m_quickWidget->setSource(QUrl::fromLocalFile(QDir::current().absoluteFilePath("python/qml/GeminiRoot.qml")));
+        const QString appDir = QCoreApplication::applicationDirPath();
+        const QString qmlPath = "python/qml/GeminiRoot.qml";
+        
+        // Candidates for QML location:
+        // 1. ../python/qml/ (Bundled AppImage)
+        // 2. python/qml/ (Dev environment relative to build)
+        // 3. ./python/qml/ (CWD fallback)
+        QStringList candidates = {
+            QDir(appDir).absoluteFilePath("../" + qmlPath),
+            QDir(appDir).absoluteFilePath(qmlPath),
+            QDir::current().absoluteFilePath(qmlPath)
+        };
+
+        QString resolvedPath;
+        for (const QString& candidate : candidates) {
+            if (QFileInfo::exists(candidate)) {
+                resolvedPath = candidate;
+                break;
+            }
+        }
+
+        if (resolvedPath.isEmpty()) {
+            qWarning() << "[GeminiPanel] Could not find QML source:" << qmlPath;
+            return;
+        }
+
+        m_quickWidget->setSource(QUrl::fromLocalFile(resolvedPath));
         refreshModelList();
         loadHistory();
     });
@@ -1235,9 +1261,26 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
     } else if (cmd == "run erc" || cmd == "run_erc") {
         appendSystemAction("ERC", "Running Electrical Rules Check...", "");
         Q_EMIT runERCRequested();
-    } else if (cmd == "run simulation" || cmd == "run sim" || cmd == "run_simulation" || cmd == "run_sim" || cmd == "simulate") {
+    } else if (cmd == "run simulation" || cmd == "run sim" || cmd == "run_simulation" || cmd == "run_sim" || cmd == "simulate" || cmd == "run") {
         appendSystemAction("Simulation", "Initializing SPICE simulation...", "");
         Q_EMIT runSimulationRequested();
+    } else if (cmd == "alter" && args.size() >= 3) {
+        QString ref = args[1];
+        QString val = args[2];
+        
+        QJsonObject cmdObj;
+        cmdObj["cmd"] = "setProperty";
+        cmdObj["reference"] = ref;
+        cmdObj["name"] = "value";
+        cmdObj["value"] = val;
+        
+        QJsonArray cmdArr;
+        cmdArr.append(cmdObj);
+        QJsonObject snipObj;
+        snipObj["commands"] = cmdArr;
+        
+        Q_EMIT snippetGenerated(QString(QJsonDocument(snipObj).toJson(QJsonDocument::Compact)));
+        appendSystemNote("<b>Value Altered:</b> " + ref + " set to " + val);
     } else if (cmd == "set_property" && args.size() >= 4) {
         QString ref = args[1];
         QString prop = args[2];
@@ -1246,7 +1289,7 @@ void GeminiPanel::parseAndExecuteCommandModeInput(const QString& in) {
         QJsonObject cmdObj;
         cmdObj["cmd"] = "setProperty";
         cmdObj["reference"] = ref;
-        cmdObj["property"] = prop;
+        cmdObj["name"] = prop;
         cmdObj["value"] = val;
         
         QJsonArray cmdArr;

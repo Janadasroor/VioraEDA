@@ -44,10 +44,16 @@ SmartProbeEngine::SmartProbeEngine(GeminiPanel* geminiPanel, SmartProbeOverlay* 
     m_hideTimer->setSingleShot(true);
     m_hideTimer->setInterval(250); // 250ms grace period before hiding
     connect(m_hideTimer, &QTimer::timeout, this, &SmartProbeEngine::onHideTimeout);
+
+    m_showTimer = new QTimer(this);
+    m_showTimer->setSingleShot(true);
+    m_showTimer->setInterval(400); // 400ms delay before showing overlay
+    connect(m_showTimer, &QTimer::timeout, this, &SmartProbeEngine::onShowTimeout);
 }
 
 void SmartProbeEngine::probe(const QString& netName, const QString& context, const QPoint& viewPos) {
     if (netName.isEmpty()) {
+        m_showTimer->stop();
         m_debounceTimer->stop();
         if (!m_hideTimer->isActive()) {
             m_hideTimer->start();
@@ -64,16 +70,28 @@ void SmartProbeEngine::probe(const QString& netName, const QString& context, con
         return;
     }
 
-    m_currentNet = netName;
-    m_currentContext = context;
-    m_currentPos = viewPos;
+    // If we're hovering over a DIFFERENT net, or starting fresh:
+    if (m_currentNet != netName) {
+        m_currentNet = netName;
+        m_currentContext = context;
+        m_currentPos = viewPos;
 
-    m_overlay->showAt(viewPos, netName, formatInstantValue(netName, m_currentResults), context);
+        m_showTimer->start(); // Wait for 400ms of stillness before showing
+    } else if (!m_overlay->isVisible()) {
+        // Still on same net but not visible yet (waiting for timer)
+        m_currentPos = viewPos;
+    }
+}
+
+void SmartProbeEngine::onShowTimeout() {
+    if (m_currentNet.isEmpty()) return;
+
+    m_overlay->showAt(m_currentPos, m_currentNet, formatInstantValue(m_currentNet, m_currentResults), m_currentContext);
     m_overlay->clearAIAnnotation(); // Reset for new net
 
     if (ConfigManager::instance().aiOverlayEnabled()) {
-        if (m_annotationCache.contains(netName)) {
-            m_overlay->updateAIAnnotation(m_annotationCache[netName]);
+        if (m_annotationCache.contains(m_currentNet)) {
+            m_overlay->updateAIAnnotation(m_annotationCache[m_currentNet]);
         } else {
             m_debounceTimer->start();
         }

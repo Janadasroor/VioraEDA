@@ -24,15 +24,8 @@ FetchContent_Declare(
     GIT_TAG        d9c9603ca6908d5b2e55e9b535fcdf28099789ad
 )
 
-# Fetch and configure Nanobind (Python Bindings)
-FetchContent_Declare(
-    nanobind
-    GIT_REPOSITORY https://github.com/wjakob/nanobind.git
-    GIT_TAG        v2.0.0 # Use a stable version
-)
-
 # We need to ensure dependencies are handled
-FetchContent_MakeAvailable(slang nanobind)
+FetchContent_MakeAvailable(slang)
 link_directories(${slang_BINARY_DIR}/lib)
 # -----------------------------
 
@@ -125,20 +118,28 @@ set(VIOSPICE_ENGINE_FOUND TRUE)
 message(STATUS "VIOSPICE ENGINE found: ${VIOSPICE_PREFERRED_ENGINE_LIB}")
 # -----------------------
 
+# --- Python Embedding Support (App) ---
+find_package(Python3 3.10 COMPONENTS Interpreter Development QUIET)
+if(Python3_FOUND)
+    set(VIOSPICE_ENABLE_PYTHON ON)
+    add_compile_definitions(HAVE_PYTHON)
+    message(STATUS "Embedded Python enabled: ${Python3_INCLUDE_DIRS}")
+else()
+    message(STATUS "Embedded Python DISABLED (Python3 development files not found)")
+endif()
+
 # --- nanobind Python Bindings ---
 option(VIOSPICE_ENABLE_NANOBIND "Build Python bindings via nanobind" ON)
 if(VIOSPICE_ENABLE_NANOBIND)
-    find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+    # Fetch and configure Nanobind (Python Bindings)
+    FetchContent_Declare(
+        nanobind
+        GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+        GIT_TAG        v2.0.0 # Use a stable version
+    )
+    FetchContent_MakeAvailable(nanobind)
 
-    # Also embed Python in the main app (Phase 4 — Blender-style integration)
-    find_package(Python3 3.10 COMPONENTS Development QUIET)
-    if(Python3_FOUND)
-        set(VIOSPICE_ENABLE_PYTHON ON)
-        add_compile_definitions(HAVE_PYTHON)
-        message(STATUS "Embedded Python enabled: ${Python3_INCLUDE_DIRS}")
-    else()
-        message(STATUS "Embedded Python DISABLED (Python3 development files not found)")
-    endif()
+    find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development)
 
     # Headless solver library (zero Qt, shared by simulator and Python bindings)
     add_library(VioSolverCore STATIC

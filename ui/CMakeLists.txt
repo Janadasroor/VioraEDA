@@ -26,7 +26,7 @@ if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
 endif()
 
 # Enable Python embedding in UI components
-if(Python3_FOUND)
+if(VIOSPICE_ENABLE_PYTHON)
     target_compile_definitions(VioUI PRIVATE HAVE_PYTHON)
     target_include_directories(VioUI PRIVATE ${Python3_INCLUDE_DIRS})
     target_link_libraries(VioUI PRIVATE Python3::Python)

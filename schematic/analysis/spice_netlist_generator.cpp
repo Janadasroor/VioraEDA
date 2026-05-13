@@ -2509,9 +2509,9 @@ QString formatPwlValueForNetlist(const QString& value, int maxLen = 120) {
     return result;
 }
 
-QString currentSaveVectorForRef(const QString& spiceRef) {
+QStringList currentSaveVectorsForRef(const QString& spiceRef) {
     QString ref = spiceRef.trimmed();
-    if (ref.isEmpty()) return QString();
+    if (ref.isEmpty()) return {};
 
     // Extract first token (the reference) if the line contains nodes or values
     if (ref.contains(' ')) {
@@ -2519,24 +2519,31 @@ QString currentSaveVectorForRef(const QString& spiceRef) {
     }
 
     // Sanity check: paths or weird strings shouldn't be treated as SPICE references
-    if (ref.contains('/') || ref.contains('\\') || ref.contains('.')) return QString();
+    if (ref.contains('/') || ref.contains('\\') || ref.contains('.')) return {};
 
     const QChar prefix = ref.at(0).toUpper();
     switch (prefix.unicode()) {
     case 'R':
     case 'C':
     case 'L':
-    case 'D':
     case 'B':
-        return QString("@%1[i]").arg(ref);
+        return { QString("@%1[i]").arg(ref) };
     case 'Q':
-        return QString("@%1[ic]").arg(ref);
+        // Return Collector, Base, and Emitter currents for BJT
+        return { 
+            QString("@%1[ic]").arg(ref), 
+            QString("@%1[ib]").arg(ref), 
+            QString("@%1[ie]").arg(ref) 
+        };
+    case 'D':
     case 'M':
     case 'J':
     case 'Z':
-        return QString("@%1[id]").arg(ref);
+        // For Diodes, MOSFETs, JFETs - typically id (Drain/Diode current)
+        // For MOSFETs we could also add ig, is if needed
+        return { QString("@%1[id]").arg(ref) };
     default:
-        return QString();
+        return {};
     }
 }
 
@@ -2958,8 +2965,21 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
 }
 }
 
-SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& projectDir, NetManager* /*netManager*/, const SimulationParams& params) {
+SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphicsScene* scene, const QString& projectDir, NetManager* /*netManager*/, const SimulationParams& paramsIn) {
     if (!scene) return { "* Missing scene\n", {} };
+
+    SimulationParams params = paramsIn;
+    // Fallback: If AC/S-Param mode and no source specified, pick first V source
+    if ((params.type == AC || params.type == SParameter) && params.rfPort1Source.trimmed().isEmpty()) {
+        for (QGraphicsItem* item : scene->items()) {
+            if (auto* si = dynamic_cast<SchematicItem*>(item)) {
+                if (si->itemType() == SchematicItem::VoltageSourceType && !si->reference().isEmpty()) {
+                    params.rfPort1Source = si->reference();
+                    break;
+                }
+            }
+        }
+    }
 
     qDebug() << "[SpiceNetlistGenerator] type=" << params.type << "rfPort1Source=" << params.rfPort1Source << "rfPort2Node=" << params.rfPort2Node << "rfZ0=" << params.rfZ0;
 
@@ -2973,6 +2993,29 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
     // only for VioMATRIXC. A deck-only `.options vicompat=lt` is too late for
     // parse-time A-device rewriting and must not be relied on.
     netlist += ".options vicompat=all\n";
+    if (params.type == AC || params.type == SParameter) {
+        netlist += ".options savecurrents\n";
+        netlist += ".save all v(all)\n";
+        
+        // Use .probe for branch currents - much more robust in VioMATRIXC/Ngspice
+        for (QGraphicsItem* item : scene->items()) {
+            if (auto* si = dynamic_cast<SchematicItem*>(item)) {
+                QString ref = si->reference().trimmed();
+                if (ref.isEmpty()) continue;
+                
+                if (ref.startsWith("R", Qt::CaseInsensitive) || 
+                    ref.startsWith("C", Qt::CaseInsensitive) ||
+                    ref.startsWith("L", Qt::CaseInsensitive)) {
+                    netlist += QString(".probe i(%1)\n").arg(ref);
+                } else if (ref.startsWith("D", Qt::CaseInsensitive)) {
+                    netlist += QString(".probe i(%1)\n").arg(ref);
+                } else if (ref.startsWith("Q", Qt::CaseInsensitive)) {
+                    // For transistors, probe terminal currents
+                    netlist += QString(".probe ic(%1) ib(%1) ie(%1)\n").arg(ref);
+                }
+            }
+        }
+    }
 
     // 0. Append SPICE Directives from schematic at the TOP 
     // This ensures .params and .model are defined before use
@@ -3986,9 +4029,11 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
             }
         }
 
-        const QString currentSaveVector = currentSaveVectorForRef(line);
-        if (!currentSaveVector.isEmpty() && !savedCurrentVectors.contains(currentSaveVector, Qt::CaseInsensitive)) {
-            savedCurrentVectors.append(currentSaveVector);
+        const QStringList currentSaveVectors = currentSaveVectorsForRef(line);
+        for (const QString& currentSaveVector : currentSaveVectors) {
+            if (!currentSaveVector.isEmpty() && !savedCurrentVectors.contains(currentSaveVector, Qt::CaseInsensitive)) {
+                savedCurrentVectors.append(currentSaveVector);
+            }
         }
 
         // --- VioSpice Smart Block (JIT) ---
@@ -4730,6 +4775,21 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
         if (!instanceSuffix.isEmpty()) {
             line += " " + instanceSuffix;
         }
+
+        // VioSpice AC Mode: If this is a voltage source and it's the designated AC source, add "AC 1"
+        if (line.startsWith("V", Qt::CaseInsensitive) && (params.type == AC || params.type == SParameter)) {
+            QString refOnly = line.section(' ', 0, 0).trimmed().toUpper();
+            QString targetSource = params.rfPort1Source.trimmed().toUpper();
+            
+            // If it matches or if no source was specified and this is the first V source, tag it
+            // but only if it doesn't already have an AC attribute
+            if (refOnly == targetSource || (targetSource.isEmpty() && refOnly.startsWith("V"))) {
+                if (!line.contains(" AC ", Qt::CaseInsensitive)) {
+                    line += " AC 1";
+                }
+            }
+        }
+
         if (!value.endsWith("\n")) line += "\n";
         
         netlist += line;
@@ -4884,9 +4944,10 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
     }
 
     if (!hasExplicitSaveDirective) {
-        netlist += ".save all\n";
-        for (const QString& saveVec : savedCurrentVectors) {
-            netlist += QString(".save %1\n").arg(saveVec);
+        if (!savedCurrentVectors.isEmpty()) {
+            netlist += QString(".save all %1\n").arg(savedCurrentVectors.join(" "));
+        } else {
+            netlist += ".save all\n";
         }
     }
     netlist += ".control\n";

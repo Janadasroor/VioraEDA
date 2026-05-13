@@ -23,6 +23,7 @@ public:
 private Q_SLOTS:
     void onDebounceTimeout();
     void onHideTimeout();
+    void onShowTimeout();
 
 private:
     GeminiPanel* m_geminiPanel;
@@ -35,6 +36,7 @@ private:
 
     QTimer* m_debounceTimer;
     QTimer* m_hideTimer;
+    QTimer* m_showTimer;
     QHash<QString, QString> m_annotationCache;
 
     QString formatInstantValue(const QString& netName, const SimResults& results);

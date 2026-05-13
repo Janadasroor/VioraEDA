@@ -87,6 +87,7 @@ int main(int argc, char *argv[])
     PCBToolRegistryBuiltIn::registerBuiltInTools();
 
     FootprintLibraryManager::instance();
+    ModelLibraryManager::instance();
 
     // Start UI Command Server for Python interaction
     if (ConfigManager::instance().isFeatureEnabled("ui_command_server", true)) {

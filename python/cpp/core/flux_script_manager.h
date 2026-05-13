@@ -8,14 +8,18 @@
 
 /**
  * @brief Manages FluxScript execution for the viospice plugin system.
- * Replaces the legacy PythonManager.
  */
 class FluxScriptManager : public QObject {
     Q_OBJECT
 public:
+    explicit FluxScriptManager(QObject* parent = nullptr);
     static FluxScriptManager& instance();
 
-    void runScript(const QString& scriptName, const QStringList& args = {});
+    // New JSON-based signature
+    Q_INVOKABLE void runScript(const QString& scriptName, const QVariantMap& args);
+    
+    // Legacy/Convenience signature
+    Q_INVOKABLE void runScript(const QString& scriptName, const QStringList& args = {});
 
     static QString getFluxExecutable();
     static QString getPythonExecutable();
@@ -24,12 +28,15 @@ public:
     static QString getScriptsDir();
 
 Q_SIGNALS:
+    // New Signal Names
+    void outputReceived(const QString& output);
+    void errorOccurred(const QString& error);
+    void finished(int exitCode);
+
+    // Legacy Aliases for compatibility
     void scriptOutput(const QString& output);
     void scriptError(const QString& error);
     void scriptFinished(int exitCode);
-
-private:
-    explicit FluxScriptManager(QObject* parent = nullptr);
 };
 
 #endif // FLUX_SCRIPT_MANAGER_H

@@ -51,6 +51,20 @@ std::string normalizeWaveformName(const std::string& rawName) {
         return std::string(1, type) + "(" + inner + ")";
     }
 
+    // Handle @ref[param] -> I(REF) for common current parameters
+    if (name.size() > 3 && name[0] == '@' && name.find('[') != std::string::npos && name.back() == ']') {
+        size_t openBracket = name.find('[');
+        std::string ref = toUpper(name.substr(1, openBracket - 1));
+        std::string param = toLower(name.substr(openBracket + 1, name.size() - openBracket - 2));
+        if (param == "i" || param == "id" || param == "ic" || param == "ib" || param == "ie") {
+            // For transistors, we might want to keep the suffix, but for most, I(REF) is what's probed
+            if (param == "ic") return "I(" + ref + "(C))";
+            if (param == "ib") return "I(" + ref + "(B))";
+            if (param == "ie") return "I(" + ref + "(E))";
+            return "I(" + ref + ")";
+        }
+    }
+
     return toUpper(name);
 }
 
@@ -201,6 +215,12 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                 while (file) {
                     double xVal;
                     if (!file.read(reinterpret_cast<char*>(&xVal), sizeof(double))) break;
+                    
+                    if (isComplex) {
+                        double xValImag;
+                        file.read(reinterpret_cast<char*>(&xValImag), sizeof(double));
+                        // Frequency is always real, so we just use the real part.
+                    }
                     data.x.push_back(xVal);
 
                     for (int v = 1; v < numVariables; ++v) {

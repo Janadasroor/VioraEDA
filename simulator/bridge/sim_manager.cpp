@@ -948,6 +948,7 @@ void SimManager::runNgspiceSimulation(const QString& netlist, const SimAnalysisC
 
     m_stopRequested = false;
     m_paused = false;
+    Q_EMIT simulationFinished(SimResults()); // Clear stale results from UI
     Q_EMIT simulationStarted();
     m_lastConfig = config;
 

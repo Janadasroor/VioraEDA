@@ -82,6 +82,7 @@ ModelLibraryManager& ModelLibraryManager::instance() {
 }
 
 ModelLibraryManager::ModelLibraryManager() {
+    reload();
 }
 
 ModelLibraryManager::~ModelLibraryManager() {}

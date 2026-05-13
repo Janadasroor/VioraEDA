@@ -875,10 +875,13 @@ void SimulationPanel::onAnalysisChanged(int index) {
         setLabel(m_param1, "Start Freq:");
         setLabel(m_param2, "Stop Freq:");
         setLabel(m_param3, "Points/Dec:");
+        setLabel(m_param4, "Source:");
         m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
+        m_param4->setVisible(true);
         m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
-        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
+        m_param5->setVisible(false); m_param6->setVisible(false);
         m_param1->setText("10"); m_param2->setText("1Meg"); m_param3->setText("10");
+        if (m_param4->text().isEmpty()) m_param4->setText("V1");
     } else if (index == 3) { // RF S-Parameter
         setLabel(m_param1, "Start Freq:");
         setLabel(m_param2, "Stop Freq:");
