@@ -58,6 +58,10 @@ extern "C" {
         if (!name) return 0.0;
         return Flux::Core::FluxWorkspaceBridge::getVariable(QString::fromUtf8(name));
     }
+
+    void flux_set_var(const char* name, double value) {
+        if (name) Flux::Core::FluxWorkspaceBridge::setVariable(QString::fromUtf8(name), value);
+    }
     
     void flux_set_prop(const char* ref, const char* prop, double value) {
         Flux::Core::FluxWorkspaceBridge::setComponentProperty(ref, prop, value);

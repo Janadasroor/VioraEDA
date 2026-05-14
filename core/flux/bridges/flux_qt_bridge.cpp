@@ -131,7 +131,15 @@ extern "C" {
     // Workspace bridge
     void viora_flux_print(const char*);
     double flux_get_var(const char*);
+    void flux_set_var(const char*, double);
     void flux_set_prop(const char*, const char*, double);
+    void flux_set_prop_str(const char*, const char*, const char*);
+    int flux_sim_get_vector_size(const char*);
+    double flux_sim_get_vector_val(const char*, int);
+    double flux_sim_get_vector_x(const char*, int);
+    void flux_run_sim(const char*, double, double);
+    const char* flux_get_project_name();
+    void flux_plot_point(const char*, double, double);
 }
 
 void register_flux_qt_jit_symbols() {
@@ -163,5 +171,13 @@ void register_flux_qt_jit_symbols() {
     jit.registerFunction("flux_qt_table_col_count", (void*)&flux_qt_table_col_count);
     jit.registerFunction("viora_flux_print", (void*)&viora_flux_print);
     jit.registerFunction("flux_get_var", (void*)&flux_get_var);
+    jit.registerFunction("flux_set_var", (void*)&flux_set_var);
     jit.registerFunction("flux_set_prop", (void*)&flux_set_prop);
+    jit.registerFunction("flux_set_prop_str", (void*)&flux_set_prop_str);
+    jit.registerFunction("flux_sim_get_vector_size", (void*)&flux_sim_get_vector_size);
+    jit.registerFunction("flux_sim_get_vector_val", (void*)&flux_sim_get_vector_val);
+    jit.registerFunction("flux_sim_get_vector_x", (void*)&flux_sim_get_vector_x);
+    jit.registerFunction("flux_run_sim", (void*)&flux_run_sim);
+    jit.registerFunction("flux_get_project_name", (void*)&flux_get_project_name);
+    jit.registerFunction("flux_plot_point", (void*)&flux_plot_point);
 }

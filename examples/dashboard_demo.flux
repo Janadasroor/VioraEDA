@@ -8,7 +8,7 @@ flux_qt_add_widget(dash, flux_qt_create_label("Interactive Simulation Control"))
 
 # Create and store the slider handle
 flux_qt_add_widget(dash, flux_qt_create_label("Adjust R1 Value (Ohms):"))
-r_slider = flux_qt_create_slider(0) # Horizontal
+r_slider = flux_qt_create_slider(0.0) # Horizontal
 r_slider.minimum = 100
 r_slider.maximum = 10000
 r_slider.value = 1000

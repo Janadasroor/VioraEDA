@@ -322,10 +322,6 @@ void ExtensionsDialog::setupUpdatesTab() {
             this, &ExtensionsDialog::onUpdateItemSelected);
 }
 
-static QString typeBadge(ExtensionsDialog::UnifiedEntry::Type t) {
-    return t == ExtensionsDialog::UnifiedEntry::Native ? "[N]" : "[S]";
-}
-
 void ExtensionsDialog::refreshPluginList() {
     m_pluginList->clear();
     m_detailsLabel->setText("Select an extension to see details.");
@@ -367,11 +363,13 @@ void ExtensionsDialog::refreshPluginList() {
     m_pluginList->addItem(hdr);
 
     // 4. Populate list
+    auto badge = [](UnifiedEntry::Type t) {
+        return t == UnifiedEntry::Native ? "[N]" : "[S]";
+    };
     for (int i = 0; i < m_unifiedEntries.size(); ++i) {
         const auto& entry = m_unifiedEntries[i];
         QListWidgetItem* item;
         QColor color;
-        QString badge = typeBadge(entry.type);
 
         if (entry.type == UnifiedEntry::Native) {
             const auto& r = entry.nativeResult;
@@ -390,12 +388,14 @@ void ExtensionsDialog::refreshPluginList() {
                 default:
                     color = QColor("#f44747"); statusStr = "Error"; break;
             }
-            item = new QListWidgetItem(QString("%1 %2  —  %3").arg(badge, label, statusStr));
+            item = new QListWidgetItem(
+                QString(badge(entry.type)) + " " + label + "  —  " + statusStr);
         } else {
             const auto& info = entry.scriptInfo;
             QString status = info.loaded ? "Loaded" : "Unloaded";
             color = info.loaded ? QColor("#4ec9b0") : QColor("#808080");
-            item = new QListWidgetItem(QString("%1 %2  —  %3").arg(badge, info.name, status));
+            item = new QListWidgetItem(
+                QString(badge(entry.type)) + " " + info.name + "  —  " + status);
         }
 
         item->setData(Qt::UserRole, i);
