@@ -40,6 +40,7 @@ struct UserSpiceContentSummary {
     bool hasLtspiceStartup = false;
     bool hasExplicitSaveDirective = false;
     bool hasNetDirective = false;
+    bool isSParameter = false;
 };
 
 struct PassiveCompanionParams {
@@ -2803,7 +2804,7 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
         QRegularExpression::CaseInsensitiveOption);
     static const QSet<QString> analysisCards = {
         ".tran", ".ac", ".op", ".dc", ".noise", ".four", ".tf",
-        ".disto", ".meas", ".step", ".sens"
+        ".disto", ".meas", ".step", ".sens", ".sp", ".net"
     };
 
     const QStringList lines = collapseSpiceContinuationLines(text);
@@ -2836,6 +2837,9 @@ UserSpiceContentSummary summarizeUserSpiceText(const QString& text, const QStrin
 
             if (card == ".save") {
                 summary.hasExplicitSaveDirective = true;
+            }
+            if (card == ".sp" || card == ".net") {
+                summary.isSParameter = true;
             }
 
             if (card == ".net") {
@@ -3035,10 +3039,26 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
     QSet<QString> userElementRefs;
     QSet<QString> userDrivenRailNets;
     QStringList directiveWarnings;
-    bool hasExplicitAnalysisCard = false;
-    bool hasUserElementCards = false;
     bool hasExplicitSaveDirective = false;
     bool hasNetDirective = false;
+    bool isSParameterDirective = false;
+    bool hasExplicitAnalysisCard = false;
+    bool hasUserElementCards = false;
+
+    // Helper to determine if a card string matches the current simulation type
+    auto cardMatchesType = [&](const QString& card, SimulationType type) {
+        if (type == Transient && card == ".tran") return true;
+        if (type == AC && card == ".ac") return true;
+        if (type == SParameter && (card == ".sp" || card == ".net")) return true;
+        if (type == DC && card == ".dc") return true;
+        if (type == OP && card == ".op") return true;
+        if (type == Noise && card == ".noise") return true;
+        if (type == TF && card == ".tf") return true;
+        if (type == Sens && card == ".sens") return true;
+        if (type == Disto && card == ".disto") return true;
+        return false;
+    };
+
     for (QGraphicsItem* item : scene->items()) {
         if (auto* si = dynamic_cast<SchematicItem*>(item)) {
             if (si->itemType() == SchematicItem::SpiceDirectiveType) {
@@ -3055,6 +3075,7 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                         hasUserElementCards = hasUserElementCards || summary.hasElementCards;
                         hasExplicitSaveDirective = hasExplicitSaveDirective || summary.hasExplicitSaveDirective;
                         hasNetDirective = hasNetDirective || summary.hasNetDirective;
+                        isSParameterDirective = isSParameterDirective || summary.isSParameter;
 
                         const QStringList cmdLines = collapseSpiceContinuationLines(cmd);
                         int subcktDepth = 0;
@@ -3065,11 +3086,9 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                                 continue;
                             }
 
-                            // Skip user .net directives for SParameter analysis - we generate our own in the correct location
-                            if (params.type == SParameter && trimmedCmdLine.startsWith(".net", Qt::CaseInsensitive)) {
-                                netlist += "* Skipped user .net directive (auto-generated for SParameter analysis): " + trimmedCmdLine + "\n";
-                                continue;
-                            }
+                            // Do NOT skip .net for SParameter - we need it!
+                            // We only skip if we are sure we are replacing it later.
+
 
                             // Skip user .ac directives for SParameter analysis - we generate our own in the correct location
                             if (params.type == SParameter && trimmedCmdLine.startsWith(".ac", Qt::CaseInsensitive)) {
@@ -3133,6 +3152,12 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
             }
         }
     }
+
+    if (params.type == OP && isSParameterDirective) {
+        // Upgrade to SParameter mode if .sp/.net cards are present in Auto-Detect
+        const_cast<SimulationParams&>(params).type = SParameter;
+    }
+
     netlist += "\n";
 
     // 0.5 Collect model includes from symbols
@@ -3219,15 +3244,6 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                    typeLower.contains("amplifier") || typeLower.contains("opamp") || typeLower.contains("ic")) {
             // If it's a subcircuit, we MUST ensure we have its pin names/order from the model library
             const SimSubcircuit* sub = ModelLibraryManager::instance().findSubcircuit(modelName);
-            if (!sub) {
-                // Force a quick indexing of the file if it's external, just in case
-                QString subLib = ModelLibraryManager::instance().findLibraryPath(modelName);
-                if (!subLib.isEmpty()) {
-                    ModelLibraryManager::instance().loadLibraryFile(subLib);
-                    sub = ModelLibraryManager::instance().findSubcircuit(modelName);
-                }
-            }
-
             QString subLib = ModelLibraryManager::instance().findLibraryPath(modelName);
             if (!subLib.isEmpty()) {
                 if (subLib.endsWith(".lib", Qt::CaseInsensitive)) {
@@ -3235,8 +3251,6 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                 } else {
                     includePaths.insert(subLib);
                 }
-                // Ensure ModelLibraryManager has indexed this file so we can find subcircuit pin names for mapping
-                ModelLibraryManager::instance().loadLibraryFile(subLib);
                 switchModelsAdded.insert(modelName.toLower());
             }
         } else if (!switchModelsAdded.contains(modelName.toLower()) &&
@@ -4776,13 +4790,20 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
             line += " " + instanceSuffix;
         }
 
-        // VioSpice AC Mode: If this is a voltage source and it's the designated AC source, add "AC 1"
-        if (line.startsWith("V", Qt::CaseInsensitive) && (params.type == AC || params.type == SParameter)) {
-            QString refOnly = line.section(' ', 0, 0).trimmed().toUpper();
-            QString targetSource = params.rfPort1Source.trimmed().toUpper();
+        // VioSpice S-Parameter Mode: Add portnum and z0
+        if (params.type == SParameter && (ref.startsWith("V", Qt::CaseInsensitive) || ref.startsWith("I", Qt::CaseInsensitive))) {
+            QString refOnly = ref.trimmed().toUpper();
+            QString p1Source = params.rfPort1Source.trimmed().toUpper();
+            QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
             
-            // If it matches or if no source was specified and this is the first V source, tag it
-            // but only if it doesn't already have an AC attribute
+            if (refOnly == p1Source || (p1Source.isEmpty() && refOnly.startsWith("V"))) {
+                if (!line.contains("portnum", Qt::CaseInsensitive)) {
+                    line += QString(" portnum=1 z0=%1 AC 1").arg(z0);
+                }
+            }
+        } else if (params.type == AC && (ref.startsWith("V", Qt::CaseInsensitive) || ref.startsWith("I", Qt::CaseInsensitive))) {
+            QString refOnly = ref.trimmed().toUpper();
+            QString targetSource = params.rfPort1Source.trimmed().toUpper();
             if (refOnly == targetSource || (targetSource.isEmpty() && refOnly.startsWith("V"))) {
                 if (!line.contains(" AC ", Qt::CaseInsensitive)) {
                     line += " AC 1";
@@ -4826,7 +4847,7 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
     // 5. Simulation command
     netlist += "\n";
 
-    // For SParameter (RF) analysis, always generate .ac and .net commands
+    // For SParameter (RF) analysis, generate native .sp command
     if (params.type == SParameter) {
         auto safeNumber = [](const QString& text, double fallback) {
             double parsed = 0.0;
@@ -4841,9 +4862,25 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
         const QString stop = safeNumber(params.stop, 1e6);
         const QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
 
-        netlist += QString(".ac dec %1 %2 %3\n").arg(pts, start, stop);
-        netlist += QString(".net V(%1) %2 Rin=%3 Rout=%3\n")
-                       .arg(params.rfPort2Node, params.rfPort1Source, z0);
+        // Generate .net card for S-parameters if not already provided by user
+        if (!hasNetDirective && !params.rfPort1Source.isEmpty()) {
+            if (!params.rfPort2Node.isEmpty()) {
+                netlist += QString(".net V(%1) %2\n").arg(params.rfPort2Node, params.rfPort1Source);
+            } else {
+                netlist += QString(".net %1\n").arg(params.rfPort1Source);
+            }
+        }
+
+        // If port 2 is a node, we need to ensure it has a port definition
+        if (!params.rfPort2Node.isEmpty()) {
+            netlist += QString("V__PORT2 %1 0 DC 0 portnum=2 z0=%2\n").arg(params.rfPort2Node, z0);
+        }
+
+        // Only add .sp if it wasn't already in the custom directives
+        if (!netlist.contains(".sp", Qt::CaseInsensitive)) {
+            netlist += QString(".sp dec %1 %2 %3\n").arg(pts, start, stop);
+        }
+
     } else if (!hasExplicitAnalysisCard) {
         switch (params.type) {
             case Transient:
@@ -5036,11 +5073,10 @@ QString SpiceNetlistGenerator::buildCommand(const SimulationParams& params) {
         case FFT:
             return ".fft";
         case SParameter: {
-            const QString z0 = params.rfZ0.isEmpty() ? "50" : params.rfZ0;
-            const QString p1 = params.rfPort1Source.isEmpty() ? "V1" : params.rfPort1Source;
-            const QString p2 = params.rfPort2Node.isEmpty() ? "OUT" : params.rfPort2Node;
-            return QString(".net V(%1) %2 Rin=%3 Rout=%4")
-                .arg(p2, p1, z0, z0);
+            const QString pts = params.step.isEmpty() ? "10" : params.step;
+            const QString start = params.start.isEmpty() ? "1Meg" : params.start;
+            const QString stop = params.stop.isEmpty() ? "1G" : params.stop;
+            return QString(".sp dec %1 %2 %3").arg(pts, start, stop);
         }
     }
     return ".op";

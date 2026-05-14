@@ -6,7 +6,7 @@
 #include <QStringList>
 #include <QPointF>
 #include <vector>
-#include "design_rule.h"
+#include "../design_rules/design_rule.h"
 
 class NetManager;
 class SchematicItem;

@@ -157,6 +157,13 @@ private Q_SLOTS:
 
 private:
     void setupUI();
+    void createToolbar(QVBoxLayout* layout);
+    void createSidebar(QSplitter* splitter);
+    void createMainView(QSplitter* splitter);
+    QWidget* createAnalysisSetupWidget();
+    QWidget* createMonitorWidget();
+    QWidget* createGeneratorWidget();
+    QWidget* createMeasurementsWidget();
     QString generateSpiceNetlist();
     void plotResults(const QString& rawData); 
     void plotResultsFromRaw(const QString& path);
@@ -205,6 +212,8 @@ private:
     bool shouldUseAntialiasing() const;
     int standardChartPointBudget() const;
     void syncSignalListFromWaveformViewer();
+    QString formatFrequency(double freq) const;
+    void syncFromSchematic();
 
     // --- Members & State ---
     QGraphicsScene* m_scene = nullptr;
@@ -231,6 +240,7 @@ private:
     QCheckBox* m_steadyCheck = nullptr;
     QLineEdit* m_steadyTolEdit = nullptr;
     QLineEdit* m_steadyDelayEdit = nullptr;
+    QCheckBox* m_autoNetTableCheck = nullptr;
 
     // Source generator controls
     QComboBox* m_generatorType = nullptr;
@@ -250,6 +260,7 @@ private:
     QVector<QPair<QString, QString>> m_pwlPoints;
     QMap<QString, QVariantMap> m_generatorTemplates;
     QMap<QString, QVariantMap> m_userGeneratorPresets;
+    QWidget* m_generatorTab = nullptr;
     
     QTextEdit* m_logOutput = nullptr;
     QPushButton* m_runButton = nullptr;
@@ -282,12 +293,6 @@ private:
     
     // Virtual Instruments
     class WaveformViewer* m_waveformViewer = nullptr;
-    class LogicAnalyzerWidget* m_logicAnalyzer = nullptr;
-    class VoltmeterWidget* m_voltmeter = nullptr;
-    class AmmeterWidget* m_ammeter = nullptr;
-    class WattmeterWidget* m_wattmeter = nullptr;
-    class FrequencyCounterWidget* m_freqCounter = nullptr;
-    class LogicProbeWidget* m_logicProbe = nullptr;
     class QDoubleSpinBox* m_scopeTimeDiv = nullptr;
     class QDoubleSpinBox* m_scopeVoltDiv = nullptr;
     QComboBox* m_scopeChannelCombo = nullptr;
@@ -297,7 +302,7 @@ private:
     QWidget* m_efficiencyTab = nullptr;
     QLabel* m_efficiencySummaryLabel = nullptr;
     QTableWidget* m_efficiencyTable = nullptr;
-    QCheckBox* m_autoNetTableCheck = nullptr;
+
     
     QString m_lastNetlistPath;
     QCheckBox* m_overlayPreviousRun;

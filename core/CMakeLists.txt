@@ -2,12 +2,9 @@
 set(LOCAL_CORE_SOURCES ${CORE_SOURCES})
 list(TRANSFORM LOCAL_CORE_SOURCES PREPEND "${CMAKE_SOURCE_DIR}/")
 
-list(APPEND LOCAL_CORE_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/simulation/flux_script_engine.cpp"
-)
-
 qt6_wrap_cpp(VIO_CORE_MOC_SOURCES
     simulation/jit_context_manager.h
+    flux/extensions/extension_manager.h
 )
 
 add_library(VioCore STATIC ${LOCAL_CORE_SOURCES} ${VIO_CORE_MOC_SOURCES})

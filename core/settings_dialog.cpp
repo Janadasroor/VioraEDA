@@ -165,7 +165,9 @@ void SettingsDialog::setupUI() {
     QGroupBox* grpSimUi = new QGroupBox("Simulation UI");
     QVBoxLayout* laySimUi = new QVBoxLayout(grpSimUi);
     m_showFullSimulationPanelCheck = new QCheckBox("Show full simulation panel in the Analog Oscilloscope dock");
+    m_autoShowSimulationTabCheck = new QCheckBox("Automatically switch to Simulation tab when running");
     laySimUi->addWidget(m_showFullSimulationPanelCheck);
+    laySimUi->addWidget(m_autoShowSimulationTabCheck);
     laySim->addWidget(grpSimUi);
 
     QGroupBox* grpTols = new QGroupBox("Tolerances & Accuracy");
@@ -375,6 +377,7 @@ void SettingsDialog::loadSettings() {
     m_maxIterSpin->setValue(config.maxIterations());
     m_showFullSimulationPanelCheck->setChecked(
         config.toolProperty("SimulationPanel", "showFullPanelInDock", false).toBool());
+    m_autoShowSimulationTabCheck->setChecked(config.autoShowSimulationTab());
     m_enablePcbEditorsCheck->setChecked(config.isFeatureEnabled("pcb_tools", true));
 
     m_geminiKeyEdit->setText(config.geminiApiKey());
@@ -433,6 +436,7 @@ void SettingsDialog::onAccept() {
     config.setMaxIterations(m_maxIterSpin->value());
     config.setToolProperty("SimulationPanel", "showFullPanelInDock",
                            m_showFullSimulationPanelCheck->isChecked());
+    config.setAutoShowSimulationTab(m_autoShowSimulationTabCheck->isChecked());
     config.setFeatureEnabled("pcb_tools", m_enablePcbEditorsCheck->isChecked());
 
     config.setGeminiApiKey(m_geminiKeyEdit->text());

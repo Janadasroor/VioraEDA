@@ -136,6 +136,7 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
         } else if (line.rfind("Command:", 0) == 0) {
             std::string cmd = toLower(trim(line.substr(8)));
             if (cmd.find("tran") != std::string::npos) data.analysisType = SimAnalysisType::Transient;
+            else if (cmd.find("net") != std::string::npos || cmd.find("sp") != std::string::npos) data.analysisType = SimAnalysisType::SParameter;
             else if (cmd.find("ac") != std::string::npos) data.analysisType = SimAnalysisType::AC;
             else if (cmd.find("dc") != std::string::npos) data.analysisType = SimAnalysisType::DC;
             else if (cmd.find("op") != std::string::npos) data.analysisType = SimAnalysisType::OP;
@@ -155,7 +156,13 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                 std::string vLine = readHeaderLine();
                 auto parts = tokenize(vLine);
                 if (parts.size() >= 2) {
-                    varNames.push_back(normalizeWaveformName(parts[1]));
+                    std::string name = normalizeWaveformName(parts[1]);
+                    varNames.push_back(name);
+                    
+                    // Auto-detect S-Parameters based on variable names
+                    if (name == "S(1,1)" || name == "S11" || name == "S(2,1)" || name == "S21") {
+                        data.analysisType = SimAnalysisType::SParameter;
+                    }
                 } else if (parts.size() == 1 && i == 0) {
                     varNames.push_back("time");
                 }
@@ -346,6 +353,34 @@ SimResults RawData::toSimResults() const {
                 std::string branch = name.substr(2);
                 if (!branch.empty() && branch.back() == ')') branch.pop_back();
                 res.branchCurrents[branch] = val;
+            }
+        }
+    }
+
+    if (res.analysisType == SimAnalysisType::SParameter) {
+        res.sParameterResults.resize(numPoints);
+        for (int p = 0; p < numPoints; ++p) {
+            res.sParameterResults[p].frequency = x[p];
+        }
+
+        for (size_t i = 1; i < varNames.size(); ++i) {
+            const std::string name = normalizeWaveformName(varNames[i]);
+            // Match S(1,1), S(2,1)... or S11, S21...
+            bool isS11 = (name == "S(1,1)" || name == "S11");
+            bool isS21 = (name == "S(2,1)" || name == "S21");
+            bool isS12 = (name == "S(1,2)" || name == "S12");
+            bool isS22 = (name == "S(2,2)" || name == "S22");
+
+            if (isS11 || isS21 || isS12 || isS22) {
+                for (int p = 0; p < numPoints; ++p) {
+                    double mag = y[i-1][p];
+                    double phase = hasPhase[i - 1] ? yPhase[i - 1][p] : 0.0;
+                    std::complex<double> val = std::polar(mag, phase * (3.14159265358979323846 / 180.0));
+                    if (isS11) res.sParameterResults[p].s11 = val;
+                    else if (isS21) res.sParameterResults[p].s21 = val;
+                    else if (isS12) res.sParameterResults[p].s12 = val;
+                    else if (isS22) res.sParameterResults[p].s22 = val;
+                }
             }
         }
     }

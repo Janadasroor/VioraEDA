@@ -24,6 +24,7 @@ public:
     void setSParameters(const QVector<std::complex<double>>& sParams, const QString& name = "S11", const QColor& color = QColor(59, 130, 246));
     void addTrace(const Trace& trace);
     void clear();
+    void setHighlightIndex(int index);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -42,6 +43,7 @@ private:
     QRectF m_chartRect;
     QPointF m_mousePos;
     bool m_showTooltip = false;
+    int m_highlightIndex = -1;
 };
 
 #endif // SMITH_CHART_WIDGET_H

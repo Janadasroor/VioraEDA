@@ -1,5 +1,5 @@
 #include "flux_workspace_bridge.h"
-#include "jit_context_manager.h"
+#include "../simulation/jit_context_manager.h"
 #include "flux_design_rule_bridge.h"
 #include "../schematic/editor/schematic_editor.h"
 #include "../schematic/editor/schematic_api.h"
@@ -195,23 +195,25 @@ extern "C" {
         }
     }
 
-    void flux_register_analysis(const char* analysisType) {
-        if (!analysisType) return;
-        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Analysis: %1").arg(analysisType));
-    }
+    #if 0
+        void flux_register_analysis(const char* analysisType) {
+            if (!analysisType) return;
+            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Analysis: %1").arg(analysisType));
+        }
 
-    void flux_register_measure(const char* name, const char* measureType) {
-        if (!name || !measureType) return;
-        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Measurement: %1 %2").arg(name, measureType));
-    }
+        void flux_register_measure(const char* name, const char* measureType) {
+            if (!name || !measureType) return;
+            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Measure: %1 (%2)").arg(name).arg(measureType));
+        }
 
-    void flux_register_probe(const char* varName, const char* outputName) {
-        if (!varName) return;
-        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Probe: %1").arg(varName));
-    }
+        void flux_register_probe(const char* varName, const char* outputName) {
+            if (!varName) return;
+            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Probe: %1").arg(varName));
+        }
 
-    void flux_register_save(const char* varName) {
-        if (!varName) return;
-        Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Save: %1").arg(varName));
-    }
+        void flux_register_save(const char* varName) {
+            if (!varName) return;
+            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Save: %1").arg(varName));
+        }
+    #endif
 }

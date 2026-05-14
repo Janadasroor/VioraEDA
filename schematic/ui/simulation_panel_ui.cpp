@@ -51,6 +51,7 @@
 #include <QDoubleSpinBox>
 #include <QToolBar>
 #include <QTabWidget>
+#include <QStackedWidget>
 #include <QScrollArea>
 #include <QFileDialog>
 #include <QMenu>
@@ -79,6 +80,32 @@ void SimulationPanel::setupUI() {
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
     
+    setObjectName("SimulationPanel");
+    PCBTheme* theme = ThemeManager::theme();
+    QString bg = theme ? theme->windowBackground().name() : "#1e1e1e";
+    setStyleSheet(QString("#SimulationPanel { background-color: %1; }").arg(bg));
+
+    createToolbar(mainLayout);
+
+    QSplitter* mainSplitter = new QSplitter(Qt::Horizontal, this);
+    mainSplitter->setHandleWidth(2);
+    QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+    mainSplitter->setStyleSheet(QString("QSplitter::handle { background-color: %1; }").arg(borderColor));
+
+    createSidebar(mainSplitter);
+    createMainView(mainSplitter);
+
+    mainSplitter->setSizes({280, 600});
+    mainLayout->addWidget(mainSplitter);
+
+    onAnalysisChanged(m_analysisType->currentIndex());
+    onGeneratorTypeChanged(m_generatorType->currentIndex());
+    loadGeneratorLibrary();
+    applyPlotQuality();
+    updateCommandDisplay();
+}
+
+void SimulationPanel::createToolbar(QVBoxLayout* layout) {
     PCBTheme* theme = ThemeManager::theme();
     QString bg = theme ? theme->windowBackground().name() : "#1e1e1e";
     QString panelBg = theme ? theme->panelBackground().name() : "#252526";
@@ -86,24 +113,13 @@ void SimulationPanel::setupUI() {
     QString accent = theme ? theme->accentColor().name() : "#3b82f6";
     QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
     const bool isLight = theme && theme->type() == PCBTheme::Light;
-    const QString inputBg = isLight ? "#ffffff" : "#121214";
-    const QString mutedText = theme ? theme->textSecondary().name() : "#888888";
-    const QString chartBg = isLight ? "#ffffff" : "#000000";
-    const QString chartPlotBg = isLight ? "#f8fafc" : "#000000";
+
     auto buttonStyle = [&](const QString& bgColor, const QString& fgColor) {
         return QString("background-color: %1; color: %2; font-weight: bold; padding: 4px 10px; border-radius: 4px; border: 1px solid %3;")
             .arg(bgColor, fgColor, borderColor);
     };
     const QString checkboxStyle = QString("QCheckBox { color: %1; font-weight: bold; }").arg(textColor);
-    const QString inputStyle = QString("QLineEdit, QComboBox, QDoubleSpinBox { background: %1; color: %2; border: 1px solid %3; }")
-        .arg(inputBg, textColor, borderColor);
-    const QString commandStyle = QString("QLineEdit { background: %1; color: %2; border: 1px solid %2; font-family: 'Courier New'; font-weight: bold; }")
-        .arg(isLight ? "#eff6ff" : "#1e3a5f", accent);
 
-    setObjectName("SimulationPanel");
-    setStyleSheet(QString("#SimulationPanel { background-color: %1; }").arg(bg));
-
-    // --- Toolbar ---
     QToolBar* toolbar = new QToolBar("Simulation Controls");
     toolbar->setIconSize(QSize(20, 20));
     toolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -113,64 +129,27 @@ void SimulationPanel::setupUI() {
         "QToolButton:hover { background: %5; }"
     ).arg(panelBg, borderColor, bg, textColor, accent));
 
-    m_runButton = new QPushButton("Run Simulation");
+    m_runButton = new QPushButton("Run");
     m_runButton->setStyleSheet(buttonStyle("#065f46", "white"));
     connect(m_runButton, &QPushButton::clicked, this, &SimulationPanel::onRunSimulation);
     toolbar->addWidget(m_runButton);
 
-    QPushButton* exportCsvResultsBtn = new QPushButton("Export Waves CSV");
-    exportCsvResultsBtn->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#1f2937", isLight ? textColor : "white"));
-    connect(exportCsvResultsBtn, &QPushButton::clicked, this, &SimulationPanel::onExportResultsCsv);
-    toolbar->addWidget(exportCsvResultsBtn);
-
-    QPushButton* exportJsonResultsBtn = new QPushButton("Export Results JSON");
-    exportJsonResultsBtn->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#1f2937", isLight ? textColor : "white"));
-    connect(exportJsonResultsBtn, &QPushButton::clicked, this, &SimulationPanel::onExportResultsJson);
-    toolbar->addWidget(exportJsonResultsBtn);
-
-    QPushButton* exportReportBtn = new QPushButton("Export Report");
+    QPushButton* exportReportBtn = new QPushButton("Report");
     exportReportBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
     connect(exportReportBtn, &QPushButton::clicked, this, &SimulationPanel::onExportResultsReport);
     toolbar->addWidget(exportReportBtn);
 
-    m_overlayPreviousRun = new QCheckBox("Overlay Previous");
+    m_overlayPreviousRun = new QCheckBox("Overlay");
     m_overlayPreviousRun->setStyleSheet(checkboxStyle);
     connect(m_overlayPreviousRun, &QCheckBox::toggled, this, [this](bool) {
         if (m_hasLastResults) plotBuiltinResults(m_lastResults);
     });
     toolbar->addWidget(m_overlayPreviousRun);
 
-    QPushButton* probeBtn = new QPushButton("Add Probe");
-    probeBtn->setStyleSheet(buttonStyle("#1e40af", "white"));
-    connect(probeBtn, &QPushButton::clicked, this, &SimulationPanel::probeRequested);
-    toolbar->addWidget(probeBtn);
-
-    QPushButton* probePinBtn = new QPushButton("Probe On Canvas");
+    QPushButton* probePinBtn = new QPushButton("Probe Canvas");
     probePinBtn->setStyleSheet(buttonStyle("#1d4ed8", "white"));
     connect(probePinBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Probe"); });
     toolbar->addWidget(probePinBtn);
-
-    QPushButton* placeScopeBtn = new QPushButton("Place Scope");
-    placeScopeBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
-    connect(placeScopeBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Oscilloscope Instrument"); });
-    toolbar->addWidget(placeScopeBtn);
-
-    QPushButton* placeMeterBtn = new QPushButton("Place Voltmeter");
-    placeMeterBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
-    connect(placeMeterBtn, &QPushButton::clicked, this, [this]() { Q_EMIT placementToolRequested("Voltmeter (DC)"); });
-    toolbar->addWidget(placeMeterBtn);
-
-    QPushButton* removeProbeBtn = new QPushButton("Remove Probe");
-    removeProbeBtn->setStyleSheet(buttonStyle("#9a3412", "white"));
-    connect(removeProbeBtn, &QPushButton::clicked, this, [this]() {
-        QListWidgetItem* item = m_signalList ? m_signalList->currentItem() : nullptr;
-        if (!item) {
-            m_logOutput->append("No selected probe to remove.");
-            return;
-        }
-        removeProbe(item->text());
-    });
-    toolbar->addWidget(removeProbeBtn);
 
     QPushButton* clearProbesBtn = new QPushButton("Clear Probes");
     clearProbesBtn->setStyleSheet(buttonStyle(isLight ? "#cbd5e1" : "#4b5563", isLight ? textColor : "white"));
@@ -179,12 +158,12 @@ void SimulationPanel::setupUI() {
 
     toolbar->addSeparator();
 
-    QCheckBox* showVoltageCheck = new QCheckBox("Voltages");
+    QCheckBox* showVoltageCheck = new QCheckBox("V");
     showVoltageCheck->setChecked(true);
     showVoltageCheck->setStyleSheet(checkboxStyle);
     toolbar->addWidget(showVoltageCheck);
 
-    QCheckBox* showCurrentCheck = new QCheckBox("Currents");
+    QCheckBox* showCurrentCheck = new QCheckBox("I");
     showCurrentCheck->setChecked(true);
     showCurrentCheck->setStyleSheet(checkboxStyle);
     toolbar->addWidget(showCurrentCheck);
@@ -195,94 +174,96 @@ void SimulationPanel::setupUI() {
     connect(showVoltageCheck, &QCheckBox::toggled, this, updateOverlays);
     connect(showCurrentCheck, &QCheckBox::toggled, this, updateOverlays);
 
-    QPushButton* clearOverlaysBtn = new QPushButton("Clear Overlays");
-    clearOverlaysBtn->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#1f2937", isLight ? textColor : "white"));
-    connect(clearOverlaysBtn, &QPushButton::clicked, this, &SimulationPanel::clearOverlaysRequested);
-    toolbar->addWidget(clearOverlaysBtn);
-
-    QCheckBox* topNetTableCheck = new QCheckBox("Net Table");
-    topNetTableCheck->setChecked(true);
-    topNetTableCheck->setStyleSheet(checkboxStyle);
-    toolbar->addWidget(topNetTableCheck);
-
-    toolbar->addSeparator();
-
-    QPushButton* netlistBtn = new QPushButton("View Netlist");
+    QPushButton* netlistBtn = new QPushButton("Netlist");
     connect(netlistBtn, &QPushButton::clicked, this, &SimulationPanel::onViewNetlist);
     toolbar->addWidget(netlistBtn);
 
-    toolbar->addSeparator();
+    layout->addWidget(toolbar);
+}
 
-    QPushButton* listenBtn = new QPushButton("Listen");
-    listenBtn->setToolTip("Play selected signal through speakers (Transient only)");
-    listenBtn->setStyleSheet(buttonStyle("#7c3aed", "white"));
-    connect(listenBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_signalList || !m_signalList->currentItem()) return;
-        QString name = m_signalList->currentItem()->text();
-        for (const auto& w : m_lastResults.waveforms) {
-            if (QString::fromStdString(w.name) == name) {
-                SimAudioEngine::instance().playWaveform(w);
-                break;
-            }
-        }
-    });
-    toolbar->addWidget(listenBtn);
+void SimulationPanel::createSidebar(QSplitter* splitter) {
+    PCBTheme* theme = ThemeManager::theme();
+    QString panelBg = theme ? theme->panelBackground().name() : "#252526";
+    QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+    QString accent = theme ? theme->accentColor().name() : "#3b82f6";
+    QString bg = theme ? theme->windowBackground().name() : "#1e1e1e";
 
-    mainLayout->addWidget(toolbar);
-
-    QSplitter* mainSplitter = new QSplitter(Qt::Horizontal, this);
-    mainSplitter->setHandleWidth(2);
-    mainSplitter->setStyleSheet(QString("QSplitter::handle { background-color: %1; }").arg(borderColor));
-
-    // --- Sidebar ---
     QWidget* sidebar = new QWidget();
     sidebar->setMinimumWidth(240);
     sidebar->setStyleSheet(QString("QWidget { background-color: %1; }").arg(panelBg));
     QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
-    sidebarLayout->setContentsMargins(8, 12, 8, 12);
-    sidebarLayout->setSpacing(15);
+    sidebarLayout->setContentsMargins(8, 8, 8, 8);
+    sidebarLayout->setSpacing(10);
 
     m_schematicNameLabel = new QLabel("SOURCE: None");
     m_schematicNameLabel->setStyleSheet(QString("QLabel { font-weight: bold; font-size: 11px; color: %1; background-color: %2; padding: 6px; border-radius: 4px; border: 1px solid %3; }")
-                                          .arg(accent, bg, borderColor));
+                                           .arg(accent, bg, borderColor));
     m_schematicNameLabel->setAlignment(Qt::AlignCenter);
     sidebarLayout->addWidget(m_schematicNameLabel);
 
-    QLabel* settingsLabel = new QLabel("ANALYSIS SETUP");
-    settingsLabel->setStyleSheet(QString("QLabel { font-weight: bold; font-size: 10px; color: %1; letter-spacing: 1px; border: none; }").arg(theme ? theme->textSecondary().name() : "#888"));
-    sidebarLayout->addWidget(settingsLabel);
+    sidebarLayout->addWidget(createAnalysisSetupWidget());
+    sidebarLayout->addWidget(createMonitorWidget());
 
-    QFrame* configFrame = new QFrame();
-    configFrame->setStyleSheet(QString("QFrame { background: %1; border: 1px solid %2; border-radius: 3px; }").arg(bg, borderColor));
-    QFormLayout* configForm = new QFormLayout(configFrame);
-    configForm->setLabelAlignment(Qt::AlignRight);
+    m_logOutput = new QTextEdit();
+    m_logOutput->setReadOnly(true);
+    m_logOutput->setMaximumHeight(80);
+    m_logOutput->setStyleSheet(QString("QTextEdit { background: %1; border: 1px solid %2; font-family: monospace; font-size: 9px; color: #eee; }").arg(bg, borderColor));
+    sidebarLayout->addWidget(m_logOutput);
 
+    QPushButton* showFullLogBtn = new QPushButton("Show Detailed Log");
+    showFullLogBtn->setStyleSheet("QPushButton { background: #374151; color: white; border-radius: 3px; padding: 4px; font-size: 10px; }");
+    connect(showFullLogBtn, &QPushButton::clicked, this, &SimulationPanel::showDetailedLog);
+    sidebarLayout->addWidget(showFullLogBtn);
+
+    QScrollArea* sidebarScroll = new QScrollArea();
+    sidebarScroll->setWidgetResizable(true);
+    sidebarScroll->setFrameShape(QFrame::NoFrame);
+    sidebarScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sidebarScroll->setStyleSheet(QString("QScrollArea { background-color: %1; border-right: 1px solid %2; }").arg(panelBg, borderColor));
+    sidebarScroll->setWidget(sidebar);
+    splitter->addWidget(sidebarScroll);
+}
+
+QWidget* SimulationPanel::createAnalysisSetupWidget() {
+    PCBTheme* theme = ThemeManager::theme();
+    QString bg = theme ? theme->windowBackground().name() : "#1e1e1e";
+    QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+    QString textColor = theme ? theme->textColor().name() : "#cccccc";
+    QString accent = theme ? theme->accentColor().name() : "#3b82f6";
+    const bool isLight = theme && theme->type() == PCBTheme::Light;
+    const QString inputBg = isLight ? "#ffffff" : "#121214";
+    const QString inputStyle = QString("QLineEdit, QComboBox, QDoubleSpinBox { background: %1; color: %2; border: 1px solid %3; }")
+        .arg(inputBg, textColor, borderColor);
+    const QString commandStyle = QString("QLineEdit { background: %1; color: %2; border: 1px solid %2; font-family: 'Courier New'; font-weight: bold; }")
+        .arg(isLight ? "#eff6ff" : "#1e3a5f", accent);
+    auto buttonStyle = [&](const QString& bgColor, const QString& fgColor) {
+        return QString("background-color: %1; color: %2; font-weight: bold; padding: 4px 10px; border-radius: 4px; border: 1px solid %3;")
+            .arg(bgColor, fgColor, borderColor);
+    };
+
+    QGroupBox* group = new QGroupBox("SIMULATION DASHBOARD");
+    group->setStyleSheet(QString("QGroupBox { font-weight: bold; color: %1; border: 1px solid %2; margin-top: 10px; padding-top: 10px; } "
+                                 "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }")
+                         .arg(accent, borderColor));
+    QFormLayout* layout = new QFormLayout(group);
+
+    // m_analysisType is now internal-only to avoid conflicting with schematic settings
     m_analysisType = new QComboBox();
-    m_analysisType->addItems({"Transient", "DC OP", "DC Sweep", "AC Sweep", "RF S-Parameter", "Monte Carlo", "Parametric Sweep", "Sensitivity", "Real-time Mode"});
-    m_analysisType->setCurrentIndex(1);
+    m_analysisType->addItems({"Auto-Detect", "Transient", "DC OP", "DC Sweep", "AC Sweep", "RF S-Parameter", "Monte Carlo", "Parametric Sweep", "Sensitivity", "Real-time Mode"});
     m_analysisType->setStyleSheet(inputStyle);
-    configForm->addRow("Type:", m_analysisType);
+    // layout->addRow("Mode:", m_analysisType); // Removed manual override
+    
+    m_commandLine = new QLineEdit();
+    m_commandLine->setReadOnly(true);
+    m_commandLine->setPlaceholderText("Schematic directive will be used...");
+    m_commandLine->setStyleSheet(commandStyle);
+    layout->addRow("Active:", m_commandLine);
+
 
     m_acSweepType = new QComboBox();
     m_acSweepType->addItems({"Decade", "Octave", "Linear"});
     m_acSweepType->setStyleSheet(inputStyle);
-    m_acSweepType->setVisible(false); // Only for AC
-    configForm->addRow("Sweep Type:", m_acSweepType);
-
-    m_commandLine = new QLineEdit(".op");
-    m_commandLine->setStyleSheet(commandStyle);
-    m_commandLine->setPlaceholderText(".tran <tstep> <tstop>");
-    QWidget* commandRow = new QWidget();
-    auto* commandRowLayout = new QHBoxLayout(commandRow);
-    commandRowLayout->setContentsMargins(0, 0, 0, 0);
-    commandRowLayout->setSpacing(6);
-    commandRowLayout->addWidget(m_commandLine, 1);
-    QPushButton* stepBuilderBtn = new QPushButton(".step...");
-    stepBuilderBtn->setToolTip("Open the LTspice .step sweep builder");
-    stepBuilderBtn->setStyleSheet(buttonStyle("#0f766e", "white"));
-    connect(stepBuilderBtn, &QPushButton::clicked, this, &SimulationPanel::onOpenStepBuilder);
-    commandRowLayout->addWidget(stepBuilderBtn);
-    configForm->addRow("Command:", commandRow);
+    m_acSweepType->setVisible(false);
 
     m_param1 = new QLineEdit("1u");
     m_param2 = new QLineEdit("10m");
@@ -290,103 +271,70 @@ void SimulationPanel::setupUI() {
     m_param4 = new QLineEdit();
     m_param5 = new QLineEdit();
     m_param6 = new QLineEdit("50");
-    m_steadyCheck = new QCheckBox("Stop at steady state");
+    
+    m_steadyCheck = new QCheckBox("Steady State");
     m_steadyTolEdit = new QLineEdit();
     m_steadyDelayEdit = new QLineEdit();
-    m_autoNetTableCheck = new QCheckBox("Auto net table on transient run");
-    bool autoNetDefault = ConfigManager::instance().toolProperty("SimulationPanel", "showTransientNetTable", true).toBool();
-    m_autoNetTableCheck->setChecked(autoNetDefault);
-    for(auto* l : {m_param1, m_param2, m_param3, m_param4, m_param5, m_param6}) l->setStyleSheet(inputStyle);
-    for (auto* l : {m_steadyTolEdit, m_steadyDelayEdit}) l->setStyleSheet(inputStyle);
-    m_steadyTolEdit->setPlaceholderText("0.01");
-    m_steadyDelayEdit->setPlaceholderText("0");
     
-    configForm->addRow("Step/Start:", m_param1);
-    configForm->addRow("Stop:", m_param2);
-    configForm->addRow("Start/Pts:", m_param3);
-    configForm->addRow("Steady:", m_steadyCheck);
-    configForm->addRow("ssTol:", m_steadyTolEdit);
-    configForm->addRow("ssDelay:", m_steadyDelayEdit);
-    configForm->addRow("P4/Src:", m_param4);
-    configForm->addRow("P5/Node:", m_param5);
-    configForm->addRow("Z0:", m_param6);
-    sidebarLayout->addWidget(configFrame);
+    // Add but hide manual overrides (driven by schematic or manual mode)
+    /* Removed manual overrides to keep schematic as source of truth
+    layout->addRow("P1:", m_param1);
+    layout->addRow("P2:", m_param2);
+    layout->addRow("P3:", m_param3);
+    layout->addRow("P4:", m_param4);
+    layout->addRow("P5:", m_param5);
+    layout->addRow("P6:", m_param6);
+    layout->addRow("Sweep:", m_acSweepType);
+    layout->addRow("", m_steadyCheck);
+    layout->addRow("Tol:", m_steadyTolEdit);
+    layout->addRow("Delay:", m_steadyDelayEdit);
+    */
 
-    QLabel* generatorsLabel = new QLabel("SOURCE GENERATORS");
-    generatorsLabel->setStyleSheet(settingsLabel->styleSheet());
-    sidebarLayout->addWidget(generatorsLabel);
-
-    QFrame* generatorFrame = new QFrame();
-    generatorFrame->setStyleSheet(QString("QFrame { background: %1; border: 1px solid %2; border-radius: 3px; }").arg(bg, borderColor));
-    QFormLayout* generatorForm = new QFormLayout(generatorFrame);
-    generatorForm->setLabelAlignment(Qt::AlignRight);
-
-    m_generatorType = new QComboBox();
-    m_generatorType->addItems({"DC", "SIN", "PULSE", "EXP", "SFFM", "PWL", "AM", "FM"});
-    m_generatorType->setStyleSheet(inputStyle);
-    generatorForm->addRow("Type:", m_generatorType);
-
-    m_generatorPresetCombo = new QComboBox();
-    m_generatorPresetCombo->setStyleSheet(inputStyle);
-    generatorForm->addRow("Template:", m_generatorPresetCombo);
-
-    m_genLabel1 = new QLabel("Value:");
-    m_genLabel2 = new QLabel("P2:");
-    m_genLabel3 = new QLabel("P3:");
-    m_genLabel4 = new QLabel("P4:");
-    m_genLabel5 = new QLabel("P5:");
-    m_genLabel6 = new QLabel("P6:");
-
-    m_genParam1 = new QLineEdit("5");
-    m_genParam2 = new QLineEdit("1");
-    m_genParam3 = new QLineEdit("1k");
-    m_genParam4 = new QLineEdit("0");
-    m_genParam5 = new QLineEdit("0");
-    m_genParam6 = new QLineEdit("0");
-    for (auto* l : {m_genParam1, m_genParam2, m_genParam3, m_genParam4, m_genParam5, m_genParam6}) {
-        l->setStyleSheet(inputStyle);
+    // Hide all manual overrides by default (index 0: Auto-Detect)
+    for(auto* w : { (QWidget*)m_param1, (QWidget*)m_param2, (QWidget*)m_param3, (QWidget*)m_param4, (QWidget*)m_param5, (QWidget*)m_param6, (QWidget*)m_acSweepType, (QWidget*)m_steadyCheck, (QWidget*)m_steadyTolEdit, (QWidget*)m_steadyDelayEdit }) {
+        w->setVisible(false);
+        if (auto* lbl = layout->labelForField(w)) lbl->setVisible(false);
     }
 
-    generatorForm->addRow(m_genLabel1, m_genParam1);
-    generatorForm->addRow(m_genLabel2, m_genParam2);
-    generatorForm->addRow(m_genLabel3, m_genParam3);
-    generatorForm->addRow(m_genLabel4, m_genParam4);
-    generatorForm->addRow(m_genLabel5, m_genParam5);
-    generatorForm->addRow(m_genLabel6, m_genParam6);
 
-    QPushButton* applyGeneratorBtn = new QPushButton("Apply to Selected Source");
-    applyGeneratorBtn->setStyleSheet(buttonStyle("#7c2d12", "white"));
-    generatorForm->addRow("", applyGeneratorBtn);
+    connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onAnalysisChanged);
+    connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateSchematicDirective);
+    connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateCommandDisplay);
+    connect(m_param1, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_param1, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_param2, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_param2, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_param3, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_param3, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_param4, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_param4, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_param5, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_param5, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_param6, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_param6, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateSchematicDirective);
+    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateCommandDisplay);
+    connect(m_steadyCheck, &QCheckBox::toggled, this, &SimulationPanel::updateSchematicDirective);
+    connect(m_steadyCheck, &QCheckBox::toggled, this, &SimulationPanel::updateCommandDisplay);
+    connect(m_commandLine, &QLineEdit::editingFinished, this, [this]() { parseCommandText(m_commandLine->text()); });
 
-    QWidget* waveTools = new QWidget();
-    QGridLayout* waveToolsLayout = new QGridLayout(waveTools);
-    waveToolsLayout->setContentsMargins(0, 0, 0, 0);
-    waveToolsLayout->setHorizontalSpacing(6);
-    waveToolsLayout->setVerticalSpacing(6);
+    return group;
+}
 
-    QPushButton* pwlEditorBtn = new QPushButton("PWL Editor");
-    QPushButton* importCsvBtn = new QPushButton("Import CSV");
-    QPushButton* exportCsvBtn = new QPushButton("Export CSV");
-    QPushButton* savePresetBtn = new QPushButton("Save Preset");
-    QPushButton* deletePresetBtn = new QPushButton("Delete Preset");
-    for (QPushButton* b : {pwlEditorBtn, importCsvBtn, exportCsvBtn, savePresetBtn, deletePresetBtn}) {
-        b->setStyleSheet(buttonStyle(isLight ? "#e2e8f0" : "#374151", isLight ? textColor : "white"));
-    }
-    pwlEditorBtn->setStyleSheet(buttonStyle("#1e40af", "white"));
-    savePresetBtn->setStyleSheet(buttonStyle("#065f46", "white"));
-    deletePresetBtn->setStyleSheet(buttonStyle("#7f1d1d", "white"));
+QWidget* SimulationPanel::createMonitorWidget() {
+    PCBTheme* theme = ThemeManager::theme();
+    QString bg = theme ? theme->windowBackground().name() : "#1e1e1e";
+    QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+    QString accent = theme ? theme->accentColor().name() : "#3b82f6";
+    QString textColor = theme ? theme->textColor().name() : "#cccccc";
 
-    waveToolsLayout->addWidget(pwlEditorBtn, 0, 0);
-    waveToolsLayout->addWidget(importCsvBtn, 0, 1);
-    waveToolsLayout->addWidget(exportCsvBtn, 1, 0);
-    waveToolsLayout->addWidget(savePresetBtn, 1, 1);
-    waveToolsLayout->addWidget(deletePresetBtn, 2, 0, 1, 2);
-    generatorForm->addRow("", waveTools);
-    sidebarLayout->addWidget(generatorFrame);
+    QWidget* monitor = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(monitor);
+    layout->setContentsMargins(0, 0, 0, 0);
 
-    QLabel* signalsLabel = new QLabel("TRACE MONITOR");
-    signalsLabel->setStyleSheet(settingsLabel->styleSheet());
-    sidebarLayout->addWidget(signalsLabel);
+    QLabel* title = new QLabel("TRACE MONITOR");
+    title->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1;").arg(accent));
+    layout->addWidget(title);
 
     m_signalList = new QListWidget();
     m_signalList->setStyleSheet(QString(
@@ -395,449 +343,248 @@ void SimulationPanel::setupUI() {
         "QListWidget::item:selected { background: %3; color: white; }"
     ).arg(bg, borderColor, accent));
     m_signalList->setContextMenuPolicy(Qt::CustomContextMenu);
-    sidebarLayout->addWidget(m_signalList, 1);
+    layout->addWidget(m_signalList, 2);
 
-    QLabel* measurementsLabel = new QLabel("MEASUREMENTS");
-    measurementsLabel->setStyleSheet(settingsLabel->styleSheet());
-    sidebarLayout->addWidget(measurementsLabel);
-
-    QWidget* cursorWidget = new QWidget();
-    QHBoxLayout* cursorLayout = new QHBoxLayout(cursorWidget);
-    cursorLayout->setContentsMargins(0, 0, 0, 0);
-    cursorLayout->setSpacing(6);
-    cursorLayout->addWidget(new QLabel("A%"));
-    QDoubleSpinBox* cursorASpin = new QDoubleSpinBox();
-    cursorASpin->setRange(0.0, 100.0);
-    cursorASpin->setDecimals(1);
-    cursorASpin->setSingleStep(1.0);
-    cursorASpin->setValue(m_cursorAFrac * 100.0);
-    cursorASpin->setStyleSheet("QDoubleSpinBox { background: #121214; color: #fff; border: 1px solid #333; }");
-    cursorLayout->addWidget(cursorASpin);
-    cursorLayout->addWidget(new QLabel("B%"));
-    QDoubleSpinBox* cursorBSpin = new QDoubleSpinBox();
-    cursorBSpin->setRange(0.0, 100.0);
-    cursorBSpin->setDecimals(1);
-    cursorBSpin->setSingleStep(1.0);
-    cursorBSpin->setValue(m_cursorBFrac * 100.0);
-    cursorBSpin->setStyleSheet("QDoubleSpinBox { background: #121214; color: #fff; border: 1px solid #333; }");
-    cursorLayout->addWidget(cursorBSpin);
-    sidebarLayout->addWidget(cursorWidget);
-
-    connect(cursorASpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double v) {
-        m_cursorAFrac = std::clamp(v / 100.0, 0.0, 1.0);
-    });
-    connect(cursorBSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double v) {
-        m_cursorBFrac = std::clamp(v / 100.0, 0.0, 1.0);
-    });
-
-    m_measurementsTable = new QTableWidget(0, 6);
-    m_measurementsTable->setHorizontalHeaderLabels({"Name", "Primary/Result", "Avg", "RMS", "Freq/Step", "Delta(A-B)"});
-    m_measurementsTable->horizontalHeader()->setStretchLastSection(true);
-    m_measurementsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_measurementsTable->verticalHeader()->hide();
-    m_measurementsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_measurementsTable->setStyleSheet(QString(
-        "QTableWidget { background: %1; border: 1px solid %2; color: %3; font-size: 9px; }"
-        "QHeaderView::section { background: %4; border: 1px solid %2; color: %3; padding: 2px; }"
-    ).arg(bg, borderColor, textColor, panelBg));
-    sidebarLayout->addWidget(m_measurementsTable, 1);
-
-    m_logOutput = new QTextEdit();
-    m_logOutput->setReadOnly(true);
-    m_logOutput->setMaximumHeight(100);
-    m_logOutput->setStyleSheet(QString("QTextEdit { background: %1; border: 1px solid %2; font-family: monospace; font-size: 9px; color: #eee; }").arg(bg, borderColor));
-    sidebarLayout->addWidget(m_logOutput);
-
-    QPushButton* showFullLogBtn = new QPushButton("Show Detailed Log");
-    showFullLogBtn->setStyleSheet("QPushButton { background: #374151; color: white; border-radius: 3px; padding: 4px; font-size: 10px; }");
-    connect(showFullLogBtn, &QPushButton::clicked, this, &SimulationPanel::showDetailedLog);
-    auto* logShortcut = new QShortcut(QKeySequence("Ctrl+L"), this);
-    connect(logShortcut, &QShortcut::activated, this, &SimulationPanel::showDetailedLog);
-    sidebarLayout->addWidget(showFullLogBtn);
-
-    QLabel* issuesLabel = new QLabel("SIM ISSUES (DOUBLE-CLICK TO NAVIGATE)");
-    issuesLabel->setStyleSheet(settingsLabel->styleSheet());
-    sidebarLayout->addWidget(issuesLabel);
-
-    m_issueList = new QListWidget();
-    m_issueList->setStyleSheet(QString(
-        "QListWidget { background: %1; border: 1px solid %2; border-radius: 3px; color: #fbbf24; }"
-        "QListWidget::item { padding: 4px; border-bottom: 1px solid %2; }"
-    ).arg(bg, borderColor));
-    connect(m_issueList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
-        if (!item) return;
-        const QString type = item->data(Qt::UserRole + 1).toString();
-        const QString id = item->data(Qt::UserRole + 2).toString();
-        if (!type.isEmpty() && !id.isEmpty()) {
-            Q_EMIT simulationTargetRequested(type, id);
-        }
-    });
-    sidebarLayout->addWidget(m_issueList, 1);
-
-    QScrollArea* sidebarScroll = new QScrollArea();
-    sidebarScroll->setWidgetResizable(true);
-    sidebarScroll->setFrameShape(QFrame::NoFrame);
-    sidebarScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    sidebarScroll->setMinimumWidth(240);
-    sidebarScroll->setStyleSheet(QString("QScrollArea { background-color: %1; border-right: 1px solid %2; }").arg(panelBg, borderColor));
-    sidebarScroll->setWidget(sidebar);
-    mainSplitter->addWidget(sidebarScroll);
-
-    // --- Main Plot Content ---
-    QWidget* plotContainer = new QWidget();
-    QVBoxLayout* plotLayout = new QVBoxLayout(plotContainer);
-    plotLayout->setContentsMargins(10, 10, 10, 10);
-
-    // ── Time-Travel Timeline ───────────────────────────────────────────
-    QWidget* timelineWidget = new QWidget();
-    QHBoxLayout* timelineLayout = new QHBoxLayout(timelineWidget);
-    timelineLayout->setContentsMargins(0, 0, 0, 0);
-    
-    QLabel* ttLabel = new QLabel("TIME-TRAVEL:");
-    ttLabel->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1;").arg(accent));
-    timelineLayout->addWidget(ttLabel);
-    
-    m_timelineSlider = new QSlider(Qt::Horizontal);
-    m_timelineSlider->setRange(0, 1000);
-    m_timelineSlider->setEnabled(false);
-    m_timelineSlider->setStyleSheet(QString("QSlider::handle:horizontal { background: %1; border-radius: 4px; width: 12px; }").arg(accent));
-    timelineLayout->addWidget(m_timelineSlider, 1);
-    
-    m_timelineLabel = new QLabel("--- s");
-    m_timelineLabel->setMinimumWidth(80);
-    m_timelineLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_timelineLabel->setStyleSheet(QString("font-family: monospace; color: %1; font-size: 11px;").arg(textColor));
-    timelineLayout->addWidget(m_timelineLabel);
-    
-    plotLayout->addWidget(timelineWidget);
-    connect(m_timelineSlider, &QSlider::valueChanged, this, &SimulationPanel::onTimelineValueChanged);
-
-    QWidget* netTableControls = new QWidget();
-    auto* netTableLayout = new QHBoxLayout(netTableControls);
-    netTableLayout->setContentsMargins(0, 0, 0, 0);
-    netTableLayout->setSpacing(8);
-    QLabel* netTableLabel = new QLabel("SCHEMATIC NET TABLE:");
-    netTableLabel->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1;").arg(accent));
-    netTableLayout->addWidget(netTableLabel);
-    m_autoNetTableCheck->setStyleSheet(checkboxStyle);
-    netTableLayout->addWidget(m_autoNetTableCheck);
-    netTableLayout->addSpacing(12);
-    QLabel* plotQualityLabel = new QLabel("PLOT QUALITY:");
-    plotQualityLabel->setStyleSheet(QString("font-weight: bold; font-size: 10px; color: %1;").arg(accent));
-    netTableLayout->addWidget(plotQualityLabel);
-    m_plotQualityCombo = new QComboBox();
-    m_plotQualityCombo->addItems({"High Quality", "Balanced", "Fast Plotting"});
-    m_plotQualityCombo->setStyleSheet(inputStyle);
-    const QString savedPlotQuality = ConfigManager::instance().toolProperty(
-        "SimulationPanel", "plotQuality", "Balanced").toString();
-    const int savedPlotQualityIndex = m_plotQualityCombo->findText(savedPlotQuality);
-    m_plotQualityCombo->setCurrentIndex(savedPlotQualityIndex >= 0 ? savedPlotQualityIndex : 1);
-    netTableLayout->addWidget(m_plotQualityCombo);
-    netTableLayout->addStretch(1);
-    plotLayout->addWidget(netTableControls);
-
-    connect(topNetTableCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        if (!m_autoNetTableCheck || m_autoNetTableCheck->isChecked() == checked) return;
-        const QSignalBlocker blocker(m_autoNetTableCheck);
-        m_autoNetTableCheck->setChecked(checked);
-        Q_EMIT m_autoNetTableCheck->toggled(checked);
-    });
-    connect(m_autoNetTableCheck, &QCheckBox::toggled, this, [topNetTableCheck](bool checked) {
-        if (topNetTableCheck->isChecked() == checked) return;
-        const QSignalBlocker blocker(topNetTableCheck);
-        topNetTableCheck->setChecked(checked);
-    });
-
-    m_chart = new QChart();
-    m_chart->setTitle("Waveform Viewer");
-    m_chart->setTitleBrush(QBrush(theme ? theme->textColor() : QColor(Qt::white)));
-    m_chart->setBackgroundBrush(QBrush(QColor(chartBg)));
-    m_chart->setPlotAreaBackgroundBrush(QBrush(QColor(chartPlotBg)));
-    m_chart->setPlotAreaBackgroundVisible(true);
-    m_chart->setMargins(QMargins(0, 0, 0, 0));
-    m_chart->setBackgroundRoundness(0);
-    
-    m_chart->legend()->setVisible(true);
-    m_chart->legend()->setAlignment(Qt::AlignTop);
-    m_chart->legend()->setMarkerShape(QLegend::MarkerShapeRectangle);
-    m_chart->legend()->setBackgroundVisible(false);
-    m_chart->legend()->setLabelColor(theme ? theme->textColor() : QColor(Qt::white));
-    
-    m_plotView = new QChartView(m_chart);
-    m_plotView->setStyleSheet(QString("background-color: %1; border: 1px solid %2;").arg(chartBg, borderColor));
-
-    m_spectrumChart = new QChart();
-    m_spectrumChart->setTitle("FFT Spectrum Analysis");
-    m_spectrumChart->setTitleBrush(QBrush(theme ? theme->textColor() : QColor(Qt::white)));
-    m_spectrumChart->setBackgroundBrush(QBrush(QColor(chartBg)));
-    m_spectrumChart->setPlotAreaBackgroundBrush(QBrush(QColor(chartPlotBg)));
-    m_spectrumChart->setPlotAreaBackgroundVisible(true);
-    m_spectrumChart->setMargins(QMargins(0, 0, 0, 0));
-    m_spectrumChart->setBackgroundRoundness(0);
-    
-    m_spectrumChart->legend()->setVisible(true);
-    m_spectrumChart->legend()->setAlignment(Qt::AlignTop);
-    m_spectrumChart->legend()->setBackgroundVisible(false);
-    m_spectrumChart->legend()->setLabelColor(theme ? theme->textColor() : QColor(Qt::white));
-
-    m_spectrumView = new QChartView(m_spectrumChart);
-    m_spectrumView->setStyleSheet(m_plotView->styleSheet());
-
-    m_spectrumTab = new QWidget();
-    auto* spectrumTabLayout = new QVBoxLayout(m_spectrumTab);
-    spectrumTabLayout->setContentsMargins(0, 0, 0, 0);
-    spectrumTabLayout->setSpacing(6);
-
-    QWidget* steppedControls = new QWidget();
-    auto* steppedControlsLayout = new QHBoxLayout(steppedControls);
-    steppedControlsLayout->setContentsMargins(0, 0, 0, 0);
-    steppedControlsLayout->setSpacing(6);
-    steppedControlsLayout->addWidget(new QLabel("Measurement"));
-    m_steppedMeasSeriesCombo = new QComboBox();
-    m_steppedMeasSeriesCombo->setEnabled(false);
-    steppedControlsLayout->addWidget(m_steppedMeasSeriesCombo, 1);
-    steppedControlsLayout->addWidget(new QLabel("X Axis"));
-    m_steppedMeasAxisCombo = new QComboBox();
-    m_steppedMeasAxisCombo->setEnabled(false);
-    steppedControlsLayout->addWidget(m_steppedMeasAxisCombo, 1);
-    spectrumTabLayout->addWidget(steppedControls);
-    spectrumTabLayout->addWidget(m_spectrumView, 1);
-
-    m_designExplorerTab = new QWidget();
-    auto* explorerLayout = new QVBoxLayout(m_designExplorerTab);
-    explorerLayout->setContentsMargins(8, 8, 8, 8);
-    explorerLayout->setSpacing(8);
-    m_designExplorerSummaryLabel = new QLabel("Design Explorer: no sweep, optimization, or sensitivity candidates in the current run.");
-    m_designExplorerSummaryLabel->setWordWrap(true);
-    m_designExplorerSummaryLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; padding: 4px; }").arg(mutedText));
-    explorerLayout->addWidget(m_designExplorerSummaryLabel);
-    m_designExplorerDetailLabel = new QLabel("Select a case to inspect its assignments and metric values.");
-    m_designExplorerDetailLabel->setWordWrap(true);
-    m_designExplorerDetailLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; padding: 4px; }").arg(textColor));
-    explorerLayout->addWidget(m_designExplorerDetailLabel);
-    QWidget* explorerActions = new QWidget();
-    auto* explorerActionsLayout = new QHBoxLayout(explorerActions);
-    explorerActionsLayout->setContentsMargins(0, 0, 0, 0);
-    explorerActionsLayout->setSpacing(6);
-    m_designExplorerCopyButton = new QPushButton("Copy Selected Case");
-    m_designExplorerCopyButton->setEnabled(false);
-    m_designExplorerCopyButton->setStyleSheet(buttonStyle("#1d4ed8", "white"));
-    explorerActionsLayout->addWidget(m_designExplorerCopyButton);
-    explorerActionsLayout->addStretch(1);
-    explorerLayout->addWidget(explorerActions);
-    m_designExplorerTable = new QTableWidget(0, 0);
-    m_designExplorerTable->setSortingEnabled(true);
-    m_designExplorerTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_designExplorerTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_designExplorerTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_designExplorerTable->verticalHeader()->hide();
-    m_designExplorerTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_designExplorerTable->horizontalHeader()->setStretchLastSection(true);
-    m_designExplorerTable->setStyleSheet(QString(
-        "QTableWidget { background: %1; border: 1px solid %2; color: %3; font-size: 10px; }"
-        "QHeaderView::section { background: %4; border: 1px solid %2; color: %3; padding: 3px; }"
-    ).arg(bg, borderColor, textColor, panelBg));
-    explorerLayout->addWidget(m_designExplorerTable, 1);
-
-    m_viewTabs = new QTabWidget();
-    m_viewTabs->setStyleSheet(QString("QTabWidget::pane { border: 1px solid %1; } QTabBar::tab { background: %2; color: %3; padding: 8px; } QTabBar::tab:selected { background: %4; }")
-                            .arg(borderColor, panelBg, textColor, accent));
-
-    m_rfTab = new QWidget();
-    QVBoxLayout* rfLayout = new QVBoxLayout(m_rfTab);
-    m_smithChart = new SmithChartWidget();
-    rfLayout->addWidget(m_smithChart);
-    m_viewTabs->addTab(m_rfTab, "RF Analysis");
-
-    m_efficiencyTab = new QWidget();
-    auto* efficiencyLayout = new QVBoxLayout(m_efficiencyTab);
-    efficiencyLayout->setContentsMargins(8, 8, 8, 8);
-    efficiencyLayout->setSpacing(8);
-    m_efficiencySummaryLabel = new QLabel("No efficiency summary available for this run.");
-    m_efficiencySummaryLabel->setWordWrap(true);
-    m_efficiencySummaryLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; padding: 4px; }").arg(mutedText));
-    efficiencyLayout->addWidget(m_efficiencySummaryLabel);
-    m_efficiencyTable = new QTableWidget(0, 2);
-    m_efficiencyTable->setHorizontalHeaderLabels({"Metric", "Value"});
-    m_efficiencyTable->horizontalHeader()->setStretchLastSection(true);
-    m_efficiencyTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_efficiencyTable->verticalHeader()->hide();
-    m_efficiencyTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_efficiencyTable->setStyleSheet(QString(
-        "QTableWidget { background: %1; border: 1px solid %2; color: %3; font-size: 10px; }"
-        "QHeaderView::section { background: %4; border: 1px solid %2; color: %3; padding: 3px; }"
-    ).arg(bg, borderColor, textColor, panelBg));
-    efficiencyLayout->addWidget(m_efficiencyTable, 1);
-    m_viewTabs->addTab(m_efficiencyTab, "Efficiency");
-    
-    m_waveformViewer = new WaveformViewer();
-    m_scopeContainer = m_waveformViewer;
-    
-    m_viewTabs->addTab(m_plotView, "Standard Waves");
-    m_viewTabs->addTab(m_spectrumTab, "FFT Spectrum");
-    m_viewTabs->addTab(m_designExplorerTab, "Design Explorer");
-    // viewTabs->addTab(m_waveformViewer, "Oscilloscope"); // Handled via bottom dock
-    
-    m_logicAnalyzer = new LogicAnalyzerWidget();
-    m_viewTabs->addTab(m_logicAnalyzer, "Logic Analyzer");
-
-    m_voltmeter = new VoltmeterWidget();
-    m_viewTabs->addTab(m_voltmeter, "Voltmeter");
-
-    m_ammeter = new AmmeterWidget();
-    m_viewTabs->addTab(m_ammeter, "Ammeter");
-
-    m_wattmeter = new WattmeterWidget();
-    m_viewTabs->addTab(m_wattmeter, "Wattmeter");
-
-    m_freqCounter = new FrequencyCounterWidget();
-    m_viewTabs->addTab(m_freqCounter, "Frequency Counter");
-
-    m_logicProbe = new LogicProbeWidget();
-    m_viewTabs->addTab(m_logicProbe, "Logic Probe");
-
-    plotLayout->addWidget(m_viewTabs);
-
-    mainSplitter->addWidget(plotContainer);
-    mainSplitter->setSizes({260, 600});
-    mainLayout->addWidget(mainSplitter);
-
-    connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onAnalysisChanged);
-    connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateSchematicDirective);
-    connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateCommandDisplay);
-    connect(m_param1, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
-    connect(m_param2, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
-    connect(m_param3, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
-    connect(m_steadyCheck, &QCheckBox::toggled, this, &SimulationPanel::updateSchematicDirective);
-    connect(m_steadyTolEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
-    connect(m_steadyDelayEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
-    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateSchematicDirective);
-    connect(m_autoNetTableCheck, &QCheckBox::toggled, this, [this](bool enabled) {
-        ConfigManager::instance().setToolProperty("SimulationPanel", "showTransientNetTable", enabled);
-        if (!enabled) {
-            clearTransientNetTableOverlay();
-            if (m_scene) {
-                QPointer<SimulationNetTableItem> table = m_netTableItems.take(m_scene);
-                if (table) {
-                    if (table->scene()) table->scene()->removeItem(table);
-                    table->deleteLater();
-                }
-            }
-        } else if (enabled && m_hasLastResults && m_lastResults.analysisType == SimAnalysisType::Transient) {
-            updateTransientNetTableOverlay(m_lastResults);
-        }
-    });
-    connect(m_plotQualityCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-        ConfigManager::instance().setToolProperty("SimulationPanel", "plotQuality", text);
-        applyPlotQuality();
-        if (m_hasLastResults) {
-            plotBuiltinResults(m_lastResults);
-        } else if (m_waveformViewer) {
-            m_waveformViewer->updatePlot(false);
-        }
-    });
-    connect(m_param1, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
-    connect(m_param2, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
-    connect(m_param3, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
-    connect(m_steadyCheck, &QCheckBox::toggled, this, &SimulationPanel::updateCommandDisplay);
-    connect(m_steadyTolEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
-    connect(m_steadyDelayEdit, &QLineEdit::textChanged, this, &SimulationPanel::updateCommandDisplay);
-    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onAcSweepTypeChanged);
-    connect(m_acSweepType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateCommandDisplay);
-    connect(m_commandLine, &QLineEdit::editingFinished, this, [this]() {
-        parseCommandText(m_commandLine->text());
-    });
-    connect(m_generatorType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onGeneratorTypeChanged);
-    connect(m_generatorPresetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onGeneratorPresetActivated);
-    connect(applyGeneratorBtn, &QPushButton::clicked, this, &SimulationPanel::onApplyGeneratorToSelection);
-    connect(pwlEditorBtn, &QPushButton::clicked, this, &SimulationPanel::onOpenPwlEditor);
-    connect(importCsvBtn, &QPushButton::clicked, this, &SimulationPanel::onImportPwlCsv);
-    connect(exportCsvBtn, &QPushButton::clicked, this, &SimulationPanel::onExportPwlCsv);
-    connect(savePresetBtn, &QPushButton::clicked, this, &SimulationPanel::onSaveGeneratorPreset);
-    connect(deletePresetBtn, &QPushButton::clicked, this, &SimulationPanel::onDeleteGeneratorPreset);
     connect(m_signalList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
         QString seriesName = item->text();
         bool isVisible = (item->checkState() == Qt::Checked);
-        if (isVisible) {
-            m_persistentCheckedSignals.insert(seriesName);
-        } else {
-            m_persistentCheckedSignals.remove(seriesName);
-        }
         if (m_waveformViewer) {
             m_waveformViewer->setSignalChecked(seriesName, isVisible);
             m_waveformViewer->updatePlot(false);
         }
-        if (m_chart) {
-            for (auto* series : m_chart->series()) {
-                if (series->name() == seriesName) {
-                    series->setVisible(isVisible);
-                    break;
-                }
-            }
-        }
     });
-    connect(m_signalList, &QListWidget::customContextMenuRequested,
-            this, &SimulationPanel::onSignalListContextMenuRequested);
-    connect(m_steppedMeasSeriesCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-        m_selectedSteppedMeasurement = text;
-        if (m_hasLastResults) {
-            refreshSteppedMeasurementControls(m_lastResults);
-            rebuildSteppedMeasurementPlot(m_lastResults);
-            refreshDesignExplorer(m_lastResults);
-        }
-    });
-    connect(m_steppedMeasAxisCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-        m_selectedSteppedAxis = text;
-        if (m_hasLastResults) rebuildSteppedMeasurementPlot(m_lastResults);
-    });
-    if (m_designExplorerTable && m_designExplorerTable->horizontalHeader()) {
-        connect(m_designExplorerTable->horizontalHeader(), &QHeaderView::sectionClicked, this, [this](int section) {
-            if (!m_designExplorerTable || !m_steppedMeasSeriesCombo) return;
-            auto* headerItem = m_designExplorerTable->horizontalHeaderItem(section);
-            if (!headerItem) return;
-            const QString metricName = headerItem->data(Qt::UserRole).toString();
-            if (metricName.isEmpty()) return;
-            m_selectedSteppedMeasurement = metricName;
-            m_steppedMeasSeriesCombo->setCurrentText(metricName);
-            if (m_viewTabs && m_spectrumTab) m_viewTabs->setCurrentWidget(m_spectrumTab);
-        });
-    }
-    if (m_designExplorerTable) {
-        connect(m_designExplorerTable, &QTableWidget::itemSelectionChanged, this, [this]() {
-            if (m_hasLastResults) refreshDesignExplorerSelection(m_lastResults);
-        });
-    }
-    if (m_designExplorerCopyButton) {
-        connect(m_designExplorerCopyButton, &QPushButton::clicked, this, [this]() {
-            if (!m_designExplorerTable) return;
-            const int row = m_designExplorerTable->currentRow();
-            if (row < 0) return;
-            auto* caseItem = m_designExplorerTable->item(row, 1);
-            if (!caseItem) return;
-            const QString copyText = caseItem->data(Qt::UserRole + 2).toString();
-            if (copyText.isEmpty()) return;
-            QApplication::clipboard()->setText(copyText);
-            m_logOutput->append(QString("Design Explorer: copied case %1 to clipboard.").arg(caseItem->text()));
-        });
-    }
-    connect(m_viewTabs, &QTabWidget::currentChanged, this, [this](int) {
-        if (!m_hasLastResults) return;
-        if (shouldBuildStandardChart() && m_chart && m_chart->series().isEmpty()) {
-            plotBuiltinResults(m_lastResults);
-            return;
-        }
-        if (shouldBuildSpectrumChart() && m_spectrumChart && m_spectrumChart->series().isEmpty()) {
-            plotBuiltinResults(m_lastResults);
-        }
-    });
+    connect(m_signalList, &QListWidget::customContextMenuRequested, this, &SimulationPanel::onSignalListContextMenuRequested);
 
-    onGeneratorTypeChanged(m_generatorType->currentIndex());
-    loadGeneratorLibrary();
-    applyPlotQuality();
-    updateCommandDisplay();
+    m_issueList = new QListWidget();
+    m_issueList->setStyleSheet(QString("QListWidget { background: %1; border: 1px solid %2; color: #fbbf24; font-size: 9px; }").arg(bg, borderColor));
+    
+    m_autoNetTableCheck = new QCheckBox("Auto Overlay Nets");
+    m_autoNetTableCheck->setStyleSheet(QString("color: %1; font-size: 10px;").arg(textColor));
+    m_autoNetTableCheck->setChecked(true);
+
+    layout->addWidget(new QLabel("SIM ISSUES"), 0, Qt::AlignBottom);
+    layout->addWidget(m_issueList, 1);
+    layout->addWidget(m_autoNetTableCheck);
+
+    return monitor;
 }
 
+void SimulationPanel::createMainView(QSplitter* splitter) {
+    PCBTheme* theme = ThemeManager::theme();
+    QString chartBg = theme && theme->type() == PCBTheme::Light ? "#ffffff" : "#000000";
+    QString chartPlotBg = theme && theme->type() == PCBTheme::Light ? "#f8fafc" : "#000000";
+    QString textColor = theme ? theme->textColor().name() : "#cccccc";
+    QString accent = theme ? theme->accentColor().name() : "#3b82f6";
+    QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+    QString panelBg = theme ? theme->panelBackground().name() : "#252526";
+
+    QWidget* container = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(container);
+    layout->setContentsMargins(4, 4, 4, 4);
+
+    m_viewTabs = new QTabWidget();
+    m_viewTabs->setStyleSheet(QString("QTabWidget::pane { border: 1px solid %1; } QTabBar::tab { background: %2; color: %3; padding: 6px 12px; } QTabBar::tab:selected { background: %4; color: white; }")
+                            .arg(borderColor, panelBg, textColor, accent));
+
+    m_chart = new QChart();
+    m_chart->setBackgroundBrush(QBrush(QColor(chartBg)));
+    m_chart->setPlotAreaBackgroundBrush(QBrush(QColor(chartPlotBg)));
+    m_chart->setPlotAreaBackgroundVisible(true);
+    m_plotView = new QChartView(m_chart);
+    m_plotView->setStyleSheet(QString("border: none; background: %1;").arg(chartBg));
+    
+    m_waveformViewer = new WaveformViewer();
+    
+    QStackedWidget* wavesStack = new QStackedWidget();
+    wavesStack->addWidget(m_waveformViewer);
+    wavesStack->addWidget(m_plotView);
+    
+    m_viewTabs->addTab(wavesStack, "Waves");
+
+    m_spectrumChart = new QChart();
+    m_spectrumChart->setBackgroundBrush(QBrush(QColor(chartBg)));
+    m_spectrumChart->setPlotAreaBackgroundBrush(QBrush(QColor(chartPlotBg)));
+    m_spectrumChart->setPlotAreaBackgroundVisible(true);
+    m_spectrumView = new QChartView(m_spectrumChart);
+    m_spectrumTab = new QWidget();
+    QVBoxLayout* specLay = new QVBoxLayout(m_spectrumTab);
+    
+    QHBoxLayout* specHeader = new QHBoxLayout();
+    m_steppedMeasSeriesCombo = new QComboBox();
+    m_steppedMeasAxisCombo = new QComboBox();
+    m_steppedMeasSeriesCombo->setStyleSheet(QString("QComboBox { background: %1; color: %2; }").arg(chartBg, textColor));
+    m_steppedMeasAxisCombo->setStyleSheet(QString("QComboBox { background: %1; color: %2; }").arg(chartBg, textColor));
+    specHeader->addWidget(new QLabel("Stepped:"));
+    specHeader->addWidget(m_steppedMeasSeriesCombo);
+    specHeader->addWidget(new QLabel("Axis:"));
+    specHeader->addWidget(m_steppedMeasAxisCombo);
+    specLay->addLayout(specHeader);
+    
+    specLay->addWidget(m_spectrumView);
+    m_viewTabs->addTab(m_spectrumTab, "Spectrum");
+
+    m_rfTab = new QWidget();
+    QVBoxLayout* rfLay = new QVBoxLayout(m_rfTab);
+    m_smithChart = new SmithChartWidget();
+    rfLay->addWidget(m_smithChart);
+    m_viewTabs->addTab(m_rfTab, "RF Analysis");
+
+    m_generatorTab = createGeneratorWidget();
+    // m_viewTabs->addTab(m_generatorTab, "Generators"); // Removed redundant generator setup tab
+
+    QWidget* measTab = createMeasurementsWidget();
+    m_viewTabs->addTab(measTab, "Measurements");
+
+    m_efficiencyTab = new QWidget();
+    QVBoxLayout* effLay = new QVBoxLayout(m_efficiencyTab);
+    
+    m_efficiencySummaryLabel = new QLabel("Run simulation to see efficiency analysis.");
+    m_efficiencySummaryLabel->setStyleSheet(QString("color: %1; font-weight: bold;").arg(textColor));
+    effLay->addWidget(m_efficiencySummaryLabel);
+    
+    m_efficiencyTable = new QTableWidget(0, 2);
+    m_efficiencyTable->setHorizontalHeaderLabels({"Metric", "Value"});
+    m_efficiencyTable->setStyleSheet(QString("QTableWidget { background: %1; color: %2; }").arg(chartBg, textColor));
+    effLay->addWidget(m_efficiencyTable);
+    m_viewTabs->addTab(m_efficiencyTab, "Efficiency");
+
+    m_designExplorerTab = new QWidget();
+    QVBoxLayout* explorerLay = new QVBoxLayout(m_designExplorerTab);
+    
+    m_designExplorerSummaryLabel = new QLabel("Run sweep or optimization to explore design space.");
+    m_designExplorerSummaryLabel->setStyleSheet(QString("color: %1; font-weight: bold;").arg(textColor));
+    explorerLay->addWidget(m_designExplorerSummaryLabel);
+    
+    m_designExplorerTable = new QTableWidget(0, 5);
+    m_designExplorerTable->setStyleSheet(QString("QTableWidget { background: %1; color: %2; }").arg(chartBg, textColor));
+    explorerLay->addWidget(m_designExplorerTable);
+    
+    m_designExplorerDetailLabel = new QLabel("Select a case for details.");
+    m_designExplorerDetailLabel->setWordWrap(true);
+    m_designExplorerDetailLabel->setStyleSheet(QString("color: %1;").arg(textColor));
+    explorerLay->addWidget(m_designExplorerDetailLabel);
+    
+    m_designExplorerCopyButton = new QPushButton("Copy Configuration");
+    m_designExplorerCopyButton->setEnabled(false);
+    explorerLay->addWidget(m_designExplorerCopyButton);
+    
+    m_viewTabs->addTab(m_designExplorerTab, "Explorer");
+
+    m_scopeContainer = wavesStack; // Link only the waveform stack to remove tabs in dock mode
+    layout->addWidget(m_viewTabs);
+    
+    // Timeline / Time-Travel Control
+    QWidget* timelineContainer = new QWidget();
+    QHBoxLayout* timelineLay = new QHBoxLayout(timelineContainer);
+    timelineLay->setContentsMargins(8, 10, 8, 10);
+    
+    QLabel* timelineIcon = new QLabel("🕒");
+    timelineLay->addWidget(timelineIcon);
+    
+    m_timelineSlider = new QSlider(Qt::Horizontal);
+    m_timelineSlider->setRange(0, 1000);
+    m_timelineSlider->setEnabled(false);
+    m_timelineSlider->setMinimumHeight(32); // Increased to prevent clipping
+    m_timelineSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_timelineSlider->setStyleSheet(QString(
+        "QSlider::groove:horizontal { border: 1px solid %1; height: 4px; background: %2; border-radius: 2px; }"
+        "QSlider::handle:horizontal { background: %3; border: 1px solid %3; width: 14px; margin: -5px 0; border-radius: 7px; }"
+    ).arg(borderColor, panelBg, accent));
+    timelineLay->addWidget(m_timelineSlider);
+    
+    m_timelineLabel = new QLabel("--- s");
+    m_timelineLabel->setFixedWidth(100);
+    m_timelineLabel->setStyleSheet(QString("font-family: monospace; color: %1;").arg(textColor));
+    timelineLay->addWidget(m_timelineLabel);
+    
+    layout->addWidget(timelineContainer);
+
+    splitter->addWidget(container);
+
+    connect(m_viewTabs, &QTabWidget::currentChanged, this, [this](int) {
+        if (m_hasLastResults) plotBuiltinResults(m_lastResults);
+    });
+    
+    connect(m_timelineSlider, &QSlider::valueChanged, this, &SimulationPanel::onTimelineValueChanged);
+}
+
+QWidget* SimulationPanel::createGeneratorWidget() {
+    PCBTheme* theme = ThemeManager::theme();
+    QString textColor = theme ? theme->textColor().name() : "#cccccc";
+    QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+    const bool isLight = theme && theme->type() == PCBTheme::Light;
+    const QString inputBg = isLight ? "#ffffff" : "#121214";
+    const QString inputStyle = QString("QLineEdit, QComboBox { background: %1; color: %2; border: 1px solid %3; padding: 2px; }")
+        .arg(inputBg, textColor, borderColor);
+
+    QWidget* widget = new QWidget();
+    QVBoxLayout* mainLay = new QVBoxLayout(widget);
+
+    QGroupBox* group = new QGroupBox("SOURCE GENERATOR CONFIGURATION");
+    group->setStyleSheet("QGroupBox { font-weight: bold; }");
+    QFormLayout* layout = new QFormLayout(group);
+
+    m_generatorType = new QComboBox();
+    m_generatorType->addItems({"DC", "SIN", "PULSE", "EXP", "SFFM", "PWL", "AM", "FM"});
+    m_generatorType->setStyleSheet(inputStyle);
+    layout->addRow("Type:", m_generatorType);
+
+    m_generatorPresetCombo = new QComboBox();
+    m_generatorPresetCombo->setStyleSheet(inputStyle);
+    layout->addRow("Template:", m_generatorPresetCombo);
+
+    m_genLabel1 = new QLabel("P1:"); m_genParam1 = new QLineEdit("5");
+    m_genLabel2 = new QLabel("P2:"); m_genParam2 = new QLineEdit("1");
+    m_genLabel3 = new QLabel("P3:"); m_genParam3 = new QLineEdit("1k");
+    m_genLabel4 = new QLabel("P4:"); m_genParam4 = new QLineEdit("0");
+    m_genLabel5 = new QLabel("P5:"); m_genParam5 = new QLineEdit("0");
+    m_genLabel6 = new QLabel("P6:"); m_genParam6 = new QLineEdit("0");
+
+    for (auto* l : {m_genParam1, m_genParam2, m_genParam3, m_genParam4, m_genParam5, m_genParam6}) l->setStyleSheet(inputStyle);
+
+    layout->addRow(m_genLabel1, m_genParam1);
+    layout->addRow(m_genLabel2, m_genParam2);
+    layout->addRow(m_genLabel3, m_genParam3);
+    layout->addRow(m_genLabel4, m_genParam4);
+    layout->addRow(m_genLabel5, m_genParam5);
+    layout->addRow(m_genLabel6, m_genParam6);
+
+    QPushButton* applyBtn = new QPushButton("Apply to Selected Source");
+    applyBtn->setStyleSheet("background: #0f766e; color: white; font-weight: bold; padding: 8px;");
+    connect(applyBtn, &QPushButton::clicked, this, &SimulationPanel::onApplyGeneratorToSelection);
+    layout->addRow("", applyBtn);
+
+    mainLay->addWidget(group);
+    mainLay->addStretch();
+
+    connect(m_generatorType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onGeneratorTypeChanged);
+    connect(m_generatorPresetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onGeneratorPresetActivated);
+
+    return widget;
+}
+
+QWidget* SimulationPanel::createMeasurementsWidget() {
+    PCBTheme* theme = ThemeManager::theme();
+    QString bg = theme ? theme->windowBackground().name() : "#1e1e1e";
+    QString textColor = theme ? theme->textColor().name() : "#cccccc";
+    QString borderColor = theme ? theme->panelBorder().name() : "#3c3c3c";
+
+    QWidget* widget = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(widget);
+
+    m_measurementsTable = new QTableWidget(0, 6);
+    m_measurementsTable->setHorizontalHeaderLabels({"Name", "Result", "Avg", "RMS", "Freq", "Delta"});
+    m_measurementsTable->setStyleSheet(QString("QTableWidget { background: %1; color: %2; border: 1px solid %3; }").arg(bg, textColor, borderColor));
+    m_measurementsTable->horizontalHeader()->setStretchLastSection(true);
+    m_measurementsTable->verticalHeader()->hide();
+    
+    layout->addWidget(m_measurementsTable);
+    return widget;
+}
+
+
 void SimulationPanel::onViewNetlist() {
+    updateSchematicDirective();
     QDialog* dlg = new QDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setWindowTitle("Generated SPICE Netlist");
@@ -857,80 +604,68 @@ void SimulationPanel::onViewNetlist() {
 void SimulationPanel::onAnalysisChanged(int index) {
     SimManager::instance().stopRealTime();
     if (m_waveformViewer) {
-        m_waveformViewer->setAcMode(index == 3 || index == 4); // AC or S-Parameter
+        m_waveformViewer->setAcMode(index == 4 || index == 5); // AC or S-Parameter
     }
     Q_EMIT analysisModeChanged();
 
+    if (!m_param1 || !m_param1->parentWidget()) return;
     QFormLayout* layout = qobject_cast<QFormLayout*>(m_param1->parentWidget()->layout());
     if (!layout) return;
     
     auto setLabel = [&](QWidget* field, const QString& text) {
-        if (auto* lbl = qobject_cast<QLabel*>(layout->labelForField(field)))
+        if (!field) return;
+        field->setVisible(true);
+        if (auto* lbl = qobject_cast<QLabel*>(layout->labelForField(field))) {
             lbl->setText(text);
+            lbl->setVisible(true);
+        }
     };
 
-    if (index == 0) { // Transient
+    auto hideAll = [&]() {
+        for(auto* w : { (QWidget*)m_param1, (QWidget*)m_param2, (QWidget*)m_param3, (QWidget*)m_param4, (QWidget*)m_param5, (QWidget*)m_param6, (QWidget*)m_acSweepType, (QWidget*)m_steadyCheck, (QWidget*)m_steadyTolEdit, (QWidget*)m_steadyDelayEdit }) {
+            if (w) {
+                w->setVisible(false);
+                if (auto* lbl = layout->labelForField(w)) lbl->setVisible(false);
+            }
+        }
+    };
+
+    hideAll();
+
+    if (index == 0) { // Auto-Detect
+        if (m_viewTabs) m_viewTabs->setCurrentIndex(0); // Waves
+    } else if (index == 1) { // Transient
         setLabel(m_param1, "Step:");
         setLabel(m_param2, "Stop Time:");
         setLabel(m_param3, "Start Time:");
+        setLabel(m_steadyCheck, "Use Steady State:");
         setLabel(m_steadyTolEdit, "ssTol:");
         setLabel(m_steadyDelayEdit, "ssDelay:");
-        m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_acSweepType->setVisible(false);
-        m_steadyCheck->setVisible(true); m_steadyTolEdit->setVisible(true); m_steadyDelayEdit->setVisible(true);
-        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
-        m_param1->setText("1u"); m_param2->setText("10m"); m_param3->setText("0");
-    } else if (index == 1) { // DC OP
-        m_param1->setVisible(false); m_param2->setVisible(false); m_param3->setVisible(false);
-        m_acSweepType->setVisible(false);
-        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
-        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
-    } else if (index == 2) { // DC Sweep
+        if (m_viewTabs) m_viewTabs->setCurrentIndex(0);
+    } else if (index == 2) { // DC OP
+        if (m_viewTabs) m_viewTabs->setCurrentIndex(0);
+    } else if (index == 3) { // DC Sweep
         setLabel(m_param1, "Start:");
         setLabel(m_param2, "Stop:");
         setLabel(m_param3, "Step:");
         setLabel(m_param4, "Source:");
-        m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_param4->setVisible(true);
-        m_acSweepType->setVisible(false);
-        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
-        m_param5->setVisible(false); m_param6->setVisible(false);
-        m_param1->setText("0"); m_param2->setText("5"); m_param3->setText("0.1");
-        if (m_param4->text().isEmpty()) m_param4->setText("V1");
-    } else if (index == 3) { // AC Sweep
+        if (m_viewTabs) m_viewTabs->setCurrentIndex(0);
+    } else if (index == 4) { // AC Sweep
         setLabel(m_param1, "Start Freq:");
         setLabel(m_param2, "Stop Freq:");
         setLabel(m_param3, "Points:");
         setLabel(m_param4, "Source:");
-        m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_param4->setVisible(true);
-        m_acSweepType->setVisible(true);
-        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
-        m_param5->setVisible(false); m_param6->setVisible(false);
-        m_param1->setText("10"); m_param2->setText("1Meg"); m_param3->setText("10");
-        if (m_param4->text().isEmpty()) m_param4->setText("V1");
-        onAcSweepTypeChanged();
-    } else if (index == 4) { // RF S-Parameter
+        setLabel(m_acSweepType, "Sweep Type:");
+        if (m_viewTabs) m_viewTabs->setCurrentIndex(0);
+    } else if (index == 5) { // RF S-Parameter
         setLabel(m_param1, "Start Freq:");
         setLabel(m_param2, "Stop Freq:");
         setLabel(m_param3, "Points:");
         setLabel(m_param4, "Port 1 Src:");
         setLabel(m_param5, "Port 2 Node:");
         setLabel(m_param6, "Z0:");
-        m_param1->setVisible(true); m_param2->setVisible(true); m_param3->setVisible(true);
-        m_param4->setVisible(true); m_param5->setVisible(true); m_param6->setVisible(true);
-        m_acSweepType->setVisible(true);
-        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
-        m_param1->setText("10"); m_param2->setText("1Meg"); m_param3->setText("10");
-        if (m_param4->text().isEmpty()) m_param4->setText("V1");
-        if (m_param5->text().isEmpty()) m_param5->setText("OUT");
-        onAcSweepTypeChanged();
-    } else if (index == 5) { // Monte Carlo
-        setLabel(m_param1, "Runs:");
-        m_param1->setVisible(true); m_param2->setVisible(false); m_param3->setVisible(false);
-        m_steadyCheck->setVisible(false); m_steadyTolEdit->setVisible(false); m_steadyDelayEdit->setVisible(false);
-        m_param4->setVisible(false); m_param5->setVisible(false); m_param6->setVisible(false);
-        m_param1->setText("10");
+        setLabel(m_acSweepType, "Sweep Type:");
+        if (m_viewTabs) m_viewTabs->setCurrentIndex(2); // RF Analysis tab
     } else if (index == 6) { // Parametric Sweep
         setLabel(m_param1, "Component:");
         setLabel(m_param2, "Param:");
@@ -1129,21 +864,21 @@ void SimulationPanel::setAnalysisConfig(const AnalysisConfig& cfg) {
     m_buildInProgress = true;
 
     // Map SimAnalysisType enum to UI ComboBox indices
-    int idx = 0;
+    int idx = 0; // Default to Auto-Detect
     switch (cfg.type) {
-        case SimAnalysisType::Transient: idx = 0; break;
-        case SimAnalysisType::OP:        idx = 1; break;
-        case SimAnalysisType::DC:        idx = 2; break;
-        case SimAnalysisType::AC:        idx = 3; break;
-        case SimAnalysisType::SParameter: idx = 4; break;
-        case SimAnalysisType::MonteCarlo: idx = 5; break;
-        case SimAnalysisType::ParametricSweep: idx = 6; break;
-        case SimAnalysisType::Sensitivity: idx = 7; break;
-        case SimAnalysisType::RealTime: idx = 8; break;
+        case SimAnalysisType::Transient:      idx = 1; break;
+        case SimAnalysisType::OP:             idx = 2; break;
+        case SimAnalysisType::DC:             idx = 3; break;
+        case SimAnalysisType::AC:             idx = 4; break;
+        case SimAnalysisType::SParameter:     idx = 5; break;
+        case SimAnalysisType::MonteCarlo:     idx = 6; break;
+        case SimAnalysisType::ParametricSweep: idx = 7; break;
+        case SimAnalysisType::Sensitivity:     idx = 8; break;
+        case SimAnalysisType::RealTime:        idx = 9; break;
         default: {
             // Check for explicit SParameter enum value 12
-            if (static_cast<int>(cfg.type) == 12) idx = 4;
-            else idx = 0;
+            if (static_cast<int>(cfg.type) == 12) idx = 5;
+            else idx = 0; // Auto-Detect
             break;
         }
     }
@@ -1205,27 +940,35 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
     AnalysisConfig cfg{};
     const int idx = m_analysisType ? m_analysisType->currentIndex() : 0;
     if (idx == 0) {
-        cfg.type = SimAnalysisType::Transient;
-        cfg.step = parseValue(m_param1 ? m_param1->text() : QString(), 1e-6);
-        cfg.stop = parseValue(m_param2 ? m_param2->text() : QString(), 10e-3);
-        cfg.transientSteady = m_steadyCheck && m_steadyCheck->isChecked();
-        cfg.steadyStateTol = parseValue(m_steadyTolEdit ? m_steadyTolEdit->text() : QString(), 0.0);
-        cfg.steadyStateDelay = parseValue(m_steadyDelayEdit ? m_steadyDelayEdit->text() : QString(), 0.0);
+        // Auto-Detect: We can't know the exact type without parsing the command line or scene,
+        // but for config purposes, we might want to return the last detected type.
+        // For now, let's look at the command text.
+        if (m_commandLine && m_commandLine->text().trimmed().startsWith(".op", Qt::CaseInsensitive)) {
+            cfg.type = SimAnalysisType::OP;
+        } else if (m_commandLine && m_commandLine->text().trimmed().startsWith(".ac", Qt::CaseInsensitive)) {
+            cfg.type = SimAnalysisType::AC;
+        } else if (m_commandLine && m_commandLine->text().trimmed().startsWith(".dc", Qt::CaseInsensitive)) {
+            cfg.type = SimAnalysisType::DC;
+        } else {
+            cfg.type = SimAnalysisType::Transient; // Fallback
+        }
     } else if (idx == 1) {
-        cfg.type = SimAnalysisType::OP;
+        cfg.type = SimAnalysisType::Transient;
     } else if (idx == 2) {
+        cfg.type = SimAnalysisType::OP;
+    } else if (idx == 3) {
         cfg.type = SimAnalysisType::DC;
         cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 0);
         cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 5);
         cfg.step = parseValue(m_param3 ? m_param3->text() : QString(), 0.1);
         cfg.dcSource = m_param4 ? m_param4->text().trimmed() : "V1";
-    } else if (idx == 3) {
+    } else if (idx == 4) {
         cfg.type = SimAnalysisType::AC;
         cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 10);
         cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 1e6);
         cfg.pts = std::max(1, (m_param3 ? m_param3->text().trimmed().toInt() : 10));
         if (m_acSweepType) cfg.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
-    } else if (idx == 4) {
+    } else if (idx == 5) {
         cfg.type = SimAnalysisType::SParameter;
         cfg.fStart = parseValue(m_param1 ? m_param1->text() : QString(), 10);
         cfg.fStop = parseValue(m_param2 ? m_param2->text() : QString(), 1e6);
@@ -1234,13 +977,13 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
         cfg.rfPort1Source = m_param4 ? m_param4->text().trimmed() : "V1";
         cfg.rfPort2Node = m_param5 ? m_param5->text().trimmed() : "OUT";
         cfg.rfZ0 = parseValue(m_param6 ? m_param6->text().trimmed() : QString(), 50.0);
-    } else if (idx == 5) {
-        cfg.type = SimAnalysisType::MonteCarlo;
     } else if (idx == 6) {
-        cfg.type = SimAnalysisType::ParametricSweep;
+        cfg.type = SimAnalysisType::MonteCarlo;
     } else if (idx == 7) {
-        cfg.type = SimAnalysisType::Sensitivity;
+        cfg.type = SimAnalysisType::ParametricSweep;
     } else if (idx == 8) {
+        cfg.type = SimAnalysisType::Sensitivity;
+    } else if (idx == 9) {
         cfg.type = SimAnalysisType::RealTime;
     }
     
@@ -1249,7 +992,7 @@ SimulationPanel::AnalysisConfig SimulationPanel::getAnalysisConfig() const {
 }
 
 bool SimulationPanel::isRealTimeMode() const {
-    return m_analysisType && m_analysisType->currentIndex() == 8;
+    return m_analysisType && m_analysisType->currentIndex() == 9;
 }
 
 void SimulationPanel::setSchematicName(const QString& name) {
@@ -1267,6 +1010,7 @@ void SimulationPanel::setSchematicName(const QString& name) {
 }
 
 void SimulationPanel::onAcSweepTypeChanged() {
+    if (!m_param1 || !m_param1->parentWidget()) return;
     QFormLayout* layout = qobject_cast<QFormLayout*>(m_param1->parentWidget()->layout());
     if (!layout) return;
     

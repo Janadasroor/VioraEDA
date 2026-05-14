@@ -28,6 +28,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include "../dialogs/spice_directive_dialog.h"
+#include "../../core/flux/extensions/extension_manager.h"
 #include "../../simulator/bridge/sim_manager.h"
 #include "../tools/schematic_zoom_area_tool.h"
 
@@ -442,6 +443,8 @@ void SchematicEditor::createToolBar() {
     // File Menu
     QMenu* fileMenu = mainAppMenu->addMenu("&File");
     fileMenu->addAction(createComponentIcon("New"), "New Schematic", QKeySequence::New, this, &SchematicEditor::onNewSchematic);
+    fileMenu->addAction(getThemeIcon(":/icons/tool_run.svg"), "New FluxScript", QKeySequence("Ctrl+Shift+N"), this, [this]() { addScriptTab(); });
+    fileMenu->addSeparator();
     fileMenu->addAction(createComponentIcon("Open"), "Open Schematic...", QKeySequence::Open, this, &SchematicEditor::onOpenSchematic);
     QAction* openTemplateAct = fileMenu->addAction(createComponentIcon("Open"), "Open Template...");
     connect(openTemplateAct, &QAction::triggered, this, [this]() {
@@ -673,6 +676,23 @@ void SchematicEditor::createToolBar() {
     QAction* openCompAct = toolsMenu->addAction(getThemeIcon(":/icons/comp_ic.svg"), "Place Component...", QKeySequence("A"), this, &SchematicEditor::onOpenComponentBrowser);
     openCompAct->setToolTip("Open component browser and search (A)");
 
+    // Extensions menu
+    m_extensionsMenu = mainAppMenu->addMenu(getThemeIcon(":/icons/tool_gear.svg"), "&Extensions");
+    m_extensionsMenu->setToolTipsVisible(true);
+    QAction* reloadExtAct = m_extensionsMenu->addAction("Reload Extensions");
+    connect(reloadExtAct, &QAction::triggered, this, [this]() {
+        ExtensionManager::instance().reloadAll();
+        setupExtensionsMenu(m_extensionsMenu);
+        statusBar()->showMessage("Extensions reloaded", 3000);
+    });
+    QAction* autoReloadAct = m_extensionsMenu->addAction("Auto-reload on file change");
+    autoReloadAct->setCheckable(true);
+    autoReloadAct->setChecked(true);
+    connect(autoReloadAct, &QAction::toggled, this, [](bool checked) {
+        ExtensionManager::instance().setFileWatcherEnabled(checked);
+    });
+    m_extensionsMenu->addSeparator();
+
     // Settings (top-level, above Help)
     mainAppMenu->addSeparator();
     mainAppMenu->addAction(getThemeIcon(":/icons/tool_gear.svg"), "Settings...", QKeySequence(), this, &SchematicEditor::onSettings);
@@ -739,6 +759,12 @@ void SchematicEditor::createToolBar() {
     openFileBtn->setToolTip("Open Schematic (Ctrl+O)");
     connect(openFileBtn, &QToolButton::clicked, this, &SchematicEditor::onOpenSchematic);
     mainToolbar->addWidget(openFileBtn);
+
+    QToolButton* newScriptBtn = new QToolButton(this);
+    newScriptBtn->setIcon(getThemeIcon(":/icons/tool_run.svg"));
+    newScriptBtn->setToolTip("New FluxScript (Ctrl+Shift+N)");
+    connect(newScriptBtn, &QToolButton::clicked, this, [this]() { addScriptTab(); });
+    mainToolbar->addWidget(newScriptBtn);
 
     mainToolbar->addSeparator();
 
@@ -1980,11 +2006,13 @@ void SchematicEditor::connectSimulationSignals() {
         m_simulationRunning = true;
         updateSimulationUiState(true, "Simulation running...");
         
-        // Find and switch to Simulation Tab
-        for (int i = 0; i < m_workspaceTabs->count(); ++i) {
-            if (qobject_cast<SimulationPanel*>(m_workspaceTabs->widget(i))) {
-                m_workspaceTabs->setCurrentIndex(i);
-                break;
+        // Find and switch to Simulation Tab (if enabled in settings)
+        if (ConfigManager::instance().autoShowSimulationTab()) {
+            for (int i = 0; i < m_workspaceTabs->count(); ++i) {
+                if (qobject_cast<SimulationPanel*>(m_workspaceTabs->widget(i))) {
+                    m_workspaceTabs->setCurrentIndex(i);
+                    break;
+                }
             }
         }
     });
@@ -2504,13 +2532,10 @@ void SchematicEditor::onRunSimulation() {
     // Avoid blocking the UI with a full net rebuild here.
 
     if (m_oscilloscopeDock && m_simulationPanel) {
-        bool needsOsc = (m_simConfig.type == SimAnalysisType::Transient || 
-                         m_simConfig.type == SimAnalysisType::RealTime);
-        if (needsOsc) {
-            refreshOscilloscopeDockContent();
-            m_oscilloscopeDock->setFloating(false);
-            m_oscilloscopeDock->show();
-        }
+        // Always show the analog oscilloscope panel when running a simulation
+        refreshOscilloscopeDockContent();
+        m_oscilloscopeDock->setFloating(false);
+        m_oscilloscopeDock->show();
     }
 
     if (m_simulationPanel) {
@@ -2970,4 +2995,26 @@ void SchematicEditor::onShowAgentList() {
 
     menu.exec(m_agentStatusBtn->mapToGlobal(QPoint(0, m_agentStatusBtn->height())));
 #endif
+}
+
+void SchematicEditor::setupExtensionsMenu(QMenu* extensionsMenu) {
+    if (!extensionsMenu) return;
+    extensionsMenu->clear();
+
+    auto& mgr = ExtensionManager::instance();
+    auto actions = mgr.createMenuActions(this);
+
+    if (actions.isEmpty()) {
+        QAction* noExt = extensionsMenu->addAction("No extensions loaded");
+        noExt->setEnabled(false);
+        return;
+    }
+
+    // Group actions by first path segment for submenus
+    QMap<QString, QMenu*> subMenus;
+    for (QAction* action : actions) {
+        QString text = action->text();
+        action->setParent(this);
+        extensionsMenu->addAction(action);
+    }
 }

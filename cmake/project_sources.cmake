@@ -45,12 +45,13 @@ set(CORE_SOURCES
     core/project/bom_manager.h
     core/simulation/remote_display_server.cpp
     core/simulation/remote_display_server.h
-    core/plugins/plugin_manager.cpp
-    core/plugins/plugin_manager.h
-    core/plugins/plugin_catalog_client.cpp
-    core/plugins/plugin_catalog_client.h
-    core/plugins/plugin_package_installer.cpp
-    core/plugins/plugin_package_installer.h
+    core/flux/extensions/native/plugin_manager.cpp
+    core/flux/extensions/native/plugin_manager.h
+    core/flux/extensions/native/plugin_catalog_client.cpp
+    core/flux/extensions/native/plugin_catalog_client.h
+    core/flux/extensions/native/plugin_package_installer.cpp
+    core/flux/extensions/native/plugin_package_installer.h
+    core/flux/extensions/native/pcb_plugin.h
     core/ui/selection_filter_widget.cpp
     core/ui/selection_filter_widget.h
     core/ui/command_palette.cpp
@@ -61,12 +62,17 @@ set(CORE_SOURCES
     core/design_rules/design_rule_engine.h
     core/simulation/jit_context_manager.cpp
     core/simulation/jit_context_manager.h
-    core/design_rules/flux_design_rule_bridge.cpp
-    core/design_rules/flux_design_rule_bridge.h
-    core/simulation/flux_workspace_bridge.cpp
-    core/simulation/flux_workspace_bridge.h
-    core/simulation/flux_script_engine.cpp
-    core/simulation/flux_script_engine.h
+    core/flux/bridges/flux_design_rule_bridge.cpp
+    core/flux/bridges/flux_design_rule_bridge.h
+    core/flux/bridges/flux_workspace_bridge.cpp
+    core/flux/bridges/flux_workspace_bridge.h
+    core/flux/bridges/flux_qt_bridge.cpp
+    core/flux/bridges/flux_qt_bridge.h
+    core/flux/bridges/flux_qt_widgets.cpp
+    core/flux/engine/flux_script_engine.cpp
+    core/flux/engine/flux_script_engine.h
+    core/flux/extensions/extension_manager.cpp
+    core/flux/extensions/extension_manager.h
     core/sync/ws_server.cpp
     core/sync/ws_server.h
 )
@@ -550,8 +556,8 @@ set(UI_SOURCES
     ui/calculator_dialog.h
     ui/spice_model_manager_dialog.cpp
     ui/spice_model_manager_dialog.h
-    ui/plugin_manager_dialog.cpp
-    ui/plugin_manager_dialog.h
+    ui/extensions_dialog.cpp
+    ui/extensions_dialog.h
     ui/property_editor.cpp
     ui/property_editor.h
     ui/spice_model_list_model.cpp

@@ -1,6 +1,6 @@
 #include "flux_script_editor_tab.h"
 #include "flux_completer.h"
-#include "flux_workspace_bridge.h"
+#include "../../core/flux/bridges/flux_workspace_bridge.h"
 #include "../../schematic/editor/schematic_api.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>

@@ -190,6 +190,12 @@ void ConfigManager::setSnapToGrid(bool enabled) { m_snapToGrid = enabled; }
 bool ConfigManager::autoFocusOnCrossProbe() const { return m_autoFocusOnCrossProbe; }
 void ConfigManager::setAutoFocusOnCrossProbe(bool enabled) { m_autoFocusOnCrossProbe = enabled; }
 
+bool ConfigManager::autoShowSimulationTab() const { return m_settings.value("ui/autoShowSimulationTab", false).toBool(); }
+void ConfigManager::setAutoShowSimulationTab(bool enabled) { 
+    m_settings.setValue("ui/autoShowSimulationTab", enabled); 
+    m_settings.sync();
+}
+
 void ConfigManager::setToolProperty(const QString& toolName, const QString& propName, const QVariant& value) {
     m_settings.setValue(QString("tools/%1/%2").arg(toolName, propName), value);
     m_settings.sync();

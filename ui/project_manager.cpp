@@ -10,7 +10,7 @@
 #include "symbol_editor.h"
 #include "calculator_dialog.h"
 #include "spice_model_manager_dialog.h"
-#include "plugin_manager_dialog.h"
+#include "extensions_dialog.h"
 #include "../schematic/ui/netlist_editor.h"
 #include "csv_viewer.h"
 #include "../pcb/editor/mainwindow.h"
@@ -830,8 +830,8 @@ QWidget* ProjectManager::createLauncherArea() {
                 ":/icons/toolbar_netlist.png", QColor("#06b6d4"), &ProjectManager::openSpiceModelManager);
         addUtil("Calculator Tools",  "Resistance, trace width, and impedance calculators",
                 ":/icons/calculator_tools.png", QColor("#f59e0b"), &ProjectManager::openCalculatorTools);
-        addUtil("Plugins Manager",   "Manage extensions, importers, and add-ons",
-                ":/icons/plugins_manager.png",  QColor("#8b5cf6"), &ProjectManager::openPluginsManager);
+        addUtil("Extensions",   "Manage extensions, importers, and add-ons",
+                ":/icons/plugins_manager.png",  QColor("#8b5cf6"), &ProjectManager::openExtensionsManager);
         addUtil("Help Documentation","Software guides, tutorials, and documentation",
                 ":/icons/tool_search.svg",      QColor("#64748b"), &ProjectManager::showHelp);
     }
@@ -1942,8 +1942,8 @@ void ProjectManager::onProjectAudit() {
     dlg.exec();
 }
 
-void ProjectManager::openPluginsManager() {
-    PluginManagerDialog dlg(this);
+void ProjectManager::openExtensionsManager() {
+    ExtensionsDialog dlg(this);
     dlg.exec();
 }
 

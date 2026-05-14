@@ -7,6 +7,7 @@
 #include <QDirIterator>
 #include <QDebug>
 #include <QVector>
+#include <QRegularExpression>
 
 namespace {
 QString decodeSpiceTextInLibrary(const QByteArray& raw) {
@@ -91,6 +92,7 @@ void ModelLibraryManager::reload() {
     QWriteLocker locker(&m_lock);
     m_modelIndex.clear();
     m_masterNetlist = SimNetlist();
+    m_loadedFiles.clear();
     locker.unlock();
     
     QStringList paths = ConfigManager::instance().modelPaths();
@@ -134,13 +136,37 @@ QVector<SpiceModelInfo> ModelLibraryManager::search(const QString& query) const 
 }
 
 const SimModel* ModelLibraryManager::findModel(const QString& name) const {
-    QReadLocker locker(&m_lock);
-    return m_masterNetlist.findModel(name.toStdString());
+    {
+        QReadLocker locker(&m_lock);
+        const SimModel* m = m_masterNetlist.findModel(name.toStdString());
+        if (m) return m;
+    }
+
+    // Not found in memory, try to load from indexed library
+    QString libPath = findLibraryPath(name);
+    if (!libPath.isEmpty()) {
+        const_cast<ModelLibraryManager*>(this)->loadLibraryFile(libPath);
+        QReadLocker locker(&m_lock);
+        return m_masterNetlist.findModel(name.toStdString());
+    }
+    return nullptr;
 }
 
 const SimSubcircuit* ModelLibraryManager::findSubcircuit(const QString& name) const {
-    QReadLocker locker(&m_lock);
-    return m_masterNetlist.findSubcircuit(name.toStdString());
+    {
+        QReadLocker locker(&m_lock);
+        const SimSubcircuit* s = m_masterNetlist.findSubcircuit(name.toStdString());
+        if (s) return s;
+    }
+
+    // Not found in memory, try to load from indexed library
+    QString libPath = findLibraryPath(name);
+    if (!libPath.isEmpty()) {
+        const_cast<ModelLibraryManager*>(this)->loadLibraryFile(libPath);
+        QReadLocker locker(&m_lock);
+        return m_masterNetlist.findSubcircuit(name.toStdString());
+    }
+    return nullptr;
 }
 
 QString ModelLibraryManager::findLibraryPath(const QString& name) const {
@@ -177,13 +203,56 @@ void ModelLibraryManager::scanDirectory(const QString& path) {
         if (isKicadModelPath(f)) continue;
         
         current++;
-        Q_EMIT progressUpdated(QString("Loading model: %1").arg(QFileInfo(f).fileName()), current, total);
-        loadLibraryFile(f);
+        if (current % 10 == 0 || current == total) {
+            Q_EMIT progressUpdated(QString("Indexing library: %1").arg(QFileInfo(f).fileName()), current, total);
+        }
+        indexLibraryFile(f);
+    }
+}
+
+void ModelLibraryManager::indexLibraryFile(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.startsWith(".model", Qt::CaseInsensitive)) {
+            QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 3) {
+                QString name = parts[1];
+                QString type = parts[2];
+                if (type.contains('(')) type = type.section('(', 0, 0);
+                
+                QWriteLocker locker(&m_lock);
+                SpiceModelInfo info;
+                info.name = name;
+                info.type = type.toUpper();
+                info.libraryPath = path;
+                m_modelIndex.append(info);
+            }
+        } else if (line.startsWith(".subckt", Qt::CaseInsensitive)) {
+            QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                QString name = parts[1];
+                QWriteLocker locker(&m_lock);
+                SpiceModelInfo info;
+                info.name = name;
+                info.type = "Subcircuit";
+                info.libraryPath = path;
+                m_modelIndex.append(info);
+            }
+        }
     }
 }
 
 void ModelLibraryManager::loadLibraryFile(const QString& path) {
     if (isKicadModelPath(path)) return;
+
+    {
+        QReadLocker locker(&m_lock);
+        if (m_loadedFiles.contains(path)) return;
+    }
 
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -211,29 +280,15 @@ void ModelLibraryManager::loadLibraryFile(const QString& path) {
     
     if (SimModelParser::parseLibrary(tempNetlist, content.toStdString(), options, &diagnostics)) {
         QWriteLocker locker(&m_lock);
-        // Add models to index
+        m_loadedFiles.insert(path);
+        
+        // Add models to master netlist
         for (const auto& [name, model] : tempNetlist.models()) {
-            SpiceModelInfo info;
-            info.name = QString::fromStdString(name);
-            info.type = typeToString(model.type);
-            info.libraryPath = path;
-            for (const auto& [pname, pval] : model.params) {
-                // Formatting very small values using typical scientific notation or normal notation
-                QString valStr = QString::number(pval, 'g', 4);
-                info.params.append(QString("%1 = %2").arg(QString::fromStdString(pname), valStr));
-            }
-            m_modelIndex.append(info);
             m_masterNetlist.addModel(model);
         }
         
-        // Add subcircuits to index
+        // Add subcircuits to master netlist
         for (const auto& [name, sub] : tempNetlist.subcircuits()) {
-            SpiceModelInfo info;
-            info.name = QString::fromStdString(name);
-            info.type = "Subcircuit";
-            info.libraryPath = path;
-            info.description = QString("%1 pins").arg(sub.pinNames.size());
-            m_modelIndex.append(info);
             m_masterNetlist.addSubcircuit(sub);
         }
     }

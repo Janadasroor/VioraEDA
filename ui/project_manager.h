@@ -52,7 +52,7 @@ private Q_SLOTS:
     void openPcbEditor();
     void openFootprintEditor();
     void openCalculatorTools();
-    void openPluginsManager();
+    void openExtensionsManager();
     void openSpiceModelManager();
     void showPythonConsole();
     void importLtspiceBatch();

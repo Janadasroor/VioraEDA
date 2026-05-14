@@ -1,2 +1,2 @@
 #pragma once
-#include "plugins/pcb_plugin.h"
+#include "core/flux/extensions/native/pcb_plugin.h"

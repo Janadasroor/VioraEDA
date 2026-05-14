@@ -14,7 +14,7 @@
 #include "symbols/symbol_library.h"
 #include "simulator/bridge/model_library_manager.h"
 #include "simulator/bridge/flux_sim_bridge.h"
-#include "flux_script_engine.h"
+#include "core/flux/engine/flux_script_engine.h"
 #include "pcb/editor/mainwindow.h"
 #include "pcb/factories/pcb_item_registry.h"
 #include "pcb/tools/pcb_tool_registry_builtin.h"

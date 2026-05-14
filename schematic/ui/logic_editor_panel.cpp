@@ -42,7 +42,7 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include "flux_completer.h"
-#include "flux_workspace_bridge.h"
+#include "../../core/flux/bridges/flux_workspace_bridge.h"
 #include "../../schematic/editor/schematic_api.h"
 #include <QFileSystemWatcher>
 #include "visual_pin_mapper.h"

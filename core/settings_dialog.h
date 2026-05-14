@@ -45,6 +45,7 @@ private:
     QDoubleSpinBox* m_gminSpin;
     QSpinBox* m_maxIterSpin;
     QCheckBox* m_showFullSimulationPanelCheck;
+    QCheckBox* m_autoShowSimulationTabCheck;
 
     // PCB
     QCheckBox* m_enablePcbEditorsCheck;

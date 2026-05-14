@@ -1,5 +1,5 @@
-#ifndef PLUGIN_MANAGER_DIALOG_H
-#define PLUGIN_MANAGER_DIALOG_H
+#ifndef EXTENSIONS_DIALOG_H
+#define EXTENSIONS_DIALOG_H
 
 #include <QDialog>
 #include <QJsonArray>
@@ -14,20 +14,21 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QVersionNumber>
-#include "../core/plugins/plugin_manager.h"
-#include "../core/plugins/plugin_catalog_client.h"
+#include "../core/flux/extensions/native/plugin_manager.h"
+#include "../core/flux/extensions/native/plugin_catalog_client.h"
+#include "../core/flux/extensions/extension_manager.h"
 
 class QNetworkAccessManager;
 class QNetworkReply;
 class QProgressDialog;
 class QFile;
 
-class PluginManagerDialog : public QDialog {
+class ExtensionsDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit PluginManagerDialog(QWidget* parent = nullptr);
-    ~PluginManagerDialog();
+    explicit ExtensionsDialog(QWidget* parent = nullptr);
+    ~ExtensionsDialog();
 
 private Q_SLOTS:
     void refreshPluginList();
@@ -76,9 +77,20 @@ private:
     QWidget* m_updatesTab;
 
     // Installed tab
+    struct UnifiedEntry {
+        enum Type { Native, Script };
+        Type type;
+        // Native plugin fields
+        PluginManager::PluginLoadResult nativeResult;
+        // Script extension fields
+        ExtensionManager::ExtensionInfo scriptInfo;
+    };
+    QVector<UnifiedEntry> m_unifiedEntries;
+
     QListWidget* m_pluginList;
     QLabel* m_detailsLabel;
     QPushButton* m_refreshBtn;
+    QPushButton* m_reloadScriptsBtn;
     QPushButton* m_toggleEnabledBtn;
     QPushButton* m_uninstallBtn;
     QList<PluginManager::PluginLoadResult> m_results;

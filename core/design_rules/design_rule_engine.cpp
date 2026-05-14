@@ -12,7 +12,7 @@
 #include "../schematic/items/schematic_item.h"
 #include "../schematic/analysis/net_manager.h"
 
-#include "flux_design_rule_bridge.h"
+#include "../flux/bridges/flux_design_rule_bridge.h"
 #include "jit_context_manager.h"
 
 namespace Flux {

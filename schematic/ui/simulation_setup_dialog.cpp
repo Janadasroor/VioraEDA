@@ -288,7 +288,14 @@ void SimulationSetupDialog::updateCommandDisplay() {
             .arg(m_param1->text())
             .arg(m_param2->text());
     } else if (idx == 4) { // RF S-Parameter
-        cmd = QString(".net V(%1) %2 Rin=%3 Rout=%3")
+        QString sweepType = "dec";
+        if (m_acSweepType->currentIndex() == 1) sweepType = "oct";
+        else if (m_acSweepType->currentIndex() == 2) sweepType = "lin";
+        cmd = QString(".ac %1 %2 %3 %4\n.net V(%5) %6 Rin=%7 Rout=%7\n.sp %1 %2 %3 %4")
+            .arg(sweepType)
+            .arg(m_param3->text())
+            .arg(m_param1->text())
+            .arg(m_param2->text())
             .arg(m_param5->text())
             .arg(m_param4->text())
             .arg(m_param6->text());
@@ -332,14 +339,46 @@ void SimulationSetupDialog::parseCommandText(const QString& command) {
         }
     } else if (cmd.startsWith(".ac")) {
         m_typeCombo->setCurrentIndex(3);
-        QStringList parts = cmd.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        if (parts.size() >= 5) {
-            if (parts[1] == "dec") m_acSweepType->setCurrentIndex(0);
-            else if (parts[1] == "oct") m_acSweepType->setCurrentIndex(1);
-            else if (parts[1] == "lin") m_acSweepType->setCurrentIndex(2);
-            m_param3->setText(parts[2]);
-            m_param1->setText(parts[3]);
-            m_param2->setText(parts[4]);
+        QStringList lines = command.split("\n");
+        QString acLine;
+        QString netLine;
+        for (const QString& l : lines) {
+            QString tl = l.trimmed().toLower();
+            if (tl.startsWith(".ac")) acLine = tl;
+            else if (tl.startsWith(".net")) netLine = tl;
+        }
+
+        if (!netLine.isEmpty()) {
+            m_typeCombo->setCurrentIndex(4); // S-Parameter
+            // Parse .net V(out) src Rin=50 Rout=50
+            QRegularExpression re(".net\\s+v\\(([^\\)]+)\\)\\s+(\\S+)(\\s+rin=(\\S+))?(\\s+rout=(\\S+))?", QRegularExpression::CaseInsensitiveOption);
+            QRegularExpressionMatch match = re.match(netLine);
+            if (match.hasMatch()) {
+                m_param5->setText(match.captured(1)); // out
+                m_param4->setText(match.captured(2)); // src
+                if (!match.captured(4).isEmpty()) m_param6->setText(match.captured(4)); // z0
+            }
+        }
+
+        if (!acLine.isEmpty()) {
+            QStringList parts = acLine.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 5) {
+                if (parts[1] == "dec") m_acSweepType->setCurrentIndex(0);
+                else if (parts[1] == "oct") m_acSweepType->setCurrentIndex(1);
+                else if (parts[1] == "lin") m_acSweepType->setCurrentIndex(2);
+                m_param3->setText(parts[2]);
+                m_param1->setText(parts[3]);
+                m_param2->setText(parts[4]);
+            }
+        }
+    } else if (cmd.startsWith(".net")) {
+        m_typeCombo->setCurrentIndex(4);
+        QRegularExpression re(".net\\s+v\\(([^\\)]+)\\)\\s+(\\S+)(\\s+rin=(\\S+))?(\\s+rout=(\\S+))?", QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatch match = re.match(cmd);
+        if (match.hasMatch()) {
+            m_param5->setText(match.captured(1)); // out
+            m_param4->setText(match.captured(2)); // src
+            if (!match.captured(4).isEmpty()) m_param6->setText(match.captured(4)); // z0
         }
     }
     

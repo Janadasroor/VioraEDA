@@ -5,7 +5,7 @@ set -e
 APP_NAME="viospice"
 BUILD_DIR="build-appimage"
 APP_DIR="AppDir"
-QT_PATH="/home/jnd/Qt/6.10.1/gcc_64"
+QT_PATH="/home/jnd/Qt/6.11.0/gcc_64"
 LLVM_ROOT="/usr/lib/llvm-18"
 
 echo "=== Starting AppImage build for ${APP_NAME} (Comprehensive Fixes) ==="

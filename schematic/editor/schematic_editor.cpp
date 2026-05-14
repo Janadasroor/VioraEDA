@@ -43,6 +43,7 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 }
 #include "schematic_connectivity.h"
 #include "../analysis/schematic_erc.h"
+#include "../../core/flux/extensions/extension_manager.h"
 #include "theme_manager.h"
 #include "net_manager.h"
 #include "schematic_layout_optimizer.h"
@@ -83,7 +84,7 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 #include "schematic_item.h"
 #include "schematic/dialogs/oscilloscope_properties_dialog.h"
 #include "schematic_menu_registry.h"
-#include "../core/simulation/flux_workspace_bridge.h"
+#include "../../core/flux/bridges/flux_workspace_bridge.h"
 
 using namespace Flux::Core;
 
@@ -194,6 +195,30 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     if (remoteServer.isRunning()) {
         m_remoteLabel->setText("Remote: " + remoteServer.serverUrl());
         m_remoteLabel->setStyleSheet("color: #059669; font-weight: bold;"); // Green
+    }
+
+    // Initialize Extension Manager
+    {
+        auto& extMgr = ExtensionManager::instance();
+        extMgr.scanDirectories();
+        extMgr.loadAll();
+        if (m_extensionsMenu)
+            setupExtensionsMenu(m_extensionsMenu);
+
+        connect(&extMgr, &ExtensionManager::extensionLoaded, this, [this](const QString& id) {
+            if (m_extensionsMenu)
+                setupExtensionsMenu(m_extensionsMenu);
+            statusBar()->showMessage("Extension loaded: " + id, 3000);
+        });
+        connect(&extMgr, &ExtensionManager::extensionError, this, [this](const QString& id, const QString& err) {
+            statusBar()->showMessage("Extension error [" + id + "]: " + err, 5000);
+        });
+        connect(&extMgr, &ExtensionManager::extensionsChanged, this, [this]() {
+            if (m_extensionsMenu)
+                setupExtensionsMenu(m_extensionsMenu);
+        });
+
+        extMgr.watchDirectories();
     }
 
 #if VIOSPICE_HAS_QT_WEBSOCKETS
@@ -1862,6 +1887,25 @@ void SchematicEditor::showSimulationResults(const SimResults& results) {
     
     QMap<QString, double> currents;
     for (const auto& [name, val] : results.branchCurrents) currents[QString::fromStdString(name)] = val;
+
+    // For transient runs where nodeVoltages might be empty, recover final sample from waveforms
+    if (nodeVoltages.isEmpty() || currents.isEmpty()) {
+        for (const auto& wave : results.waveforms) {
+            if (wave.yData.empty()) continue;
+            const QString waveName = QString::fromStdString(wave.name).trimmed();
+            const double finalVal = wave.yData.back();
+
+            if (waveName.startsWith("V(", Qt::CaseInsensitive) && waveName.endsWith(')') && waveName.size() > 3) {
+                const QString net = waveName.mid(2, waveName.size() - 3).trimmed();
+                if (!net.isEmpty() && !nodeVoltages.contains(net)) nodeVoltages.insert(net, finalVal);
+            } else if (waveName.startsWith("I(", Qt::CaseInsensitive) && waveName.endsWith(')') && waveName.size() > 3) {
+                const QString branch = waveName.mid(2, waveName.size() - 3).trimmed();
+                if (!branch.isEmpty() && !currents.contains(branch)) currents.insert(branch, finalVal);
+            } else if (!nodeVoltages.contains(waveName) && !waveName.contains('(')) {
+                nodeVoltages.insert(waveName, finalVal);
+            }
+        }
+    }
 
     if (m_view) {
         m_view->setSimulationResults(nodeVoltages, currents);

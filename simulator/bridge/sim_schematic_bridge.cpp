@@ -1,4 +1,5 @@
 #include "sim_schematic_bridge.h"
+#include "model_library_manager.h"
 #include "slang_manager.h"
 #include "../../schematic/io/netlist_generator.h"
 #include "../../schematic/analysis/schematic_connectivity.h"
@@ -476,16 +477,6 @@ void loadProjectModelLibraries(SimNetlist& netlist, QStringList& mappingWarnings
         const QString absPath = cwd.absoluteFilePath(relPath);
         loadLibraryFile(absPath);
     }
-
-    // Also load configured model libraries (e.g., ~/ViospiceLib).
-    const QStringList modelPaths = ConfigManager::instance().modelPaths();
-    bool skipKicad = ConfigManager::instance().kicadDisabled();
-    for (const QString& p : modelPaths) {
-        if (p.trimmed().isEmpty()) continue;
-        if (skipKicad && p.contains("kicad", Qt::CaseInsensitive)) continue;
-        const QString resolved = QFileInfo(p).isAbsolute() ? p : cwd.absoluteFilePath(p);
-        scanModelPath(resolved);
-    }
 }
 
 MappingResult mapComponentToSimType(const ECOComponent& comp) {
@@ -795,6 +786,17 @@ MappingResult mapComponentToSimType(const ECOComponent& comp) {
                 if (refPrefix == "D") { r.supported = true; r.type = SimComponentType::Diode; return r; }
             }
             r.reason = QString("generic component type '%1' (enum %2) has no simulator mapping").arg(comp.typeName).arg(comp.type);
+            return r;
+        case SchematicItem::HierarchicalPortType:
+        case SchematicItem::SheetType:
+        case SchematicItem::LabelType:
+        case SchematicItem::NetLabelType:
+        case SchematicItem::JunctionType:
+        case SchematicItem::NoConnectType:
+        case SchematicItem::BusType:
+        case SchematicItem::WireType:
+            r.skipSilently = true;
+            r.reason = "non-component item";
             return r;
         case SchematicItem::ICType:
             r.supported = true;
@@ -1319,6 +1321,14 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
 
             int expectedPinCount = 0;
             const SimSubcircuit* sub = netlist.findSubcircuit(inst.subcircuitName);
+            if (!sub) {
+                // Try global library manager
+                const SimSubcircuit* globalSub = ModelLibraryManager::instance().findSubcircuit(QString::fromStdString(inst.subcircuitName));
+                if (globalSub) {
+                    netlist.addSubcircuit(*globalSub);
+                    sub = netlist.findSubcircuit(inst.subcircuitName);
+                }
+            }
             if (sub) {
                 expectedPinCount = static_cast<int>(sub->pinNames.size());
             } else {
@@ -1515,6 +1525,14 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
                 
                 // Validate model existence
                 if (!inst.modelName.empty()) {
+                    if (!netlist.findModel(inst.modelName)) {
+                        // Try global library manager
+                        const SimModel* globalModel = ModelLibraryManager::instance().findModel(QString::fromStdString(inst.modelName));
+                        if (globalModel) {
+                            netlist.addModel(*globalModel);
+                        }
+                    }
+                    
                     if (!netlist.findModel(inst.modelName)) {
                         // Optional for M/D/Q as per user request, but required for CSW
                         if (inst.type == SimComponentType::CSW) {

@@ -96,6 +96,8 @@ public:
     void setAutoFocusOnCrossProbe(bool enabled);
     bool isRealtimeWireUpdateEnabled() const { return m_realtimeWireUpdate; }
     void setRealtimeWireUpdateEnabled(bool enabled) { m_realtimeWireUpdate = enabled; }
+    bool autoShowSimulationTab() const;
+    void setAutoShowSimulationTab(bool enabled);
 
     // Tool Properties
     void setToolProperty(const QString& toolName, const QString& propName, const QVariant& value);

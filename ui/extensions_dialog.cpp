@@ -1,6 +1,7 @@
-#include "plugin_manager_dialog.h"
+#include "extensions_dialog.h"
 #include "../core/interfaces/plugin_sdk_version.h"
-#include "../core/plugins/plugin_package_installer.h"
+#include "../core/flux/extensions/native/plugin_package_installer.h"
+#include "../core/flux/extensions/extension_manager.h"
 
 #include <QBrush>
 #include <QColor>
@@ -76,7 +77,7 @@ QString computeFileSha256(const QString& filePath, QString* error) {
 }
 }
 
-PluginManagerDialog::PluginManagerDialog(QWidget* parent)
+ExtensionsDialog::ExtensionsDialog(QWidget* parent)
     : QDialog(parent)
     , m_tabs(nullptr)
     , m_installedTab(nullptr)
@@ -112,10 +113,10 @@ PluginManagerDialog::PluginManagerDialog(QWidget* parent)
     refreshUpdatesList();
 }
 
-PluginManagerDialog::~PluginManagerDialog() {}
+ExtensionsDialog::~ExtensionsDialog() {}
 
-void PluginManagerDialog::setupUI() {
-    setWindowTitle("Plugin Manager");
+void ExtensionsDialog::setupUI() {
+    setWindowTitle("Extensions Manager");
     resize(900, 520);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -167,19 +168,19 @@ void PluginManagerDialog::setupUI() {
     closeBtn->setObjectName("closeBtn");
 }
 
-void PluginManagerDialog::setupInstalledTab() {
+void ExtensionsDialog::setupInstalledTab() {
     QVBoxLayout* tabLayout = new QVBoxLayout(m_installedTab);
     tabLayout->setSpacing(12);
 
     QHBoxLayout* contentLayout = new QHBoxLayout();
 
-    QGroupBox* listGroup = new QGroupBox("Installed Plugins");
+    QGroupBox* listGroup = new QGroupBox("Installed Extensions");
     QVBoxLayout* listLayout = new QVBoxLayout(listGroup);
     m_pluginList = new QListWidget();
     listLayout->addWidget(m_pluginList);
     contentLayout->addWidget(listGroup, 1);
 
-    QGroupBox* detailsGroup = new QGroupBox("Plugin Details");
+    QGroupBox* detailsGroup = new QGroupBox("Extension Details");
     QVBoxLayout* detailsLayout = new QVBoxLayout(detailsGroup);
     m_detailsLabel = new QLabel("Select a plugin to see details.");
     m_detailsLabel->setWordWrap(true);
@@ -190,24 +191,30 @@ void PluginManagerDialog::setupInstalledTab() {
     tabLayout->addLayout(contentLayout);
 
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    m_refreshBtn = new QPushButton("Scan for Plugins");
+    m_refreshBtn = new QPushButton("Scan");
+    m_reloadScriptsBtn = new QPushButton("Reload Scripts");
     m_toggleEnabledBtn = new QPushButton("Disable");
     m_uninstallBtn = new QPushButton("Uninstall");
     m_toggleEnabledBtn->setEnabled(false);
     m_uninstallBtn->setEnabled(false);
-    connect(m_refreshBtn, &QPushButton::clicked, this, &PluginManagerDialog::refreshPluginList);
-    connect(m_pluginList, &QListWidget::itemClicked, this, &PluginManagerDialog::onPluginSelected);
-    connect(m_toggleEnabledBtn, &QPushButton::clicked, this, &PluginManagerDialog::onToggleSelectedPluginEnabled);
-    connect(m_uninstallBtn, &QPushButton::clicked, this, &PluginManagerDialog::onUninstallSelectedPlugin);
+    connect(m_refreshBtn, &QPushButton::clicked, this, &ExtensionsDialog::refreshPluginList);
+    connect(m_reloadScriptsBtn, &QPushButton::clicked, this, [this]() {
+        ExtensionManager::instance().reloadAll();
+        refreshPluginList();
+    });
+    connect(m_pluginList, &QListWidget::itemClicked, this, &ExtensionsDialog::onPluginSelected);
+    connect(m_toggleEnabledBtn, &QPushButton::clicked, this, &ExtensionsDialog::onToggleSelectedPluginEnabled);
+    connect(m_uninstallBtn, &QPushButton::clicked, this, &ExtensionsDialog::onUninstallSelectedPlugin);
 
     btnLayout->addWidget(m_refreshBtn);
+    btnLayout->addWidget(m_reloadScriptsBtn);
     btnLayout->addWidget(m_toggleEnabledBtn);
     btnLayout->addWidget(m_uninstallBtn);
     btnLayout->addStretch();
     tabLayout->addLayout(btnLayout);
 }
 
-void PluginManagerDialog::setupOnlineTab() {
+void ExtensionsDialog::setupOnlineTab() {
     QVBoxLayout* tabLayout = new QVBoxLayout(m_onlineTab);
     tabLayout->setSpacing(12);
 
@@ -255,18 +262,18 @@ void PluginManagerDialog::setupOnlineTab() {
     tabLayout->addWidget(m_onlineStatusLabel);
 
     connect(m_onlineRefreshBtn, &QPushButton::clicked,
-            this, &PluginManagerDialog::refreshOnlinePluginList);
+            this, &ExtensionsDialog::refreshOnlinePluginList);
     connect(m_onlineSearchEdit, &QLineEdit::returnPressed,
-            this, &PluginManagerDialog::refreshOnlinePluginList);
+            this, &ExtensionsDialog::refreshOnlinePluginList);
     connect(m_onlinePluginList, &QListWidget::itemClicked,
-            this, &PluginManagerDialog::onOnlinePluginSelected);
+            this, &ExtensionsDialog::onOnlinePluginSelected);
     connect(m_onlineDownloadBtn, &QPushButton::clicked,
-            this, &PluginManagerDialog::onDownloadSelectedPlugin);
+            this, &ExtensionsDialog::onDownloadSelectedPlugin);
     connect(m_onlineRetryBtn, &QPushButton::clicked,
-            this, &PluginManagerDialog::onRetryDownload);
+            this, &ExtensionsDialog::onRetryDownload);
 }
 
-void PluginManagerDialog::setupUpdatesTab() {
+void ExtensionsDialog::setupUpdatesTab() {
     QVBoxLayout* tabLayout = new QVBoxLayout(m_updatesTab);
     tabLayout->setSpacing(12);
 
@@ -306,173 +313,206 @@ void PluginManagerDialog::setupUpdatesTab() {
     tabLayout->addWidget(m_updatesStatusLabel);
 
     connect(m_updatesRefreshBtn, &QPushButton::clicked,
-            this, &PluginManagerDialog::refreshUpdatesList);
+            this, &ExtensionsDialog::refreshUpdatesList);
     connect(m_updateSelectedBtn, &QPushButton::clicked,
-            this, &PluginManagerDialog::onUpdateSelectedPlugin);
+            this, &ExtensionsDialog::onUpdateSelectedPlugin);
     connect(m_updateAllBtn, &QPushButton::clicked,
-            this, &PluginManagerDialog::onUpdateAllPlugins);
+            this, &ExtensionsDialog::onUpdateAllPlugins);
     connect(m_updatesList, &QListWidget::itemClicked,
-            this, &PluginManagerDialog::onUpdateItemSelected);
+            this, &ExtensionsDialog::onUpdateItemSelected);
 }
 
-void PluginManagerDialog::refreshPluginList() {
-    PluginManager::instance().loadPlugins();
+static QString typeBadge(ExtensionsDialog::UnifiedEntry::Type t) {
+    return t == ExtensionsDialog::UnifiedEntry::Native ? "[N]" : "[S]";
+}
+
+void ExtensionsDialog::refreshPluginList() {
     m_pluginList->clear();
-    m_detailsLabel->setText("Select a plugin to see details.");
-    m_results = PluginManager::instance().lastLoadResults();
+    m_detailsLabel->setText("Select an extension to see details.");
+    m_unifiedEntries.clear();
     m_toggleEnabledBtn->setEnabled(false);
     m_uninstallBtn->setEnabled(false);
 
-    for (int i = 0; i < m_results.size(); ++i) {
-        const auto& result = m_results[i];
-        const QString pluginLabel = result.pluginName.isEmpty()
-                                        ? QFileInfo(result.filePath).fileName()
-                                        : result.pluginName;
-        
-        QListWidgetItem* item = new QListWidgetItem(pluginLabel);
-        item->setData(Qt::UserRole, i);
-        // Use icons/badges conceptually in text for now as we are limited to QListWidgetItem
-        QString statusText;
-        QColor color = QColor("#cccccc");
+    int nativeCount = 0, scriptCount = 0;
 
-        if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Enabled) {
-            color = QColor("#4ec9b0");
-            statusText = " [Enabled]";
-        } else if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Disabled) {
-            color = QColor("#808080");
-            statusText = " [Disabled]";
-        } else if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Incompatible) {
-            color = QColor("#dcdcaa");
-            statusText = " [Incompatible]";
-        } else if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::UpdateAvailable) {
-            color = QColor("#569cd6");
-            statusText = " [Update Available]";
+    // 1. Native plugins (.so)
+    PluginManager::instance().loadPlugins();
+    m_results = PluginManager::instance().lastLoadResults();
+    for (int i = 0; i < m_results.size(); ++i) {
+        UnifiedEntry e;
+        e.type = UnifiedEntry::Native;
+        e.nativeResult = m_results[i];
+        m_unifiedEntries.append(e);
+        nativeCount++;
+    }
+
+    // 2. FluxScript extensions
+    auto& extMgr = ExtensionManager::instance();
+    auto scriptExts = extMgr.listExtensions();
+    for (const auto& info : scriptExts) {
+        UnifiedEntry e;
+        e.type = UnifiedEntry::Script;
+        e.scriptInfo = info;
+        m_unifiedEntries.append(e);
+        scriptCount++;
+    }
+
+    // 3. Summary header
+    QString summary = QString("Extensions  —  %1 native  ·  %2 script")
+        .arg(nativeCount).arg(scriptCount);
+    QListWidgetItem* hdr = new QListWidgetItem(summary);
+    hdr->setFlags(Qt::NoItemFlags);
+    QFont hf = hdr->font(); hf.setBold(true); hdr->setFont(hf);
+    hdr->setForeground(QColor("#888888"));
+    m_pluginList->addItem(hdr);
+
+    // 4. Populate list
+    for (int i = 0; i < m_unifiedEntries.size(); ++i) {
+        const auto& entry = m_unifiedEntries[i];
+        QListWidgetItem* item;
+        QColor color;
+        QString badge = typeBadge(entry.type);
+
+        if (entry.type == UnifiedEntry::Native) {
+            const auto& r = entry.nativeResult;
+            QString label = r.pluginName.isEmpty()
+                ? QFileInfo(r.filePath).fileName() : r.pluginName;
+            QString statusStr;
+            switch (r.lifecycleStatus) {
+                case PluginManager::PluginLoadResult::LifecycleStatus::Enabled:
+                    color = QColor("#4ec9b0"); statusStr = "Enabled"; break;
+                case PluginManager::PluginLoadResult::LifecycleStatus::Disabled:
+                    color = QColor("#808080"); statusStr = "Disabled"; break;
+                case PluginManager::PluginLoadResult::LifecycleStatus::Incompatible:
+                    color = QColor("#dcdcaa"); statusStr = "Incompatible"; break;
+                case PluginManager::PluginLoadResult::LifecycleStatus::UpdateAvailable:
+                    color = QColor("#569cd6"); statusStr = "Update"; break;
+                default:
+                    color = QColor("#f44747"); statusStr = "Error"; break;
+            }
+            item = new QListWidgetItem(QString("%1 %2  —  %3").arg(badge, label, statusStr));
         } else {
-            color = QColor("#f44747");
-            statusText = " [Error]";
+            const auto& info = entry.scriptInfo;
+            QString status = info.loaded ? "Loaded" : "Unloaded";
+            color = info.loaded ? QColor("#4ec9b0") : QColor("#808080");
+            item = new QListWidgetItem(QString("%1 %2  —  %3").arg(badge, info.name, status));
         }
-        
-        item->setText(pluginLabel + statusText);
+
+        item->setData(Qt::UserRole, i);
         item->setForeground(QBrush(color));
         m_pluginList->addItem(item);
     }
-
-    if (m_pluginList->count() == 0) {
-        m_pluginList->addItem("(No plugins found)");
-        m_pluginList->item(0)->setFlags(Qt::NoItemFlags);
-    }
 }
 
-void PluginManagerDialog::onPluginSelected(QListWidgetItem* item) {
+void ExtensionsDialog::onPluginSelected(QListWidgetItem* item) {
     const QVariant indexData = item->data(Qt::UserRole);
     if (!indexData.isValid()) {
-        m_detailsLabel->setText("Select a plugin to see details.");
+        m_detailsLabel->setText("Select an extension to see details.");
         return;
     }
 
     const int index = indexData.toInt();
-    if (index < 0 || index >= m_results.size()) {
-        m_detailsLabel->setText("Select a plugin to see details.");
+    if (index < 0 || index >= m_unifiedEntries.size()) {
+        m_detailsLabel->setText("Select an extension to see details.");
         return;
     }
 
-    const auto& result = m_results[index];
-    const QString status = statusToString(result.status);
-    const QString lifecycleStatus = lifecycleStatusToString(result.lifecycleStatus);
-    const bool fileExists = QFileInfo::exists(result.filePath);
-    
-    if (fileExists) {
-        const bool enabled = PluginManager::instance().isPluginEnabledByPath(result.filePath);
-        m_toggleEnabledBtn->setText(enabled ? "Disable" : "Enable");
+    const auto& entry = m_unifiedEntries[index];
+
+    if (entry.type == UnifiedEntry::Native) {
+        const auto& result = entry.nativeResult;
+        const bool fileExists = QFileInfo::exists(result.filePath);
+        if (fileExists) {
+            const bool enabled = PluginManager::instance().isPluginEnabledByPath(result.filePath);
+            m_toggleEnabledBtn->setText(enabled ? "Disable" : "Enable");
+        }
+        m_toggleEnabledBtn->setEnabled(fileExists);
+        m_uninstallBtn->setEnabled(fileExists);
+
+        QString statusColor = "#aaaaaa";
+        if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Enabled) statusColor = "#4ec9b0";
+        else if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Disabled) statusColor = "#808080";
+        else if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Incompatible) statusColor = "#dcdcaa";
+        else statusColor = "#f44747";
+
+        const QString details = QString(
+            "<div style='background-color: #2d2d30; padding: 15px; border-radius: 8px; border: 1px solid #3e3e42;'>"
+            "  <div style='font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 5px;'>%1</div>"
+            "  <div style='color: %2; font-weight: bold; font-size: 11px; margin-bottom: 12px; text-transform: uppercase;'>● Native Plugin</div>"
+            "  <hr style='border: none; border-top: 1px solid #3e3e42; margin-bottom: 12px;'>"
+            "  <table width='100%' style='color: #cccccc; font-size: 12px;'>"
+            "    <tr><td width='80'><b>Version:</b></td><td>%3</td></tr>"
+            "    <tr><td><b>Author:</b></td><td>%4</td></tr>"
+            "    <tr><td><b>Status:</b></td><td style='color: %5; font-weight: bold;'>%6</td></tr>"
+            "  </table>"
+            "  <div style='margin-top: 15px; background: #1e1e1e; padding: 10px; border-radius: 4px; color: #bbbbbb; font-style: italic;'>"
+            "    %7"
+            "  </div>"
+            "</div>"
+        ).arg(result.pluginName, statusColor,
+              result.version, result.author, statusColor, lifecycleStatusToString(result.lifecycleStatus),
+              result.description);
+        m_detailsLabel->setText(details);
+    } else {
+        const auto& info = entry.scriptInfo;
+        m_toggleEnabledBtn->setEnabled(false);
+        m_uninstallBtn->setEnabled(false);
+
+        QString statusColor = info.loaded ? "#4ec9b0" : "#808080";
+        QString statusStr = info.loaded ? "Loaded" : "Unloaded";
+
+        const QString details = QString(
+            "<div style='background-color: #2d2d30; padding: 15px; border-radius: 8px; border: 1px solid #3e3e42;'>"
+            "  <div style='font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 5px;'>%1</div>"
+            "  <div style='color: %2; font-weight: bold; font-size: 11px; margin-bottom: 12px; text-transform: uppercase;'>● FluxScript Extension</div>"
+            "  <hr style='border: none; border-top: 1px solid #3e3e42; margin-bottom: 12px;'>"
+            "  <table width='100%' style='color: #cccccc; font-size: 12px;'>"
+            "    <tr><td width='80'><b>Version:</b></td><td>%3</td></tr>"
+            "    <tr><td><b>Author:</b></td><td>%4</td></tr>"
+            "    <tr><td><b>Status:</b></td><td style='color: %2; font-weight: bold;'>%5</td></tr>"
+            "  </table>"
+            "</div>"
+        ).arg(info.name, statusColor, info.version, info.author, statusStr);
+        m_detailsLabel->setText(details);
     }
-    m_toggleEnabledBtn->setEnabled(fileExists);
-    m_uninstallBtn->setEnabled(fileExists);
-
-    QString statusColor = "#aaaaaa";
-    if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Enabled) statusColor = "#4ec9b0";
-    else if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Disabled) statusColor = "#808080";
-    else if (result.lifecycleStatus == PluginManager::PluginLoadResult::LifecycleStatus::Incompatible) statusColor = "#dcdcaa";
-    else statusColor = "#f44747";
-
-    const QString details = QString(
-        "<div style='background-color: #2d2d30; padding: 15px; border-radius: 8px; border: 1px solid #3e3e42;'>"
-        "  <div style='font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 5px;'>%1</div>"
-        "  <div style='color: %2; font-weight: bold; font-size: 11px; margin-bottom: 12px; text-transform: uppercase;'>&nbsp;● %3</div>"
-        "  <hr style='border: none; border-top: 1px solid #3e3e42; margin-bottom: 12px;'>"
-        "  <table width='100%' style='color: #cccccc; font-size: 12px;'>"
-        "    <tr><td width='80'><b>Version:</b></td><td>%4</td></tr>"
-        "    <tr><td><b>Author:</b></td><td>%5</td></tr>"
-        "    <tr><td><b>Status:</b></td><td>%6</td></tr>"
-        "  </table>"
-        "  <div style='margin-top: 15px; background: #1e1e1e; padding: 10px; border-radius: 4px; color: #bbbbbb; font-style: italic;'>"
-        "    %7"
-        "  </div>"
-        "  <div style='margin-top: 10px; font-size: 10px; color: #666666;'>"
-        "    <b>Path:</b> %8"
-        "  </div>"
-        "  %9"
-        "</div>"
-    ).arg(
-        result.pluginName.isEmpty() ? QFileInfo(result.filePath).fileName() : result.pluginName,
-        statusColor,
-        lifecycleStatus,
-        result.version.isEmpty() ? "0.0.0" : result.version,
-        result.author.isEmpty() ? "Community" : result.author,
-        status,
-        result.description.isEmpty() ? "No description provided." : result.description,
-        result.filePath,
-        result.reason.isEmpty() ? "" : QString("<div style='margin-top: 8px; color: #ce9178; font-family: monospace;'>%1</div>").arg(result.reason)
-    );
-    m_detailsLabel->setText(details);
 }
 
-void PluginManagerDialog::onToggleSelectedPluginEnabled() {
+void ExtensionsDialog::onToggleSelectedPluginEnabled() {
     QListWidgetItem* currentItem = m_pluginList->currentItem();
-    if (!currentItem) {
-        return;
-    }
+    if (!currentItem) return;
 
     const QVariant indexData = currentItem->data(Qt::UserRole);
-    if (!indexData.isValid()) {
-        return;
-    }
+    if (!indexData.isValid()) return;
 
     const int index = indexData.toInt();
-    if (index < 0 || index >= m_results.size()) {
-        return;
-    }
+    if (index < 0 || index >= m_unifiedEntries.size()) return;
+    if (m_unifiedEntries[index].type != UnifiedEntry::Native) return;
 
-    const QString path = m_results[index].filePath;
+    const QString path = m_unifiedEntries[index].nativeResult.filePath;
     const bool currentlyEnabled = PluginManager::instance().isPluginEnabledByPath(path);
     PluginManager::instance().setPluginEnabledByPath(path, !currentlyEnabled);
     refreshPluginList();
 }
 
-void PluginManagerDialog::onUninstallSelectedPlugin() {
+void ExtensionsDialog::onUninstallSelectedPlugin() {
     QListWidgetItem* currentItem = m_pluginList->currentItem();
-    if (!currentItem) {
-        return;
-    }
+    if (!currentItem) return;
 
     const QVariant indexData = currentItem->data(Qt::UserRole);
-    if (!indexData.isValid()) {
-        return;
-    }
+    if (!indexData.isValid()) return;
 
     const int index = indexData.toInt();
-    if (index < 0 || index >= m_results.size()) {
-        return;
-    }
+    if (index < 0 || index >= m_unifiedEntries.size()) return;
+    if (m_unifiedEntries[index].type != UnifiedEntry::Native) return;
 
-    const QString path = m_results[index].filePath;
+    const QString path = m_unifiedEntries[index].nativeResult.filePath;
     const bool removed = PluginManager::instance().uninstallPluginByPath(path);
-    if (!removed) {
-        m_detailsLabel->setText(QString("Failed to uninstall plugin file:<br>%1").arg(path));
-    }
+    if (!removed)
+        m_detailsLabel->setText(QString("Failed to uninstall: %1").arg(path));
     refreshPluginList();
 }
 
-void PluginManagerDialog::refreshOnlinePluginList() {
+void ExtensionsDialog::refreshOnlinePluginList() {
     m_onlineRefreshBtn->setEnabled(false);
     updateOnlineStatus("Loading online catalog...");
     QJsonArray items;
@@ -526,7 +566,7 @@ void PluginManagerDialog::refreshOnlinePluginList() {
     updateOnlineStatus(QString("Loaded %1 online plugin(s)").arg(m_onlineResults.size()));
 }
 
-void PluginManagerDialog::onOnlinePluginSelected(QListWidgetItem* item) {
+void ExtensionsDialog::onOnlinePluginSelected(QListWidgetItem* item) {
     const QVariant indexData = item->data(Qt::UserRole);
     if (!indexData.isValid()) {
         m_onlineDetailsLabel->setText("Select an online plugin to see details.");
@@ -544,7 +584,7 @@ void PluginManagerDialog::onOnlinePluginSelected(QListWidgetItem* item) {
     m_onlineDownloadBtn->setEnabled(true);
 }
 
-QString PluginManagerDialog::detectedPlatformTag() const {
+QString ExtensionsDialog::detectedPlatformTag() const {
     const QString os = QSysInfo::productType().toLower();
     const QString arch = QSysInfo::currentCpuArchitecture().toLower();
 
@@ -565,7 +605,7 @@ QString PluginManagerDialog::detectedPlatformTag() const {
     return QString("%1-%2").arg(osTag, archTag);
 }
 
-QString PluginManagerDialog::detectedAppVersion() const {
+QString ExtensionsDialog::detectedAppVersion() const {
     const QString version = QCoreApplication::applicationVersion().trimmed();
     if (!version.isEmpty()) {
         return version;
@@ -573,7 +613,7 @@ QString PluginManagerDialog::detectedAppVersion() const {
     return "0.2.0";
 }
 
-QStringList PluginManagerDialog::installedPluginIdCandidates() const {
+QStringList ExtensionsDialog::installedPluginIdCandidates() const {
     QStringList ids;
     for (const auto& result : m_results) {
         if (result.pluginName == "Plugin directories") {
@@ -592,7 +632,7 @@ QStringList PluginManagerDialog::installedPluginIdCandidates() const {
     return ids;
 }
 
-void PluginManagerDialog::refreshUpdatesList() {
+void ExtensionsDialog::refreshUpdatesList() {
     m_updatesRefreshBtn->setEnabled(false);
     m_updateSelectedBtn->setEnabled(false);
     m_updateAllBtn->setEnabled(false);
@@ -650,7 +690,7 @@ void PluginManagerDialog::refreshUpdatesList() {
     }
 }
 
-QString PluginManagerDialog::formatUpdateDetails(const QJsonObject& update) const {
+QString ExtensionsDialog::formatUpdateDetails(const QJsonObject& update) const {
     const QString compatibility = compatibilitySummary(update);
     const QString verification = verificationSummary(update);
     return QString(
@@ -684,7 +724,7 @@ QString PluginManagerDialog::formatUpdateDetails(const QJsonObject& update) cons
     );
 }
 
-void PluginManagerDialog::onUpdateItemSelected(QListWidgetItem* item) {
+void ExtensionsDialog::onUpdateItemSelected(QListWidgetItem* item) {
     const QVariant indexData = item->data(Qt::UserRole);
     if (!indexData.isValid()) {
         m_updatesDetailsLabel->setText("Select an update to see details.");
@@ -702,7 +742,7 @@ void PluginManagerDialog::onUpdateItemSelected(QListWidgetItem* item) {
     m_updateSelectedBtn->setEnabled(true);
 }
 
-void PluginManagerDialog::onUpdateSelectedPlugin() {
+void ExtensionsDialog::onUpdateSelectedPlugin() {
     QListWidgetItem* current = m_updatesList->currentItem();
     if (!current) {
         updateUpdatesStatus("Select an update first.");
@@ -731,7 +771,7 @@ void PluginManagerDialog::onUpdateSelectedPlugin() {
     updateUpdatesStatus(QString("Downloading update %1 -> %2 ...").arg(pluginId, version));
 }
 
-void PluginManagerDialog::onUpdateAllPlugins() {
+void ExtensionsDialog::onUpdateAllPlugins() {
     if (m_updatesResults.isEmpty()) {
         updateUpdatesStatus("No updates available.");
         return;
@@ -761,7 +801,7 @@ void PluginManagerDialog::onUpdateAllPlugins() {
     processNextQueuedUpdate();
 }
 
-void PluginManagerDialog::processNextQueuedUpdate() {
+void ExtensionsDialog::processNextQueuedUpdate() {
     if (!m_processingUpdateQueue) {
         return;
     }
@@ -791,19 +831,19 @@ void PluginManagerDialog::processNextQueuedUpdate() {
     }
 }
 
-void PluginManagerDialog::updateOnlineStatus(const QString& text) {
+void ExtensionsDialog::updateOnlineStatus(const QString& text) {
     if (m_onlineStatusLabel) {
         m_onlineStatusLabel->setText(text);
     }
 }
 
-void PluginManagerDialog::updateUpdatesStatus(const QString& text) {
+void ExtensionsDialog::updateUpdatesStatus(const QString& text) {
     if (m_updatesStatusLabel) {
         m_updatesStatusLabel->setText(text);
     }
 }
 
-QString PluginManagerDialog::formatOnlinePluginDetails(const QJsonObject& plugin) const {
+QString ExtensionsDialog::formatOnlinePluginDetails(const QJsonObject& plugin) const {
     const QString name = plugin.value("name").toString(plugin.value("id").toString("(unknown)"));
     const QString id = plugin.value("id").toString("(unknown)");
     const QString description = plugin.value("description").toString("(No description)");
@@ -844,7 +884,7 @@ QString PluginManagerDialog::formatOnlinePluginDetails(const QJsonObject& plugin
     ).arg(name, id, latestVersion, owner, category, homepage, compatibility, verification, description);
 }
 
-QString PluginManagerDialog::compatibilitySummary(const QJsonObject& versionObj) const {
+QString ExtensionsDialog::compatibilitySummary(const QJsonObject& versionObj) const {
     if (versionObj.isEmpty()) {
         return "Unknown (missing version metadata)";
     }
@@ -898,7 +938,7 @@ QString PluginManagerDialog::compatibilitySummary(const QJsonObject& versionObj)
     return "Incompatible (" + reasons.join("; ") + ")";
 }
 
-QString PluginManagerDialog::verificationSummary(const QJsonObject& versionObj) const {
+QString ExtensionsDialog::verificationSummary(const QJsonObject& versionObj) const {
     if (versionObj.isEmpty()) {
         return "Unknown (no metadata)";
     }
@@ -914,7 +954,7 @@ QString PluginManagerDialog::verificationSummary(const QJsonObject& versionObj) 
     return "Suspicious metadata (invalid checksum format)";
 }
 
-QString PluginManagerDialog::defaultDownloadPath(const QString& pluginId, const QString& version) const {
+QString ExtensionsDialog::defaultDownloadPath(const QString& pluginId, const QString& version) const {
     QString baseDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     if (baseDir.isEmpty()) {
         baseDir = QDir::homePath();
@@ -922,7 +962,7 @@ QString PluginManagerDialog::defaultDownloadPath(const QString& pluginId, const 
     return QString("%1/%2-%3.fluxplugin").arg(baseDir, pluginId, version);
 }
 
-void PluginManagerDialog::onDownloadSelectedPlugin() {
+void ExtensionsDialog::onDownloadSelectedPlugin() {
     QListWidgetItem* currentItem = m_onlinePluginList->currentItem();
     if (!currentItem) {
         updateOnlineStatus("Select an online plugin first.");
@@ -945,7 +985,7 @@ void PluginManagerDialog::onDownloadSelectedPlugin() {
     startDownloadFromSelection(plugin, false);
 }
 
-void PluginManagerDialog::onRetryDownload() {
+void ExtensionsDialog::onRetryDownload() {
     if (m_lastDownloadUrl.isEmpty() || m_lastDownloadPath.isEmpty()) {
         updateOnlineStatus("No failed download available for retry.");
         return;
@@ -969,9 +1009,9 @@ void PluginManagerDialog::onRetryDownload() {
                          QNetworkRequest::NoLessSafeRedirectPolicy);
     m_activeDownloadReply = m_downloadNetwork->get(request);
     connect(m_activeDownloadReply, &QNetworkReply::downloadProgress,
-            this, &PluginManagerDialog::onDownloadProgress);
+            this, &ExtensionsDialog::onDownloadProgress);
     connect(m_activeDownloadReply, &QNetworkReply::finished,
-            this, &PluginManagerDialog::onDownloadFinished);
+            this, &ExtensionsDialog::onDownloadFinished);
     connect(m_activeDownloadReply, &QNetworkReply::readyRead, this, [this]() {
         if (m_activeDownloadReply && m_activeDownloadFile) {
             m_activeDownloadFile->write(m_activeDownloadReply->readAll());
@@ -983,7 +1023,7 @@ void PluginManagerDialog::onRetryDownload() {
     m_downloadProgressDialog->setAutoClose(false);
     m_downloadProgressDialog->setAutoReset(false);
     connect(m_downloadProgressDialog, &QProgressDialog::canceled,
-            this, &PluginManagerDialog::onDownloadCanceled);
+            this, &ExtensionsDialog::onDownloadCanceled);
     m_downloadProgressDialog->show();
 
     m_onlineDownloadBtn->setEnabled(false);
@@ -991,7 +1031,7 @@ void PluginManagerDialog::onRetryDownload() {
     updateOnlineStatus("Retrying plugin download...");
 }
 
-bool PluginManagerDialog::startDownloadForPluginVersion(const QString& pluginId,
+bool ExtensionsDialog::startDownloadForPluginVersion(const QString& pluginId,
                                                         const QString& version,
                                                         bool isRetry,
                                                         const QString& expectedChecksum,
@@ -1049,9 +1089,9 @@ bool PluginManagerDialog::startDownloadForPluginVersion(const QString& pluginId,
     m_activeDownloadReply = m_downloadNetwork->get(request);
 
     connect(m_activeDownloadReply, &QNetworkReply::downloadProgress,
-            this, &PluginManagerDialog::onDownloadProgress);
+            this, &ExtensionsDialog::onDownloadProgress);
     connect(m_activeDownloadReply, &QNetworkReply::finished,
-            this, &PluginManagerDialog::onDownloadFinished);
+            this, &ExtensionsDialog::onDownloadFinished);
     connect(m_activeDownloadReply, &QNetworkReply::readyRead, this, [this]() {
         if (m_activeDownloadReply && m_activeDownloadFile) {
             m_activeDownloadFile->write(m_activeDownloadReply->readAll());
@@ -1063,7 +1103,7 @@ bool PluginManagerDialog::startDownloadForPluginVersion(const QString& pluginId,
     m_downloadProgressDialog->setAutoClose(false);
     m_downloadProgressDialog->setAutoReset(false);
     connect(m_downloadProgressDialog, &QProgressDialog::canceled,
-            this, &PluginManagerDialog::onDownloadCanceled);
+            this, &ExtensionsDialog::onDownloadCanceled);
     m_downloadProgressDialog->show();
 
     m_onlineDownloadBtn->setEnabled(false);
@@ -1072,7 +1112,7 @@ bool PluginManagerDialog::startDownloadForPluginVersion(const QString& pluginId,
     return true;
 }
 
-void PluginManagerDialog::startDownloadFromSelection(const QJsonObject& plugin, bool isRetry) {
+void ExtensionsDialog::startDownloadFromSelection(const QJsonObject& plugin, bool isRetry) {
     const QString pluginId = plugin.value("id").toString();
     const QJsonObject latestVersionObj = plugin.value("latestVersion").toObject();
     const QString version = latestVersionObj.value("version").toString();
@@ -1086,7 +1126,7 @@ void PluginManagerDialog::startDownloadFromSelection(const QJsonObject& plugin, 
     startDownloadForPluginVersion(pluginId, version, isRetry, checksum, downloadUrl);
 }
 
-void PluginManagerDialog::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal) {
+void ExtensionsDialog::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal) {
     if (!m_downloadProgressDialog) {
         return;
     }
@@ -1102,7 +1142,7 @@ void PluginManagerDialog::onDownloadProgress(qint64 bytesReceived, qint64 bytesT
     m_downloadProgressDialog->setValue(percent);
 }
 
-void PluginManagerDialog::onDownloadFinished() {
+void ExtensionsDialog::onDownloadFinished() {
     if (!m_activeDownloadReply) {
         return;
     }
@@ -1216,7 +1256,7 @@ void PluginManagerDialog::onDownloadFinished() {
     }
 }
 
-void PluginManagerDialog::onDownloadCanceled() {
+void ExtensionsDialog::onDownloadCanceled() {
     if (m_activeDownloadReply) {
         m_activeDownloadReply->abort();
     }
@@ -1227,7 +1267,7 @@ void PluginManagerDialog::onDownloadCanceled() {
     }
 }
 
-void PluginManagerDialog::resetDownloadState() {
+void ExtensionsDialog::resetDownloadState() {
     if (m_downloadProgressDialog) {
         m_downloadProgressDialog->close();
         m_downloadProgressDialog->deleteLater();

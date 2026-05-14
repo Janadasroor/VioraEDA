@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QMap>
 #include <QVector>
+#include <QSet>
 #include "../core/sim_netlist.h"
 
 struct SpiceModelInfo {
@@ -41,10 +42,12 @@ private:
     ~ModelLibraryManager();
     
     void scanDirectory(const QString& path);
+    void indexLibraryFile(const QString& path);
 
     mutable QReadWriteLock m_lock;
     QVector<SpiceModelInfo> m_modelIndex;
-    SimNetlist m_masterNetlist; // Holds all loaded models and subcircuits
+    mutable SimNetlist m_masterNetlist; // Holds all loaded models and subcircuits
+    mutable QSet<QString> m_loadedFiles; // Track which files are fully parsed
 };
 
 #endif // MODEL_LIBRARY_MANAGER_H

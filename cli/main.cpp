@@ -39,7 +39,7 @@
 // We use QCoreApplication::aboutToQuit or QTimer to ensure clean termination
 // instead of platform-specific signal handlers.
 
-#include "plugins/plugin_manager.h"
+#include "core/flux/extensions/native/plugin_manager.h"
 // Symbols
 #include "symbols/models/symbol_definition.h"
 #include "symbols/symbol_library.h"

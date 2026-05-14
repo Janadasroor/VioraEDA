@@ -18,6 +18,7 @@
 #include <QDir>
 #include <QProcess>
 #include <QPointer>
+#include <QThreadPool>
 #include <QSharedPointer>
 #include <QRegularExpression>
 #include <QSet>
@@ -687,6 +688,7 @@ std::string measAnalysisToken(SimAnalysisType type) {
     case SimAnalysisType::OP: return "op";
     case SimAnalysisType::Transient: return "tran";
     case SimAnalysisType::AC: return "ac";
+    case SimAnalysisType::SParameter: return "ac";
     case SimAnalysisType::DC: return "dc";
     case SimAnalysisType::Noise: return "noise";
     default: return std::string();
@@ -715,6 +717,46 @@ void evaluateNetStatementsIntoResults(const QString& netlistContent, SimAnalysis
     const NetEvaluation eval = SimNetEvaluator::evaluate(statements, parseSourceInfosFromNetlist(netlistContent), *results, measAnalysisToken(analysisType));
     for (const SimWaveform& waveform : eval.waveforms) results->waveforms.push_back(waveform);
     for (const std::string& diag : eval.diagnostics) results->diagnostics.push_back(diag);
+
+    // Populate sParameterResults if we have S11/S21 waveforms
+    if (analysisType == SimAnalysisType::SParameter) {
+        const SimWaveform* s11w = nullptr;
+        const SimWaveform* s21w = nullptr;
+        const SimWaveform* s12w = nullptr;
+        const SimWaveform* s22w = nullptr;
+
+        for (const auto& w : results->waveforms) {
+            QString name = QString::fromStdString(w.name).toUpper();
+            if (name == "S11" || name.startsWith("S11(")) s11w = &w;
+            else if (name == "S21" || name.startsWith("S21(")) s21w = &w;
+            else if (name == "S12" || name.startsWith("S12(")) s12w = &w;
+            else if (name == "S22" || name.startsWith("S22(")) s22w = &w;
+        }
+
+        if (s11w || s21w) {
+            const size_t n = s11w ? s11w->xData.size() : (s21w ? s21w->xData.size() : 0);
+            results->sParameterResults.clear();
+            results->sParameterResults.reserve(n);
+            for (size_t i = 0; i < n; ++i) {
+                SParameterPoint p;
+                p.frequency = s11w ? s11w->xData[i] : s21w->xData[i];
+                
+                auto getComplex = [](const SimWaveform* w, size_t idx) -> std::complex<double> {
+                    if (!w || idx >= w->yData.size()) return {0, 0};
+                    double mag = w->yData[idx];
+                    double phaseDeg = idx < w->yPhase.size() ? w->yPhase[idx] : 0.0;
+                    double phaseRad = phaseDeg * 3.14159265358979323846 / 180.0;
+                    return std::polar(mag, phaseRad);
+                };
+
+                p.s11 = getComplex(s11w, i);
+                p.s21 = getComplex(s21w, i);
+                p.s12 = getComplex(s12w, i);
+                p.s22 = getComplex(s22w, i);
+                results->sParameterResults.push_back(p);
+            }
+        }
+    }
 }
 
 QString withStepSuffix(const QString& name, const QString& stepLabel) {
@@ -1118,6 +1160,7 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
             QString err;
             if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
                 SimResults simResults = rd.toSimResults();
+                simResults.analysisType = analysisType;
                 evaluateMeasStatementsIntoResults(netlistText, analysisType, &simResults);
                 evaluateNetStatementsIntoResults(netlistText, analysisType, &simResults);
                 return std::make_pair(true, simResults);
@@ -1392,6 +1435,17 @@ bool SimManager::startSharedSimulation(const QString& netlistContent, const QStr
     return true;
 }
 
+static std::pair<bool, SimResults> parseResultsTask(QString path, QString netlistText, SimAnalysisType analysisType) {
+    RawData rd;
+    if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
+        SimResults simResults = rd.toSimResults();
+        evaluateMeasStatementsIntoResults(netlistText, analysisType, &simResults);
+        evaluateNetStatementsIntoResults(netlistText, analysisType, &simResults);
+        return std::make_pair(true, simResults);
+    }
+    return std::make_pair(false, SimResults());
+}
+
 void SimManager::parseRawResultsFile(const QString& path, const QString& netlistText, SimAnalysisType analysisType) {
     m_resultsPending = true;
     auto* watcher = new QFutureWatcher<std::pair<bool, SimResults>>(this);
@@ -1412,18 +1466,7 @@ void SimManager::parseRawResultsFile(const QString& path, const QString& netlist
         cleanupSimulation();
     });
 
-    watcher->setFuture(QtConcurrent::run([path, netlistText, analysisType]() {
-        RawData rd;
-        QString err;
-        if (RawDataParser::loadRawAscii(path.toStdString(), &rd)) {
-            SimResults simResults = rd.toSimResults();
-            evaluateMeasStatementsIntoResults(netlistText, analysisType, &simResults);
-            evaluateNetStatementsIntoResults(netlistText, analysisType, &simResults);
-            return std::make_pair(true, simResults);
-        }
-        qDebug() << "RawDataParser error:" << err;
-        return std::make_pair(false, SimResults());
-    }));
+    watcher->setFuture(QtConcurrent::run(parseResultsTask, path, netlistText, analysisType));
 }
 
 QStringList SimManager::preflightCheck(QGraphicsScene* scene, NetManager* netMgr, SimNetlist& outNetlist) {
@@ -1487,6 +1530,10 @@ void SimManager::stopAll() {
     Q_EMIT logMessage("Simulation stopped.");
 }
 
+static void sendPauseCommand(bool pause) {
+    SimulationManager::instance().sendInternalCommand(pause ? "bg_halt" : "bg_resume");
+}
+
 void SimManager::pauseSimulation(bool pause) {
     if (!isRunning()) {
         Q_EMIT logMessage("No active simulation to pause or resume.");
@@ -1508,8 +1555,8 @@ void SimManager::pauseSimulation(bool pause) {
     m_paused = pause;
     Q_EMIT simulationPaused(m_paused);
     Q_EMIT logMessage(m_paused ? "Simulation paused." : "Simulation resumed.");
-    QtConcurrent::run([pause]() {
-        SimulationManager::instance().sendInternalCommand(pause ? "bg_halt" : "bg_resume");
+    QThreadPool::globalInstance()->start([pause]() {
+        sendPauseCommand(pause);
     });
 }
 

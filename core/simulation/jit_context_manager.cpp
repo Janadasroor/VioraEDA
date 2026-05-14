@@ -19,8 +19,8 @@
 #include <QDebug>
 #include <QRegularExpression>
 
-#include "flux_design_rule_bridge.h"
-#include "flux_workspace_bridge.h"
+#include "../flux/bridges/flux_design_rule_bridge.h"
+#include "../flux/bridges/flux_workspace_bridge.h"
 
 namespace Flux {
 

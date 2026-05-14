@@ -36,6 +36,7 @@ class SchematicSpiceDirectiveItem;
 class SymbolEditor;
 class SpiceModelArchitect;
 class SourceControlPanel;
+class QMenu;
 #include "../core/design_rules/design_rule.h"
 
 #include "../../symbols/models/symbol_definition.h"
@@ -417,6 +418,10 @@ private:
     void updateTabModifiedIndicator(int index, bool modified);
     void setupTabShortcuts();
     void setupTabBarSignals();
+
+    // Extensions menu
+    QMenu* m_extensionsMenu = nullptr;
+    void setupExtensionsMenu(QMenu* toolsMenu);
 
     // Quick Open dialog (Ctrl+P)
     void showQuickOpenDialog();

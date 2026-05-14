@@ -29,10 +29,10 @@ FetchContent_MakeAvailable(slang)
 link_directories(${slang_BINARY_DIR}/lib)
 # -----------------------------
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
-find_package(Qt${QT_VERSION_MAJOR} QUIET COMPONENTS Pdf PdfWidgets)
-find_package(Qt${QT_VERSION_MAJOR} QUIET COMPONENTS WebSockets)
+find_package(Qt6 6.11.0 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
+set(QT_VERSION_MAJOR 6)
+find_package(Qt6 QUIET COMPONENTS Pdf PdfWidgets)
+find_package(Qt6 QUIET COMPONENTS WebSockets)
 if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
     set(VIOSPICE_HAS_QT_WEBSOCKETS ON)
 else()
@@ -193,8 +193,7 @@ set(FLUX_VIO_MATRIXC_LIB_DIR "${VIOSPICE_PREFERRED_ENGINE_DIR}" CACHE STRING "Pa
 
 FetchContent_Declare(
     FluxScript
-    GIT_REPOSITORY https://github.com/Janadasroor/fluxscript.git
-    GIT_TAG        master
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript
 )
 FetchContent_MakeAvailable(FluxScript)
 

@@ -1,17 +1,25 @@
 #include "flux_script_engine.h"
+#include "../bridges/flux_qt_bridge.h"
 #include <flux/jit_engine.h>
 #include <QDebug>
 #include <string>
+
+// Forward declarations from flux_qt_bridge.cpp
+void initialize_flux_qt_runtime();
+void register_flux_qt_jit_symbols();
 
 FluxScriptEngine& FluxScriptEngine::instance() {
     static FluxScriptEngine inst;
     return inst;
 }
 
-FluxScriptEngine::FluxScriptEngine(QObject* parent) : QObject(parent) {}
+FluxScriptEngine::FluxScriptEngine(QObject* parent) : QObject(parent) {
+    initialize_flux_qt_runtime();
+}
 
 void FluxScriptEngine::initialize() { 
-    Flux::JITEngine::instance().initialize(); 
+    Flux::JITEngine::instance().initialize();
+    register_flux_qt_jit_symbols();
 }
 
 void FluxScriptEngine::finalize() { 

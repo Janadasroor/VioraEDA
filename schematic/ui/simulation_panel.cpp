@@ -1229,7 +1229,7 @@ void SimulationPanel::addProbe(const QString& signalName) {
             values.reserve(static_cast<int>(w->yData.size()));
             for (size_t i = 0; i < w->xData.size(); ++i) time.append(w->xData[i]);
             for (size_t i = 0; i < w->yData.size(); ++i) values.append(w->yData[i]);
-            if (m_analysisType->currentIndex() == 2 && !w->yPhase.empty()) {
+            if ((m_analysisType->currentIndex() == 4 || m_analysisType->currentIndex() == 5) && !w->yPhase.empty()) {
                 QVector<double> phase;
                 phase.reserve(static_cast<int>(w->yPhase.size()));
                 for (size_t i = 0; i < w->yPhase.size(); ++i) phase.append(w->yPhase[i]);
@@ -1366,7 +1366,7 @@ void SimulationPanel::addProbe(const QString& signalName) {
     // for the selected signal immediately so probing during an active run is visible
     // without waiting for a full plot refresh path.
     const QString liveSeriesName = matchedName;
-    if ((m_analysisType->currentIndex() == 0 || m_analysisType->currentIndex() == 7) && m_chart) {
+    if ((m_analysisType->currentIndex() == 0 || m_analysisType->currentIndex() == 9) && m_chart) {
         m_chart->removeAllSeries();
         m_realTimeSeries.clear();
 
@@ -1815,37 +1815,37 @@ void SimulationPanel::updateSchematicDirective() {
     const int idx = m_analysisType ? m_analysisType->currentIndex() : 0;
 
     if (idx == 0) {
+        // In Auto-Detect mode, we never push settings back to the schematic.
+        // The schematic is the master.
+        return;
+    }
+    
+    if (idx == 1) { // Transient
         cmdParams.type = SpiceNetlistGenerator::Transient;
         cmdParams.start = "0";
-        // Use raw text to preserve suffixes like 'u', 'm' etc.
         cmdParams.stop = m_param2 ? m_param2->text().trimmed() : "10m";
         cmdParams.step = m_param1 ? m_param1->text().trimmed() : "1u";
         cmdParams.transientSteady = m_steadyCheck && m_steadyCheck->isChecked();
         cmdParams.steadyStateTol = m_steadyTolEdit ? m_steadyTolEdit->text().trimmed() : QString();
         cmdParams.steadyStateDelay = m_steadyDelayEdit ? m_steadyDelayEdit->text().trimmed() : QString();
-        
-        // Fallbacks if empty
-        if (cmdParams.stop.isEmpty()) cmdParams.stop = "10m";
-        if (cmdParams.step.isEmpty()) cmdParams.step = "1u";
-    } else if (idx == 1) {
+    } else if (idx == 2) { // DC OP
         cmdParams.type = SpiceNetlistGenerator::OP;
-    } else if (idx == 2) {
+    } else if (idx == 3) { // DC Sweep
         cmdParams.type = SpiceNetlistGenerator::DC;
         cmdParams.dcSource = m_param4 ? m_param4->text().trimmed() : QString("V1");
         cmdParams.dcStart = m_param1 ? m_param1->text().trimmed() : QString("0");
         cmdParams.dcStop = m_param2 ? m_param2->text().trimmed() : QString("5");
         cmdParams.dcStep = m_param3 ? m_param3->text().trimmed() : QString("0.1");
-    } else if (idx == 3) {
+    } else if (idx == 4) { // AC Sweep
         cmdParams.type = SpiceNetlistGenerator::AC;
         if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
-        cmdParams.start = m_param1 ? (m_param1->text().trimmed().isEmpty() ? "10" : m_param1->text().trimmed()) : "10";
-        cmdParams.stop = m_param2 ? (m_param2->text().trimmed().isEmpty() ? "1Meg" : m_param2->text().trimmed()) : "1Meg";
-        cmdParams.step = m_param3 ? (m_param3->text().trimmed().isEmpty() ? "10" : m_param3->text().trimmed()) : "10";
+        cmdParams.start = m_param1 ? m_param1->text().trimmed() : "10";
+        cmdParams.stop = m_param2 ? m_param2->text().trimmed() : "1Meg";
+        cmdParams.step = m_param3 ? m_param3->text().trimmed() : "10";
         cmdParams.rfPort1Source = m_param4 ? m_param4->text().trimmed() : "V1";
-    } else if (idx == 4) {
+    } else if (idx == 5) { // RF S-Parameter
         cmdParams.type = SpiceNetlistGenerator::SParameter;
         if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
-        // Frequency and other params come from the same m_param widgets
         cmdParams.start = m_param1 ? m_param1->text().trimmed() : "10";
         cmdParams.stop = m_param2 ? m_param2->text().trimmed() : "1Meg";
         cmdParams.step = m_param3 ? m_param3->text().trimmed() : "10";
@@ -1864,11 +1864,20 @@ void SimulationPanel::updateSchematicDirective() {
     
     for (auto* gi : m_scene->items()) {
         if (auto* existing = dynamic_cast<SchematicSpiceDirectiveItem*>(gi)) {
-            if (existing->text().startsWith('.') &&
-                (existing->text().startsWith(".tran", Qt::CaseInsensitive) ||
-                 existing->text().startsWith(".ac", Qt::CaseInsensitive) ||
-                 existing->text().startsWith(".dc", Qt::CaseInsensitive) ||
-                 existing->text().startsWith(".op", Qt::CaseInsensitive))) {
+            QStringList lines = existing->text().split('\n', Qt::SkipEmptyParts);
+            bool isAnalysis = false;
+            for (const QString& line : lines) {
+                QString tl = line.trimmed().toLower();
+                if (tl.startsWith(".tran") || tl.startsWith(".ac") || tl.startsWith(".dc") ||
+                    tl.startsWith(".op") || tl.startsWith(".net") || tl.startsWith(".noise") ||
+                    tl.startsWith(".disto") || tl.startsWith(".four") || tl.startsWith(".tf") ||
+                    tl.startsWith(".sens") || tl.startsWith(".sp")) {
+                    isAnalysis = true;
+                    break;
+                }
+            }
+
+            if (isAnalysis) {
                 if (!found) {
                     found = existing;
                 } else {
@@ -1909,6 +1918,47 @@ void SimulationPanel::updateSchematicDirective() {
     }
 }
 
+void SimulationPanel::syncFromSchematic() {
+    if (!m_scene || !m_analysisType) return;
+    
+    // Check if we are in Auto-Detect mode (index 0)
+    if (m_analysisType->currentIndex() != 0) return;
+
+    QString cmd;
+    for (QGraphicsItem* item : m_scene->items()) {
+        if (auto* directive = dynamic_cast<SchematicSpiceDirectiveItem*>(item)) {
+            QString text = directive->text().trimmed();
+            if (text.startsWith(".") && !text.contains(".model") && !text.contains(".subckt") && !text.contains(".include") && !text.contains(".options")) {
+                if (text.startsWith(".tran") || text.startsWith(".ac") || text.startsWith(".sp") || text.startsWith(".dc") || text.startsWith(".op") || text.startsWith(".net")) {
+                    cmd = text;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (cmd.isEmpty()) {
+        m_commandLine->setText("No directive found.");
+        return;
+    }
+
+    m_commandLine->setText(cmd);
+    
+    // Auto-switch view tabs based on directive (using shifted indices: 1=Tran, 2=OP, 3=DC, 4=AC, 5=RF)
+    if (cmd.startsWith(".tran", Qt::CaseInsensitive)) {
+        onAnalysisChanged(1); 
+    } else if (cmd.startsWith(".ac", Qt::CaseInsensitive)) {
+        onAnalysisChanged(4); 
+    } else if (cmd.startsWith(".sp", Qt::CaseInsensitive) || cmd.startsWith(".net", Qt::CaseInsensitive)) {
+        onAnalysisChanged(5); 
+    } else if (cmd.startsWith(".dc", Qt::CaseInsensitive)) {
+        onAnalysisChanged(3); 
+    } else if (cmd.startsWith(".op", Qt::CaseInsensitive)) {
+        onAnalysisChanged(2); 
+    }
+}
+
+
 void SimulationPanel::updateCommandDisplay() {
     if (!m_commandLine) return;
 
@@ -1916,6 +1966,9 @@ void SimulationPanel::updateCommandDisplay() {
     const int idx = m_analysisType ? m_analysisType->currentIndex() : 0;
 
     if (idx == 0) {
+        // Auto-Detect: syncFromSchematic handles the command display
+        return;
+    } else if (idx == 1) { // Transient
         cmdParams.type = SpiceNetlistGenerator::Transient;
         cmdParams.start = "0";
         cmdParams.stop = m_param2 ? m_param2->text() : QString("10m");
@@ -1923,22 +1976,22 @@ void SimulationPanel::updateCommandDisplay() {
         cmdParams.transientSteady = m_steadyCheck && m_steadyCheck->isChecked();
         cmdParams.steadyStateTol = m_steadyTolEdit ? m_steadyTolEdit->text().trimmed() : QString();
         cmdParams.steadyStateDelay = m_steadyDelayEdit ? m_steadyDelayEdit->text().trimmed() : QString();
-    } else if (idx == 1) {
+    } else if (idx == 2) { // DC OP
         cmdParams.type = SpiceNetlistGenerator::OP;
-    } else if (idx == 2) {
+    } else if (idx == 3) { // DC Sweep
         cmdParams.type = SpiceNetlistGenerator::DC;
         cmdParams.dcSource = m_param4 ? m_param4->text().trimmed() : QString("V1");
         cmdParams.dcStart = m_param1 ? m_param1->text().trimmed() : QString("0");
         cmdParams.dcStop = m_param2 ? m_param2->text().trimmed() : QString("5");
         cmdParams.dcStep = m_param3 ? m_param3->text().trimmed() : QString("0.1");
-    } else if (idx == 3) {
+    } else if (idx == 4) { // AC Sweep
         cmdParams.type = SpiceNetlistGenerator::AC;
         if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
         cmdParams.start = m_param1 ? m_param1->text() : QString("10");
         cmdParams.stop = m_param2 ? m_param2->text() : QString("1Meg");
         cmdParams.step = m_param3 ? m_param3->text() : QString("10");
         cmdParams.rfPort1Source = m_param4 ? m_param4->text() : QString("V1");
-    } else if (idx == 4) {
+    } else if (idx == 5) { // RF S-Parameter
         cmdParams.type = SpiceNetlistGenerator::SParameter;
         if (m_acSweepType) cmdParams.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
         cmdParams.start = m_param1 ? m_param1->text() : QString("10");
@@ -1961,7 +2014,7 @@ void SimulationPanel::parseCommandText(const QString& command, bool skipTypeOver
     if (cmd.startsWith(".tran")) {
         if (!skipTypeOverride) {
             m_analysisType->blockSignals(true);
-            m_analysisType->setCurrentIndex(0);
+            m_analysisType->setCurrentIndex(1); // Shifting from 0 to 1
             m_analysisType->blockSignals(false);
         }
 
@@ -1983,7 +2036,7 @@ void SimulationPanel::parseCommandText(const QString& command, bool skipTypeOver
     } else if (cmd.startsWith(".dc")) {
         if (!skipTypeOverride) {
             m_analysisType->blockSignals(true);
-            m_analysisType->setCurrentIndex(2);
+            m_analysisType->setCurrentIndex(3); // Shifting from 2 to 3
             m_analysisType->blockSignals(false);
         }
 
@@ -1994,15 +2047,52 @@ void SimulationPanel::parseCommandText(const QString& command, bool skipTypeOver
             m_param2->setText(parts[3]); // stop
             m_param3->setText(parts[4]); // step
         }
+    } else if (cmd.contains(".sp") || cmd.contains(".net")) {
+        if (!skipTypeOverride) {
+            m_analysisType->blockSignals(true);
+            m_analysisType->setCurrentIndex(5);
+            m_analysisType->blockSignals(false);
+        }
+
+        // Find the .sp or .ac line to extract sweep parameters
+        QStringList lines = command.split(QRegularExpression("[\r\n]+"), Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            QString trimmed = line.trimmed().toLower();
+            if (trimmed.startsWith(".sp") || trimmed.startsWith(".ac")) {
+                QStringList parts = trimmed.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                if (parts.size() >= 5) {
+                    m_param3->setText(parts[2]); // pts
+                    m_param1->setText(parts[3]); // start
+                    m_param2->setText(parts[4]); // stop
+                    break;
+                }
+            }
+        }
+        
+        // Also extract .net parameters if present
+        for (const QString& line : lines) {
+            QString trimmed = line.trimmed().toLower();
+            if (trimmed.startsWith(".net")) {
+                QStringList parts = line.trimmed().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+                // .net V(out) v1 Rin=50
+                if (parts.size() >= 3) {
+                    QString outPart = parts[1];
+                    if (outPart.startsWith("V(", Qt::CaseInsensitive) && outPart.endsWith(")")) {
+                        m_param5->setText(outPart.mid(2, outPart.size() - 3));
+                    }
+                    m_param4->setText(parts[2]);
+                }
+                break;
+            }
+        }
     } else if (cmd.startsWith(".ac")) {
         if (!skipTypeOverride) {
             m_analysisType->blockSignals(true);
-            m_analysisType->setCurrentIndex(3);
+            m_analysisType->setCurrentIndex(4); // Shifting from 3 to 4
             m_analysisType->blockSignals(false);
         }
 
         QStringList parts = cmd.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        // .ac <type> <pts> <fstart> <fstop>
         if (parts.size() >= 5) {
             if (m_acSweepType) {
                 m_acSweepType->blockSignals(true);
@@ -2020,26 +2110,11 @@ void SimulationPanel::parseCommandText(const QString& command, bool skipTypeOver
             m_param1->blockSignals(false);
             m_param2->blockSignals(false);
             m_param3->blockSignals(false);
-        } else if (parts.size() >= 4) {
-            m_param1->blockSignals(true);
-            m_param2->blockSignals(true);
-            m_param3->blockSignals(true);
-            m_param1->setText(parts[2]);  // start freq
-            m_param2->setText(parts[3]);  // stop freq
-            m_param1->blockSignals(false);
-            m_param2->blockSignals(false);
-            m_param3->blockSignals(false);
         }
     } else if (cmd.startsWith(".op")) {
         if (!skipTypeOverride) {
             m_analysisType->blockSignals(true);
-            m_analysisType->setCurrentIndex(1);
-            m_analysisType->blockSignals(false);
-        }
-    } else if (cmd.startsWith(".dc")) {
-        if (!skipTypeOverride) {
-            m_analysisType->blockSignals(true);
-            m_analysisType->setCurrentIndex(3);  // Monte Carlo placeholder
+            m_analysisType->setCurrentIndex(2); // Shifting from 1 to 2
             m_analysisType->blockSignals(false);
         }
     }
@@ -2371,7 +2446,7 @@ void SimulationPanel::onRunSimulation() {
     }
 
     const int idx = m_analysisType->currentIndex();
-    if (idx == 7) { // Real-time
+    if (idx == 9) { // Real-time
         int interval = m_param1->text().toInt();
         if (interval < 10) interval = 10;
         m_isSimInitiator = true;
@@ -2381,11 +2456,14 @@ void SimulationPanel::onRunSimulation() {
         return;
     }
 
+    // Ensure state is synced before thread starts
+    syncFromSchematic();
+
     // Update simulation command directive on the schematic
     updateSchematicDirective();
     m_isSimInitiator = true; 
-    // idx == 0 is Transient
-    m_acceptRealTimeStream = (idx == 0 || idx == 7);
+    // idx == 1 is Transient, idx == 9 is Real-Time
+    m_acceptRealTimeStream = (idx == 1 || idx == 9);
     if (m_acceptRealTimeStream) {
         g_liveStreamOwner = this;
     }
@@ -2563,6 +2641,7 @@ void SimulationPanel::onRunSimulation() {
             return result;
         }
 
+
         NetManager netMgr;
         netMgr.updateNets(&tempScene);
 
@@ -2571,7 +2650,7 @@ void SimulationPanel::onRunSimulation() {
             result.diagnostics.append(QString::fromStdString(d));
         }
 
-        if (idx == 2 || idx == 3) { // AC Sweep or S-Parameter (which uses .ac)
+        if (idx == 4 || idx == 5) { // AC Sweep (4) or S-Parameter (5)
             for (QGraphicsItem* gi : tempScene.items()) {
                 auto* vsrc = dynamic_cast<VoltageSourceItem*>(gi);
                 if (!vsrc) continue;
@@ -2597,6 +2676,9 @@ void SimulationPanel::onRunSimulation() {
 
         SpiceNetlistGenerator::SimulationParams params;
         if (idx == 0) {
+            // Auto-Detect: Use schematic directives directly
+            params.type = SpiceNetlistGenerator::OP; // Netlist generator will look for cards
+        } else if (idx == 1) { // Transient
             params.type = SpiceNetlistGenerator::Transient;
             params.start = "0";
             params.stop = QString::number(tStop);
@@ -2604,15 +2686,21 @@ void SimulationPanel::onRunSimulation() {
             params.transientSteady = steadyEnabled;
             params.steadyStateTol = steadyTolText;
             params.steadyStateDelay = steadyDelayText;
-        } else if (idx == 1) {
+        } else if (idx == 2) { // DC OP
             params.type = SpiceNetlistGenerator::OP;
-        } else if (idx == 2) {
+        } else if (idx == 3) { // DC Sweep
+            params.type = SpiceNetlistGenerator::DC;
+            params.dcSource = rfPort1Text;
+            params.dcStart = fStartText;
+            params.dcStop = fStopText;
+            params.dcStep = ptsText;
+        } else if (idx == 4) { // AC Sweep
             params.type = SpiceNetlistGenerator::AC;
             params.start = fStartText.isEmpty() ? "10" : fStartText;
             params.stop = fStopText.isEmpty() ? "1Meg" : fStopText;
             params.step = ptsText.isEmpty() ? "10" : ptsText;
             params.rfPort1Source = rfPort1Text;
-        } else if (idx == 3) {
+        } else if (idx == 5) { // RF S-Parameter
             params.type = SpiceNetlistGenerator::SParameter;
             params.start = fStartText.isEmpty() ? "10" : fStartText;
             params.stop = fStopText.isEmpty() ? "1Meg" : fStopText;
@@ -2706,6 +2794,13 @@ QString SimulationPanel::generateSpiceNetlist() {
     int typeIndex = m_analysisType->currentIndex();
     
     if (typeIndex == 0) {
+        // Auto-Detect: syncFromSchematic handles the command display and directive sync.
+        // For netlist generation, we should default to Transient if nothing else is specified.
+        params.type = SpiceNetlistGenerator::Transient;
+        params.start = "0";
+        params.stop = m_param2->text();
+        params.step = m_param1->text();
+    } else if (typeIndex == 1) { // Transient
         params.type = SpiceNetlistGenerator::Transient;
         params.start = "0";
         params.stop = m_param2->text();
@@ -2713,15 +2808,21 @@ QString SimulationPanel::generateSpiceNetlist() {
         params.transientSteady = m_steadyCheck && m_steadyCheck->isChecked();
         params.steadyStateTol = m_steadyTolEdit ? m_steadyTolEdit->text().trimmed() : QString();
         params.steadyStateDelay = m_steadyDelayEdit ? m_steadyDelayEdit->text().trimmed() : QString();
-    } else if (typeIndex == 1) {
+    } else if (typeIndex == 2) { // DC OP
         params.type = SpiceNetlistGenerator::OP;
-    } else if (typeIndex == 2) {
+    } else if (typeIndex == 3) { // DC Sweep
+        params.type = SpiceNetlistGenerator::DC;
+        params.dcSource = m_param4 ? m_param4->text().trimmed() : QString("V1");
+        params.dcStart = m_param1 ? m_param1->text().trimmed() : QString("0");
+        params.dcStop = m_param2 ? m_param2->text().trimmed() : QString("5");
+        params.dcStep = m_param3 ? m_param3->text().trimmed() : QString("0.1");
+    } else if (typeIndex == 4) {
         params.type = SpiceNetlistGenerator::AC;
         params.start = m_param1->text();
         params.stop = m_param2->text();
         params.step = m_param3->text();
         params.rfPort1Source = m_param4 ? m_param4->text() : QString();
-    } else if (typeIndex == 3) {
+    } else if (typeIndex == 5) {
         params.type = SpiceNetlistGenerator::SParameter;
         params.start = m_param1->text();
         params.stop = m_param2->text();
@@ -2744,7 +2845,7 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
     
     const int currentAnalysisIndex = m_analysisType ? m_analysisType->currentIndex() : -1;
     const bool shouldResumeLiveStream =
-        SimManager::instance().isRunning() && (currentAnalysisIndex == 0 || currentAnalysisIndex == 7);
+        SimManager::instance().isRunning() && (currentAnalysisIndex == 0 || currentAnalysisIndex == 9);
 
     m_acceptRealTimeStream = false; // Stop accepting real-time data immediately
     m_liveSnapshotTimer.invalidate();
@@ -2782,16 +2883,32 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
     m_lastResults = effectiveResults;
     m_hasLastResults = true;
 
-    // ── Timeline Initialization ──────────────────────────────────────
+    // ── Timeline / Frequency Slider Initialization ──────────────────────────────────────
     bool isTransient = (effectiveResults.analysisType == SimAnalysisType::Transient);
-    m_timelineSlider->setEnabled(isTransient);
+    bool isSParam = (effectiveResults.analysisType == SimAnalysisType::SParameter);
+    m_timelineSlider->setEnabled(isTransient || isSParam);
+    
     if (isTransient) {
         m_timelineSlider->blockSignals(true);
+        m_timelineSlider->setRange(0, 1000);
         m_timelineSlider->setValue(1000); // Start at end
         m_timelineSlider->blockSignals(false);
         
         if (!effectiveResults.waveforms.empty() && !effectiveResults.waveforms.front().xData.empty()) {
             m_timelineLabel->setText(QString::number(effectiveResults.waveforms.front().xData.back(), 'g', 4) + " s");
+        }
+    } else if (isSParam) {
+        m_timelineSlider->blockSignals(true);
+        int points = static_cast<int>(effectiveResults.sParameterResults.size());
+        qDebug() << "[SimPanel] S-Parameter results found, points:" << points;
+        m_timelineSlider->setRange(0, std::max(0, points - 1));
+        m_timelineSlider->setValue(0);
+        m_timelineSlider->blockSignals(false);
+        m_timelineSlider->setEnabled(points > 1);
+        
+        if (points > 0) {
+            double freq = effectiveResults.sParameterResults.front().frequency;
+            m_timelineLabel->setText(formatFrequency(freq));
         }
     } else {
         m_timelineLabel->setText("--- s");
@@ -3512,31 +3629,44 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
 }
 
 void SimulationPanel::onTimelineValueChanged(int value) {
-    if (!m_hasLastResults || m_lastResults.waveforms.empty()) return;
-    if (m_lastResults.analysisType != SimAnalysisType::Transient) return;
-    
-    // Find time range
-    double tMin = 1e18, tMax = -1e18;
-    for (const auto& w : m_lastResults.waveforms) {
-        if (w.xData.empty()) continue;
-        tMin = std::min(tMin, w.xData.front());
-        tMax = std::max(tMax, w.xData.back());
+    if (!m_hasLastResults) return;
+
+    if (m_lastResults.analysisType == SimAnalysisType::Transient) {
+        if (m_lastResults.waveforms.empty()) return;
+        
+        // Find time range
+        double tMin = 1e18, tMax = -1e18;
+        for (const auto& w : m_lastResults.waveforms) {
+            if (w.xData.empty()) continue;
+            tMin = std::min(tMin, w.xData.front());
+            tMax = std::max(tMax, w.xData.back());
+        }
+        
+        if (tMin >= tMax) return;
+        
+        double t = tMin + (tMax - tMin) * (value / 1000.0);
+        m_timelineLabel->setText(QString::number(t, 'g', 4) + " s");
+        
+        auto snap = m_lastResults.interpolateAt(t);
+        
+        QMap<QString, double> nodeVoltages;
+        for (auto const& [name, val] : snap.nodeVoltages) nodeVoltages[name.c_str()] = val;
+        
+        QMap<QString, double> currents;
+        for (auto const& [name, val] : snap.branchCurrents) currents[name.c_str()] = val;
+        
+        Q_EMIT timeSnapshotReady(t, nodeVoltages, currents);
+    } else if (m_lastResults.analysisType == SimAnalysisType::SParameter) {
+        if (m_lastResults.sParameterResults.empty()) return;
+        
+        int idx = std::clamp(value, 0, static_cast<int>(m_lastResults.sParameterResults.size()) - 1);
+        double freq = m_lastResults.sParameterResults[idx].frequency;
+        m_timelineLabel->setText(formatFrequency(freq));
+        
+        if (m_smithChart) {
+            m_smithChart->setHighlightIndex(idx);
+        }
     }
-    
-    if (tMin >= tMax) return;
-    
-    double t = tMin + (tMax - tMin) * (value / 1000.0);
-    m_timelineLabel->setText(QString::number(t, 'g', 4) + " s");
-    
-    auto snap = m_lastResults.interpolateAt(t);
-    
-    QMap<QString, double> nodeVoltages;
-    for (auto const& [name, val] : snap.nodeVoltages) nodeVoltages[name.c_str()] = val;
-    
-    QMap<QString, double> currents;
-    for (auto const& [name, val] : snap.branchCurrents) currents[name.c_str()] = val;
-    
-    Q_EMIT timeSnapshotReady(t, nodeVoltages, currents);
 }
 
 void SimulationPanel::plotBuiltinResults(const SimResults& results) {
@@ -3553,8 +3683,8 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     const bool buildStandardChart = shouldBuildStandardChart();
     const bool buildSpectrumChart = shouldBuildSpectrumChart();
     const int currentAnalysisIndex = m_analysisType ? m_analysisType->currentIndex() : -1;
-    // index 0 is Transient, 7 is Real-time
-    const bool restoreRealTimeStream = (currentAnalysisIndex == 0 || currentAnalysisIndex == 7);
+    // index 1 is Transient, 9 is Real-time
+    const bool restoreRealTimeStream = (currentAnalysisIndex == 1 || currentAnalysisIndex == 9);
     const QList<WaveformViewer::SignalExport> previousWaveformSignals =
         m_waveformViewer ? m_waveformViewer->exportSignals() : QList<WaveformViewer::SignalExport>();
     int previousPaneCount = 0;
@@ -3620,15 +3750,10 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         m_waveformViewer->ensurePaneCount(previousPaneCount);
         m_waveformViewer->setFocusedPaneIndex(previousFocusedPaneIndex);
     }
-    if (m_logicAnalyzer) m_logicAnalyzer->clear();
-    if (m_voltmeter) m_voltmeter->clear();
-    if (m_ammeter) m_ammeter->clear();
-    if (m_wattmeter) m_wattmeter->clear();
-    if (m_freqCounter) m_freqCounter->clear();
-    if (m_logicProbe) m_logicProbe->clear();
+    // Legacy virtual instruments cleared.
 
     int logicCh = 0;
-    if (m_logicAnalyzer) m_logicAnalyzer->beginBatchUpdate();
+
 
     QSet<QString> currentWaveNames;
     
@@ -3908,25 +4033,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             }
         }
         
-        if (m_logicAnalyzer && logicCh < 8) {
-            bool looksDigital = true;
-            for(double v : wave.yData) {
-                if (std::abs(v) > 0.5 && std::abs(v - 5.0) > 0.5 && std::abs(v - 3.3) > 0.5) {
-                    looksDigital = false;
-                    break;
-                }
-            }
-            if (looksDigital) {
-                const int logicStride = sampleStride(wave.xData.size(), 2500);
-                QVector<QPointF> logicPoints;
-                logicPoints.reserve(static_cast<int>((wave.xData.size() + static_cast<size_t>(logicStride) - 1) / static_cast<size_t>(logicStride)));
-                for (size_t i = 0; i < wave.xData.size(); i += static_cast<size_t>(logicStride)) {
-                    logicPoints.append(QPointF(wave.xData[i], wave.yData[i] > 2.0 ? 1.0 : 0.0));
-                }
-                m_logicAnalyzer->setChannelData(QString::fromStdString(wave.name), logicPoints);
-                logicCh++;
-            }
-        }
+
 
         if (buildStandardChart && phaseSeries) {
             m_chart->addSeries(phaseSeries);
@@ -4066,7 +4173,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     if (m_waveformViewer) {
         m_waveformViewer->zoomFit();
     }
-    if (m_logicAnalyzer) m_logicAnalyzer->endBatchUpdate();
+
 
     updateVirtualMeters(results);
     Q_EMIT resultsReady(results);
@@ -4316,15 +4423,17 @@ void SimulationPanel::onApplyGeneratorToSelection() {
 }
 
 void SimulationPanel::updateVirtualMeters(const SimResults& results) {
-    if (m_voltmeter) {
-        for (const auto& w : results.waveforms) {
-            if (QString::fromStdString(w.name).startsWith("V(") && !w.yData.empty()) {
-                m_voltmeter->setReading(QString::fromStdString(w.name), w.yData.back()); break;
-            }
-        }
-    }
+    // Legacy virtual instruments (Wattmeter, Ammeter, etc.) have been removed.
+    // Future high-density diagnostics can be added here.
 }
 
 QWidget* SimulationPanel::getOscilloscopeContainer() const {
     return m_scopeContainer;
+}
+
+QString SimulationPanel::formatFrequency(double freq) const {
+    if (freq >= 1e9) return QString::number(freq / 1e9, 'g', 4) + " GHz";
+    if (freq >= 1e6) return QString::number(freq / 1e6, 'g', 4) + " MHz";
+    if (freq >= 1e3) return QString::number(freq / 1e3, 'g', 4) + " kHz";
+    return QString::number(freq, 'g', 4) + " Hz";
 }
