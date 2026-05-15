@@ -61,7 +61,7 @@ These features are planned for future releases. The current AI integration (Gemi
 | Fedora 40+ | `sudo dnf install cmake gcc-c++ qt6-qtbase-devel qt6-qtcharts-devel qt6-qtsvg-devel llvm-devel clang-devel libcurl-devel python3` |
 | Arch Linux | `sudo pacman -S base-devel cmake qt6-base qt6-charts qt6-svg llvm clang curl python3` |
 
-**Windows and macOS are not yet supported.** The simulation engine (VioMATRIXC / ngspice) uses autotools and Linux-specific shared memory APIs. Cross-platform support is planned but requires porting the engine build system.
+**Windows and macOS support is planned.** The simulation engine (VioMATRIXC / ngspice) currently uses autotools and Linux-specific APIs. Porting to CMake for cross‑platform builds is the main remaining work. Contributions and testing help welcome.
 
 **Install on Fedora:**
 
