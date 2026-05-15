@@ -156,6 +156,13 @@ extern "C" {
         if (lcd) lcd->display(value);
     }
 
+    // Window helpers
+    void flux_qt_set_window_size(double handle, double w, double h) {
+        QWidget* wgt = qobject_cast<QWidget*>(
+            FluxQtBridge::instance().resolveHandle(handle));
+        if (wgt) wgt->resize(static_cast<int>(w), static_cast<int>(h));
+    }
+
     // Container / Window helpers
     double flux_qt_create_window(const char* title) {
         QDialog* dialog = new QDialog();
