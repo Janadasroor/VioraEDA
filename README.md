@@ -187,6 +187,19 @@ Documentation: [docs/developer/ML_DATASET_API.md](docs/developer/ML_DATASET_API.
 ML engineer guide: [docs/developer/ML_ENGINEER_GUIDE.md](docs/developer/ML_ENGINEER_GUIDE.md)
 Examples: [examples/ml_api/README.md](examples/ml_api/README.md)
 
+## File System Layout
+
+| Path | Contents |
+|---|---|
+| `~/.config/VioraEDA/extensions/` | FluxScript extensions (each in its own subdirectory) |
+| `~/ViospiceLib/sym/` | Schematic symbols (`.viosym`, `.sclib`) |
+| `~/ViospiceLib/lib/` | SPICE model libraries (`.lib` files) |
+| `~/ViospiceLib/sub/` | SPICE subcircuit definitions (`.sub` files) |
+| `~/ViospiceLib/footprints/` | PCB footprint libraries |
+| `<build>/extensions/` | Native C++ plugins (`.so` files) |
+
+The symbol and model libraries are auto-created on first launch.
+
 ## Licensing Compliance
 
 VioSpice is licensed under the Apache License, Version 2.0. To ensure full compliance and avoid "GPL infection," the underlying simulation engine (**VioMATRIXC**) is built without GPL-licensed components (specifically the XSpice table models). This ensures that the entire VioSpice binary distribution is compatible with permissive open-source licensing.
