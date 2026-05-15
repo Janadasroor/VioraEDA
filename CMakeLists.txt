@@ -53,7 +53,7 @@ include(FetchContent)
 FetchContent_Declare(
     viomatrixc
     GIT_REPOSITORY https://github.com/Janadasroor/VioMATRIXC.git
-    GIT_TAG        main
+    GIT_TAG        a1c64574335e74efbe309a194fdd053ed42d551c   # main branch HEAD 2026-05-15
 )
 FetchContent_GetProperties(viomatrixc)
 if(NOT viomatrixc_POPULATED)
@@ -191,11 +191,19 @@ endif()
 # --- FluxScript Support ---
 set(FLUX_VIO_MATRIXC_LIB_DIR "${VIOSPICE_PREFERRED_ENGINE_DIR}" CACHE STRING "Path to VioMATRIXC libngspice directory" FORCE)
 
-FetchContent_Declare(
-    FluxScript
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript
-)
-FetchContent_MakeAvailable(FluxScript)
+# Use local fluxscript for development, fetch from GitHub for CI/fresh clones
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript/CMakeLists.txt")
+    message(STATUS "FluxScript: using local ../fluxscript")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript FluxScript)
+else()
+    message(STATUS "FluxScript: fetching from GitHub")
+    FetchContent_Declare(
+        FluxScript
+        GIT_REPOSITORY https://github.com/Janadasroor/fluxscript.git
+        GIT_TAG        19ab2ee   # LLVM 21 compat + JIT fixes
+    )
+    FetchContent_MakeAvailable(FluxScript)
+endif()
 
 add_compile_definitions(FLUXSCRIPT_EXAMPLES_DIR="${fluxscript_SOURCE_DIR}/examples")
 
