@@ -189,14 +189,14 @@ Examples: [examples/ml_api/README.md](examples/ml_api/README.md)
 
 ## File System Layout
 
-| Path | Contents |
-|---|---|
-| `~/.config/VioraEDA/extensions/` | FluxScript extensions (each in its own subdirectory) |
-| `~/ViospiceLib/sym/` | Schematic symbols (`.viosym`, `.sclib`) |
-| `~/ViospiceLib/lib/` | SPICE model libraries (`.lib` files) |
-| `~/ViospiceLib/sub/` | SPICE subcircuit definitions (`.sub` files) |
-| `~/ViospiceLib/footprints/` | PCB footprint libraries |
-| `<build>/extensions/` | Native C++ plugins (`.so` files) |
+| What | Linux | macOS | Windows |
+|---|---|---|---|
+| **Extensions** | `~/.config/VioraEDA/extensions/` | `~/Library/Application Support/VioraEDA/extensions/` | `%APPDATA%\VioraEDA\extensions\` |
+| **Symbols** | `~/ViospiceLib/sym/` | `~/ViospiceLib/sym/` | `%USERPROFILE%\ViospiceLib\sym\` |
+| **Models** | `~/ViospiceLib/lib/` | `~/ViospiceLib/lib/` | `%USERPROFILE%\ViospiceLib\lib\` |
+| **Subcircuits** | `~/ViospiceLib/sub/` | `~/ViospiceLib/sub/` | `%USERPROFILE%\ViospiceLib\sub\` |
+| **Footprints** | `~/ViospiceLib/footprints/` | `~/ViospiceLib/footprints/` | `%USERPROFILE%\ViospiceLib\footprints\` |
+| **Native plugins** | `<build>/extensions/` | `<build>/extensions/` | `<build>/extensions/` |
 
 The symbol and model libraries are auto-created on first launch.
 
