@@ -128,6 +128,7 @@ extern "C" {
     double flux_qt_create_lcd();
     double flux_qt_create_label(const char*);
     double flux_qt_create_combobox();
+    double flux_qt_create_lineedit(const char*);
     double flux_qt_create_checkbox(const char*);
     double flux_qt_create_spinbox();
     double flux_qt_create_progressbar();
@@ -183,6 +184,7 @@ void register_flux_qt_jit_symbols() {
     jit.registerFunction("flux_qt_create_lcd", (void*)&flux_qt_create_lcd);
     jit.registerFunction("flux_qt_create_label", (void*)&flux_qt_create_label);
     jit.registerFunction("flux_qt_create_combobox", (void*)&flux_qt_create_combobox);
+    jit.registerFunction("flux_qt_create_lineedit", (void*)&flux_qt_create_lineedit);
     jit.registerFunction("flux_qt_create_checkbox", (void*)&flux_qt_create_checkbox);
     jit.registerFunction("flux_qt_create_spinbox", (void*)&flux_qt_create_spinbox);
     jit.registerFunction("flux_qt_create_progressbar", (void*)&flux_qt_create_progressbar);

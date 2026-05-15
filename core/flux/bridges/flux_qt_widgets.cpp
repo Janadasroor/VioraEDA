@@ -11,6 +11,7 @@
 #include <QDialog>
 #include <QApplication>
 #include <QComboBox>
+#include <QLineEdit>
 #include <QCheckBox>
 #include <QSpinBox>
 #include <QProgressBar>
@@ -56,6 +57,14 @@ extern "C" {
         label->setAttribute(Qt::WA_DeleteOnClose);
         label->show();
         return FluxQtBridge::instance().registerObject(label);
+    }
+
+    // New Widgets: LineEdit
+    double flux_qt_create_lineedit(const char* text) {
+        QLineEdit* edit = new QLineEdit(QString::fromUtf8(text));
+        edit->setAttribute(Qt::WA_DeleteOnClose);
+        edit->show();
+        return FluxQtBridge::instance().registerObject(edit);
     }
 
     // New Widgets: ComboBox
