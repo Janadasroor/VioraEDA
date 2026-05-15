@@ -144,6 +144,10 @@ extern "C" {
     void flux_qt_on_current_index_changed_by_name(double, const char*);
     void flux_qt_on_toggled_by_name(double, const char*);
     void flux_qt_set_window_size(double, double, double);
+    double flux_qt_create_layout(const char*);
+    void flux_qt_set_layout(double, double);
+    void flux_qt_layout_add_widget(double, double);
+    void flux_qt_grid_add_widget(double, double, double, double, double, double);
     void flux_qt_combo_add_item(double, const char*);
     void flux_qt_combo_clear(double);
     void flux_qt_combo_set_current_index(double, double);
@@ -188,6 +192,10 @@ void register_flux_qt_jit_symbols() {
     jit.registerFunction("flux_qt_on_toggled", (void*)&flux_qt_on_toggled);
     jit.registerFunction("flux_qt_lcd_display", (void*)&flux_qt_lcd_display);
     jit.registerFunction("flux_qt_set_window_size", (void*)&flux_qt_set_window_size);
+    jit.registerFunction("flux_qt_create_layout", (void*)&flux_qt_create_layout);
+    jit.registerFunction("flux_qt_set_layout", (void*)&flux_qt_set_layout);
+    jit.registerFunction("flux_qt_layout_add_widget", (void*)&flux_qt_layout_add_widget);
+    jit.registerFunction("flux_qt_grid_add_widget", (void*)&flux_qt_grid_add_widget);
     jit.registerFunction("flux_qt_on_click_by_name", (void*)&flux_qt_on_click_by_name);
     jit.registerFunction("flux_qt_on_value_changed_by_name", (void*)&flux_qt_on_value_changed_by_name);
     jit.registerFunction("flux_qt_on_current_index_changed_by_name", (void*)&flux_qt_on_current_index_changed_by_name);

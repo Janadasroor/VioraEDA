@@ -7,6 +7,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <QBoxLayout>
 #include <QDialog>
 #include <QApplication>
 #include <QComboBox>
@@ -15,6 +16,7 @@
 #include <QProgressBar>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <cstring>
 
 extern "C" {
     // Basic UI construction
@@ -173,11 +175,61 @@ extern "C" {
         if (wgt) wgt->resize(static_cast<int>(w), static_cast<int>(h));
     }
 
+    // Layout system
+    double flux_qt_create_layout(const char* type) {
+        QBoxLayout::Direction dir = QBoxLayout::TopToBottom;
+        if (strcmp(type, "hbox") == 0) dir = QBoxLayout::LeftToRight;
+        else if (strcmp(type, "vbox") == 0) dir = QBoxLayout::TopToBottom;
+        else if (strcmp(type, "grid") == 0) {
+            QGridLayout* grid = new QGridLayout();
+            grid->setContentsMargins(4, 4, 4, 4);
+            // QLayout is a QObject in Qt6 — register it directly
+            return FluxQtBridge::instance().registerObject(grid);
+        }
+        QBoxLayout* box = new QBoxLayout(dir);
+        box->setContentsMargins(4, 4, 4, 4);
+        return FluxQtBridge::instance().registerObject(box);
+    }
+
+    void flux_qt_set_layout(double containerHandle, double layoutHandle) {
+        QWidget* container = qobject_cast<QWidget*>(
+            FluxQtBridge::instance().resolveHandle(containerHandle));
+        QLayout* layout = qobject_cast<QLayout*>(
+            FluxQtBridge::instance().resolveHandle(layoutHandle));
+        if (container && layout)
+            container->setLayout(layout);
+    }
+
+    void flux_qt_layout_add_widget(double layoutHandle, double widgetHandle) {
+        QLayout* layout = qobject_cast<QLayout*>(
+            FluxQtBridge::instance().resolveHandle(layoutHandle));
+        QWidget* widget = qobject_cast<QWidget*>(
+            FluxQtBridge::instance().resolveHandle(widgetHandle));
+        if (layout && widget) {
+            if (auto* box = qobject_cast<QBoxLayout*>(layout))
+                box->addWidget(widget);
+            else if (auto* grid = qobject_cast<QGridLayout*>(layout))
+                grid->addWidget(widget);
+        }
+    }
+
+    void flux_qt_grid_add_widget(double layoutHandle, double widgetHandle,
+                                  double row, double col,
+                                  double rowSpan, double colSpan) {
+        QGridLayout* grid = qobject_cast<QGridLayout*>(
+            FluxQtBridge::instance().resolveHandle(layoutHandle));
+        QWidget* widget = qobject_cast<QWidget*>(
+            FluxQtBridge::instance().resolveHandle(widgetHandle));
+        if (grid && widget)
+            grid->addWidget(widget, static_cast<int>(row), static_cast<int>(col),
+                           static_cast<int>(rowSpan), static_cast<int>(colSpan));
+    }
+
     // Container / Window helpers
     double flux_qt_create_window(const char* title) {
         QDialog* dialog = new QDialog();
         dialog->setWindowTitle(QString::fromUtf8(title));
-        dialog->setLayout(new QVBoxLayout());
+        // No default layout — user calls flux_qt_set_layout explicitly
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();
         return FluxQtBridge::instance().registerObject(dialog);
