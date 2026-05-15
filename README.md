@@ -42,15 +42,36 @@ These features are planned for future releases. The current AI integration (Gemi
 
 ### Prerequisites
 
-- **Qt 6.11+** (recommended; Qt 6.5+ minimum, but the project is developed and tested on **Qt 6.11**)
+**Required:**
+
+- **Qt 6.11+** (recommended; 6.5+ minimum) — components required:
+  `Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets`
 - **CMake 3.16+**
 - **C++20 Compiler** (GCC 10+, Clang 12+, or MSVC 2019+)
-- **LLVM 19+** (for FluxScript JIT compilation)
-- **Python 3.10+** (for ML dataset API and Gemini AI co-pilot)
+- **LLVM 19+** (for FluxScript JIT) — components required:
+  `Core ExecutionEngine MCJIT OrcJIT Support native BitWriter BitReader Linker IRReader X86`
+- **Python 3.10+** (for ML dataset API, Gemini AI co-pilot, and MCP server)
+- **libcurl** (for FluxScript package manager)
+
+**Install on Ubuntu 24.04+:**
+
+```bash
+sudo apt install build-essential cmake qt6-base-dev qt6-charts-dev \
+  qt6-svg-dev qt6-tools-dev qt6-l10n-tools libgl1-mesa-dev \
+  libllvm19 llvm-19-dev libclang-19-dev libcurl4-openssl-dev \
+  python3 python3-pip python3-venv
+```
+
+**Install on Fedora:**
+
+```bash
+sudo dnf install cmake gcc-c++ qt6-qtbase-devel qt6-qtcharts-devel \
+  qt6-qtsvg-devel llvm-devel clang-devel libcurl-devel python3
+```
 
 ### Installation
 
-The build fetches and compiles all dependencies (ngspice, FluxScript, Eigen, etc.) automatically via CMake `FetchContent`.
+The build automatically fetches ngspice (VioMATRIXC), FluxScript, Eigen, and other dependencies via CMake `FetchContent`. No manual install needed for these.
 
 1. **Clone the repository**:
    ```bash
