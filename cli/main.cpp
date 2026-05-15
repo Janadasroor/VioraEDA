@@ -83,6 +83,11 @@
 // FluxScript Integration
 #include "flux_command.h"
 
+// Extension command handlers (defined in extension_command.cpp)
+int cmdExtensionInit(const QStringList& args);
+int cmdExtensionValidate(const QStringList& args);
+int cmdExtensionInstall(const QStringList& args);
+
 namespace {
 bool g_quiet = false;
 bool g_noColor = false;
@@ -3738,6 +3743,18 @@ static void printGeneralHelp() {
 }
 
 static void printCommandHelp(const QString& command) {
+    if (command == "extension") {
+        std::cout << "viora extension - Manage FluxScript Extensions\n";
+        std::cout << "\n";
+        std::cout << "Usage: viora extension <action> [name|dir]\n";
+        std::cout << "\n";
+        std::cout << "Actions:\n";
+        std::cout << "  init <name>         Scaffold a new extension\n";
+        std::cout << "  validate <dir>      Validate manifest and compile check\n";
+        std::cout << "  install <dir>       Install extension to config dir\n";
+        return;
+    }
+
     if (command == "flux") {
         std::cout << "viora flux - FluxScript SPICE Integration\n";
         std::cout << "\n";
@@ -3985,6 +4002,20 @@ int main(int argc, char *argv[]) {
 
     if (command == "plugin-inspect") {
         return runPluginInspect(args) ? 0 : 1;
+    }
+
+    if (command == "extension") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: viora extension <init|validate|install> [name|dir]\n";
+            return 1;
+        }
+        QString action = args[1];
+        QStringList rest = args.mid(2);
+        if (action == "init")      return cmdExtensionInit(rest);
+        if (action == "validate")  return cmdExtensionValidate(rest);
+        if (action == "install")   return cmdExtensionInstall(rest);
+        std::cerr << "Unknown extension action: " << action.toStdString() << "\n";
+        return 1;
     }
 
     if (parser.isSet("schema")) {

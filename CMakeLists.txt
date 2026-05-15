@@ -292,6 +292,7 @@ if(BUILD_VIOSPICE_CLI)
     qt_add_executable(viora
         cli/main.cpp
         cli/flux_command.cpp
+        cli/extension_command.cpp
         resources/resources.qrc
     )
 
