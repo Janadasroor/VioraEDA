@@ -153,7 +153,7 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     // Register with Flux Bridge
     Flux::Core::set_active_schematic_api(m_api);
 
-    setWindowTitle("viospice - Schematic Editor");
+    setWindowTitle("VioraEDA - Schematic Editor");
     setMinimumSize(640, 480);
     resize(1024, 720);
     setObjectName("SchematicEditor");

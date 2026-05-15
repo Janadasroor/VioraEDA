@@ -63,10 +63,10 @@ int main(int argc, char *argv[])
     initializeFluxSimBridge();
     FluxScriptEngine::instance().initialize();
 
-    a.setApplicationName("viospice");
+    a.setApplicationName("VioraEDA");
     a.setOrganizationName("VIO");
 
-    QString serverName = "viospice_instance_server";
+    QString serverName = "VioraEDA_instance_server";
     QString fileToOpen;
     for (int i = 1; i < argc; ++i) {
         QString arg = argv[i];

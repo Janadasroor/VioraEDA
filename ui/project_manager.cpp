@@ -446,7 +446,7 @@ bool importStandardPassiveModelFile(QWidget* parent,
 
 ProjectManager::ProjectManager(QWidget* parent)
     : QMainWindow(parent), m_workspaceDirty(false), m_workspaceFilePath(QString()) {
-    setWindowTitle("viospice & viora");
+    setWindowTitle("VioraEDA");
     setMinimumSize(900, 600);
     
     applyKiCadStyle();
@@ -671,7 +671,7 @@ QWidget* ProjectManager::createLauncherArea() {
         logoRow->setSpacing(12);
         logoRow->setContentsMargins(0,0,0,0);
 
-        QLabel* title = new QLabel("viospice & viora");
+        QLabel* title = new QLabel("VioraEDA");
         title->setObjectName("WelcomeTitle");
         logoRow->addWidget(title);
 
@@ -851,7 +851,7 @@ QWidget* ProjectManager::createLauncherArea() {
     layout->addStretch();
 
     // Footer
-    QLabel* footer = new QLabel("viospice & viora v0.2.0  ·  Modern AEDA Ecosystem");
+    QLabel* footer = new QLabel("VioraEDA  ·  Circuit Design Suite");
     footer->setObjectName("VersionFooter");
     footer->setAlignment(Qt::AlignCenter);
     layout->addWidget(footer);
@@ -1201,10 +1201,10 @@ void ProjectManager::saveWorkspace() {
     if (filePath.isEmpty()) {
         filePath = QFileDialog::getSaveFileName(this, "Save Workspace",
             QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/untitled.viospice-workspace",
-            "viospice Workspace (*.viospice-workspace)");
+            "VioraEDA Workspace (*.vioraeda-workspace)");
         if (filePath.isEmpty()) return;
-        if (!filePath.endsWith(".viospice-workspace")) {
-            filePath += ".viospice-workspace";
+        if (!filePath.endsWith(".vioraeda-workspace")) {
+            filePath += ".vioraeda-workspace";
         }
     }
     
@@ -1226,7 +1226,7 @@ void ProjectManager::saveWorkspace() {
         m_workspaceDirty = false;
         RecentWorkspaces::instance().addWorkspace(filePath);
         updateRecentProjectsMenu();
-        setWindowTitle("viospice - " + QFileInfo(filePath).fileName());
+        setWindowTitle("VioraEDA - " + QFileInfo(filePath).fileName());
     }
 }
 
@@ -1349,7 +1349,7 @@ void ProjectManager::dropEvent(QDropEvent* event) {
                     m_workspaceFolders.append(path);
                     m_workspaceDirty = true;
                 }
-            } else if (path.endsWith(".viospice-workspace", Qt::CaseInsensitive)) {
+            } else if (path.endsWith(".vioraeda-workspace", Qt::CaseInsensitive)) {
                 loadWorkspace(path);
             }
         }
@@ -1553,8 +1553,8 @@ void ProjectManager::updateThemeStyle() {
         "}"
         "QMenuBar::item { padding:6px 12px; border-radius:4px; }"
         "QMenuBar::item:selected { background:%4; color:#fff; }"
-        "QMenu { background:%8; color:%2; border:1px solid %5;"
-        "        padding:4px; border-radius:8px; }"
+"QMenu { background:%8; color:%2; border:1px solid %5;"
+"        padding:4px; border-radius:4px; }"
         "QMenu::item { padding:7px 20px; border-radius:4px; }"
         "QMenu::item:selected { background:%4; color:#fff; }"
         "QMenu::separator { height:1px; background:%5; margin:4px 8px; }"
@@ -1572,7 +1572,7 @@ void ProjectManager::updateThemeStyle() {
         "  background:transparent; padding:0;"
         "}"
         "QPushButton#ExplorerActionBtn {"
-        "  background:transparent; color:%3; border:none; border-radius:5px;"
+        "  background:transparent; color:%3; border:none; border-radius:3px;"
         "  font-size:14px; font-weight:bold; padding:0;"
         "}"
         "QPushButton#ExplorerActionBtn:hover { background:%9; color:%4; }"
@@ -1616,17 +1616,17 @@ void ProjectManager::updateThemeStyle() {
         "}"
         "QLabel#VersionChip {"
         "  background:%10; color:%3; font-size:11px; font-weight:600;"
-        "  border:1px solid %5; border-radius:10px; padding:2px 10px;"
+        "  border:1px solid %5; border-radius:4px; padding:2px 10px;"
         "}"
 
         // CTA Buttons
         "QPushButton#CtaButtonPrimary {"
-        "  background:%4; color:#fff; border:none; border-radius:8px;"
+        "  background:%4; color:#fff; border:none; border-radius:4px;"
         "  font-size:13px; font-weight:600; padding:0 18px;"
         "}"
         "QPushButton#CtaButtonPrimary:hover { background:%4; opacity:0.9; }"
         "QPushButton#CtaButtonSecondary {"
-        "  background:%10; color:%2; border:1px solid %5; border-radius:8px;"
+        "  background:%10; color:%2; border:1px solid %5; border-radius:4px;"
         "  font-size:13px; font-weight:500; padding:0 18px;"
         "}"
         "QPushButton#CtaButtonSecondary:hover { border-color:%4; color:%4; }"
@@ -1645,7 +1645,7 @@ void ProjectManager::updateThemeStyle() {
 
         // Collapsible Section
         "QWidget#CollapsibleHeader {"
-        "  background:%6; border:1px solid %5; border-radius:9px;"
+        "  background:%6; border:1px solid %5; border-radius:4px;"
         "}"
         "QLabel#CollapsibleTitle {"
         "  color:%3; font-size:10px; font-weight:700; letter-spacing:2px; background:transparent;"
@@ -1694,7 +1694,7 @@ void ProjectManager::createMenuBar() {
     connect(openWorkspaceAction, &QAction::triggered, this, [this]() {
         QString path = QFileDialog::getOpenFileName(this, "Open Workspace",
             QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
-            "viospice Workspace (*.viospice-workspace)");
+            "VioraEDA Workspace (*.vioraeda-workspace)");
         if (!path.isEmpty()) {
             loadWorkspace(path);
         }
@@ -1745,7 +1745,7 @@ void ProjectManager::createMenuBar() {
 
     QAction* devHelpAction = helpMenu->addAction("&Engineering Technical Docs", QKeySequence("Ctrl+Shift+F1"), this, &ProjectManager::showDeveloperHelp);
     helpMenu->addAction("Project &Health Audit...", QKeySequence(), this, &ProjectManager::onProjectAudit);
-    m_aboutAction = helpMenu->addAction("&About viospice & viora", QKeySequence(), this, &ProjectManager::showAbout);
+    m_aboutAction = helpMenu->addAction("&About VioraEDA", QKeySequence(), this, &ProjectManager::showAbout);
 }
 
 void ProjectManager::createNewProject() {
@@ -1775,7 +1775,7 @@ void ProjectManager::openExistingProject() {
         "viospice Workspace (*.viospice-workspace);;All Files (*)");
     
     if (!path.isEmpty()) {
-        if (path.endsWith(".viospice-workspace", Qt::CaseInsensitive)) {
+        if (path.endsWith(".vioraeda-workspace", Qt::CaseInsensitive)) {
             loadWorkspace(path);
         } else {
             RecentProjects::instance().addProject(path);
@@ -1919,8 +1919,8 @@ void ProjectManager::openCalculatorTools() {
 }
 
 void ProjectManager::showAbout() {
-    QMessageBox::about(this, "About viospice",
-        "viospice v0.1.0\n\n"
+    QMessageBox::about(this, "About VioraEDA",
+        "VioraEDA v0.1.0\n\n"
         "Professional Electronic Design Automation\n\n"
         "Open-source PCB design software");
 }
