@@ -16,6 +16,7 @@
 #include <QProgressBar>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QTimer>
 #include <cstring>
 
 extern "C" {
@@ -159,6 +160,28 @@ extern "C" {
         QTableWidget* table = qobject_cast<QTableWidget*>(
             FluxQtBridge::instance().resolveHandle(tableHandle));
         return table ? static_cast<double>(table->columnCount()) : 0.0;
+    }
+
+    // Timer
+    double flux_qt_create_timer(double intervalMs, const char* callbackName) {
+        QTimer* timer = new QTimer();
+        timer->setInterval(static_cast<int>(intervalMs));
+        timer->setSingleShot(false);
+        double handle = FluxQtBridge::instance().registerObject(timer);
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(timeout()), callbackName);
+        return handle;
+    }
+
+    void flux_qt_timer_start(double handle) {
+        QTimer* timer = qobject_cast<QTimer*>(
+            FluxQtBridge::instance().resolveHandle(handle));
+        if (timer) timer->start();
+    }
+
+    void flux_qt_timer_stop(double handle) {
+        QTimer* timer = qobject_cast<QTimer*>(
+            FluxQtBridge::instance().resolveHandle(handle));
+        if (timer) timer->stop();
     }
 
     // LCD helper — display is a slot, not a Q_PROPERTY
