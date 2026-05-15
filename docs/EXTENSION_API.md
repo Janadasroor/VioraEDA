@@ -42,6 +42,12 @@ Functions available to FluxScript extensions via the JIT bridge.
 | `flux_qt_table_row_count(table)` | Returns row count |
 | `flux_qt_table_col_count(table)` | Returns column count |
 
+### LCD
+
+| Function | Description |
+|---|---|
+| `flux_qt_lcd_display(lcd, value)` | Set LCD display value (calls `display()` slot — `.display = val` does NOT work since it's not a Q_PROPERTY) |
+
 ### Dialogs
 
 | Function | Description |

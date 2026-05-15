@@ -149,6 +149,13 @@ extern "C" {
         return table ? static_cast<double>(table->columnCount()) : 0.0;
     }
 
+    // LCD helper — display is a slot, not a Q_PROPERTY
+    void flux_qt_lcd_display(double handle, double value) {
+        QLCDNumber* lcd = qobject_cast<QLCDNumber*>(
+            FluxQtBridge::instance().resolveHandle(handle));
+        if (lcd) lcd->display(value);
+    }
+
     // Container / Window helpers
     double flux_qt_create_window(const char* title) {
         QDialog* dialog = new QDialog();
