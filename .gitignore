@@ -100,3 +100,4 @@ TESTING.md
 /viora-3d-editor/
  
 docs/developer/ui-map/*
+*.AppImage
