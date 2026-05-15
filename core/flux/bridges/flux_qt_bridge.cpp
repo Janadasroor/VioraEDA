@@ -80,16 +80,33 @@ void FluxQtBridge::connectSignal(double handle, const char* signal, double funct
     QObject* obj = resolveHandle(handle);
     if (!obj) return;
 
-    // Use QObject's dynamic property system to store the handle
     this->QObject::setProperty("last_func_handle", functionHandle);
+    QObject::connect(obj, signal, this, SLOT(onBridgeEvent()));
+}
 
-    // Standard string-based connect to a real slot
+void FluxQtBridge::connectSignalByName(double handle, const char* signal, const char* functionName) {
+    QObject* obj = resolveHandle(handle);
+    if (!obj || !functionName) return;
+
+    m_signalNameMap[obj] = QString::fromUtf8(functionName);
     QObject::connect(obj, signal, this, SLOT(onBridgeEvent()));
 }
 
 void FluxQtBridge::onBridgeEvent() {
+    QObject* sdr = sender();
+    if (!sdr) return;
+
+    // Prefer named function lookup
+    auto it = m_signalNameMap.find(sdr);
+    if (it != m_signalNameMap.end()) {
+        QString error;
+        FluxScriptEngine::instance().callFunction(
+            it.value().toUtf8().constData(), {}, &error);
+        return;
+    }
+
+    // Fallback: old generic call (deprecated but kept for compatibility)
     QString error;
-    // Generic call for the prototype
     FluxScriptEngine::instance().callFunction("", {}, &error);
 }
 
@@ -121,6 +138,10 @@ extern "C" {
     void flux_qt_on_value_changed(double, double);
     void flux_qt_on_current_index_changed(double, double);
     void flux_qt_on_toggled(double, double);
+    void flux_qt_on_click_by_name(double, const char*);
+    void flux_qt_on_value_changed_by_name(double, const char*);
+    void flux_qt_on_current_index_changed_by_name(double, const char*);
+    void flux_qt_on_toggled_by_name(double, const char*);
     void flux_qt_combo_add_item(double, const char*);
     void flux_qt_combo_clear(double);
     void flux_qt_combo_set_current_index(double, double);
@@ -162,6 +183,10 @@ void register_flux_qt_jit_symbols() {
     jit.registerFunction("flux_qt_on_value_changed", (void*)&flux_qt_on_value_changed);
     jit.registerFunction("flux_qt_on_current_index_changed", (void*)&flux_qt_on_current_index_changed);
     jit.registerFunction("flux_qt_on_toggled", (void*)&flux_qt_on_toggled);
+    jit.registerFunction("flux_qt_on_click_by_name", (void*)&flux_qt_on_click_by_name);
+    jit.registerFunction("flux_qt_on_value_changed_by_name", (void*)&flux_qt_on_value_changed_by_name);
+    jit.registerFunction("flux_qt_on_current_index_changed_by_name", (void*)&flux_qt_on_current_index_changed_by_name);
+    jit.registerFunction("flux_qt_on_toggled_by_name", (void*)&flux_qt_on_toggled_by_name);
     jit.registerFunction("flux_qt_combo_add_item", (void*)&flux_qt_combo_add_item);
     jit.registerFunction("flux_qt_combo_clear", (void*)&flux_qt_combo_clear);
     jit.registerFunction("flux_qt_combo_set_current_index", (void*)&flux_qt_combo_set_current_index);

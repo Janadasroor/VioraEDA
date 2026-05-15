@@ -167,7 +167,7 @@ extern "C" {
         }
     }
 
-    // Event binding
+    // Event binding (old: numeric handle, deprecated)
     void flux_qt_on_click(double btnHandle, double funcHandle) {
         FluxQtBridge::instance().connectSignal(btnHandle, SIGNAL(clicked()), funcHandle);
     }
@@ -182,5 +182,22 @@ extern "C" {
 
     void flux_qt_on_toggled(double handle, double funcHandle) {
         FluxQtBridge::instance().connectSignal(handle, SIGNAL(toggled(bool)), funcHandle);
+    }
+
+    // Event binding (string function name — preferred in extensions)
+    void flux_qt_on_click_by_name(double btnHandle, const char* funcName) {
+        FluxQtBridge::instance().connectSignalByName(btnHandle, SIGNAL(clicked()), funcName);
+    }
+
+    void flux_qt_on_value_changed_by_name(double handle, const char* funcName) {
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(valueChanged(int)), funcName);
+    }
+
+    void flux_qt_on_current_index_changed_by_name(double handle, const char* funcName) {
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(currentIndexChanged(int)), funcName);
+    }
+
+    void flux_qt_on_toggled_by_name(double handle, const char* funcName) {
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(toggled(bool)), funcName);
     }
 }

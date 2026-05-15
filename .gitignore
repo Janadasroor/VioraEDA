@@ -34,6 +34,7 @@ Thumbs.db
 # Build Artifacts
 viospice
 viospice.exe
+VioraEDA
 *.o
 *.a
 *.so

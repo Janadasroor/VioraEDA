@@ -42,6 +42,11 @@ public:
      */
     void connectSignal(double handle, const char* signal, double functionHandle);
 
+    /**
+     * @brief Connects a Qt signal to a FluxScript function by name.
+     */
+    void connectSignalByName(double handle, const char* signal, const char* functionName);
+
 public Q_SLOTS:
     void onBridgeEvent();
 
@@ -51,6 +56,7 @@ private:
 
     mutable std::mutex m_mutex;
     QHash<void*, QPointer<QObject>> m_registry;
+    QHash<QObject*, QString> m_signalNameMap;
 };
 
 #endif // FLUX_QT_BRIDGE_H

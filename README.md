@@ -42,20 +42,15 @@ These features are planned for future releases. The current AI integration (Gemi
 
 ### Prerequisites
 
-- **Qt 6.5+**
+- **Qt 6.11+** (recommended; Qt 6.5+ minimum, but the project is developed and tested on **Qt 6.11**)
 - **CMake 3.16+**
 - **C++20 Compiler** (GCC 10+, Clang 12+, or MSVC 2019+)
-
-### Simulation Engine Setup
-
-Before building VioraEDA, ensure that the custom **ngspice-shared** library is installed to your system:
-
-```bash
-cd path/to/ngspice/release
-sudo make install
-```
+- **LLVM 19+** (for FluxScript JIT compilation)
+- **Python 3.10+** (for ML dataset API and Gemini AI co-pilot)
 
 ### Installation
+
+The build fetches and compiles all dependencies (ngspice, FluxScript, Eigen, etc.) automatically via CMake `FetchContent`.
 
 1. **Clone the repository**:
    ```bash
@@ -65,14 +60,13 @@ sudo make install
 
 2. **Configure and build**:
    ```bash
-   mkdir build && cd build
-   cmake ..
-   make -j$(nproc)
+   cmake -B build
+   cmake --build build -j$(nproc)
    ```
 
 3. **Run the application**:
    ```bash
-   ./VioraEDA
+   ./build/VioraEDA
    ```
 
 ## Workflow
@@ -83,6 +77,77 @@ sudo make install
 4. **Automate**: Write FluxScripts to automate complex simulation tasks.
 
 
+## Extensions
+
+VioSpice supports two kinds of extensions:
+
+- **FluxScript Extensions** — UI panels, calculators, and automation tools written in FluxScript, compiled at runtime via LLVM JIT. No C++ build required.
+- **Native Plugins** — C++ shared libraries (`.so`) loaded via `QPluginLoader` for deeper integration.
+
+### Quick Start — FluxScript Extension
+
+Create a directory and two files:
+
+```bash
+mkdir -p ~/.config/VioraEDA/extensions/my-tool
+```
+
+**`manifest.json`**:
+```json
+{
+  "id": "my-tool",
+  "name": "My Tool",
+  "description": "A custom panel",
+  "menu": [{"path": "My Tool", "action": "open_panel"}]
+}
+```
+
+**`main.flux`**:
+```flux
+def open_panel() {
+    win = flux_qt_create_window("My Tool")
+    btn = flux_qt_create_button("About")
+    flux_qt_add_widget(win, btn)
+    flux_qt_on_click_by_name(btn, "show_about")
+}
+
+def show_about() {
+    flux_qt_msg_box("My Tool", "Hello!")
+}
+```
+
+Launch VioSpice, open a schematic, and the **Extensions** menu will show "My Tool".
+
+### Standalone Testing
+
+For faster iteration, use the standalone runner (no schematic editor needed):
+
+```bash
+cmake --build build --target flux_runner
+build/flux_runner examples/component_calc.flux
+```
+
+### API Reference
+
+Full reference: [docs/EXTENSION_API.md](docs/EXTENSION_API.md)
+
+Includes all 27+ Qt widget functions, workspace/simulation API, math built-ins, and the `manifest.json` schema.
+
+### Examples
+
+```
+examples/
+├── smart_signal_template.flux     ← Simple SPICE behavioral block
+├── adevice_latch.flux             ← Digital device (A-device) example
+├── minimal_dashboard.flux         ← Minimal Qt window demo
+├── component_calc.flux            ← Interactive filter + divider calculator
+└── dashboard_demo.flux            ← Full simulation dashboard
+```
+
+### Extension Manager
+
+The **Extensions** dialog (Project Manager → Extensions) lists both native plugins and FluxScript extensions with type badges. It supports enable/disable for native plugins, reload with file watcher auto-reload, and an online plugin catalog.
+
 ## ML Dataset API
 
 VioSpice now includes a Python HTTP API for ML-oriented simulation pipelines. It can run single jobs or large concurrent batches and emit dataset records containing netlists, waveforms, stats, measures, and custom labels.
@@ -91,9 +156,9 @@ VioSpice now includes a Python HTTP API for ML-oriented simulation pipelines. It
 python3 python/scripts/ml_dataset_api.py --port 8787
 ```
 
-Documentation: [docs/ML_DATASET_API.md](docs/ML_DATASET_API.md)
+Documentation: [docs/developer/ML_DATASET_API.md](docs/developer/ML_DATASET_API.md)
 
-ML engineer guide: [docs/ML_ENGINEER_GUIDE.md](docs/ML_ENGINEER_GUIDE.md)
+ML engineer guide: [docs/developer/ML_ENGINEER_GUIDE.md](docs/developer/ML_ENGINEER_GUIDE.md)
 Examples: [examples/ml_api/README.md](examples/ml_api/README.md)
 
 ## Licensing Compliance

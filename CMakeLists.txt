@@ -261,6 +261,32 @@ if(BUILD_TESTING AND VIOSPICE_ENABLE_TESTS)
 endif()
 
 option(BUILD_VIOSPICE_CLI "Build the CLI tool" ON)
+option(BUILD_FLUX_RUNNER "Build standalone flux_runner tool" ON)
+if(BUILD_FLUX_RUNNER)
+    qt_add_executable(flux_runner tools/flux_runner.cpp)
+    target_include_directories(flux_runner PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(flux_runner PRIVATE "${VIOSPICE_PREFERRED_ENGINE_LIB}"
+        -Wl,--start-group
+        VioSchematicUI
+        VioSchematicCore
+        VioSymbols
+        VioCore
+        VioSimulator
+        FluxScript
+        FluxScriptManager
+        VioUI
+        VioFootprints
+        VioraPCBCore
+        -Wl,--end-group
+    )
+    set_target_properties(flux_runner PROPERTIES
+        BUILD_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+        INSTALL_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+        BUILD_WITH_INSTALL_RPATH TRUE
+        BUILD_RPATH_USE_ORIGIN TRUE
+    )
+endif()
+
 if(BUILD_VIOSPICE_CLI)
     # CLI tool
     qt_add_executable(viora
@@ -316,7 +342,7 @@ endif()
 option(BUILD_VIOSPICE_APP "Build the desktop application" ON)
 if(BUILD_VIOSPICE_APP)
     # Main executable
-    qt_add_executable(viospice
+    qt_add_executable(VioraEDA
         main.cpp
         core/python/python_embed.cpp
         resources/resources.qrc
@@ -326,7 +352,7 @@ if(BUILD_VIOSPICE_APP)
     # Keep the static module set inside a raw linker group. Plain left-to-right
     # archive resolution breaks this repo because the schematic/simulator/core/UI
     # layers have intentional cross-module references.
-    target_link_libraries(viospice PRIVATE "${VIOSPICE_PREFERRED_ENGINE_LIB}"
+    target_link_libraries(VioraEDA PRIVATE "${VIOSPICE_PREFERRED_ENGINE_LIB}"
         -Wl,--start-group
         VioUI
         VioSchematic
@@ -341,7 +367,7 @@ if(BUILD_VIOSPICE_APP)
     )
 
 
-    set_target_properties(viospice PROPERTIES
+    set_target_properties(VioraEDA PROPERTIES
         BUILD_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
         INSTALL_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
         BUILD_WITH_INSTALL_RPATH TRUE
@@ -350,21 +376,21 @@ if(BUILD_VIOSPICE_APP)
 
     # Link embedded Python runtime (Phase 4)
     if(Python3_FOUND)
-        target_link_libraries(viospice PRIVATE Python3::Python)
-        target_include_directories(viospice PRIVATE ${Python3_INCLUDE_DIRS})
+        target_link_libraries(VioraEDA PRIVATE Python3::Python)
+        target_include_directories(VioraEDA PRIVATE ${Python3_INCLUDE_DIRS})
     endif()
 
-    vioraeda_configure_app_target(viospice)
+    vioraeda_configure_app_target(VioraEDA)
 
     # Disable AUTOUIC for files that include headers without .ui files
     set_source_files_properties(main.cpp PROPERTIES SKIP_AUTOUIC ON)
 
-    set_target_properties(viospice PROPERTIES
+    set_target_properties(VioraEDA PROPERTIES
         WIN32_EXECUTABLE TRUE
     )
 
     if(QT_VERSION_MAJOR EQUAL 6)
-        qt_finalize_executable(viospice)
+        qt_finalize_executable(VioraEDA)
     endif()
 endif()
 

@@ -90,6 +90,8 @@ Q_SIGNALS:
     void transformationChanged();
 
 public:
+    const SimResults& lastSimResults() const { return m_lastSimResults; }
+    bool hasSimResults() const { return true; }
     void setGridSize(double size);
     double gridSize() const { return m_gridSize; }
 

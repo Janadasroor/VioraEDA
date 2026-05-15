@@ -1,418 +1,255 @@
 #!/usr/bin/env python3
-import json
-import os
+"""FastMCP server for VioraEDA — provides AI agents with circuit design tools."""
+
+import importlib.util
+import logging
 import sys
-import tempfile
 from pathlib import Path
 
-# Add project root to sys.path to allow importing from 'vspice' package
+# Set up logging to stderr (never stdout — stdio transport uses stdout for JSON-RPC)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stderr,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "python"))
 
-try:
-    from vspice import mcp as core
-except ImportError:
-    # Fallback if package structure is not yet installed
-    sys.stderr.write("Note: Importing vspice.mcp from source tree.\n")
-    import vspice.mcp as core
+# Load vspice.mcp directly (bypasses vspice/__init__.py which requires _core .so)
+spec = importlib.util.spec_from_file_location(
+    "core", str(ROOT / "python" / "vspice" / "mcp.py")
+)
+core = importlib.util.module_from_spec(spec)
+sys.modules["core"] = core
+spec.loader.exec_module(core)
 
-# --- MCP Response Helpers ---
+from mcp.server.fastmcp import FastMCP, Image
 
-def text_content(obj):
-    """Format an object as a standard MCP text content item."""
-    return {
-        "type": "text",
-        "text": json.dumps(obj, ensure_ascii=True, indent=2)
-    }
+mcp = FastMCP("VioraEDA")
 
-def ok_response(obj, image_path=None):
-    """Create a successful MCP tool call result."""
-    content = [text_content(obj)]
-    if image_path:
-        b64 = core.read_image_base64(image_path)
-        if b64:
-            content.append({
-                "type": "image",
-                "data": b64,
-                "mimeType": "image/png"
-            })
-    return {
-        "content": content,
-        "isError": False
-    }
 
-def fail_response(msg, **extra):
-    """Create a failed MCP tool call result (Tool Execution Error)."""
-    obj = {"ok": False, "error": msg, **extra}
-    return {
-        "content": [text_content(obj)],
-        "isError": True
-    }
+# ── Viora Design Tools ──────────────────────────────────────────
 
-# --- Tool Definitions ---
+@mcp.tool()
+def viora_status() -> dict:
+    """Show VioraEDA project, CLI engine, and ML API status."""
+    return core.get_detailed_status()
 
-TOOLS = {
-    "viora_status": {
-        "description": "Show VioSpice/Viora project repo, CLI engine, and ML API status.",
-        "inputSchema": {"type": "object", "properties": {"port": {"type": "integer"}}, "additionalProperties": False},
-    },
-    "viora_list_files": {
-        "description": "List files and directories in the VioSpice/Viora project workspace.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Relative path from project root (default: '.')"}
-            },
-            "additionalProperties": False,
-        },
-    },
-    "viora_read_file": {
-        "description": "Read the content of a schematic, script, or model file in the project.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Relative path from project root"}
-            },
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-    },
-    "viora_write_file": {
-        "description": "Create or update a design file (schematic, netlist, script) in the project.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Relative path from project root"},
-                "content": {"type": "string", "description": "Text content to write"}
-            },
-            "required": ["path", "content"],
-            "additionalProperties": False,
-        },
-    },
-    "viora_ui_get_current_tab": {
-        "description": "Get the currently active editor tab name from the running VioSpice GUI.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    },
-    "viospice_raw_info": {
-        "description": "Analyze a .raw simulation binary to get signal metadata.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"file": {"type": "string"}},
-            "required": ["file"],
-        },
-    },
-    "viospice_raw_export": {
-        "description": "Export binary simulation waveforms to structured JSON, CSV, or Parquet.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string"},
-                "out": {"type": "string"},
-                "format": {"type": "string", "enum": ["json", "csv", "parquet"]},
-            },
-            "required": ["file", "out"],
-        },
-    },
-    "viora_symbol_list": {
-        "description": "Query the Viora Symbol Library for available components.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-        },
-    },
-    "viora_schematic_query": {
-        "description": "Analyze a Viora .flxsch schematic to extract components and connectivity.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"file": {"type": "string"}},
-            "required": ["file"],
-        },
-    },
-    "viora_flux_run": {
-        "description": "Execute VioSpice/Viora automation logic via FluxScript.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string", "description": "FluxScript file to run"},
-                "code": {"type": "string", "description": "Raw FluxScript code to evaluate"},
-                "t": {"type": "number", "description": "Simulation time (default 0.0)"},
-                "inputs": {"type": "array", "items": {"type": "number"}, "description": "Array of input values"}
-            },
-        },
-    },
-    "viora_flux_help": {
-        "description": "Get syntax and usage documentation for the FluxScript language.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "viospice_ui_open_schematic": {
-        "description": "Open a schematic or netlist file in the running VioSpice GUI editor.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Path to the .flxsch or .cir file"},
-                "convert": {"type": "boolean", "description": "If true, convert SPICE netlists to high-level schematics automatically.", "default": False}
-            },
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-    },
-    "viora_pcb_render": {
-        "description": "Render a Viora .pcb board to a PNG image.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string", "description": "Input .pcb file"},
-                "out": {"type": "string", "description": "Output .png file"},
-                "timeout": {"type": "integer"}
-            },
-            "required": ["file", "out"],
-            "additionalProperties": False,
-        },
-    },
-    "viora_schematic_render": {
-        "description": "Generate a PNG image of a Viora schematic for visual inspection.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string", "description": "Input .flxsch file"},
-                "out": {"type": "string", "description": "Output .png file"},
-                "transparent": {"type": "boolean", "description": "Transparent background"},
-                "scale": {"type": "number", "description": "Render scale (default 4.0)"},
-                "json": {"type": "boolean"},
-                "timeout": {"type": "integer"}
-            },
-            "required": ["file", "out"],
-            "additionalProperties": False,
-        },
-    },
-    "viora_symbol_render": {
-        "description": "Generate a PNG image of a Viora component symbol.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string", "description": "Input .viosym file"},
-                "out": {"type": "string", "description": "Output .png file"},
-                "transparent": {"type": "boolean", "description": "Transparent background"},
-                "scale": {"type": "number", "description": "Render scale (default 4.0)"},
-                "json": {"type": "boolean"},
-                "timeout": {"type": "integer"}
-            },
-            "required": ["file", "out"],
-            "additionalProperties": False,
-        },
-    },
-    "viospice_netlist_validate": {
-        "description": "Pre-flight validation of a SPICE netlist or Viora schematic.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string", "description": "Relative path to .cir or .flxsch"},
-                "cir": {"type": "string", "description": "Raw SPICE netlist content"}
-            },
-            "anyOf": [{"required": ["file"]}, {"required": ["cir"]}],
-            "additionalProperties": False,
-        },
-    },
-    "viospice_netlist_run": {
-        "description": "Execute a SPICE or VioSpice simulation from a netlist or schematic.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string", "description": "Path to .cir or .flxsch"},
-                "cir": {"type": "string", "description": "Raw SPICE netlist text"},
-                "analysis": {"type": "string", "description": "e.g. 'tran 1n 100u'"},
-                "stop": {"type": "string", "description": "Transient stop time"},
-                "step": {"type": "string", "description": "Transient step time"},
-                "signals": {"type": "array", "items": {"type": "string"}, "description": "Specific nodes to save"},
-                "json": {"type": "boolean", "default": True},
-                "robust": {"type": "boolean", "description": "Enable robust simulation mode (adds damping)", "default": False},
-                "compat": {"type": "boolean", "description": "Enable LTspice compatibility mode", "default": True},
-                "smart_signals": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "ref": {"type": "string", "description": "Component reference (e.g. 'SB1')"},
-                            "code": {"type": "string", "description": "FluxScript code"},
-                            "inputs": {"type": "array", "items": {"type": "string"}},
-                            "outputs": {"type": "array", "items": {"type": "string"}}
-                        },
-                        "required": ["ref", "code", "outputs"]
-                    },
-                    "description": "Attach FluxScript behavioral logic to specific components."
-                }
-            },
-            "anyOf": [{"required": ["file"]}, {"required": ["cir"]}],
-            "additionalProperties": False,
-        },
-    },
-}
 
-def call(name, args):
-    """Bridge to the vspice.mcp core implementation."""
-    if name == "viora_status":
-        return core.get_detailed_status()
-    
-    if name == "viora_list_files":
-        return core.list_files(args.get("path", "."))
-    
-    if name == "viora_read_file":
-        return core.read_file(args["path"])
-    
-    if name == "viora_write_file":
-        return core.write_file(args["path"], args["content"])
-    
-    if name == "viora_ui_get_current_tab":
-        return core.get_current_tab()
-    
-    if name == "viospice_raw_info":
-        return core.raw_info(args["file"])
+@mcp.tool()
+def viora_get_project_root() -> dict:
+    """Return the project root path.  All relative paths in other tools
+    are resolved against this directory."""
+    return core.get_project_root()
 
-    if name == "viospice_raw_export":
-        return core.raw_export(args["file"], args["out"], args.get("format", "json"))
 
-    if name == "viora_symbol_list":
-        return core.symbol_list(args.get("path", "."))
+@mcp.tool()
+def viora_list_files(path: str = ".") -> dict:
+    """List files and directories in the project workspace."""
+    return core.list_files(path)
 
-    if name == "viora_schematic_query":
-        return core.schematic_query(args["file"])
 
-    if name == "viora_flux_run":
-        return core.flux_run(args.get("file"), args.get("code"), t=args.get("t"), inputs=args.get("inputs"))
-    
-    if name == "viora_flux_help":
-        help_path = core.ROOT / "FLUXSCRIPT.md"
-        if help_path.exists():
-            return {"ok": True, "manual": help_path.read_text()}
-        return {"ok": False, "error": "FluxScript manual not found."}
-    
-    if name == "viora_pcb_render":
-        res = core.pcb_render(args["file"], args["out"], timeout=args.get("timeout", 60))
-        return (res, args["out"]) if res.get("ok") else res
+@mcp.tool()
+def viora_read_file(path: str) -> dict:
+    """Read the content of a schematic, script, or model file."""
+    return core.read_file(path)
 
-    if name == "viora_schematic_render":
-        res = core.schematic_render(args["file"], args["out"], transparent=args.get("transparent"), scale=args.get("scale"), timeout=args.get("timeout", 60))
-        return (res, args["out"]) if res.get("ok") else res
 
-    if name == "viora_symbol_render":
-        res = core.symbol_render(args["file"], args["out"], transparent=args.get("transparent"), scale=args.get("scale"), timeout=args.get("timeout", 60))
-        return (res, args["out"]) if res.get("ok") else res
+@mcp.tool()
+def viora_write_file(path: str, content: str) -> dict:
+    """Create or update a design file (schematic, netlist, script)."""
+    return core.write_file(path, content)
 
-    if name == "viospice_ui_open_schematic":
-        return core.open_schematic(path=args.get("path"), convert=args.get("convert", False))
 
-    if name == "viospice_netlist_validate":
-        return core.netlist_validate(file=args.get("file"), cir=args.get("cir"))
-    
-    if name == "viospice_netlist_run":
-        return core.netlist_run(
-            file=args.get("file"),
-            cir=args.get("cir"),
-            analysis=args.get("analysis"),
-            stop=args.get("stop"),
-            step=args.get("step"),
-            signals=args.get("signals"),
-            json_out=args.get("json", True),
-            robust=args.get("robust", False),
-            compat=args.get("compat", True),
-            smart_signals=args.get("smart_signals")
-        )
-    
-    return {"ok": False, "error": f"unknown tool: {name}"}
+@mcp.tool()
+def viora_symbol_list(path: str = ".") -> dict:
+    """Query the symbol library for available components."""
+    return core.symbol_list(path)
 
-# --- Standard MCP JSON-RPC Server ---
 
-def send_msg(msg):
-    """Send a single-line JSON-RPC message to stdout (MCP standard)."""
-    sys.stdout.write(json.dumps(msg, ensure_ascii=True) + "\n")
-    sys.stdout.flush()
+@mcp.tool()
+def viora_schematic_query(file: str) -> dict:
+    """Analyze a .flxsch schematic to extract components and connectivity."""
+    return core.schematic_query(file)
 
-def read_msg():
-    """Read a single line from stdin and parse as JSON."""
-    line = sys.stdin.readline()
-    if not line: return None
-    try:
-        return json.loads(line)
-    except json.JSONDecodeError:
-        sys.stderr.write(f"Error: Malformed JSON received: {line[:100]}...\n")
-        return None
 
-def main():
-    """Main loop for the MCP server."""
-    sys.stderr.write("VioSpice MCP Server started (Standard Line-Delimited JSON Mode)\n")
-    while True:
-        req = read_msg()
-        if req is None: break
-        
-        method = req.get("method")
-        msg_id = req.get("id")
-        
-        if method == "initialize":
-            send_msg({
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "viospice-mcp", "version": "0.1.0"}
-                }
-            })
-            
-        elif method == "tools/list":
-            send_msg({
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "tools": [{"name": k, **v} for k, v in TOOLS.items()]
-                }
-            })
-            
-        elif method == "tools/call":
-            params = req.get("params", {})
-            name = params.get("name")
-            args = params.get("arguments") or {}
-            
-            raw_out = call(name, args)
-            
-            # Handle tools that return (result_dict, image_path)
-            if isinstance(raw_out, tuple):
-                out_dict, img_path = raw_out
-            else:
-                out_dict, img_path = raw_out, None
+@mcp.tool()
+def viora_flux_run(
+    file: str = None, code: str = None,
+    t: float = None, inputs: list = None
+) -> dict:
+    """Execute automation logic via FluxScript (file or raw code)."""
+    return core.flux_run(file=file, code=code, t=t, inputs=inputs)
 
-            if out_dict.get("ok"):
-                send_msg({
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": ok_response(out_dict, image_path=img_path)
-                })
-            else:
-                # Signal Tool Execution Error via result.isError: true
-                send_msg({
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": fail_response(
-                        out_dict.get("error", "tool failed"),
-                        **{k: v for k, v in out_dict.items() if k != "error"}
-                    )
-                })
-        
-        elif method == "notifications/initialized":
-            # Optional notification from client
-            pass
-            
-        else:
-            # Protocol Error (Method not found)
-            if msg_id is not None:
-                send_msg({
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "error": {"code": -32601, "message": f"Method not found: {method}"}
-                })
+
+@mcp.tool()
+def viora_flux_help() -> dict:
+    """Get FluxScript syntax and API documentation."""
+    help_path = core.ROOT / "docs" / "EXTENSION_API.md"
+    if help_path.exists():
+        return {"ok": True, "manual": help_path.read_text()}
+    return {"ok": False, "error": "FluxScript manual not found."}
+
+
+@mcp.tool()
+def viora_pcb_render(file: str, out: str, timeout: int = 60) -> Image:
+    """Render a .pcb board to a PNG image for visual inspection."""
+    res = core.pcb_render(file, out, timeout=timeout)
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "PCB render failed"))
+    return Image(path=out)
+
+
+@mcp.tool()
+def viora_schematic_render(
+    file: str, out: str,
+    transparent: bool = False, scale: float = 4.0, timeout: int = 60
+) -> Image:
+    """Render a .flxsch schematic to a PNG image for visual inspection."""
+    res = core.schematic_render(file, out, transparent=transparent, scale=scale, timeout=timeout)
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "Schematic render failed"))
+    return Image(path=out)
+
+
+@mcp.tool()
+def viora_symbol_render(
+    file: str, out: str,
+    transparent: bool = False, scale: float = 4.0, timeout: int = 60
+) -> Image:
+    """Render a .viosym symbol to a PNG image."""
+    res = core.symbol_render(file, out, transparent=transparent, scale=scale, timeout=timeout)
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "Symbol render failed"))
+    return Image(path=out)
+
+
+# ── VioSpice Simulation Tools ───────────────────────────────────
+
+@mcp.tool()
+def viospice_raw_info(file: str) -> dict:
+    """Get signal metadata from a .raw simulation binary."""
+    return core.raw_info(file)
+
+
+@mcp.tool()
+def viospice_raw_export(file: str, out: str, format: str = "json") -> dict:
+    """Export binary simulation waveforms to JSON, CSV, or Parquet."""
+    return core.raw_export(file, out, fmt=format)
+
+
+@mcp.tool()
+def viospice_netlist_validate(file: str = None, cir: str = None) -> dict:
+    """Pre-flight validation of a SPICE netlist or schematic."""
+    return core.netlist_validate(file=file, cir=cir)
+
+
+@mcp.tool()
+def viospice_netlist_run_async(
+    file: str = None,
+    cir: str = None,
+    analysis: str = None,
+    stop: str = None,
+    step: str = None,
+    signals: list = None,
+    robust: bool = False,
+    compat: bool = True,
+    smart_signals: list = None,
+    options: str = None,
+    temperature: float = None,
+):
+    """Start a SPICE simulation in the background and return a job ID.
+    Poll for completion with `viospice_netlist_job_status`.
+    Retrieve results with `viospice_netlist_job_result`.
+    """
+    return core.netlist_run_async(
+        file=file, cir=cir,
+        analysis=analysis, stop=stop, step=step,
+        signals=signals,
+        robust=robust, compat=compat,
+        smart_signals=smart_signals,
+        options=options, temperature=temperature,
+    )
+
+
+@mcp.tool()
+def viospice_netlist_job_status(job_id: str) -> dict:
+    """Check progress of a background simulation job.
+    Returns status (queued/running/done/error) and progress percentage."""
+    return core.netlist_job_status(job_id)
+
+
+@mcp.tool()
+def viospice_netlist_job_result(job_id: str) -> dict:
+    """Retrieve the result of a completed background simulation job.
+    Only call this when status is 'done' or 'error'."""
+    return core.netlist_job_result(job_id)
+
+
+@mcp.tool()
+def viospice_netlist_run(
+    file: str = None,
+    cir: str = None,
+    analysis: str = None,
+    stop: str = None,
+    step: str = None,
+    signals: list = None,
+    robust: bool = False,
+    compat: bool = True,
+    smart_signals: list = None,
+    options: str = None,
+    temperature: float = None,
+):  # fmt: off
+    """Execute a SPICE simulation from a netlist or schematic.
+    Returns parsed waveform data in JSON format.
+
+    Parameters
+    ----------
+    file : .cir or .flxsch path (relative to project root, or absolute)
+    cir : raw SPICE netlist text (alternative to file)
+    analysis : analysis directive, e.g. 'tran 1n 100u'
+    stop : transient stop time (alternative to analysis=)
+    step : transient time step
+    signals : list of nodes to save, e.g. ["v(1)","v(out)","i(R1)"].
+              If omitted, all nodes are saved.
+    robust : enable damped simulation mode for tough convergence
+    compat : enable LTspice compatibility mode (default: True)
+    smart_signals : list of dicts with keys:
+        ref (str) - component reference, e.g. 'SB1'
+        code (str) - FluxScript behavioral code
+        inputs (list[str]) - input node names
+        outputs (list[str]) - output node names (required)
+    options : raw SPICE option string, e.g. 'reltol=1e-4 abstol=1e-9'
+    temperature : simulation temperature in Celsius
+    """
+    v_args = dict(
+        file=file, cir=cir,
+        analysis=analysis, stop=stop, step=step,
+        signals=signals, json_out=True,
+        robust=robust, compat=compat,
+        smart_signals=smart_signals,
+    )
+    if options:
+        v_args["options"] = options
+    if temperature is not None:
+        v_args["temperature"] = temperature
+    return core.netlist_run(**v_args)
+
+
+# ── GUI Integration ─────────────────────────────────────────────
+
+@mcp.tool()
+def viora_ui_get_current_tab() -> dict:
+    """Get the currently active editor tab from the running VioraEDA GUI."""
+    return core.get_current_tab()
+
+
+@mcp.tool()
+def viospice_ui_open_schematic(path: str, convert: bool = False) -> dict:
+    """Open a schematic or netlist file in the running VioraEDA GUI editor."""
+    return core.open_schematic(path=path, convert=convert)
+
 
 if __name__ == "__main__":
-    main()
+    logging.info("VioraEDA MCP server starting (stdio transport)")
+    mcp.run(transport="stdio")

@@ -50,6 +50,20 @@ Functions available to FluxScript extensions via the JIT bridge.
 
 ### Signals
 
+**String-based (preferred — works with extension system):**
+
+| Function | Connects to |
+|---|---|
+| `flux_qt_on_click_by_name(handle, "funcName")` | `clicked()` on buttons |
+| `flux_qt_on_value_changed_by_name(handle, "funcName")` | `valueChanged(int)` on sliders, spinboxes |
+| `flux_qt_on_current_index_changed_by_name(handle, "funcName")` | `currentIndexChanged(int)` on combo boxes |
+| `flux_qt_on_toggled_by_name(handle, "funcName")` | `toggled(bool)` on checkboxes |
+
+The function name must be a string literal matching a `def` function in the same script.
+Internally calls `FluxScriptEngine::callFunction(name)` when the signal fires.
+
+**Deprecated numeric-handle variants** (may not work in extension context):
+
 | Function | Connects to |
 |---|---|
 | `flux_qt_on_click(handle, callbackFn)` | `clicked()` on buttons |
@@ -171,3 +185,24 @@ table.colCount               # read-only
 2. **Menu click** — calls the function named in `menu[].action`.
 3. **Component double-click** — calls the function named in `contexts[].action`, passing the component handle.
 4. **Auto-reload** — saving `main.flux` triggers `unload → reload`.
+
+## Example
+
+```flux
+# ~/.config/viospice/extensions/mycalc/main.flux
+def show_about() {
+    flux_qt_msg_box("My Tool", "Hello from FluxScript!")
+}
+def build_ui() {
+    win = flux_qt_create_window("My Tool")
+    btn = flux_qt_create_button("About")
+    flux_qt_add_widget(win, btn)
+    flux_qt_on_click_by_name(btn, "show_about")
+}
+build_ui()
+```
+
+Run standalone with `flux_runner`:
+```bash
+build/flux_runner examples/component_calc.flux
+```

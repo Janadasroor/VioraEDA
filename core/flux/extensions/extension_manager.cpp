@@ -61,7 +61,7 @@ ExtensionManager& ExtensionManager::instance() {
 }
 
 ExtensionManager::ExtensionManager(QObject* parent) : QObject(parent) {
-    m_scanPaths.append(QDir::homePath() + "/.config/viospice/extensions");
+    m_scanPaths.append(QDir::homePath() + "/.config/VioraEDA/extensions");
     QString appDir = QCoreApplication::applicationDirPath();
     m_scanPaths.append(appDir + "/../extensions");
     m_scanPaths.append(appDir + "/extensions");

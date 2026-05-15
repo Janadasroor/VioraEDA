@@ -7,7 +7,7 @@ PROJECT_DIR="$( dirname "$DIR" )"
 echo "Installing viospice file associations..."
 
 # 1. Update the .desktop file with correct paths
-SED_EXEC="s|Exec=.*|Exec=$PROJECT_DIR/build/viospice %f|"
+SED_EXEC="s|Exec=.*|Exec=$PROJECT_DIR/build/VioraEDA %f|"
 SED_ICON="s|Icon=.*|Icon=$PROJECT_DIR/resources/icons/app_icon.svg|"
 sed -i "$SED_EXEC" "$DIR/viospice.desktop"
 sed -i "$SED_ICON" "$DIR/viospice.desktop"

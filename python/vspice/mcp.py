@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -159,8 +160,30 @@ def raw_info(file: str) -> Dict[str, Any]:
     return run_viora_command(["raw-info", file, "--json"], json_out=True)
 
 def raw_export(file: str, out: str, fmt: str = "json") -> Dict[str, Any]:
-    """Export waveform data to a different format (csv, json, parquet)."""
-    return run_viora_command(["raw-export", file, "--out", out, "--format", fmt, "--json"], json_out=True)
+    """Export waveform data to a different format (csv, json, parquet).
+
+    The CLI writes the output to 'out'.  For JSON and CSV formats
+    the data also appears on stdout.  We always capture stdout and
+    write it to disk to be sure the file is created.
+    """
+    out_path = Path(out)
+    out_path = out_path.expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    result = run_viora_command(
+        ["raw-export", file, "--format", fmt, "--json", "--out", str(out_path)],
+        json_out=True,
+    )
+
+    # Always write stdout to the output file (CLI may not create it for
+    # non-parquet formats).
+    if result.get("ok") and result.get("stdout"):
+        out_path.write_text(result["stdout"], encoding="utf-8")
+
+    # Confirm the file exists on disk
+    result["file_written"] = str(out_path) if out_path.exists() else ""
+
+    return result
 
 def symbol_list(path: str = ".") -> Dict[str, Any]:
     """List available symbols in a directory or library file."""
@@ -198,6 +221,10 @@ def ui_query(code: str, host: str = "localhost", port: int = 18790) -> Dict[str,
     except Exception as e:
         return {"ok": False, "error": f"VioSpice GUI not detected on {host}:{port} ({e}). Ensure the application is running with the UI Command Server enabled."}
 
+def get_project_root() -> Dict[str, Any]:
+    """Return the absolute project root path for path reference."""
+    return {"ok": True, "project_root": str(ROOT.resolve())}
+
 def get_detailed_status() -> Dict[str, Any]:
     """Get a production-grade status report of the VioSpice/Viora ecosystem."""
     exe_str = get_viora_executable()
@@ -219,11 +246,42 @@ def get_detailed_status() -> Dict[str, Any]:
             
     return status
 
+def _resolve_path(path: str) -> Path:
+    """Resolve a path relative to the project root if it is not absolute."""
+    p = Path(path)
+    if p.is_absolute():
+        return p
+    return (ROOT / p).resolve()
+
 def netlist_validate(file: Optional[str] = None, cir: Optional[str] = None) -> Dict[str, Any]:
-    """Validate a SPICE netlist without running simulation."""
+    """Validate a SPICE netlist without running simulation.
+
+    For .flxsch files, the embedded SPICE directives are extracted
+    and validated.  For .cir files and raw netlist strings, the
+    content is validated directly.
+    """
+    if file and file.lower().endswith(".flxsch"):
+        # .flxsch is JSON — extract the Spice Directive text and validate that
+        try:
+            sch_path = _resolve_path(file)
+            sch = json.loads(sch_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return {"ok": False, "error": f"Cannot read .flxsch: {e}"}
+
+        directives = []
+        for item in sch.get("items", []):
+            if item.get("type") == "Spice Directive" and item.get("text"):
+                directives.append(item["text"])
+
+        if not directives:
+            return {"ok": False, "error": "No SPICE directives found in .flxsch file."}
+
+        cir_content = "\n".join(directives)
+        return netlist_validate(cir=cir_content)
+
     args = ["netlist-validate"]
     if file:
-        args.append(file)
+        args.append(str(_resolve_path(file)))
         return run_viora_command(args, json_out=True)
     elif cir:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.cir', delete=False) as tf:
@@ -246,7 +304,9 @@ def netlist_run(
     json_out: bool = True,
     robust: bool = False,
     compat: bool = True,
-    smart_signals: Optional[List[Dict[str, Any]]] = None
+    smart_signals: Optional[List[Dict[str, Any]]] = None,
+    options: Optional[str] = None,
+    temperature: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Execute a SPICE or VioSpice simulation."""
     v_args = ["netlist-run"]
@@ -315,6 +375,36 @@ def netlist_run(
         Path(temp_file).write_text(cir, encoding="utf-8")
         target = temp_file
             
+    # Inject SPICE options and temperature as netlist directives
+    # (the CLI doesn't have --options/--temp flags yet)
+    extra_directives = []
+    if options:
+        extra_directives.append(f".options {options}")
+    if temperature is not None:
+        extra_directives.append(f".temp {temperature}")
+
+    if extra_directives and temp_file is None and cir:
+        # Create a temp file so we can inject directives
+        fd, temp_file = tempfile.mkstemp(suffix=".cir", dir=ROOT)
+        os.close(fd)
+        Path(temp_file).write_text(cir + "\n" + "\n".join(extra_directives), encoding="utf-8")
+        target = temp_file
+    elif extra_directives and file and file.lower().endswith(".flxsch"):
+        # Inject directives into the .flxsch by adding a Spice Directive item
+        try:
+            sch_path = _resolve_path(file)
+            sch = json.loads(sch_path.read_text(encoding="utf-8"))
+            sch.setdefault("items", []).append({
+                "type": "Spice Directive",
+                "text": "\n".join(extra_directives),
+            })
+            fd, temp_file = tempfile.mkstemp(suffix=".flxsch", dir=ROOT)
+            os.close(fd)
+            Path(temp_file).write_text(json.dumps(sch), encoding="utf-8")
+            target = temp_file
+        except Exception as e:
+            return {"ok": False, "error": f"Cannot inject options into .flxsch: {e}"}
+
     if target: v_args.append(target)
     if analysis: v_args.extend(["--analysis", analysis])
     if stop: v_args.extend(["--stop", stop])
@@ -331,6 +421,7 @@ def netlist_run(
     finally:
         if temp_file and os.path.exists(temp_file):
             os.remove(temp_file)
+
 
 def open_schematic(path: str, convert: bool = False) -> Dict[str, Any]:
     """Open a schematic or netlist file in the running VioSpice GUI."""
@@ -374,4 +465,89 @@ def _find_active_tab():
 print(_find_active_tab())
 """
     return ui_query(code)
+
+
+# ── Async simulation jobs ───────────────────────────────────────
+
+_jobs: Dict[str, Dict[str, Any]] = {}
+_job_lock = threading.Lock()
+_next_job_id = 0
+
+def netlist_run_async(
+    file: Optional[str] = None,
+    cir: Optional[str] = None,
+    analysis: Optional[str] = None,
+    stop: Optional[str] = None,
+    step: Optional[str] = None,
+    signals: Optional[List[str]] = None,
+    robust: bool = False,
+    compat: bool = True,
+    smart_signals: Optional[List[Dict[str, Any]]] = None,
+    options: Optional[str] = None,
+    temperature: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Start a simulation in the background and return a job ID immediately.
+    
+    Poll progress with `netlist_job_status(job_id)` and retrieve
+    results with `netlist_job_result(job_id)` once status is 'done'.
+    """
+    global _next_job_id
+    with _job_lock:
+        job_id = f"sim_{_next_job_id}"
+        _next_job_id += 1
+        _jobs[job_id] = {"status": "queued", "progress": 0, "result": None}
+
+    def _run():
+        with _job_lock:
+            _jobs[job_id]["status"] = "running"
+            _jobs[job_id]["progress"] = 10
+        try:
+            result = netlist_run(
+                file=file, cir=cir,
+                analysis=analysis, stop=stop, step=step,
+                signals=signals, json_out=True,
+                robust=robust, compat=compat,
+                smart_signals=smart_signals,
+                options=options, temperature=temperature,
+            )
+            with _job_lock:
+                _jobs[job_id]["status"] = "done"
+                _jobs[job_id]["progress"] = 100
+                _jobs[job_id]["result"] = result
+        except Exception as e:
+            with _job_lock:
+                _jobs[job_id]["status"] = "error"
+                _jobs[job_id]["result"] = {"ok": False, "error": str(e)}
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"ok": True, "job_id": job_id, "status": "queued"}
+
+
+def netlist_job_status(job_id: str) -> Dict[str, Any]:
+    """Check the progress of an async simulation job."""
+    with _job_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return {"ok": False, "error": f"Unknown job: {job_id}"}
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "status": job["status"],
+            "progress": job["progress"],
+        }
+
+
+def netlist_job_result(job_id: str) -> Dict[str, Any]:
+    """Retrieve the result of a completed async simulation job."""
+    with _job_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return {"ok": False, "error": f"Unknown job: {job_id}"}
+        if job["status"] not in ("done", "error"):
+            return {"ok": False, "error": f"Job {job_id} is still {job['status']} (progress {job['progress']}%)"}
+        result = job["result"]
+        # Clean up completed jobs
+        del _jobs[job_id]
+        return {"ok": True, "job_id": job_id, "result": result}
 

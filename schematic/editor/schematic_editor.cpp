@@ -1817,6 +1817,11 @@ void SchematicEditor::clearSimulationOverlays() {
 void SchematicEditor::onOverlayVisibilityChanged(bool showVoltage, bool showCurrent) {
     m_showVoltageOverlays = showVoltage;
     m_showCurrentOverlays = showCurrent;
+    
+    // Refresh overlays immediately if we have results
+    if (m_view && m_view->hasSimResults()) {
+        showSimulationResults(m_view->lastSimResults());
+    }
 }
 
 void SchematicEditor::onClearSimulationOverlays() {
@@ -1901,6 +1906,14 @@ void SchematicEditor::showSimulationResults(const SimResults& results) {
             } else if (waveName.startsWith("I(", Qt::CaseInsensitive) && waveName.endsWith(')') && waveName.size() > 3) {
                 const QString branch = waveName.mid(2, waveName.size() - 3).trimmed();
                 if (!branch.isEmpty() && !currents.contains(branch)) currents.insert(branch, finalVal);
+            } else if (waveName.startsWith('@') && waveName.contains("[i", Qt::CaseInsensitive)) {
+                // Handle @R1[i] or @D1[id] (Ngspice internal device current names)
+                int start = 1;
+                int bracketIdx = waveName.indexOf('[');
+                if (bracketIdx > start) {
+                    QString branch = waveName.mid(start, bracketIdx - start).trimmed();
+                    if (!branch.isEmpty() && !currents.contains(branch)) currents.insert(branch, finalVal);
+                }
             } else if (!nodeVoltages.contains(waveName) && !waveName.contains('(')) {
                 nodeVoltages.insert(waveName, finalVal);
             }
@@ -1937,7 +1950,7 @@ void SchematicEditor::updateSimulationOverlays(const QMap<QString, double>& node
                 if (SchematicItem* sItem = dynamic_cast<SchematicItem*>(item)) {
                     // If it's a wire or label, we can use its position
                     if (sItem->itemType() == SchematicItem::LabelType || sItem->itemType() == SchematicItem::NetLabelType) {
-                        if (sItem->value() == netName) {
+                        if (sItem->value().compare(netName, Qt::CaseInsensitive) == 0) {
                             overlayPos = sItem->scenePos() + QPointF(0, -20);
                             found = true;
                             break;
@@ -1948,10 +1961,21 @@ void SchematicEditor::updateSimulationOverlays(const QMap<QString, double>& node
 
             if (!found && m_netManager) {
                 // Fallback: Use first connection point of the net
-                auto conns = m_netManager->getConnections(netName);
-                if (!conns.isEmpty()) {
-                    overlayPos = conns.first().connectionPoint + QPointF(10, -10);
-                    found = true;
+                // Match net name case-insensitively in NetManager
+                QString matchedNet;
+                for (const QString& name : m_netManager->netNames()) {
+                    if (name.compare(netName, Qt::CaseInsensitive) == 0) {
+                        matchedNet = name;
+                        break;
+                    }
+                }
+
+                if (!matchedNet.isEmpty()) {
+                    auto conns = m_netManager->getConnections(matchedNet);
+                    if (!conns.isEmpty()) {
+                        overlayPos = conns.first().connectionPoint + QPointF(10, -10);
+                        found = true;
+                    }
                 }
             }
 
@@ -1972,7 +1996,7 @@ void SchematicEditor::updateSimulationOverlays(const QMap<QString, double>& node
 
             for (auto* item : m_scene->items()) {
                 if (SchematicItem* sItem = dynamic_cast<SchematicItem*>(item)) {
-                    if (sItem->reference() == branchName) {
+                    if (sItem->reference().compare(branchName, Qt::CaseInsensitive) == 0) {
                         QString text = QString::number(val * 1000.0, 'f', 2) + " mA";
                         auto* overlay = new SimulationOverlayItem(text, sItem->scenePos() + QPointF(0, 20), SimulationOverlayItem::Current);
                         m_scene->addItem(overlay);

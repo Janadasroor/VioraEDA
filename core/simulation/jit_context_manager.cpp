@@ -50,8 +50,6 @@ JITContextManager::JITContextManager() {
     Flux::registerRuntimeFunctions(*m_jit);
     m_jit->registerFunction("flux_get_voltage", (void*)&JITContextManager::getVoltage);
     m_jit->registerFunction("flux_get_current", (void*)&JITContextManager::getCurrent);
-    
-    // Register Design Rule API
     m_jit->registerFunction("erc_get_component_count", (void*)&flux_erc_get_component_count);
     m_jit->registerFunction("erc_get_ref", (void*)&flux_erc_get_ref);
     m_jit->registerFunction("erc_get_value", (void*)&flux_erc_get_value);
