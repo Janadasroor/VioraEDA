@@ -12,6 +12,13 @@
 #include <variant>
 #include <vector>
 #include <complex>
+#include <cstdint>
+
+struct FluxMatrixHandle {
+    void* data = nullptr;
+    int rows = 0;
+    int cols = 0;
+};
 
 /**
  * @brief Bridge to the standalone FluxScript Interpreter.
@@ -30,7 +37,7 @@ public:
     bool validateScript(const QString& code, QString* error = nullptr);
 
     // Generic call interface for simulation components
-    using FluxValue = std::variant<double, int, std::complex<double>>;
+    using FluxValue = std::variant<double, int, std::complex<double>, FluxMatrixHandle>;
     FluxValue callFunction(const char* method, const std::vector<double>& args, QString* error = nullptr);
 
 private:

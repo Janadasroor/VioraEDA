@@ -1,11 +1,11 @@
 #include "flux_script_engine.h"
 #include "../bridges/flux_qt_bridge.h"
 #include <flux/jit_engine.h>
+#include <flux/flux_eigen.h>
 #include <QDebug>
 #include <string>
 
 // Forward declarations from flux_qt_bridge.cpp
-void initialize_flux_qt_runtime();
 void register_flux_qt_jit_symbols();
 
 FluxScriptEngine& FluxScriptEngine::instance() {
@@ -14,7 +14,6 @@ FluxScriptEngine& FluxScriptEngine::instance() {
 }
 
 FluxScriptEngine::FluxScriptEngine(QObject* parent) : QObject(parent) {
-    initialize_flux_qt_runtime();
 }
 
 void FluxScriptEngine::initialize() { 
@@ -62,6 +61,9 @@ FluxScriptEngine::FluxValue FluxScriptEngine::callFunction(const char* method, c
         return std::get<int>(result);
     } else if (std::holds_alternative<std::complex<double>>(result)) {
         return std::get<std::complex<double>>(result);
+    } else if (std::holds_alternative<Flux::MatrixResult>(result)) {
+        const auto& mat = std::get<Flux::MatrixResult>(result);
+        return FluxMatrixHandle{mat.ptr, mat.rows, mat.cols};
     }
     
     return 0.0;

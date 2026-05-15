@@ -110,14 +110,14 @@ void FluxQtBridge::onBridgeEvent() {
     FluxScriptEngine::instance().callFunction("", {}, &error);
 }
 
-// C-API hooks for FluxScript Runtime
+// C-API wrappers for property bridge (registered as JIT symbols below)
 extern "C" {
-    void flux_register_property_bridge(double (*getter)(double, const char*), 
-                                      void (*setter)(double, const char*, double));
-}
-
-void initialize_flux_qt_runtime() {
-    flux_register_property_bridge(FluxQtBridge::getProperty, FluxQtBridge::setProperty);
+    double flux_qt_get_property(double handle, const char* name) {
+        return FluxQtBridge::instance().getProperty(handle, name);
+    }
+    void flux_qt_set_property(double handle, const char* name, double value) {
+        FluxQtBridge::instance().setProperty(handle, name, value);
+    }
 }
 
 // Forward declarations for C-API bridge functions defined in flux_qt_widgets.cpp
@@ -221,6 +221,8 @@ void register_flux_qt_jit_symbols() {
     jit.registerFunction("flux_set_var", (void*)&flux_set_var);
     jit.registerFunction("flux_set_prop", (void*)&flux_set_prop);
     jit.registerFunction("flux_set_prop_str", (void*)&flux_set_prop_str);
+    jit.registerFunction("flux_qt_get_property", (void*)&flux_qt_get_property);
+    jit.registerFunction("flux_qt_set_property", (void*)&flux_qt_set_property);
     jit.registerFunction("flux_sim_get_vector_size", (void*)&flux_sim_get_vector_size);
     jit.registerFunction("flux_sim_get_vector_val", (void*)&flux_sim_get_vector_val);
     jit.registerFunction("flux_sim_get_vector_x", (void*)&flux_sim_get_vector_x);
