@@ -108,6 +108,10 @@ VioSpice supports two kinds of extensions:
 
 ### Quick Start — FluxScript Extension
 
+Extensions live in `~/.config/VioraEDA/extensions/` (Linux),
+`~/Library/Application Support/VioraEDA/extensions/` (macOS),
+or `%APPDATA%\VioraEDA\extensions\` (Windows).
+
 Create a directory and two files:
 
 ```bash

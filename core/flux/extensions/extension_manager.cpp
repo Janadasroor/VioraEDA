@@ -61,7 +61,13 @@ ExtensionManager& ExtensionManager::instance() {
 }
 
 ExtensionManager::ExtensionManager(QObject* parent) : QObject(parent) {
+    // Linux
     m_scanPaths.append(QDir::homePath() + "/.config/VioraEDA/extensions");
+    // macOS
+    m_scanPaths.append(QDir::homePath() + "/Library/Application Support/VioraEDA/extensions");
+    // Windows
+    m_scanPaths.append(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/extensions");
+    // App bundle / portable
     QString appDir = QCoreApplication::applicationDirPath();
     m_scanPaths.append(appDir + "/../extensions");
     m_scanPaths.append(appDir + "/extensions");
