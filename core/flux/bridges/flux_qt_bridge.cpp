@@ -148,6 +148,7 @@ extern "C" {
     void flux_qt_combo_clear(double);
     void flux_qt_combo_set_current_index(double, double);
     void flux_qt_table_set_item(double, double, double, const char*);
+    void flux_qt_table_set_value(double, double, double, double);
     void flux_qt_table_set_header(double, double, const char*);
     double flux_qt_table_row_count(double);
     double flux_qt_table_col_count(double);
@@ -195,6 +196,7 @@ void register_flux_qt_jit_symbols() {
     jit.registerFunction("flux_qt_combo_clear", (void*)&flux_qt_combo_clear);
     jit.registerFunction("flux_qt_combo_set_current_index", (void*)&flux_qt_combo_set_current_index);
     jit.registerFunction("flux_qt_table_set_item", (void*)&flux_qt_table_set_item);
+    jit.registerFunction("flux_qt_table_set_value", (void*)&flux_qt_table_set_value);
     jit.registerFunction("flux_qt_table_set_header", (void*)&flux_qt_table_set_header);
     jit.registerFunction("flux_qt_table_row_count", (void*)&flux_qt_table_row_count);
     jit.registerFunction("flux_qt_table_col_count", (void*)&flux_qt_table_col_count);

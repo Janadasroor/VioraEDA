@@ -119,6 +119,16 @@ extern "C" {
         return FluxQtBridge::instance().registerObject(table);
     }
 
+    void flux_qt_table_set_value(double tableHandle, double row, double col, double value) {
+        QTableWidget* table = qobject_cast<QTableWidget*>(
+            FluxQtBridge::instance().resolveHandle(tableHandle));
+        if (table) {
+            QTableWidgetItem* item = new QTableWidgetItem();
+            item->setData(Qt::DisplayRole, value);
+            table->setItem(static_cast<int>(row), static_cast<int>(col), item);
+        }
+    }
+
     void flux_qt_table_set_item(double tableHandle, double row, double col, const char* text) {
         QTableWidget* table = qobject_cast<QTableWidget*>(
             FluxQtBridge::instance().resolveHandle(tableHandle));

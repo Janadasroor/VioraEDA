@@ -37,7 +37,8 @@ Functions available to FluxScript extensions via the JIT bridge.
 
 | Function | Description |
 |---|---|
-| `flux_qt_table_set_item(table, row, col, text)` | Set cell text |
+| `flux_qt_table_set_value(table, row, col, value)` | Set cell numeric value |
+| `flux_qt_table_set_item(table, row, col, text)` | Set cell text (deprecated, use `_set_value` for numbers) |
 | `flux_qt_table_set_header(table, col, text)` | Set column header |
 | `flux_qt_table_row_count(table)` | Returns row count |
 | `flux_qt_table_col_count(table)` | Returns column count |
