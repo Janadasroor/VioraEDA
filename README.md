@@ -48,19 +48,20 @@ These features are planned for future releases. The current AI integration (Gemi
   `Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets`
 - **CMake 3.16+**
 - **C++20 Compiler** (GCC 10+, Clang 12+, or MSVC 2019+)
-- **LLVM 19+** (for FluxScript JIT) — components required:
+- **LLVM 18+** (for FluxScript JIT) — components required:
   `Core ExecutionEngine MCJIT OrcJIT Support native BitWriter BitReader Linker IRReader X86`
 - **Python 3.10+** (for ML dataset API, Gemini AI co-pilot, and MCP server)
 - **libcurl** (for FluxScript package manager)
 
-**Install on Ubuntu 24.04+:**
+**Currently tested on Ubuntu 24.04+.** Other Linux distros with Qt 6.11 and LLVM 18+ should work with package equivalents:
 
-```bash
-sudo apt install build-essential cmake qt6-base-dev qt6-charts-dev \
-  qt6-svg-dev qt6-tools-dev qt6-l10n-tools libgl1-mesa-dev \
-  libllvm19 llvm-19-dev libclang-19-dev libcurl4-openssl-dev \
-  python3 python3-pip python3-venv
-```
+| Distro | Command |
+|--------|---------|
+| Ubuntu 24.04+ | `sudo apt install build-essential cmake qt6-base-dev qt6-charts-dev qt6-svg-dev qt6-tools-dev qt6-l10n-tools libgl1-mesa-dev llvm-18-dev libclang-18-dev libcurl4-openssl-dev python3 python3-pip` |
+| Fedora 40+ | `sudo dnf install cmake gcc-c++ qt6-qtbase-devel qt6-qtcharts-devel qt6-qtsvg-devel llvm-devel clang-devel libcurl-devel python3` |
+| Arch Linux | `sudo pacman -S base-devel cmake qt6-base qt6-charts qt6-svg llvm clang curl python3` |
+
+**Windows and macOS are not yet supported.** The simulation engine (VioMATRIXC / ngspice) uses autotools and Linux-specific shared memory APIs. Cross-platform support is planned but requires porting the engine build system.
 
 **Install on Fedora:**
 
