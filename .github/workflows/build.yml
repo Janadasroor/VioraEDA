@@ -1,0 +1,37 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential cmake \
+            autoconf automake libtool m4 \
+            qt6-base-dev qt6-charts-dev qt6-svg-dev qt6-tools-dev \
+            libgl1-mesa-dev \
+            llvm-18-dev libclang-18-dev \
+            libcurl4-openssl-dev \
+            python3 python3-pip
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build FluxScript
+        run: cmake --build build --target FluxScript -j$(nproc)
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure

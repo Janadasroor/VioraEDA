@@ -13,6 +13,8 @@ def count_lines(file_path):
     }
     
     in_multiline_comment = False
+    in_if_zero = False
+    if_zero_depth = 0
     
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -24,20 +26,68 @@ def count_lines(file_path):
                     stats['blank'] += 1
                     continue
                 
+                # Track #if 0 ... #endif blocks (disabled code)
+                if stripped.startswith('#') and 'if' in stripped:
+                    tokens = stripped[1:].split()
+                    if len(tokens) >= 2 and tokens[0] == 'if' and tokens[1] == '0':
+                        if_zero_depth += 1
+                        in_if_zero = True
+                        stats['comment'] += 1
+                        continue
+                if stripped.startswith('#endif'):
+                    if if_zero_depth > 0:
+                        if_zero_depth -= 1
+                        stats['comment'] += 1
+                        if if_zero_depth == 0:
+                            in_if_zero = False
+                        continue
+                    elif in_if_zero:
+                        stats['comment'] += 1
+                        continue
+                if in_if_zero or if_zero_depth > 0:
+                    stats['comment'] += 1
+                    if stripped.startswith('#if'):
+                        if_zero_depth += 1
+                    continue
+                
                 if in_multiline_comment:
                     stats['comment'] += 1
                     if '*/' in stripped:
                         in_multiline_comment = False
+                        # Check if there's code after */
+                        after = stripped[stripped.index('*/') + 2:].strip()
+                        if after and not after.startswith('//'):
+                            stats['code'] += 1
                     continue
                 
-                if stripped.startswith('/*'):
+                # Handle // comments
+                double_slash = stripped.find('//')
+                if double_slash >= 0:
+                    before = stripped[:double_slash].strip()
+                    if before:
+                        stats['code'] += 1
                     stats['comment'] += 1
-                    if '*/' not in stripped:
+                    continue
+                
+                # Handle /* */ comments
+                start_comment = stripped.find('/*')
+                if start_comment >= 0:
+                    before = stripped[:start_comment].strip()
+                    end_comment = stripped.find('*/', start_comment + 2)
+                    if end_comment >= 0:
+                        # Single-line /* ... */ comment
+                        if before:
+                            stats['code'] += 1
+                        stats['comment'] += 1
+                        after = stripped[end_comment + 2:].strip()
+                        if after and not after.startswith('//'):
+                            stats['code'] += 1
+                    else:
+                        # Start of multi-line comment
+                        if before:
+                            stats['code'] += 1
+                        stats['comment'] += 1
                         in_multiline_comment = True
-                    continue
-                
-                if stripped.startswith('//'):
-                    stats['comment'] += 1
                     continue
                 
                 stats['code'] += 1
@@ -51,8 +101,8 @@ def main():
     parser.add_argument('path', nargs='?', default='.', help='Directory to scan (default: current)')
     parser.add_argument('--extensions', nargs='+', default=['.cpp', '.h', '.hpp', '.cxx', '.hxx'], 
                         help='File extensions to include')
-    parser.add_argument('--exclude', nargs='+', default=['build','build-debug','build-release', 'build-asan', 'build-tsan', 'assets', '.git', 'venv', 'node_modules', '_deps', 'cmake-build'],
-                        help='Directories to exclude')
+    parser.add_argument('--exclude', nargs='+', default=['build','build-*','assets','.git','venv','node_modules','_deps','cmake-build'],
+                        help='Directories to exclude. Supports * suffix for prefix matching')
     
     args = parser.parse_args()
     root_path = Path(args.path).resolve()
@@ -71,8 +121,10 @@ def main():
     print(f"Excluding directories: {', '.join(exclude_dirs)}")
     
     for root, dirs, files in os.walk(root_path):
-        # Modify dirs in-place to skip excluded directories
-        dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        dirs[:] = [d for d in dirs if not any(
+            d == e or (e.endswith('*') and d.startswith(e[:-1]))
+            for e in exclude_dirs
+        )]
         
         for file in files:
             file_path = Path(root) / file

@@ -195,6 +195,11 @@ void ConfigManager::setAutoShowSimulationTab(bool enabled) {
     m_settings.setValue("ui/autoShowSimulationTab", enabled); 
     m_settings.sync();
 }
+bool ConfigManager::showNetTableOverlay() const { return m_settings.value("simulator/showNetTableOverlay", true).toBool(); }
+void ConfigManager::setShowNetTableOverlay(bool enabled) {
+    m_settings.setValue("simulator/showNetTableOverlay", enabled);
+    m_settings.sync();
+}
 
 void ConfigManager::setToolProperty(const QString& toolName, const QString& propName, const QVariant& value) {
     m_settings.setValue(QString("tools/%1/%2").arg(toolName, propName), value);

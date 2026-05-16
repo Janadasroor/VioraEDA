@@ -3090,7 +3090,13 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
                             // We only skip if we are sure we are replacing it later.
 
 
-                            // Skip user .ac directives for SParameter analysis - we generate our own in the correct location
+                            // Skip analysis directives that don't match the current simulation type
+                            if (params.type != SParameter &&
+                                (trimmedCmdLine.startsWith(".sp", Qt::CaseInsensitive) ||
+                                 trimmedCmdLine.startsWith(".net", Qt::CaseInsensitive))) {
+                                netlist += "* Skipped directive (not applicable to current analysis): " + trimmedCmdLine + "\n";
+                                continue;
+                            }
                             if (params.type == SParameter && trimmedCmdLine.startsWith(".ac", Qt::CaseInsensitive)) {
                                 netlist += "* Skipped user .ac directive (auto-generated for SParameter analysis): " + trimmedCmdLine + "\n";
                                 continue;

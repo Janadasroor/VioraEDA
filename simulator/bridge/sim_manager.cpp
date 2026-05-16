@@ -683,6 +683,19 @@ QString stripNetStatementsFromNetlist(const QString& netlistContent) {
     return outLines.join('\n');
 }
 
+QString stripSPStatementsFromNetlist(const QString& netlistContent) {
+    QStringList outLines;
+    for (const QString& rawLine : netlistContent.split('\n')) {
+        const QString trimmed = rawLine.trimmed();
+        if (trimmed.startsWith(".sp", Qt::CaseInsensitive)) {
+            outLines.append(QString("* VioSpice evaluates this .sp statement post-simulation: %1").arg(rawLine));
+            continue;
+        }
+        outLines.append(rawLine);
+    }
+    return outLines.join('\n');
+}
+
 std::string measAnalysisToken(SimAnalysisType type) {
     switch (type) {
     case SimAnalysisType::OP: return "op";
@@ -1422,7 +1435,7 @@ bool SimManager::startSharedSimulation(const QString& netlistContent, const QStr
     }
 
     QTextStream out(tempFile);
-    const QString activeNetlist = stripNetStatementsFromNetlist(stripMeasStatementsFromNetlist(netlistContent));
+    const QString activeNetlist = stripSPStatementsFromNetlist(stripNetStatementsFromNetlist(stripMeasStatementsFromNetlist(netlistContent)));
     out << activeNetlist;
     out.flush();
     tempFile->close();

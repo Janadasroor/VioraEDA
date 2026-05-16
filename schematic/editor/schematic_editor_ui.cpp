@@ -167,7 +167,8 @@ void SchematicEditor::refreshOscilloscopeDockContent() {
         return;
     }
 
-    const bool showFullPanel = ConfigManager::instance()
+    const bool userWantsSParam = m_simulationPanel && m_simulationPanel->isSParameterModeSelected();
+    const bool showFullPanel = userWantsSParam || ConfigManager::instance()
                                    .toolProperty("SimulationPanel", "showFullPanelInDock", false)
                                    .toBool();
     QWidget* targetWidget = showFullPanel

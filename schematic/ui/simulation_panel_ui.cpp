@@ -259,7 +259,6 @@ QWidget* SimulationPanel::createAnalysisSetupWidget() {
     m_commandLine->setStyleSheet(commandStyle);
     layout->addRow("Active:", m_commandLine);
 
-
     m_acSweepType = new QComboBox();
     m_acSweepType->addItems({"Decade", "Octave", "Linear"});
     m_acSweepType->setStyleSheet(inputStyle);
@@ -358,13 +357,8 @@ QWidget* SimulationPanel::createMonitorWidget() {
     m_issueList = new QListWidget();
     m_issueList->setStyleSheet(QString("QListWidget { background: %1; border: 1px solid %2; color: #fbbf24; font-size: 9px; }").arg(bg, borderColor));
     
-    m_autoNetTableCheck = new QCheckBox("Auto Overlay Nets");
-    m_autoNetTableCheck->setStyleSheet(QString("color: %1; font-size: 10px;").arg(textColor));
-    m_autoNetTableCheck->setChecked(true);
-
     layout->addWidget(new QLabel("SIM ISSUES"), 0, Qt::AlignBottom);
     layout->addWidget(m_issueList, 1);
-    layout->addWidget(m_autoNetTableCheck);
 
     return monitor;
 }

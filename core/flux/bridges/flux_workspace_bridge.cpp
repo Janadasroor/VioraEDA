@@ -199,25 +199,4 @@ extern "C" {
         }
     }
 
-    #if 0
-        void flux_register_analysis(const char* analysisType) {
-            if (!analysisType) return;
-            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Analysis: %1").arg(analysisType));
-        }
-
-        void flux_register_measure(const char* name, const char* measureType) {
-            if (!name || !measureType) return;
-            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Measure: %1 (%2)").arg(name).arg(measureType));
-        }
-
-        void flux_register_probe(const char* varName, const char* outputName) {
-            if (!varName) return;
-            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Probe: %1").arg(varName));
-        }
-
-        void flux_register_save(const char* varName) {
-            if (!varName) return;
-            Flux::JITContextManager::instance().logMessage(QString("[JIT] Requested Save: %1").arg(varName));
-        }
-    #endif
 }

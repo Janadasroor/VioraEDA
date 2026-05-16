@@ -167,7 +167,7 @@ const SimWaveform* findWaveByNetAliases(const std::vector<SimWaveform>& waveform
     return nullptr;
 }
 
-WaveformStats computeWaveformStats(const SimWaveform& wave) {
+WaveformStats computeWaveformStats(const SimWaveform& wave, SimAnalysisType mode) {
     WaveformStats stats;
     if (wave.yData.empty()) return stats;
 
@@ -175,16 +175,34 @@ WaveformStats computeWaveformStats(const SimWaveform& wave) {
     stats.maximum = wave.yData.front();
     double sum = 0.0;
     double energy = 0.0;
-    for (double value : wave.yData) {
-        sum += value;
-        energy += value * value;
-        stats.minimum = std::min(stats.minimum, value);
-        stats.maximum = std::max(stats.maximum, value);
-    }
 
-    const double count = static_cast<double>(wave.yData.size());
-    stats.average = sum / count;
-    stats.rms = std::sqrt(energy / count);
+    if (mode == SimAnalysisType::AC || mode == SimAnalysisType::SParameter) {
+        // For AC: average = magnitude at final frequency, rms = phase (if available)
+        stats.average = wave.yData.back();
+        stats.rms = wave.yPhase.empty() ? 0.0 : std::abs(wave.yPhase.back());
+        for (double v : wave.yData) {
+            stats.minimum = std::min(stats.minimum, v);
+            stats.maximum = std::max(stats.maximum, v);
+        }
+    } else if (mode == SimAnalysisType::DC) {
+        // For DC Sweep: average = value at final point, rms = N/A
+        stats.average = wave.yData.back();
+        for (double v : wave.yData) {
+            stats.minimum = std::min(stats.minimum, v);
+            stats.maximum = std::max(stats.maximum, v);
+        }
+    } else {
+        // Transient/RealTime: time-domain avg and rms
+        for (double value : wave.yData) {
+            sum += value;
+            energy += value * value;
+            stats.minimum = std::min(stats.minimum, value);
+            stats.maximum = std::max(stats.maximum, value);
+        }
+        const double count = static_cast<double>(wave.yData.size());
+        stats.average = sum / count;
+        stats.rms = std::sqrt(energy / count);
+    }
     stats.valid = true;
     return stats;
 }
@@ -915,16 +933,23 @@ void SimulationPanel::clearTransientNetTableOverlay(QGraphicsScene* scene) {
 }
 
 void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) {
+    qDebug() << "[NetTable] called: analysisType=" << static_cast<int>(results.analysisType)
+             << "waveforms=" << results.waveforms.size()
+             << "scene=" << m_scene << "netMgr=" << m_netManager;
     if (!m_scene || !m_netManager) {
         qDebug() << "[NetTable] skipped: missing scene or net manager";
         return;
     }
-    if (results.analysisType != SimAnalysisType::Transient) {
-        qDebug() << "[NetTable] skipped: analysis is not transient";
+    if (results.waveforms.empty()) {
+        qDebug() << "[NetTable] skipped: no waveforms";
         return;
     }
-    if (!m_autoNetTableCheck || !m_autoNetTableCheck->isChecked()) {
-        qDebug() << "[NetTable] skipped: checkbox disabled";
+    if (m_analysisType && m_analysisType->currentIndex() == 5) {
+        qDebug() << "[NetTable] skipped: user selected RF S-Parameter mode";
+        return;
+    }
+    if (!ConfigManager::instance().showNetTableOverlay()) {
+        qDebug() << "[NetTable] skipped: disabled in Settings";
         return;
     }
 
@@ -945,9 +970,13 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
             displayNames.insert(normalizedName, netName);
         }
     }
-    qDebug() << "[NetTable] voltage wave count:" << voltageWaves.size();
+    qDebug() << "[NetTable] voltage wave count:" << voltageWaves.size() << "raw waveforms:" << results.waveforms.size();
+    for (const auto& w : results.waveforms) {
+        qDebug() << "  wave:" << QString::fromStdString(w.name) << "yData size:" << w.yData.size();
+    }
 
     QStringList netNames = m_netManager->netNames();
+    qDebug() << "[NetTable] net names from manager:" << netNames;
     netNames.detach();
     std::sort(netNames.begin(), netNames.end(), [](const QString& a, const QString& b) {
         const bool autoA = a.startsWith("AutoNet", Qt::CaseInsensitive);
@@ -964,7 +993,7 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
         const auto it = voltageWaves.constFind(normalizedName);
         if (it == voltageWaves.constEnd()) continue;
 
-        const WaveformStats stats = computeWaveformStats(*it.value());
+        const WaveformStats stats = computeWaveformStats(*it.value(), results.analysisType);
         if (!stats.valid) continue;
 
         SimulationNetTableItem::Row row;
@@ -990,7 +1019,7 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
             const auto it = voltageWaves.constFind(normalizedName);
             if (it == voltageWaves.constEnd()) continue;
 
-            const WaveformStats stats = computeWaveformStats(*it.value());
+            const WaveformStats stats = computeWaveformStats(*it.value(), results.analysisType);
             if (!stats.valid) continue;
 
             SimulationNetTableItem::Row row;
@@ -1006,6 +1035,9 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
     }
 
     qDebug() << "[NetTable] generated rows:" << rows.size();
+    for (const auto& r : rows) {
+        qDebug() << "  row:" << r.netName << "avg=" << r.average << "rms=" << r.rms;
+    }
     if (rows.isEmpty()) {
         qDebug() << "[NetTable] no rows generated";
         return;
@@ -1085,6 +1117,34 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
         });
     }
 
+    {
+        QString modeTitle;
+        QStringList cols;
+        switch (results.analysisType) {
+        case SimAnalysisType::Transient:
+            modeTitle = "Transient Net Voltage Summary";
+            cols = {"Vavg", "Vrms", "Vmin", "Vmax"};
+            break;
+        case SimAnalysisType::AC:
+            modeTitle = "AC Net Voltage Summary";
+            cols = {"Vmag", "Vphase", "Vmin", "Vmax"};
+            break;
+        case SimAnalysisType::DC:
+            modeTitle = "DC Net Voltage Summary";
+            cols = {"Vfinal", "---", "Vmin", "Vmax"};
+            break;
+        case SimAnalysisType::RealTime:
+            modeTitle = "Real-Time Net Voltage Summary";
+            cols = {"Vavg", "Vrms", "Vmin", "Vmax"};
+            break;
+        default:
+            modeTitle = "Net Voltage Summary";
+            cols = {"Val1", "Val2", "Min", "Max"};
+            break;
+        }
+        tableItem->setTitle(modeTitle);
+        tableItem->setColumnLabels(cols);
+    }
     tableItem->setRows(rows);
     m_netTableItems[m_scene] = tableItem;
     qDebug() << "[NetTable] placed at scene pos:" << tableItem->pos() << "bounds:" << tableItem->sceneBoundingRect();
@@ -2538,7 +2598,7 @@ void SimulationPanel::onRunSimulation() {
 
         SimAnalysisConfig config;
         switch (idx) {
-        case 0:
+        case 0: // Auto-Detect: default to Transient (schematic directive overrides)
             config.type = SimAnalysisType::Transient;
             config.tStop = tStop;
             config.tStep = tStep;
@@ -2546,17 +2606,25 @@ void SimulationPanel::onRunSimulation() {
             config.transientSteadyStateTol = steadyTolText.isEmpty() ? 0.0 : parseValue(steadyTolText, 0.0);
             config.transientSteadyStateDelay = steadyDelayText.isEmpty() ? 0.0 : parseValue(steadyDelayText, 0.0);
             break;
-        case 1:
+        case 1: // Transient
+            config.type = SimAnalysisType::Transient;
+            config.tStop = tStop;
+            config.tStep = tStep;
+            config.transientStopAtSteadyState = steadyEnabled;
+            config.transientSteadyStateTol = steadyTolText.isEmpty() ? 0.0 : parseValue(steadyTolText, 0.0);
+            config.transientSteadyStateDelay = steadyDelayText.isEmpty() ? 0.0 : parseValue(steadyDelayText, 0.0);
+            break;
+        case 2: // DC OP
             config.type = SimAnalysisType::OP;
             break;
-        case 2:
+        case 3: // DC Sweep
             config.type = SimAnalysisType::DC;
             config.dcSource = rfPort1Text.toStdString();
             config.dcStart = fStart;
             config.dcStop = fStop;
             config.dcStep = parseValue(ptsText, 0.1);
             break;
-        case 3:
+        case 4: // AC Sweep
             config.type = SimAnalysisType::AC;
             if (m_acSweepType) config.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
             config.fStart = fStart;
@@ -2564,7 +2632,7 @@ void SimulationPanel::onRunSimulation() {
             config.fPoints = pts;
             config.rfPort1Source = rfPort1Text.toStdString();
             break;
-        case 4:
+        case 5: // RF S-Parameter
             config.type = SimAnalysisType::SParameter;
             if (m_acSweepType) config.acSweepType = static_cast<SimAcSweepType>(m_acSweepType->currentIndex());
             config.fStart = fStart;
@@ -2574,13 +2642,13 @@ void SimulationPanel::onRunSimulation() {
             config.rfPort2Node = rfPort2Text.toStdString();
             config.rfZ0 = rfZ0;
             break;
-        case 5:
+        case 6:
             config.type = SimAnalysisType::MonteCarlo;
             break;
-        case 6:
+        case 7:
             config.type = SimAnalysisType::ParametricSweep;
             break;
-        case 7:
+        case 8:
             config.type = SimAnalysisType::Sensitivity;
             break;
         default:
@@ -2939,6 +3007,21 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
             s21.append(p.s21);
             s12.append(p.s12);
             s22.append(p.s22);
+        }
+        
+        // Debug: check first few S-parameter values
+        if (!effectiveResults.sParameterResults.empty()) {
+            const auto& p0 = effectiveResults.sParameterResults.front();
+            qDebug() << "[SParam] first point freq=" << p0.frequency
+                     << "S11=" << p0.s11.real() << "+j" << p0.s11.imag()
+                     << "S21=" << p0.s21.real() << "+j" << p0.s21.imag();
+            const auto& pMid = effectiveResults.sParameterResults[effectiveResults.sParameterResults.size()/2];
+            qDebug() << "[SParam] mid point freq=" << pMid.frequency
+                     << "S11=" << pMid.s11.real() << "+j" << pMid.s11.imag()
+                     << "S21=" << pMid.s21.real() << "+j" << pMid.s21.imag();
+            qDebug() << "[SParam] total points=" << effectiveResults.sParameterResults.size()
+                     << "S11 traces in waveforms:" << std::count_if(effectiveResults.waveforms.begin(), effectiveResults.waveforms.end(),
+                        [](const SimWaveform& w) { return QString::fromStdString(w.name).contains("S11", Qt::CaseInsensitive); });
         }
         
         m_smithChart->addTrace({"S11", s11, QColor(59, 130, 246), true});

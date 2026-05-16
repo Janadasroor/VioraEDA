@@ -69,7 +69,7 @@ void SimulationNetTableItem::paint(QPainter* painter, const QStyleOptionGraphics
     painter->setPen(QColor("#e5eefb"));
     painter->drawText(QRectF(m_padding, m_padding - 2.0, rect.width() - 2 * m_padding - 32.0, 18.0),
                       Qt::AlignLeft | Qt::AlignVCenter,
-                      "Transient Net Voltage Summary");
+                      m_title);
 
     const QRectF closeRect = closeButtonRect();
     painter->setPen(Qt::NoPen);
@@ -93,10 +93,10 @@ void SimulationNetTableItem::paint(QPainter* painter, const QStyleOptionGraphics
     const qreal maxX = 455.0;
     painter->drawText(QPointF(colorX, top), "Clr");
     painter->drawText(QPointF(netX, top), "Net");
-    painter->drawText(QPointF(avgX, top), "Vavg");
-    painter->drawText(QPointF(rmsX, top), "Vrms");
-    painter->drawText(QPointF(minX, top), "Vmin");
-    painter->drawText(QPointF(maxX, top), "Vmax");
+    painter->drawText(QPointF(avgX, top), m_columnLabels[0]);
+    painter->drawText(QPointF(rmsX, top), m_columnLabels[1]);
+    painter->drawText(QPointF(minX, top), m_columnLabels[2]);
+    painter->drawText(QPointF(maxX, top), m_columnLabels[3]);
 
     painter->setFont(rowFont);
     qreal y = top + 8.0;

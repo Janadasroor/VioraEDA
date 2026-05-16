@@ -166,8 +166,11 @@ void SettingsDialog::setupUI() {
     QVBoxLayout* laySimUi = new QVBoxLayout(grpSimUi);
     m_showFullSimulationPanelCheck = new QCheckBox("Show full simulation panel in the Analog Oscilloscope dock");
     m_autoShowSimulationTabCheck = new QCheckBox("Automatically switch to Simulation tab when running");
+    m_showNetTableCheck = new QCheckBox("Show net voltage summary table on schematic after transient simulation");
+    m_showNetTableCheck->setChecked(true);
     laySimUi->addWidget(m_showFullSimulationPanelCheck);
     laySimUi->addWidget(m_autoShowSimulationTabCheck);
+    laySimUi->addWidget(m_showNetTableCheck);
     laySim->addWidget(grpSimUi);
 
     QGroupBox* grpTols = new QGroupBox("Tolerances & Accuracy");
@@ -378,6 +381,7 @@ void SettingsDialog::loadSettings() {
     m_showFullSimulationPanelCheck->setChecked(
         config.toolProperty("SimulationPanel", "showFullPanelInDock", false).toBool());
     m_autoShowSimulationTabCheck->setChecked(config.autoShowSimulationTab());
+    m_showNetTableCheck->setChecked(config.showNetTableOverlay());
     m_enablePcbEditorsCheck->setChecked(config.isFeatureEnabled("pcb_tools", true));
 
     m_geminiKeyEdit->setText(config.geminiApiKey());
@@ -437,6 +441,7 @@ void SettingsDialog::onAccept() {
     config.setToolProperty("SimulationPanel", "showFullPanelInDock",
                            m_showFullSimulationPanelCheck->isChecked());
     config.setAutoShowSimulationTab(m_autoShowSimulationTabCheck->isChecked());
+    config.setShowNetTableOverlay(m_showNetTableCheck->isChecked());
     config.setFeatureEnabled("pcb_tools", m_enablePcbEditorsCheck->isChecked());
 
     config.setGeminiApiKey(m_geminiKeyEdit->text());

@@ -213,6 +213,9 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
             }
 
             if (isBinaryFormat) {
+                // S-parameter data is always complex — force complex reading
+                bool forceComplex = isComplex || (data.analysisType == SimAnalysisType::SParameter);
+
                 // Skip any trailing whitespace/newlines after "Binary:" marker
                 char c;
                 while (file.get(c) && (c == '\n' || c == '\r'));
@@ -223,7 +226,7 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                     double xVal;
                     if (!file.read(reinterpret_cast<char*>(&xVal), sizeof(double))) break;
                     
-                    if (isComplex) {
+                    if (forceComplex) {
                         double xValImag;
                         file.read(reinterpret_cast<char*>(&xValImag), sizeof(double));
                         // Frequency is always real, so we just use the real part.
@@ -231,7 +234,7 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                     data.x.push_back(xVal);
 
                     for (int v = 1; v < numVariables; ++v) {
-                        if (isComplex) {
+                        if (forceComplex) {
                             double re, im;
                             file.read(reinterpret_cast<char*>(&re), sizeof(double));
                             file.read(reinterpret_cast<char*>(&im), sizeof(double));

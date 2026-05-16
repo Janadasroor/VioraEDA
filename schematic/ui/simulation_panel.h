@@ -127,6 +127,9 @@ public:
     void updateSchematicDirectiveFromCommand(const QString& commandText);
     void cancelPendingRun();
     void setCurrentlyHoveredNet(const QString& netName);
+    bool isSParameterModeSelected() const {
+        return m_analysisType && m_analysisType->currentIndex() == 5;
+    }
 
 private Q_SLOTS:
     // --- UI Events & Simulation Callbacks ---
@@ -240,7 +243,7 @@ private:
     QCheckBox* m_steadyCheck = nullptr;
     QLineEdit* m_steadyTolEdit = nullptr;
     QLineEdit* m_steadyDelayEdit = nullptr;
-    QCheckBox* m_autoNetTableCheck = nullptr;
+
 
     // Source generator controls
     QComboBox* m_generatorType = nullptr;

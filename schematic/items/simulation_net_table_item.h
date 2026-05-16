@@ -26,6 +26,12 @@ public:
 
     void setRows(const QVector<Row>& rows);
     QVector<Row> rows() const { return m_rows; }
+    void setTitle(const QString& title) { m_title = title; prepareGeometryChange(); update(); }
+    void setColumnLabels(const QStringList& labels) {
+        if (labels.size() >= 4) m_columnLabels = labels;
+        prepareGeometryChange();
+        update();
+    }
 
 Q_SIGNALS:
     void deleteRequested();
@@ -40,6 +46,8 @@ private:
     void requestDelete();
 
     QVector<Row> m_rows;
+    QString m_title = "Net Voltage Summary";
+    QStringList m_columnLabels{"Vavg", "Vrms", "Vmin", "Vmax"};
     qreal m_width = 540.0;
     qreal m_rowHeight = 24.0;
     qreal m_headerHeight = 30.0;

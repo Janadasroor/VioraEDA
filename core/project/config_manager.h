@@ -98,6 +98,8 @@ public:
     void setRealtimeWireUpdateEnabled(bool enabled) { m_realtimeWireUpdate = enabled; }
     bool autoShowSimulationTab() const;
     void setAutoShowSimulationTab(bool enabled);
+    bool showNetTableOverlay() const;
+    void setShowNetTableOverlay(bool enabled);
 
     // Tool Properties
     void setToolProperty(const QString& toolName, const QString& propName, const QVariant& value);
