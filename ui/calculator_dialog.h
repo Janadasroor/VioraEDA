@@ -32,6 +32,10 @@ private:
     QWidget* createUnitConverterTab();
     QWidget* createSMDTab();
     QWidget* createOhmsLawTab();
+    QWidget* createTimeConstTab();
+    QWidget* createFilterTab();
+    QWidget* createPrefixTab();
+    QWidget* createPowerTab();
     
     // Calculations
     void calcTraceWidth();
@@ -75,6 +79,25 @@ private:
     // Ohm's Law Tab
     QLineEdit *m_ohmV, *m_ohmI, *m_ohmR, *m_ohmP;
     QLabel *m_ohmRes;
+
+    // Time Constant Tab
+    QDoubleSpinBox *m_tcR, *m_tcC, *m_tcL;
+    QComboBox *m_tcMode;
+    QLabel *m_tcRes;
+
+    // Filter Tab
+    QComboBox *m_fltType, *m_fltOrder;
+    QDoubleSpinBox *m_fltFc, *m_fltZ0, *m_fltR;
+    QLabel *m_fltRes;
+
+    // Prefix Tab
+    QDoubleSpinBox *m_prefVal;
+    QLabel *m_prefRes;
+
+    // Power Tab
+    QDoubleSpinBox *m_pwrV, *m_pwrI, *m_pwrR;
+    QDoubleSpinBox *m_pwrTamb, *m_pwrRthJA, *m_pwrTmax;
+    QLabel *m_pwrRes;
 };
 
 #endif // CALCULATOR_DIALOG_H

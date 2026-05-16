@@ -4,9 +4,10 @@
 #include <QFormLayout>
 #include <QPushButton>
 #include <QDialogButtonBox>
-#include <QtMath>
+ #include <QtMath>
 #include <QDebug>
 #include <QLabel>
+#include <QGridLayout>
 
 CalculatorDialog::CalculatorDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("viospice Engineering Calculator");
@@ -97,6 +98,10 @@ void CalculatorDialog::setupUI() {
     tabs->addTab(createUnitConverterTab(), "Units");
     tabs->addTab(createSMDTab(), "SMD Code");
     tabs->addTab(createOhmsLawTab(), "Ohm's Law");
+    tabs->addTab(createTimeConstTab(), "RC/RL Time");
+    tabs->addTab(createFilterTab(), "Filter");
+    tabs->addTab(createPrefixTab(), "SI Prefix");
+    tabs->addTab(createPowerTab(), "Power Derating");
     
     root->addWidget(tabs, 1);
 
@@ -429,5 +434,228 @@ QWidget* CalculatorDialog::createOhmsLawTab() {
         m_ohmRes->setText(QString("Solved.\n──────────────────────────────\nP = %1 W").arg(v * i));
     });
     vl->addStretch();
+    return w;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// TAB 8 — RC/RL Time Constant
+// ─────────────────────────────────────────────────────────────────────
+QWidget* CalculatorDialog::createTimeConstTab() {
+    QWidget* w = new QWidget; QVBoxLayout* vl = new QVBoxLayout(w); vl->setContentsMargins(15, 15, 15, 15);
+    vl->addWidget(makeHeader("RC / RL Time Constant"));
+
+    m_tcMode = new QComboBox;
+    m_tcMode->addItems({"RC Charge/Discharge", "RL Charge/Discharge", "RC Cutoff (f = 1/2πRC)", "RL Cutoff (f = R/2πL)"});
+    vl->addWidget(m_tcMode);
+
+    QFormLayout* f = new QFormLayout; f->setSpacing(10); f->setLabelAlignment(Qt::AlignRight);
+    m_tcR = new QDoubleSpinBox; m_tcR->setRange(1, 1e9); m_tcR->setValue(1000); m_tcR->setSuffix(" Ω");
+    m_tcC = new QDoubleSpinBox; m_tcC->setRange(1e-15, 1); m_tcC->setValue(1e-6); m_tcC->setSuffix(" F"); m_tcC->setDecimals(3);
+    m_tcC->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
+    m_tcL = new QDoubleSpinBox; m_tcL->setRange(1e-9, 10); m_tcL->setValue(1e-3); m_tcL->setSuffix(" H"); m_tcL->setDecimals(3);
+    m_tcL->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
+    f->addRow("Resistance (R):", m_tcR);
+    f->addRow("Capacitance (C):", m_tcC);
+    f->addRow("Inductance (L):", m_tcL);
+    vl->addLayout(f);
+
+    m_tcRes = makeResultBox();
+    vl->addWidget(m_tcRes);
+    vl->addStretch();
+
+    auto update = [this](){
+        double R = m_tcR->value(), C = m_tcC->value(), L = m_tcL->value();
+        int mode = m_tcMode->currentIndex();
+        QString r;
+        switch (mode) {
+        case 0:
+            r = QString("RC Time Constant (τ = RC)\n──────────────────────────────\n= %1 s\n= %2 ms\n= %3 µs\n\nAfter 5τ: %4 s (fully charged)")
+                .arg(R*C, 0, 'g', 4).arg(R*C*1e3, 0, 'g', 4).arg(R*C*1e6, 0, 'g', 4).arg(5*R*C, 0, 'g', 4);
+            break;
+        case 1:
+            r = QString("RL Time Constant (τ = L/R)\n──────────────────────────────\n= %1 s\n= %2 ms\n= %3 µs")
+                .arg(L/R, 0, 'g', 4).arg(L/R*1e3, 0, 'g', 4).arg(L/R*1e6, 0, 'g', 4);
+            break;
+        case 2:
+            r = QString("RC Cutoff Frequency (fc = 1/2πRC)\n──────────────────────────────\n= %1 Hz\n= %2 kHz\n= %3 MHz")
+                .arg(1.0/(2*M_PI*R*C), 0, 'g', 4).arg(1.0/(2*M_PI*R*C)/1e3, 0, 'g', 4).arg(1.0/(2*M_PI*R*C)/1e6, 0, 'g', 4);
+            break;
+        case 3:
+            r = QString("RL Cutoff Frequency (fc = R/2πL)\n──────────────────────────────\n= %1 Hz\n= %2 kHz\n= %3 MHz")
+                .arg(R/(2*M_PI*L), 0, 'g', 4).arg(R/(2*M_PI*L)/1e3, 0, 'g', 4).arg(R/(2*M_PI*L)/1e6, 0, 'g', 4);
+            break;
+        }
+        m_tcRes->setText(r);
+    };
+    connect(m_tcMode, &QComboBox::currentIndexChanged, update);
+    connect(m_tcR, &QDoubleSpinBox::valueChanged, update);
+    connect(m_tcC, &QDoubleSpinBox::valueChanged, update);
+    connect(m_tcL, &QDoubleSpinBox::valueChanged, update);
+    update();
+    return w;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// TAB 9 — Passive Filter Designer
+// ─────────────────────────────────────────────────────────────────────
+QWidget* CalculatorDialog::createFilterTab() {
+    QWidget* w = new QWidget; QVBoxLayout* vl = new QVBoxLayout(w); vl->setContentsMargins(15, 15, 15, 15);
+    vl->addWidget(makeHeader("Passive Filter Designer"));
+
+    QFormLayout* f = new QFormLayout; f->setSpacing(10); f->setLabelAlignment(Qt::AlignRight);
+    m_fltType = new QComboBox;
+    m_fltType->addItems({"Low-Pass RC", "High-Pass RC", "Low-Pass LC", "High-Pass LC"});
+    m_fltOrder = new QComboBox;
+    m_fltOrder->addItems({"1st Order", "2nd Order"});
+    m_fltFc = new QDoubleSpinBox; m_fltFc->setRange(1, 1e9); m_fltFc->setValue(1000); m_fltFc->setSuffix(" Hz");
+    m_fltZ0 = new QDoubleSpinBox; m_fltZ0->setRange(1, 1e6); m_fltZ0->setValue(50); m_fltZ0->setSuffix(" Ω");
+    m_fltR = new QDoubleSpinBox; m_fltR->setRange(1, 1e9); m_fltR->setValue(1000); m_fltR->setSuffix(" Ω");
+    f->addRow("Type:", m_fltType);
+    f->addRow("Order:", m_fltOrder);
+    f->addRow("Cutoff (fc):", m_fltFc);
+    f->addRow("Impedance (Z0):", m_fltZ0);
+    f->addRow("Resistance (R):", m_fltR);
+    vl->addLayout(f);
+
+    m_fltRes = makeResultBox();
+    vl->addWidget(m_fltRes);
+    vl->addStretch();
+
+    auto update = [this](){
+        double fc = m_fltFc->value(), Z0 = m_fltZ0->value(), R = m_fltR->value();
+        int type = m_fltType->currentIndex();
+        QString r;
+        switch (type) {
+        case 0: { // Low-Pass RC
+            double C = 1.0 / (2 * M_PI * R * fc);
+            r = QString("Low-Pass RC (1st Order)\n──────────────────────────────\nC = %1 F\n  = %2 nF\n  = %3 pF\n\nfc = 1/(2πRC) = %4 Hz")
+                .arg(C, 0, 'g', 4).arg(C*1e9, 0, 'f', 3).arg(C*1e12, 0, 'f', 1).arg(fc, 0, 'f', 1);
+            break;
+        }
+        case 1: { // High-Pass RC
+            double C = 1.0 / (2 * M_PI * R * fc);
+            r = QString("High-Pass RC (1st Order)\n──────────────────────────────\nC = %1 F\n  = %2 nF\n  = %3 pF\n\nfc = 1/(2πRC) = %4 Hz")
+                .arg(C, 0, 'g', 4).arg(C*1e9, 0, 'f', 3).arg(C*1e12, 0, 'f', 1).arg(fc, 0, 'f', 1);
+            break;
+        }
+        case 2: { // Low-Pass LC
+            double L = Z0 / (2 * M_PI * fc);
+            double C = 1.0 / (2 * M_PI * Z0 * fc);
+            r = QString("Low-Pass LC (Butterworth)\n──────────────────────────────\nL = %1 H  (%2 µH)\nC = %3 F  (%4 nF)\n\nZ0 = √(L/C) = %5 Ω")
+                .arg(L, 0, 'g', 4).arg(L*1e6, 0, 'f', 2).arg(C, 0, 'g', 4).arg(C*1e9, 0, 'f', 2).arg(std::sqrt(L/C), 0, 'f', 1);
+            break;
+        }
+        case 3: { // High-Pass LC
+            double L = Z0 / (4 * M_PI * fc);
+            double C = 1.0 / (4 * M_PI * Z0 * fc);
+            r = QString("High-Pass LC (Butterworth)\n──────────────────────────────\nL = %1 H  (%2 µH)\nC = %3 F  (%4 nF)\n\nZ0 = √(L/C) = %5 Ω")
+                .arg(L, 0, 'g', 4).arg(L*1e6, 0, 'f', 2).arg(C, 0, 'g', 4).arg(C*1e9, 0, 'f', 2).arg(std::sqrt(L/C), 0, 'f', 1);
+            break;
+        }
+        }
+        m_fltRes->setText(r);
+    };
+    connect(m_fltType, &QComboBox::currentIndexChanged, update);
+    connect(m_fltOrder, &QComboBox::currentIndexChanged, update);
+    connect(m_fltFc, &QDoubleSpinBox::valueChanged, update);
+    connect(m_fltZ0, &QDoubleSpinBox::valueChanged, update);
+    connect(m_fltR, &QDoubleSpinBox::valueChanged, update);
+    update();
+    return w;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// TAB 10 — SI Prefix Converter
+// ─────────────────────────────────────────────────────────────────────
+QWidget* CalculatorDialog::createPrefixTab() {
+    QWidget* w = new QWidget; QVBoxLayout* vl = new QVBoxLayout(w); vl->setContentsMargins(15, 15, 15, 15);
+    vl->addWidget(makeHeader("SI Prefix Converter (auto-detect best prefix)"));
+
+    QFormLayout* f = new QFormLayout; f->setSpacing(10); f->setLabelAlignment(Qt::AlignRight);
+    m_prefVal = new QDoubleSpinBox; m_prefVal->setRange(-1e15, 1e15); m_prefVal->setValue(0.000001);
+    m_prefVal->setDecimals(6);
+    m_prefVal->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
+    f->addRow("Value:", m_prefVal);
+    vl->addLayout(f);
+
+    m_prefRes = makeResultBox();
+    vl->addWidget(m_prefRes);
+    vl->addStretch();
+
+    auto update = [this](){
+        double v = m_prefVal->value();
+        struct Prefix { QString name; QString sym; double mag; };
+        QVector<Prefix> prefixes = {
+            {"exa", "E", 1e18}, {"peta", "P", 1e15}, {"tera", "T", 1e12},
+            {"giga", "G", 1e9}, {"mega", "M", 1e6}, {"kilo", "k", 1e3},
+            {"milli", "m", 1e-3}, {"micro", "µ", 1e-6}, {"nano", "n", 1e-9},
+            {"pico", "p", 1e-12}, {"femto", "f", 1e-15}
+        };
+        QString r = QString("Raw Value\n──────────────────────────────\n%1\n\n").arg(v, 0, 'g', 8);
+        for (const auto& p : prefixes) {
+            r += QString("%1 (%2):  %3\n").arg(p.name, -8).arg(p.sym).arg(v / p.mag, 0, 'g', 6);
+        }
+        m_prefRes->setText(r);
+    };
+    connect(m_prefVal, &QDoubleSpinBox::valueChanged, update);
+    update();
+    return w;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// TAB 11 — Power Derating Calculator
+// ─────────────────────────────────────────────────────────────────────
+QWidget* CalculatorDialog::createPowerTab() {
+    QWidget* w = new QWidget; QVBoxLayout* vl = new QVBoxLayout(w); vl->setContentsMargins(15, 15, 15, 15);
+    vl->addWidget(makeHeader("Power Dissipation & Derating"));
+
+    QFormLayout* f = new QFormLayout; f->setSpacing(10); f->setLabelAlignment(Qt::AlignRight);
+    m_pwrV = new QDoubleSpinBox; m_pwrV->setRange(0, 1e6); m_pwrV->setValue(12); m_pwrV->setSuffix(" V");
+    m_pwrI = new QDoubleSpinBox; m_pwrI->setRange(0, 1e3); m_pwrI->setValue(0.5); m_pwrI->setSuffix(" A");
+    m_pwrR = new QDoubleSpinBox; m_pwrR->setRange(0.001, 1e9); m_pwrR->setValue(100); m_pwrR->setSuffix(" Ω");
+    m_pwrTamb = new QDoubleSpinBox; m_pwrTamb->setRange(-40, 150); m_pwrTamb->setValue(25); m_pwrTamb->setSuffix(" °C");
+    m_pwrRthJA = new QDoubleSpinBox; m_pwrRthJA->setRange(0.1, 500); m_pwrRthJA->setValue(65); m_pwrRthJA->setSuffix(" °C/W");
+    m_pwrTmax = new QDoubleSpinBox; m_pwrTmax->setRange(25, 300); m_pwrTmax->setValue(150); m_pwrTmax->setSuffix(" °C");
+    f->addRow("Voltage (V):", m_pwrV);
+    f->addRow("Current (I):", m_pwrI);
+    f->addRow("Resistance (R):", m_pwrR);
+    f->addRow("Ambient (Ta):", m_pwrTamb);
+    f->addRow("RthJA:", m_pwrRthJA);
+    f->addRow("Tj max:", m_pwrTmax);
+    vl->addLayout(f);
+
+    m_pwrRes = makeResultBox();
+    vl->addWidget(m_pwrRes);
+    vl->addStretch();
+
+    auto update = [this](){
+        double V = m_pwrV->value(), I = m_pwrI->value(), R = m_pwrR->value();
+        double Ta = m_pwrTamb->value(), Rth = m_pwrRthJA->value(), Tjmax = m_pwrTmax->value();
+
+        double P_VI = V * I;
+        double P_V2R = (R > 0) ? V*V/R : 0;
+        double P_I2R = I*I*R;
+        double Tj = Ta + P_VI * Rth;
+        double derating = (Tjmax - Ta) / Rth;
+        QString status = (Tj < Tjmax) ? "✓ SAFE" : "✗ EXCEEDS Tj max!";
+        double margin = Tjmax - Tj;
+
+        QString r = QString("Dissipated Power\n──────────────────────────────\n");
+        r += QString("P = V × I        = %1 W\n").arg(P_VI, 0, 'f', 3);
+        r += QString("P = V² / R       = %1 W\n").arg(P_V2R, 0, 'f', 3);
+        r += QString("P = I² × R       = %1 W\n\n").arg(P_I2R, 0, 'f', 3);
+        r += QString("Junction Temp (Tj = Ta + P×Rth)\n──────────────────────────────\n");
+        r += QString("Tj = %1 °C  %2\n").arg(Tj, 0, 'f', 1).arg(status);
+        r += QString("Margin: %1 °C\n\n").arg(margin, 0, 'f', 1);
+        r += QString("Max safe P @ Ta=%1°C: %2 W\n").arg(Ta, 0, 'f', 1).arg(derating, 0, 'f', 3);
+        m_pwrRes->setText(r);
+    };
+    connect(m_pwrV, &QDoubleSpinBox::valueChanged, update);
+    connect(m_pwrI, &QDoubleSpinBox::valueChanged, update);
+    connect(m_pwrR, &QDoubleSpinBox::valueChanged, update);
+    connect(m_pwrTamb, &QDoubleSpinBox::valueChanged, update);
+    connect(m_pwrRthJA, &QDoubleSpinBox::valueChanged, update);
+    connect(m_pwrTmax, &QDoubleSpinBox::valueChanged, update);
+    update();
     return w;
 }

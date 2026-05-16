@@ -131,6 +131,7 @@ void HelpWindow::populateGuides() {
         
         QTreeWidgetItem* parent = catBasics;
         if (rawName.contains("Drawing") || rawName.contains("Simulation")) parent = catWorkflow;
+        else if (rawName.contains("RF") || rawName.contains("Probe") || rawName.contains("Net_Table") || rawName.contains("Project")) parent = catWorkflow;
         else if (rawName.contains("Shortcut")) parent = catRef;
 
         QTreeWidgetItem* item = new QTreeWidgetItem(parent);

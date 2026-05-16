@@ -9,6 +9,14 @@
 #include <QToolTip>
 #include <QStringListModel>
 #include <QDebug>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QLabel>
+#include <QTextCursor>
+#include <QMessageBox>
 #include "jit_context_manager.h"
 
 namespace Flux {
@@ -273,8 +281,90 @@ void CodeEditor::paintEvent(QPaintEvent* e) {
     }
 }
 
-void CodeEditor::showFindReplaceDialog() {}
-void CodeEditor::findNext(const QString&, bool) {}
-void CodeEditor::replaceText(const QString&, const QString&) {}
+void CodeEditor::showFindReplaceDialog() {
+    QDialog* dlg = new QDialog(this);
+    dlg->setWindowTitle("Find & Replace");
+    dlg->setFixedSize(380, 180);
+
+    auto* layout = new QVBoxLayout(dlg);
+    auto* findRow = new QHBoxLayout();
+    auto* findLabel = new QLabel("Find:", dlg);
+    auto* findEdit = new QLineEdit(dlg);
+    findRow->addWidget(findLabel);
+    findRow->addWidget(findEdit);
+
+    auto* replaceRow = new QHBoxLayout();
+    auto* replaceLabel = new QLabel("Replace:", dlg);
+    auto* replaceEdit = new QLineEdit(dlg);
+    replaceRow->addWidget(replaceLabel);
+    replaceRow->addWidget(replaceEdit);
+
+    auto* btnRow = new QHBoxLayout();
+    auto* findBtn = new QPushButton("Find Next", dlg);
+    auto* replaceBtn = new QPushButton("Replace", dlg);
+    auto* replaceAllBtn = new QPushButton("Replace All", dlg);
+    auto* closeBtn = new QPushButton("Close", dlg);
+    btnRow->addWidget(findBtn);
+    btnRow->addWidget(replaceBtn);
+    btnRow->addWidget(replaceAllBtn);
+    btnRow->addWidget(closeBtn);
+
+    layout->addLayout(findRow);
+    layout->addLayout(replaceRow);
+    layout->addLayout(btnRow);
+
+    connect(findBtn, &QPushButton::clicked, this, [this, findEdit]() {
+        findNext(findEdit->text(), true);
+    });
+    connect(replaceBtn, &QPushButton::clicked, this, [this, findEdit, replaceEdit]() {
+        replaceText(findEdit->text(), replaceEdit->text());
+    });
+    connect(replaceAllBtn, &QPushButton::clicked, this, [this, findEdit, replaceEdit]() {
+        QTextCursor cursor = textCursor();
+        cursor.movePosition(QTextCursor::Start);
+        setTextCursor(cursor);
+        int count = 0;
+        while (find(findEdit->text())) {
+            QTextCursor tc = textCursor();
+            tc.removeSelectedText();
+            tc.insertText(replaceEdit->text());
+            ++count;
+        }
+        QMessageBox::information(this, "Replace All", QString("Replaced %1 occurrence(s).").arg(count));
+    });
+    connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::close);
+    connect(findEdit, &QLineEdit::returnPressed, findBtn, &QPushButton::click);
+
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
+    findEdit->setFocus();
+}
+
+void CodeEditor::findNext(const QString& text, bool forward) {
+    if (text.isEmpty()) {
+        showFindReplaceDialog();
+        return;
+    }
+    QTextDocument::FindFlags flags;
+    if (!forward) flags |= QTextDocument::FindBackward;
+    if (!find(text, flags)) {
+        QTextCursor cursor = textCursor();
+        cursor.movePosition(forward ? QTextCursor::Start : QTextCursor::End);
+        setTextCursor(cursor);
+        if (!find(text, flags))
+            QMessageBox::information(this, "Find", QString("No more occurrences of \"%1\".").arg(text));
+    }
+}
+
+void CodeEditor::replaceText(const QString& find, const QString& replace) {
+    if (find.isEmpty()) return;
+    if (textCursor().hasSelection() && textCursor().selectedText() == find) {
+        textCursor().removeSelectedText();
+        textCursor().insertText(replace);
+    }
+    findNext(find, true);
+}
 
 } // namespace Flux

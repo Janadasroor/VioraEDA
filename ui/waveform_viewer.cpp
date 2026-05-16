@@ -10,6 +10,8 @@
 #include <QFile>
 #include <QTextStream>
 #include <QHeaderView>
+#include <QMessageBox>
+#include <limits>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QLogValueAxis>
@@ -1738,6 +1740,7 @@ void WaveformViewer::onContextMenuRequested(const QPoint &globalPos) {
         copyAct->setEnabled(false);
     }
 
+    QAction* importAct = menu.addAction("Import CSV...");
     QAction* exportAct = menu.addAction("Export CSV (Current Signals)");
 
     menu.addSeparator();
@@ -1768,6 +1771,8 @@ void WaveformViewer::onContextMenuRequested(const QPoint &globalPos) {
     } else if (chosen == copyAct) {
         QClipboard* cb = QApplication::clipboard();
         if (cb) cb->setText(copyText);
+    } else if (chosen == importAct) {
+        loadCsv(QString());
     } else if (chosen == exportAct) {
         exportSignalsCsv();
     } else if (chosen == exportImgAct) {
@@ -2598,7 +2603,84 @@ WaveformViewer::EdgeTimes WaveformViewer::computeEdgeTimes(const QVector<double>
     return result;
 }
 
-void WaveformViewer::loadCsv(const QString&) {}
+void WaveformViewer::loadCsv(const QString& filePath) {
+    QString path = filePath;
+    if (path.isEmpty())
+        path = QFileDialog::getOpenFileName(this, "Import CSV", QString(), "CSV Files (*.csv)");
+    if (path.isEmpty()) return;
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, "Import CSV", QString("Cannot open file: %1").arg(f.errorString()));
+        return;
+    }
+
+    QVector<QVector<double>> columns;
+    QStringList headers;
+    QTextStream in(&f);
+    bool firstRowIsHeader = false;
+    int colCount = 0;
+
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.isEmpty()) continue;
+
+        QStringList parts;
+        for (const QString& token : line.split(',')) {
+            QString t = token.trimmed();
+            if (!t.isEmpty()) parts.append(t);
+        }
+        if (parts.size() < 2) continue;
+
+        if (columns.isEmpty()) {
+            // Check if first row is header (non-numeric first token)
+            bool isNumeric = false;
+            parts[0].toDouble(&isNumeric);
+            firstRowIsHeader = !isNumeric;
+
+            if (firstRowIsHeader) {
+                headers = parts.mid(1);
+                colCount = headers.size();
+                columns.resize(colCount);
+                continue;
+            }
+        }
+
+        if (columns.isEmpty()) {
+            colCount = parts.size() - 1;
+            columns.resize(colCount);
+        }
+
+        for (int c = 0; c < colCount && c + 1 < parts.size(); ++c) {
+            bool ok = false;
+            double val = parts[c + 1].toDouble(&ok);
+            if (ok || parts[c + 1] == "0") {
+                columns[c].append(val);
+            } else {
+                columns[c].append(std::numeric_limits<double>::quiet_NaN());
+            }
+        }
+    }
+    f.close();
+
+    if (columns.isEmpty() || columns[0].isEmpty()) {
+        QMessageBox::information(this, "Import CSV", "No valid data found in CSV file.");
+        return;
+    }
+
+    // Generate time axis from index if not available
+    QVector<double> time(columns[0].size());
+    for (int i = 0; i < time.size(); ++i) time[i] = static_cast<double>(i);
+
+    for (int c = 0; c < colCount; ++c) {
+        QString name = (c < headers.size() && !headers[c].isEmpty()) ? headers[c] : QString("CSV_%1").arg(c + 1);
+        addSignal(name, time, columns[c]);
+    }
+
+    updatePlot(true);
+    QMessageBox::information(this, "Import CSV",
+        QString("Imported %1 signal(s) with %2 points from CSV.").arg(colCount).arg(time.size()));
+}
 
 void WaveformViewer::onLegendCtrlClicked(const QString &seriesName) {
     if (seriesName.isEmpty()) return;
