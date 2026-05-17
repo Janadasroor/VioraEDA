@@ -129,9 +129,7 @@ void ExtensionManager::scanDirectories() {
 }
 
 void ExtensionManager::loadAll() {
-    qDebug() << "[ExtMgr] loadAll: found" << m_extensions.size() << "extensions";
     for (auto& ext : m_extensions) {
-        qDebug() << "[ExtMgr] loadAll: checking" << ext.manifest.id << "loaded=" << ext.loaded;
         if (!ext.loaded)
             loadExtension(ext.manifest.id);
     }
@@ -254,22 +252,16 @@ void ExtensionManager::loadExtension(const QString& id) {
         // so no name collision between extensions.
         QString prefixedSource = "// Extension: " + ext.manifest.id + "\n" + source;
 
-        qDebug() << "\n=== EXTENSION_MGR LOADING ===" << id;
-        qDebug() << "[ExtMgr] Executing extension:" << id << "main:" << mainPath;
         QString error;
         if (!FluxScriptEngine::instance().executeString(prefixedSource, &error)) {
-            qDebug() << "[ExtMgr] Compile error:" << error;
             Q_EMIT extensionError(id, "compile error: " + error);
             return;
         }
-        qDebug() << "[ExtMgr] Compile OK, running anon_expr...";
 
         // Run top-level code (anonymous expressions at global scope), if any.
-        // Most extensions only define functions, so "not found" is harmless.
         {   std::string anonErr;
             Flux::JITEngine::instance().callFunction("__anon_expr", {}, &anonErr);
         }
-        qDebug() << "[ExtMgr] Extension loaded:" << id;
 
         ext.loaded = true;
         Q_EMIT extensionLoaded(id);
@@ -298,12 +290,10 @@ void ExtensionManager::unloadExtension(const QString& id) {
 
 bool ExtensionManager::callExtensionFn(const QString& extId, const QString& action) {
     qDebug() << "[ExtMgr] callExtensionFn:" << extId << action;
-    // Use executeString to call the function — avoids ORC lazy materialization issues
-    QString stub = action + "()";
     QString error;
-    FluxScriptEngine::instance().executeString(stub, &error);
+    FluxScriptEngine::instance().callFunction(action.toUtf8().constData(), {}, &error);
     if (!error.isEmpty()) {
-        qDebug() << "[ExtMgr] executeString error:" << error;
+        qDebug() << "[ExtMgr] callFunction error:" << error;
         Q_EMIT extensionError(extId, "error calling " + action + ": " + error);
         return false;
     }
