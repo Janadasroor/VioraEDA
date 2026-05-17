@@ -2,7 +2,12 @@
 // Compiles and executes a .flux file, then enters the Qt event loop
 // so that Qt widgets created by the script remain interactive.
 //
-// Usage:  flux_runner path/to/script.flux
+// Usage:
+//   flux_runner path/to/script.flux
+//   flux_runner path/to/script.flux entryFunctionName
+//
+// The optional entry function is called after compilation.
+// If omitted, only top-level code runs.
 
 #include <QApplication>
 #include <QFile>
@@ -14,7 +19,7 @@
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: flux_runner <file.flux>\n";
+        std::cerr << "Usage: flux_runner <file.flux> [entryFunction]\n";
         return 1;
     }
 
@@ -40,8 +45,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Run top-level code (anonymous expressions). Optional — many scripts only define
-    // functions that register widgets, which happens during compilation via extern "C" calls.
+    // Call optional entry function
+    if (argc >= 3) {
+        QString entryFn = QString::fromUtf8(argv[2]);
+        std::string fnErr;
+        Flux::JITEngine::instance().callFunction(entryFn.toStdString(), {}, &fnErr);
+        if (!fnErr.empty()) {
+            qDebug() << "[flux_runner] Entry function" << entryFn << "error:" << QString::fromStdString(fnErr);
+        }
+    }
+
+    // Also try __anon_expr for top-level code
     {
         std::string anonErr;
         Flux::JITEngine::instance().callFunction("__anon_expr", {}, &anonErr);

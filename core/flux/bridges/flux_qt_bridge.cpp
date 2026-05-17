@@ -5,6 +5,13 @@
 #include <QDebug>
 #include <cstring>
 
+// SPICE runtime functions (defined in fluxscript spice_runtime.cpp)
+extern "C" void flux_set_parameter(const char*, double);
+extern "C" double flux_register_analysis(const char*);
+extern "C" double flux_register_measure(const char*, const char*);
+extern "C" double flux_register_probe(const char*, const char*);
+extern "C" double flux_register_save(const char*);
+
 // Helper to cast between void* and double handles
 template <typename To, typename From>
 inline To bit_cast(const From& src) noexcept {
@@ -229,4 +236,11 @@ void register_flux_qt_jit_symbols() {
     jit.registerFunction("flux_run_sim", (void*)&flux_run_sim);
     jit.registerFunction("flux_get_project_name", (void*)&flux_get_project_name);
     jit.registerFunction("flux_plot_point", (void*)&flux_plot_point);
+
+    // SPICE runtime functions must be registered for extensions that use simulation API
+    jit.registerFunction("flux_set_parameter", (void*)&flux_set_parameter);
+    jit.registerFunction("flux_register_analysis", (void*)&flux_register_analysis);
+    jit.registerFunction("flux_register_measure", (void*)&flux_register_measure);
+    jit.registerFunction("flux_register_probe", (void*)&flux_register_probe);
+    jit.registerFunction("flux_register_save", (void*)&flux_register_save);
 }
