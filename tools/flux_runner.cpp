@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include "../core/flux/engine/flux_script_engine.h"
+#include <flux/jit_engine.h>
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -32,15 +33,19 @@ int main(int argc, char* argv[]) {
     QString source = QString::fromUtf8(f.readAll());
     f.close();
 
-    // Compile and run
+    // Compile and execute top-level expressions
     QString error;
     if (!FluxScriptEngine::instance().executeString(source, &error)) {
         std::cerr << "Compile error: " << error.toStdString() << "\n";
         return 1;
     }
 
-    // Run top-level code
-    FluxScriptEngine::instance().callFunction("__anon_expr", {}, &error);
+    // Run top-level code (anonymous expressions). Optional — many scripts only define
+    // functions that register widgets, which happens during compilation via extern "C" calls.
+    {
+        std::string anonErr;
+        Flux::JITEngine::instance().callFunction("__anon_expr", {}, &anonErr);
+    }
 
     // Enter Qt event loop (keeps windows alive)
     return app.exec();
