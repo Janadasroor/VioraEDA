@@ -29,7 +29,7 @@ FetchContent_MakeAvailable(slang)
 link_directories(${slang_BINARY_DIR}/lib)
 # -----------------------------
 
-find_package(Qt6 6.11.0 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
+find_package(Qt6 6.10.0 REQUIRED COMPONENTS Widgets PrintSupport Sql OpenGLWidgets Charts Svg Network Multimedia Concurrent Test Qml Quick QuickWidgets)
 set(QT_VERSION_MAJOR 6)
 find_package(Qt6 QUIET COMPONENTS Pdf PdfWidgets)
 find_package(Qt6 QUIET COMPONENTS WebSockets)
@@ -149,6 +149,7 @@ endif()
 
 add_compile_definitions(HAVE_NGSPICE)
 set(VIOSPICE_ENGINE_FOUND TRUE)
+set(VIOSPICE_ENGINE_LIBRARIES "${VIOSPICE_PREFERRED_ENGINE_LIB}")
 
 # --- Python Embedding Support (App) ---
 find_package(Python3 3.10 COMPONENTS Interpreter Development QUIET)
@@ -261,7 +262,22 @@ else()
     # Find LLVM (required by prebuilt libFluxScript.a)
     find_package(LLVM REQUIRED CONFIG)
     find_package(CURL REQUIRED)
-    include_directories(${LLVM_INCLUDE_DIRS})
+    find_package(Eigen3 QUIET)
+
+    # Eigen is needed by prebuilt FluxScript headers — bundle if not found
+    if(NOT Eigen3_FOUND)
+        message(STATUS "Eigen3 not found, downloading bundled Eigen...")
+        include(FetchContent)
+        FetchContent_Declare(
+            Eigen3
+            GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+            GIT_TAG        3.4.0
+            GIT_SHALLOW    TRUE
+        )
+        FetchContent_MakeAvailable(Eigen3)
+    endif()
+
+    include_directories(${LLVM_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIR})
     add_definitions(${LLVM_DEFINITIONS})
 
     # Map required LLVM components (must match what libFluxScript.a was built with)
