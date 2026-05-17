@@ -5,8 +5,11 @@
 #include <QDebug>
 #include <cstring>
 
-// SPICE runtime functions (defined in fluxscript spice_runtime.cpp)
+// SPICE runtime functions (defined in fluxscript spice_runtime.cpp / flux_runtime.cpp)
 extern "C" void flux_set_parameter(const char*, double);
+extern "C" double flux_get_parameter(const char*);
+extern "C" double flux_get_voltage(const char*);
+extern "C" double flux_get_current(const char*);
 extern "C" double flux_register_analysis(const char*);
 extern "C" double flux_register_measure(const char*, const char*);
 extern "C" double flux_register_probe(const char*, const char*);
@@ -239,6 +242,9 @@ void register_flux_qt_jit_symbols() {
 
     // SPICE runtime functions must be registered for extensions that use simulation API
     jit.registerFunction("flux_set_parameter", (void*)&flux_set_parameter);
+    jit.registerFunction("flux_get_parameter", (void*)&flux_get_parameter);
+    jit.registerFunction("flux_get_voltage", (void*)&flux_get_voltage);
+    jit.registerFunction("flux_get_current", (void*)&flux_get_current);
     jit.registerFunction("flux_register_analysis", (void*)&flux_register_analysis);
     jit.registerFunction("flux_register_measure", (void*)&flux_register_measure);
     jit.registerFunction("flux_register_probe", (void*)&flux_register_probe);
