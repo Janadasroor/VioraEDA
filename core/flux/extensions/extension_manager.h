@@ -23,6 +23,7 @@ struct ExtensionManifest {
     struct MenuEntry {
         QString path;
         QString action;
+        QString icon; // optional icon filename relative to extension dir
     };
     QVector<MenuEntry> menuEntries;
 

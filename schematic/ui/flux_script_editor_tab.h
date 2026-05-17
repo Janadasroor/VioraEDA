@@ -28,6 +28,7 @@ public:
 
 signals:
     void modificationChanged(bool modified);
+    void extensionCreated(const QString& path);
 
 private slots:
     void onRunRequested();
@@ -37,6 +38,8 @@ private slots:
     void onTemplateSelected(QListWidgetItem* item);
     void onCategorySelected(QListWidgetItem* current, QListWidgetItem* previous);
     void showTemplates();
+    void showNewExtensionDialog();
+    void showManifestEditor();
 
 private:
     void setupUI(QGraphicsScene* scene, NetManager* netManager);
@@ -44,6 +47,7 @@ private:
     void updateWelcomeVisibility();
     void refreshTemplatesList();
     void applyFilters();
+    QString findManifestForCurrentFile() const;
 
     QStackedWidget* m_stack;
     QWidget* m_editorContainer;

@@ -53,6 +53,12 @@ public:
     void* getFunctionAddress(const QString& id);
 
     /**
+     * @brief Looks up an arbitrary symbol in the JIT by exact name.
+     * Returns nullptr if the symbol is not compiled/linked.
+     */
+    void* findSymbol(const QString& name);
+
+    /**
      * @brief Resets the JIT state (clears all loaded modules).
      */
     void reset();

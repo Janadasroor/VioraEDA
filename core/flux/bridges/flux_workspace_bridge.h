@@ -24,35 +24,36 @@ void set_active_schematic_api(SchematicAPI* api);
 } // namespace Flux
 
 extern "C" {
-    double flux_get_var(const char* name);
-    void flux_set_prop(const char* ref, const char* prop, double value);
-    void flux_set_prop_str(const char* ref, const char* prop, const char* value);
+    double flux_get_var(double name_dbl);
+    void flux_set_var(double name_dbl, double value);
+    void flux_set_prop(double ref_dbl, double prop_dbl, double value);
+    void flux_set_prop_str(double ref_dbl, double prop_dbl, double value_dbl);
     
     // Simulation Data Access
-    int flux_sim_get_vector_size(const char* name);
-    double flux_sim_get_vector_val(const char* name, int index);
-    double flux_sim_get_vector_x(const char* name, int index);
+    int flux_sim_get_vector_size(double name_dbl);
+    double flux_sim_get_vector_val(double name_dbl, int index);
+    double flux_sim_get_vector_x(double name_dbl, int index);
     
     // Simulation Control
-    void flux_run_sim(const char* analysisType, double tStop, double tStep);
+    void flux_run_sim(double analysis_dbl, double tStop, double tStep);
     
     // Project Info
-    const char* flux_get_project_name();
-    const char* flux_get_schematic_file();
-    const char* flux_get_open_schematics();
-    void flux_select_schematic(const char* fileName);
+    double flux_get_project_name();
+    double flux_get_schematic_file();
+    double flux_get_open_schematics();
+    void flux_select_schematic(double fileName_dbl);
     
     // Standard Output
-    void viora_flux_print(const char* msg);
+    void viora_flux_print(double msg_dbl);
     
     // Plotting
-    void flux_plot_point(const char* seriesName, double x, double y);
+    void flux_plot_point(double series_dbl, double x, double y);
     
     // SPICE Runtime Registration (defined in fluxscript spice_runtime.cpp)
-    double flux_register_analysis(const char* analysisType);
-    double flux_register_measure(const char* name, const char* measureType);
-    double flux_register_probe(const char* varName, const char* outputName);
-    double flux_register_save(const char* varName);
+    double flux_register_analysis(double analysis_dbl);
+    double flux_register_measure(double name_dbl, double type_dbl);
+    double flux_register_probe(double var_dbl, double output_dbl);
+    double flux_register_save(double var_dbl);
 }
 
 #endif // FLUX_WORKSPACE_BRIDGE_H

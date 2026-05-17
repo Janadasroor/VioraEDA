@@ -21,6 +21,7 @@
 
 #include "../flux/bridges/flux_design_rule_bridge.h"
 #include "../flux/bridges/flux_workspace_bridge.h"
+#include "../flux/bridges/flux_qt_bridge.h"
 
 namespace Flux {
 
@@ -78,6 +79,8 @@ JITContextManager::JITContextManager() {
     m_jit->registerFunction("flux_register_measure", (void*)&flux_register_measure);
     m_jit->registerFunction("flux_register_probe", (void*)&flux_register_probe);
     m_jit->registerFunction("flux_register_save", (void*)&flux_register_save);
+    
+    registerQtBridgeJitSymbols(*m_jit);
 #endif
 }
 
@@ -122,13 +125,27 @@ bool JITContextManager::compileAndLoad(const QString& id, const QString& source,
     bool isStandalone = id.startsWith("standalone_");
 
     if (isStandalone) {
-        // Wrap standalone scripts in a callable function if they don't look like they have one
-        if (!transformedSource.contains("def main")) {
-            wrapped = QString("def %1() {\n%2\n}").arg(uniqueFuncName, transformedSource);
+        // Check if source already has function definitions
+        static const QRegularExpression defRe(R"(\bdef\s+\w+\s*[\(])");
+        bool hasDef = defRe.match(transformedSource).hasMatch();
+        
+        if (hasDef) {
+            // Source already has function defs, use as-is
+            wrapped = transformedSource;
+            // Try to find a reasonable entry point
+            if (transformedSource.contains("def main")) {
+                uniqueFuncName = "main";
+            } else if (transformedSource.contains("def init")) {
+                uniqueFuncName = "init";
+            } else if (transformedSource.contains("def open_panel")) {
+                uniqueFuncName = "open_panel";
+            } else {
+                // Fall back to wrapping anyway
+                wrapped = QString("def %1() {\n%2\n}").arg(uniqueFuncName, transformedSource);
+            }
         } else {
-             // If it has main, we'll try to call main directly
-             wrapped = transformedSource;
-             uniqueFuncName = "main";
+            // Wrap standalone scripts in a callable function
+            wrapped = QString("def %1() {\n%2\n}").arg(uniqueFuncName, transformedSource);
         }
     } else {
         static const QRegularExpression updateDefRe(R"(^\s*(def\s+)?update\s*[\({])");
@@ -219,6 +236,7 @@ void JITContextManager::reset() {
     m_jit->registerFunction("flux_register_measure", (void*)&flux_register_measure);
     m_jit->registerFunction("flux_register_probe", (void*)&flux_register_probe);
     m_jit->registerFunction("flux_register_save", (void*)&flux_register_save);
+    registerQtBridgeJitSymbols(*m_jit);
 #endif
 }
 
@@ -271,6 +289,16 @@ void* JITContextManager::getFunctionAddress(const QString& id) {
     return m_updateFunctions.value(id);
 #else
     Q_UNUSED(id);
+    return nullptr;
+#endif
+}
+
+void* JITContextManager::findSymbol(const QString& name) {
+#ifdef HAVE_FLUXSCRIPT
+    if (!m_jit) return nullptr;
+    return m_jit->getPointerToFunction(name.toStdString());
+#else
+    Q_UNUSED(name);
     return nullptr;
 #endif
 }

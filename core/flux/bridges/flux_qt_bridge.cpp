@@ -6,14 +6,14 @@
 #include <cstring>
 
 // SPICE runtime functions (defined in fluxscript spice_runtime.cpp / flux_runtime.cpp)
-extern "C" void flux_set_parameter(const char*, double);
-extern "C" double flux_get_parameter(const char*);
-extern "C" double flux_get_voltage(const char*);
-extern "C" double flux_get_current(const char*);
-extern "C" double flux_register_analysis(const char*);
-extern "C" double flux_register_measure(const char*, const char*);
-extern "C" double flux_register_probe(const char*, const char*);
-extern "C" double flux_register_save(const char*);
+extern "C" void flux_set_parameter(double, double);
+extern "C" double flux_get_parameter(double);
+extern "C" double flux_get_voltage(double);
+extern "C" double flux_get_current(double);
+extern "C" double flux_register_analysis(double);
+extern "C" double flux_register_measure(double, double);
+extern "C" double flux_register_probe(double, double);
+extern "C" double flux_register_save(double);
 
 // Helper to cast between void* and double handles
 template <typename To, typename From>
@@ -22,6 +22,12 @@ inline To bit_cast(const From& src) noexcept {
     To dst;
     std::memcpy(&dst, &src, sizeof(To));
     return dst;
+}
+
+static const char* dbl_to_str(double d) {
+    uint64_t raw;
+    std::memcpy(&raw, &d, sizeof(raw));
+    return reinterpret_cast<const char*>(static_cast<uintptr_t>(raw));
 }
 
 FluxQtBridge& FluxQtBridge::instance() {
@@ -122,66 +128,115 @@ void FluxQtBridge::onBridgeEvent() {
 
 // C-API wrappers for property bridge (registered as JIT symbols below)
 extern "C" {
-    double flux_qt_get_property(double handle, const char* name) {
-        return FluxQtBridge::instance().getProperty(handle, name);
+    double flux_qt_get_property(double handle, double name_dbl) {
+        return FluxQtBridge::instance().getProperty(handle, dbl_to_str(name_dbl));
     }
-    void flux_qt_set_property(double handle, const char* name, double value) {
-        FluxQtBridge::instance().setProperty(handle, name, value);
+    void flux_qt_set_property(double handle, double name_dbl, double value) {
+        FluxQtBridge::instance().setProperty(handle, dbl_to_str(name_dbl), value);
     }
 }
 
 // Forward declarations for C-API bridge functions defined in flux_qt_widgets.cpp
 extern "C" {
-    double flux_qt_create_window(const char*);
-    double flux_qt_create_button(const char*);
+    double flux_qt_create_window(double);
+    double flux_qt_create_button(double);
     double flux_qt_create_slider(double);
     double flux_qt_create_lcd();
-    double flux_qt_create_label(const char*);
+    double flux_qt_create_label(double);
     double flux_qt_create_combobox();
-    double flux_qt_create_lineedit(const char*);
-    double flux_qt_create_checkbox(const char*);
+    double flux_qt_create_lineedit(double);
+    double flux_qt_create_checkbox(double);
     double flux_qt_create_spinbox();
     double flux_qt_create_progressbar();
     double flux_qt_create_tableview(double, double);
     void flux_qt_add_widget(double, double);
-    void flux_qt_msg_box(const char*, const char*);
+    void flux_qt_msg_box(double, double);
     void flux_qt_on_click(double, double);
     void flux_qt_on_value_changed(double, double);
     void flux_qt_on_current_index_changed(double, double);
     void flux_qt_on_toggled(double, double);
     void flux_qt_lcd_display(double, double);
-    void flux_qt_on_click_by_name(double, const char*);
-    void flux_qt_on_value_changed_by_name(double, const char*);
-    void flux_qt_on_current_index_changed_by_name(double, const char*);
-    void flux_qt_on_toggled_by_name(double, const char*);
+    void flux_qt_on_click_by_name(double, double);
+    void flux_qt_on_value_changed_by_name(double, double);
+    void flux_qt_on_current_index_changed_by_name(double, double);
+    void flux_qt_on_toggled_by_name(double, double);
     void flux_qt_set_window_size(double, double, double);
-    double flux_qt_create_layout(const char*);
+    double flux_qt_create_layout(double);
     void flux_qt_set_layout(double, double);
-    double flux_qt_create_timer(double, const char*);
+    double flux_qt_create_timer(double, double);
     void flux_qt_timer_start(double);
     void flux_qt_timer_stop(double);
     void flux_qt_layout_add_widget(double, double);
     void flux_qt_grid_add_widget(double, double, double, double, double, double);
-    void flux_qt_combo_add_item(double, const char*);
+    void flux_qt_combo_add_item(double, double);
     void flux_qt_combo_clear(double);
     void flux_qt_combo_set_current_index(double, double);
-    void flux_qt_table_set_item(double, double, double, const char*);
+    void flux_qt_table_set_item(double, double, double, double);
     void flux_qt_table_set_value(double, double, double, double);
-    void flux_qt_table_set_header(double, double, const char*);
+    void flux_qt_table_set_header(double, double, double);
     double flux_qt_table_row_count(double);
     double flux_qt_table_col_count(double);
     // Workspace bridge
-    void viora_flux_print(const char*);
-    double flux_get_var(const char*);
-    void flux_set_var(const char*, double);
-    void flux_set_prop(const char*, const char*, double);
-    void flux_set_prop_str(const char*, const char*, const char*);
-    int flux_sim_get_vector_size(const char*);
-    double flux_sim_get_vector_val(const char*, int);
-    double flux_sim_get_vector_x(const char*, int);
-    void flux_run_sim(const char*, double, double);
-    const char* flux_get_project_name();
-    void flux_plot_point(const char*, double, double);
+    void viora_flux_print(double);
+    double flux_get_var(double);
+    void flux_set_var(double, double);
+    void flux_set_prop(double, double, double);
+    void flux_set_prop_str(double, double, double);
+    int flux_sim_get_vector_size(double);
+    double flux_sim_get_vector_val(double, int);
+    double flux_sim_get_vector_x(double, int);
+    void flux_run_sim(double, double, double);
+    double flux_get_project_name();
+    void flux_plot_point(double, double, double);
+}
+
+void registerQtBridgeJitSymbols(Flux::FluxJIT& jit) {
+    // Qt Widget creation functions (from flux_qt_widgets.cpp)
+    jit.registerFunction("flux_qt_create_window", (void*)&flux_qt_create_window);
+    jit.registerFunction("flux_qt_create_button", (void*)&flux_qt_create_button);
+    jit.registerFunction("flux_qt_create_slider", (void*)&flux_qt_create_slider);
+    jit.registerFunction("flux_qt_create_lcd", (void*)&flux_qt_create_lcd);
+    jit.registerFunction("flux_qt_create_label", (void*)&flux_qt_create_label);
+    jit.registerFunction("flux_qt_create_combobox", (void*)&flux_qt_create_combobox);
+    jit.registerFunction("flux_qt_create_lineedit", (void*)&flux_qt_create_lineedit);
+    jit.registerFunction("flux_qt_create_checkbox", (void*)&flux_qt_create_checkbox);
+    jit.registerFunction("flux_qt_create_spinbox", (void*)&flux_qt_create_spinbox);
+    jit.registerFunction("flux_qt_create_progressbar", (void*)&flux_qt_create_progressbar);
+    jit.registerFunction("flux_qt_create_tableview", (void*)&flux_qt_create_tableview);
+    jit.registerFunction("flux_qt_add_widget", (void*)&flux_qt_add_widget);
+    jit.registerFunction("flux_qt_msg_box", (void*)&flux_qt_msg_box);
+    jit.registerFunction("flux_qt_on_click", (void*)&flux_qt_on_click);
+    jit.registerFunction("flux_qt_on_value_changed", (void*)&flux_qt_on_value_changed);
+    jit.registerFunction("flux_qt_on_current_index_changed", (void*)&flux_qt_on_current_index_changed);
+    jit.registerFunction("flux_qt_on_toggled", (void*)&flux_qt_on_toggled);
+    jit.registerFunction("flux_qt_lcd_display", (void*)&flux_qt_lcd_display);
+    jit.registerFunction("flux_qt_set_window_size", (void*)&flux_qt_set_window_size);
+    jit.registerFunction("flux_qt_create_layout", (void*)&flux_qt_create_layout);
+    jit.registerFunction("flux_qt_set_layout", (void*)&flux_qt_set_layout);
+    jit.registerFunction("flux_qt_create_timer", (void*)&flux_qt_create_timer);
+    jit.registerFunction("flux_qt_timer_start", (void*)&flux_qt_timer_start);
+    jit.registerFunction("flux_qt_timer_stop", (void*)&flux_qt_timer_stop);
+    jit.registerFunction("flux_qt_layout_add_widget", (void*)&flux_qt_layout_add_widget);
+    jit.registerFunction("flux_qt_grid_add_widget", (void*)&flux_qt_grid_add_widget);
+    jit.registerFunction("flux_qt_on_click_by_name", (void*)&flux_qt_on_click_by_name);
+    jit.registerFunction("flux_qt_on_value_changed_by_name", (void*)&flux_qt_on_value_changed_by_name);
+    jit.registerFunction("flux_qt_on_current_index_changed_by_name", (void*)&flux_qt_on_current_index_changed_by_name);
+    jit.registerFunction("flux_qt_on_toggled_by_name", (void*)&flux_qt_on_toggled_by_name);
+    jit.registerFunction("flux_qt_combo_add_item", (void*)&flux_qt_combo_add_item);
+    jit.registerFunction("flux_qt_combo_clear", (void*)&flux_qt_combo_clear);
+    jit.registerFunction("flux_qt_combo_set_current_index", (void*)&flux_qt_combo_set_current_index);
+    jit.registerFunction("flux_qt_table_set_item", (void*)&flux_qt_table_set_item);
+    jit.registerFunction("flux_qt_table_set_value", (void*)&flux_qt_table_set_value);
+    jit.registerFunction("flux_qt_table_set_header", (void*)&flux_qt_table_set_header);
+    jit.registerFunction("flux_qt_table_row_count", (void*)&flux_qt_table_row_count);
+    jit.registerFunction("flux_qt_table_col_count", (void*)&flux_qt_table_col_count);
+
+    // Property bridge (used by extension templates)
+    jit.registerFunction("flux_qt_get_property", (void*)&flux_qt_get_property);
+    jit.registerFunction("flux_qt_set_property", (void*)&flux_qt_set_property);
+
+    // viora_flux_print - templates reference it by this exact name
+    jit.registerFunction("viora_flux_print", (void*)&viora_flux_print);
 }
 
 void register_flux_qt_jit_symbols() {

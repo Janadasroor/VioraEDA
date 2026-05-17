@@ -1,5 +1,5 @@
 // extension_command.cpp — CLI subcommand for managing FluxScript extensions
-// Usage: viora extension init <name>     — scaffold a new extension
+// Usage: viora extension init <id> [--name NAME] [--desc DESC] [--author AUTHOR] [--template TYPE]
 //        viora extension validate <dir>   — check manifest + compile
 //        viora extension install <dir>    — copy to config dir
 
@@ -19,40 +19,141 @@ static QString configDir() {
     return QDir::homePath() + "/.config/VioraEDA/extensions";
 }
 
-static QString scaffoldManifest(const QString& id) {
+static QString scaffoldManifest(const QString& id, const QString& name,
+                                 const QString& author, const QString& version,
+                                 const QString& desc) {
+    QString displayName = name.isEmpty() ? id : name;
+    QString displayAuthor = author.isEmpty() ? "" : author;
+    QString displayDesc = desc.isEmpty() ? "Edit this description" : desc;
+    QString displayVersion = version.isEmpty() ? "0.1.0" : version;
+
     return QString(R"({
   "id": "%1",
-  "name": "%1",
-  "version": "0.1.0",
-  "description": "Edit this description",
+  "name": "%2",
+  "version": "%3",
+  "author": "%4",
+  "description": "%5",
+  "main": "main.flux",
   "hooks": {
     "onActivate": "on_activate"
   },
   "menu": [
-    {"path": "%1", "action": "open_panel"}
+    {"path": "%2", "action": "open_panel"}
   ]
 }
-)").arg(id);
+)").arg(id, displayName, displayVersion, displayAuthor, displayDesc);
 }
 
-static QString scaffoldMain() {
-    return QStringLiteral(R"(def on_activate() {
+static QString scaffoldMain(const QString& name, const QString& templateType) {
+    QString displayName = name.isEmpty() ? "Hello" : name;
+
+    if (templateType == "empty") {
+        return QString(R"(def init() {
+    viora_flux_print("%1 loaded")
+}
+
+def on_activate() {
+    // Called when extension is activated
 }
 
 def open_panel() {
-    win = flux_qt_create_window("Hello")
-    lbl = flux_qt_create_label("Your extension here")
-    flux_qt_add_widget(win, lbl)
+    // Called from Extensions menu
 }
-)");
+)").arg(displayName);
+    }
+
+    if (templateType == "panel") {
+        return QString(R"(def init() {
+    viora_flux_print("%1 loaded")
+}
+
+def open_panel() {
+    win = flux_qt_create_window("%1")
+    box = flux_qt_create_layout("vbox")
+    flux_qt_set_layout(win, box)
+
+    lbl = flux_qt_create_label("Hello from %1!")
+    flux_qt_layout_add_widget(box, lbl)
+
+    btn = flux_qt_create_button("Click Me")
+    flux_qt_layout_add_widget(box, btn)
+
+    flux_qt_on_click_by_name(btn, "on_click")
+    flux_qt_set_window_size(win, 300.0, 150.0)
+}
+
+def on_click() {
+    flux_qt_msg_box("%1", "Button clicked!")
+}
+)").arg(displayName);
+    }
+
+    // calculator (default)
+    return QString(R"(def init() {
+    viora_flux_print("%1 loaded")
+}
+
+def on_calculate() {
+    val1 = flux_qt_get_property(input1, "value")
+    val2 = flux_qt_get_property(input2, "value")
+    result = val1 + val2
+    flux_qt_set_property(result_display, "value", result)
+}
+
+def open_panel() {
+    win = flux_qt_create_window("%1")
+    box = flux_qt_create_layout("vbox")
+    flux_qt_set_layout(win, box)
+
+    lbl1 = flux_qt_create_label("Value 1:")
+    flux_qt_layout_add_widget(box, lbl1)
+    input1 = flux_qt_create_spinbox()
+    flux_qt_set_property(input1, "value", 0.0)
+    flux_qt_layout_add_widget(box, input1)
+
+    lbl2 = flux_qt_create_label("Value 2:")
+    flux_qt_layout_add_widget(box, lbl2)
+    input2 = flux_qt_create_spinbox()
+    flux_qt_set_property(input2, "value", 0.0)
+    flux_qt_layout_add_widget(box, input2)
+
+    btn = flux_qt_create_button("Calculate")
+    flux_qt_layout_add_widget(box, btn)
+
+    result_label = flux_qt_create_label("Result:")
+    flux_qt_layout_add_widget(box, result_label)
+    result_display = flux_qt_create_spinbox()
+    flux_qt_set_property(result_display, "enabled", 0.0)
+    flux_qt_set_property(result_display, "readOnly", 1.0)
+    flux_qt_layout_add_widget(box, result_display)
+
+    flux_qt_on_click_by_name(btn, "on_calculate")
+    flux_qt_set_window_size(win, 280.0, 250.0)
+}
+)").arg(displayName);
 }
 
 int cmdExtensionInit(const QStringList& args) {
     if (args.size() < 1) {
-        std::cerr << "Usage: viora extension init <name>\n";
+        std::cerr << "Usage: viora extension init <id> [--name NAME] [--desc DESC] [--author AUTHOR] [--version VER] [--template TYPE]\n";
+        std::cerr << "  Templates: empty, panel, calculator (default: calculator)\n";
         return 1;
     }
+
     QString id = args[0];
+    QString name, desc, author, version, templateType;
+
+    // Parse optional flags
+    for (int i = 1; i < args.size(); ++i) {
+        if (args[i] == "--name" && i + 1 < args.size()) name = args[++i];
+        else if (args[i] == "--desc" && i + 1 < args.size()) desc = args[++i];
+        else if (args[i] == "--author" && i + 1 < args.size()) author = args[++i];
+        else if (args[i] == "--version" && i + 1 < args.size()) version = args[++i];
+        else if (args[i] == "--template" && i + 1 < args.size()) templateType = args[++i];
+    }
+
+    if (templateType.isEmpty()) templateType = "calculator";
+
     QDir dir(configDir() + "/" + id);
     if (dir.exists()) {
         std::cerr << "Error: extension '" << id.toStdString() << "' already exists\n";
@@ -62,14 +163,16 @@ int cmdExtensionInit(const QStringList& args) {
         std::cerr << "Error: cannot create directory\n";
         return 1;
     }
+
     QFile manifest(dir.filePath("manifest.json"));
     if (manifest.open(QIODevice::WriteOnly)) {
-        manifest.write(scaffoldManifest(id).toUtf8());
+        manifest.write(scaffoldManifest(id, name, author, version, desc).toUtf8());
     }
     QFile main(dir.filePath("main.flux"));
     if (main.open(QIODevice::WriteOnly)) {
-        main.write(scaffoldMain().toUtf8());
+        main.write(scaffoldMain(name.isEmpty() ? id : name, templateType).toUtf8());
     }
+
     std::cout << "Extension '" << id.toStdString() << "' created at "
               << dir.absolutePath().toStdString() << "\n";
     return 0;

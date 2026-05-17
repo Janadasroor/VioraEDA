@@ -12,6 +12,14 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <cstring>
+#include <cstdint>
+
+static const char* dbl_to_str(double d) {
+    uint64_t raw;
+    std::memcpy(&raw, &d, sizeof(raw));
+    return reinterpret_cast<const char*>(static_cast<uintptr_t>(raw));
+}
 
 static QMap<QString, double> g_fluxVars;
 static SchematicAPI* g_activeApi = nullptr;
@@ -54,26 +62,34 @@ const char* pool_workspace_string(const QString& s) {
 } // namespace Flux
 
 extern "C" {
-    double flux_get_var(const char* name) {
+    double flux_get_var(double name_dbl) {
+        const char* name = dbl_to_str(name_dbl);
         if (!name) return 0.0;
         return Flux::Core::FluxWorkspaceBridge::getVariable(QString::fromUtf8(name));
     }
 
-    void flux_set_var(const char* name, double value) {
+    void flux_set_var(double name_dbl, double value) {
+        const char* name = dbl_to_str(name_dbl);
         if (name) Flux::Core::FluxWorkspaceBridge::setVariable(QString::fromUtf8(name), value);
     }
     
-    void flux_set_prop(const char* ref, const char* prop, double value) {
+    void flux_set_prop(double ref_dbl, double prop_dbl, double value) {
+        const char* ref = dbl_to_str(ref_dbl);
+        const char* prop = dbl_to_str(prop_dbl);
         Flux::Core::FluxWorkspaceBridge::setComponentProperty(ref, prop, value);
     }
     
-    void flux_set_prop_str(const char* ref, const char* prop, const char* value) {
+    void flux_set_prop_str(double ref_dbl, double prop_dbl, double value_dbl) {
+        const char* ref = dbl_to_str(ref_dbl);
+        const char* prop = dbl_to_str(prop_dbl);
+        const char* value = dbl_to_str(value_dbl);
         Flux::Core::FluxWorkspaceBridge::setComponentPropertyStr(ref, prop, value);
     }
 
     // --- Simulation Data Hooks ---
     
-    int flux_sim_get_vector_size(const char* name) {
+    int flux_sim_get_vector_size(double name_dbl) {
+        const char* name = dbl_to_str(name_dbl);
         auto* res = Flux::JITContextManager::instance().getSimulationResults();
         if (!res || !name) return 0;
         std::string n(name);
@@ -83,7 +99,8 @@ extern "C" {
         return 0;
     }
     
-    double flux_sim_get_vector_val(const char* name, int index) {
+    double flux_sim_get_vector_val(double name_dbl, int index) {
+        const char* name = dbl_to_str(name_dbl);
         auto* res = Flux::JITContextManager::instance().getSimulationResults();
         if (!res || !name) return 0.0;
         std::string n(name);
@@ -95,7 +112,8 @@ extern "C" {
         return 0.0;
     }
     
-    double flux_sim_get_vector_x(const char* name, int index) {
+    double flux_sim_get_vector_x(double name_dbl, int index) {
+        const char* name = dbl_to_str(name_dbl);
         auto* res = Flux::JITContextManager::instance().getSimulationResults();
         if (!res || !name) return 0.0;
         std::string n(name);
@@ -107,7 +125,8 @@ extern "C" {
         return 0.0;
     }
 
-    void flux_run_sim(const char* analysisType, double tStop, double tStep) {
+    void flux_run_sim(double analysis_dbl, double tStop, double tStep) {
+        const char* analysisType = dbl_to_str(analysis_dbl);
         auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
         if (!editor) return;
 
@@ -134,31 +153,42 @@ extern "C" {
         loop.exec();
     }
 
-    const char* flux_get_project_name() {
-        if (!g_activeApi) return "Untitled Project";
-        return Flux::Core::pool_workspace_string(g_activeApi->projectName());
+    double flux_get_project_name() {
+        const char* result = g_activeApi ? Flux::Core::pool_workspace_string(g_activeApi->projectName()) : "Untitled Project";
+        uint64_t raw = reinterpret_cast<uintptr_t>(result);
+        double d;
+        std::memcpy(&d, &raw, sizeof(d));
+        return d;
     }
 
-    const char* flux_get_schematic_file() {
-        if (!g_activeApi) return "untitled.viosch";
-        return Flux::Core::pool_workspace_string(g_activeApi->filePath());
+    double flux_get_schematic_file() {
+        const char* result = g_activeApi ? Flux::Core::pool_workspace_string(g_activeApi->filePath()) : "untitled.viosch";
+        uint64_t raw = reinterpret_cast<uintptr_t>(result);
+        double d;
+        std::memcpy(&d, &raw, sizeof(d));
+        return d;
     }
 
-    const char* flux_get_open_schematics() {
+    double flux_get_open_schematics() {
         auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
-        if (!editor) return "";
+        if (!editor) { double d = 0; uint64_t raw = 0; std::memcpy(&d, &raw, sizeof(d)); return d; }
         
         auto* tabs = editor->findChild<QTabWidget*>();
-        if (!tabs) return "";
+        if (!tabs) { double d = 0; uint64_t raw = 0; std::memcpy(&d, &raw, sizeof(d)); return d; }
         
         QStringList names;
         for (int i = 0; i < tabs->count(); ++i) {
             names << tabs->tabText(i).remove("*"); // Clean modified markers
         }
-        return Flux::Core::pool_workspace_string(names.join(","));
+        const char* result = Flux::Core::pool_workspace_string(names.join(","));
+        uint64_t raw = reinterpret_cast<uintptr_t>(result);
+        double d;
+        std::memcpy(&d, &raw, sizeof(d));
+        return d;
     }
 
-    void flux_select_schematic(const char* fileName) {
+    void flux_select_schematic(double fileName_dbl) {
+        const char* fileName = dbl_to_str(fileName_dbl);
         if (!fileName) return;
         auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
         if (!editor) return;
@@ -179,7 +209,8 @@ extern "C" {
     
     // --- Standard Output Hook ---
     
-    void viora_flux_print(const char* msg) {
+    void viora_flux_print(double msg_dbl) {
+        const char* msg = dbl_to_str(msg_dbl);
         if (!msg) return;
         printf("[STDOUT] %s\n", msg);
         fflush(stdout);
@@ -188,7 +219,8 @@ extern "C" {
 
     // --- Plotting ---
 
-    void flux_plot_point(const char* seriesName, double x, double y) {
+    void flux_plot_point(double series_dbl, double x, double y) {
+        const char* seriesName = dbl_to_str(series_dbl);
         if (!seriesName) return;
         auto* editor = qobject_cast<SchematicEditor*>(QApplication::activeWindow());
         if (!editor) return;

@@ -18,6 +18,7 @@
 #include <QTextCursor>
 #include <QMessageBox>
 #include "jit_context_manager.h"
+#include "core/flux/engine/flux_script_engine.h"
 
 namespace Flux {
 
@@ -165,21 +166,37 @@ void CodeEditor::setActiveDebugLine(int line) {
 void CodeEditor::onRunRequested() {
 #ifdef HAVE_FLUXSCRIPT
     QString source = toPlainText();
-    QMap<int, QString> errors;
-    setErrorLines({});
     
-    if (JITContextManager::instance().compileAndLoad("standalone_editor", source, errors)) {
-        qDebug() << "FluxScript: Run successful.";
+    // Use FluxScriptEngine (backed by JITEngine) so that bridge functions AND
+    // button callbacks (flux_qt_on_click_by_name → FluxScriptEngine::callFunction)
+    // resolve correctly. The old JITContextManager path was a separate JIT instance
+    // that lacked Qt bridge symbols and was invisible to FluxScriptEngine callbacks.
+    if (auto& eng = FluxScriptEngine::instance(); eng.isInitialized()) {
+        // Reinitialize the JIT engine to clear old modules (avoids duplicate symbol errors)
+        eng.finalize();
+        eng.initialize();
         
-        // Execute the script
-        void* addr = JITContextManager::instance().getFunctionAddress("standalone_editor");
-        if (addr) {
-            typedef void (*RunFunc)();
-            reinterpret_cast<RunFunc>(addr)();
+        QString error;
+        if (eng.executeString(source, &error)) {
+            qDebug() << "FluxScript: Run successful.";
+            
+            // Extension templates define init() for setup and open_panel() for UI
+            eng.callFunction("init", {});
+            eng.callFunction("open_panel", {});
+        } else {
+            qDebug() << "FluxScript: Run failed:" << error;
+            // Parse errors from error message and highlight lines
+            QMap<int, QString> errors;
+            // Simple line-number extraction from error messages
+            QRegularExpression lineRe(R"(<flux>:(\d+):(\d+):)");
+            auto match = lineRe.match(error);
+            while (match.hasMatch()) {
+                int line = match.captured(1).toInt();
+                errors[line] = error;
+                match = lineRe.match(error, match.capturedEnd());
+            }
+            setErrorLines(errors);
         }
-    } else {
-        setErrorLines(errors);
-        qDebug() << "FluxScript: Run failed with errors.";
     }
 #endif
 }

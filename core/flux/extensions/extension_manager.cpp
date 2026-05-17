@@ -34,6 +34,7 @@ bool ExtensionManifest::parse(const QJsonObject& json, QString* error) {
         MenuEntry e;
         e.path = mo["path"].toString();
         e.action = mo["action"].toString();
+        e.icon = mo["icon"].toString();
         if (!e.path.isEmpty() && !e.action.isEmpty())
             menuEntries.append(e);
     }
@@ -312,6 +313,14 @@ QVector<QAction*> ExtensionManager::createMenuActions(QWidget* parent) {
                 : text;
 
             QAction* action = new QAction(label, parent);
+            
+            // Load custom icon from extension directory
+            if (!entry.icon.isEmpty()) {
+                QString iconPath = ext.dirPath + "/" + entry.icon;
+                if (QFileInfo::exists(iconPath))
+                    action->setIcon(QIcon(iconPath));
+            }
+            
             QString extId = ext.manifest.id;
             QString actionName = entry.action;
             connect(action, &QAction::triggered, this, [this, extId, actionName]() {

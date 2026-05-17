@@ -755,6 +755,11 @@ void SchematicEditor::addScriptTab(const QString& filePath) {
         updateTabModifiedIndicator(idx, mod);
     });
 
+    // When an extension is created, rescan and rebuild the extensions menu
+    connect(scriptTab, &Flux::ScriptEditorTab::extensionCreated, this, [this](const QString&) {
+        ExtensionManager::instance().reloadAll();
+    });
+
     m_workspaceTabs->setCurrentIndex(idx);
 }
 

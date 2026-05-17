@@ -678,7 +678,7 @@ void SchematicEditor::createToolBar() {
     openCompAct->setToolTip("Open component browser and search (A)");
 
     // Extensions menu
-    m_extensionsMenu = mainAppMenu->addMenu(getThemeIcon(":/icons/tool_gear.svg"), "&Extensions");
+    m_extensionsMenu = mainAppMenu->addMenu(getThemeIcon(":/icons/extension.svg"), "&Extensions");
     m_extensionsMenu->setToolTipsVisible(true);
     QAction* reloadExtAct = m_extensionsMenu->addAction("Reload Extensions");
     connect(reloadExtAct, &QAction::triggered, this, [this]() {

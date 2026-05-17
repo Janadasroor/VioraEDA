@@ -2,6 +2,8 @@
 #include "flux_completer.h"
 #include "../../core/flux/bridges/flux_workspace_bridge.h"
 #include "../../schematic/editor/schematic_api.h"
+#include "new_extension_dialog.h"
+#include "manifest_editor.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -53,6 +55,17 @@ void ScriptEditorTab::setupUI(QGraphicsScene* scene, NetManager* netManager) {
     templateBtn->setStyleSheet("background: #3e3e42; color: #ccc; border: 1px solid #555; padding: 5px 12px; border-radius: 4px;");
     connect(templateBtn, &QPushButton::clicked, this, &ScriptEditorTab::showTemplates);
     toolLayout->addWidget(templateBtn);
+
+    QPushButton* newExtBtn = new QPushButton("New Extension");
+    newExtBtn->setStyleSheet("background: #3b82f6; color: white; border: none; padding: 6px 16px; border-radius: 4px; font-weight: bold; } "
+        "QPushButton:hover { background: #2563eb;");
+    connect(newExtBtn, &QPushButton::clicked, this, &ScriptEditorTab::showNewExtensionDialog);
+    toolLayout->addWidget(newExtBtn);
+
+    QPushButton* manifestBtn = new QPushButton("Edit Manifest");
+    manifestBtn->setStyleSheet("background: #3e3e42; color: #ccc; border: 1px solid #555; padding: 5px 12px; border-radius: 4px;");
+    connect(manifestBtn, &QPushButton::clicked, this, &ScriptEditorTab::showManifestEditor);
+    toolLayout->addWidget(manifestBtn);
 
     toolLayout->addStretch();
 
@@ -328,6 +341,55 @@ void ScriptEditorTab::onTemplateSelected(QListWidgetItem* item) {
         m_editor->setPlainText(QTextStream(&file).readAll());
         m_stack->setCurrentWidget(m_editorContainer);
     }
+}
+
+void ScriptEditorTab::showNewExtensionDialog() {
+    NewExtensionDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString extPath = dlg.extensionPath();
+        QString mainFile = extPath + "/main.flux";
+        if (QFile::exists(mainFile)) {
+            openFile(mainFile);
+            m_console->append(QString("<span style='color:#4ade80; font-weight:bold;'>[Extension] Created: %1</span>").arg(extPath));
+        }
+        emit extensionCreated(extPath);
+    }
+}
+
+void ScriptEditorTab::showManifestEditor() {
+    QString manifestPath = findManifestForCurrentFile();
+    if (manifestPath.isEmpty()) {
+        QMessageBox::information(this, "No Manifest",
+            "No manifest.json found. Create a new extension first, or open a .flux file inside an extension directory.");
+        return;
+    }
+
+    ManifestEditor editor(manifestPath, this);
+    editor.exec();
+}
+
+QString ScriptEditorTab::findManifestForCurrentFile() const {
+    // If current file is inside an extension directory, find its manifest
+    if (!m_filePath.isEmpty()) {
+        QFileInfo fi(m_filePath);
+        QDir dir = fi.absoluteDir();
+        // Walk up to find manifest.json
+        for (int i = 0; i < 5; ++i) {
+            QString candidate = dir.filePath("manifest.json");
+            if (QFile::exists(candidate)) return candidate;
+            if (!dir.cdUp()) break;
+        }
+    }
+    // Fallback: check common extension directories
+    QString homeExtDir = QDir::homePath() + "/.config/VioraEDA/extensions";
+    QDir homeDir(homeExtDir);
+    if (homeDir.exists()) {
+        QStringList subdirs = homeDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        if (!subdirs.isEmpty()) {
+            return homeDir.filePath(subdirs.first() + "/manifest.json");
+        }
+    }
+    return QString();
 }
 
 } // namespace Flux

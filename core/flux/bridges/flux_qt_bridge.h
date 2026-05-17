@@ -7,6 +7,13 @@
 #include <QVariant>
 #include <mutex>
 
+// Forward declaration is enough for the header
+namespace Flux { class FluxJIT; }
+
+#ifdef emit
+#undef emit
+#endif
+
 /**
  * @brief Clean bridge between the JIT-compiled FluxScript and the Qt Object Model.
  * 
@@ -58,5 +65,11 @@ private:
     QHash<void*, QPointer<QObject>> m_registry;
     QHash<QObject*, QString> m_signalNameMap;
 };
+
+/**
+ * @brief Registers all Qt bridge functions with a FluxScript JIT instance.
+ * This must be called for every FluxJIT instance that uses Qt widgets.
+ */
+void registerQtBridgeJitSymbols(Flux::FluxJIT& jit);
 
 #endif // FLUX_QT_BRIDGE_H

@@ -138,6 +138,7 @@
         <file>icons/tool_hierarchical_port.svg</file>
         <file>icons/tool_sheet.svg</file>
         <file>icons/tool_gear.svg</file>
+        <file>icons/extension.svg</file>
         <file>icons/tool_run.svg</file>
         <file>library/builtin.sclib</file>
         <file>library/builtin.fplib</file>

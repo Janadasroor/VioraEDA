@@ -41,9 +41,9 @@ jobs:
         run: |
           mkdir -p install/include install/lib
           cp -r include/flux install/include/
-          cp build/libfluxscript.a install/lib/
+          cp build/libFluxScript.a install/lib/
           # Record LLVM version needed at link time
-          echo "LLVM 18 required" > install/REQUIRES.txt
+          echo "LLVM 21 required" > install/REQUIRES.txt
           tar czf fluxscript-linux-x86_64.tar.gz -C install .
 
       - name: Upload release asset

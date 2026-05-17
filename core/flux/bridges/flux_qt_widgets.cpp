@@ -19,18 +19,25 @@
 #include <QHeaderView>
 #include <QTimer>
 #include <cstring>
+#include <bit>
+
+static const char* dbl_to_str(double d) {
+    uint64_t raw;
+    std::memcpy(&raw, &d, sizeof(raw));
+    return reinterpret_cast<const char*>(static_cast<uintptr_t>(raw));
+}
 
 extern "C" {
     // Basic UI construction
-    double flux_qt_create_button(const char* text) {
-        QPushButton* btn = new QPushButton(QString::fromUtf8(text));
+    double flux_qt_create_button(double text_dbl) {
+        QPushButton* btn = new QPushButton(QString::fromUtf8(dbl_to_str(text_dbl)));
         btn->setAttribute(Qt::WA_DeleteOnClose);
         btn->show();
         return FluxQtBridge::instance().registerObject(btn);
     }
 
-    void flux_qt_msg_box(const char* title, const char* text) {
-        QMessageBox::information(nullptr, QString::fromUtf8(title), QString::fromUtf8(text));
+    void flux_qt_msg_box(double title_dbl, double text_dbl) {
+        QMessageBox::information(nullptr, QString::fromUtf8(dbl_to_str(title_dbl)), QString::fromUtf8(dbl_to_str(text_dbl)));
     }
 
     // New Widgets: Sliders & LCDs
@@ -52,16 +59,16 @@ extern "C" {
         return FluxQtBridge::instance().registerObject(lcd);
     }
 
-    double flux_qt_create_label(const char* text) {
-        QLabel* label = new QLabel(QString::fromUtf8(text));
+    double flux_qt_create_label(double text_dbl) {
+        QLabel* label = new QLabel(QString::fromUtf8(dbl_to_str(text_dbl)));
         label->setAttribute(Qt::WA_DeleteOnClose);
         label->show();
         return FluxQtBridge::instance().registerObject(label);
     }
 
     // New Widgets: LineEdit
-    double flux_qt_create_lineedit(const char* text) {
-        QLineEdit* edit = new QLineEdit(QString::fromUtf8(text));
+    double flux_qt_create_lineedit(double text_dbl) {
+        QLineEdit* edit = new QLineEdit(QString::fromUtf8(dbl_to_str(text_dbl)));
         edit->setAttribute(Qt::WA_DeleteOnClose);
         edit->show();
         return FluxQtBridge::instance().registerObject(edit);
@@ -75,10 +82,10 @@ extern "C" {
         return FluxQtBridge::instance().registerObject(combo);
     }
 
-    void flux_qt_combo_add_item(double comboHandle, const char* text) {
+    void flux_qt_combo_add_item(double comboHandle, double text_dbl) {
         QComboBox* combo = qobject_cast<QComboBox*>(
             FluxQtBridge::instance().resolveHandle(comboHandle));
-        if (combo) combo->addItem(QString::fromUtf8(text));
+        if (combo) combo->addItem(QString::fromUtf8(dbl_to_str(text_dbl)));
     }
 
     void flux_qt_combo_clear(double comboHandle) {
@@ -94,8 +101,8 @@ extern "C" {
     }
 
     // New Widgets: CheckBox
-    double flux_qt_create_checkbox(const char* text) {
-        QCheckBox* cb = new QCheckBox(QString::fromUtf8(text));
+    double flux_qt_create_checkbox(double text_dbl) {
+        QCheckBox* cb = new QCheckBox(QString::fromUtf8(dbl_to_str(text_dbl)));
         cb->setAttribute(Qt::WA_DeleteOnClose);
         cb->show();
         return FluxQtBridge::instance().registerObject(cb);
@@ -141,21 +148,21 @@ extern "C" {
         }
     }
 
-    void flux_qt_table_set_item(double tableHandle, double row, double col, const char* text) {
+    void flux_qt_table_set_item(double tableHandle, double row, double col, double text_dbl) {
         QTableWidget* table = qobject_cast<QTableWidget*>(
             FluxQtBridge::instance().resolveHandle(tableHandle));
         if (table) {
             table->setItem(static_cast<int>(row), static_cast<int>(col),
-                new QTableWidgetItem(QString::fromUtf8(text)));
+                new QTableWidgetItem(QString::fromUtf8(dbl_to_str(text_dbl))));
         }
     }
 
-    void flux_qt_table_set_header(double tableHandle, double col, const char* text) {
+    void flux_qt_table_set_header(double tableHandle, double col, double text_dbl) {
         QTableWidget* table = qobject_cast<QTableWidget*>(
             FluxQtBridge::instance().resolveHandle(tableHandle));
         if (table) {
             table->setHorizontalHeaderItem(static_cast<int>(col),
-                new QTableWidgetItem(QString::fromUtf8(text)));
+                new QTableWidgetItem(QString::fromUtf8(dbl_to_str(text_dbl))));
         }
     }
 
@@ -172,12 +179,12 @@ extern "C" {
     }
 
     // Timer
-    double flux_qt_create_timer(double intervalMs, const char* callbackName) {
+    double flux_qt_create_timer(double intervalMs, double callback_dbl) {
         QTimer* timer = new QTimer();
         timer->setInterval(static_cast<int>(intervalMs));
         timer->setSingleShot(false);
         double handle = FluxQtBridge::instance().registerObject(timer);
-        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(timeout()), callbackName);
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(timeout()), dbl_to_str(callback_dbl));
         return handle;
     }
 
@@ -208,7 +215,8 @@ extern "C" {
     }
 
     // Layout system
-    double flux_qt_create_layout(const char* type) {
+    double flux_qt_create_layout(double type_dbl) {
+        const char* type = dbl_to_str(type_dbl);
         QBoxLayout::Direction dir = QBoxLayout::TopToBottom;
         if (strcmp(type, "hbox") == 0) dir = QBoxLayout::LeftToRight;
         else if (strcmp(type, "vbox") == 0) dir = QBoxLayout::TopToBottom;
@@ -258,9 +266,9 @@ extern "C" {
     }
 
     // Container / Window helpers
-    double flux_qt_create_window(const char* title) {
+    double flux_qt_create_window(double title_dbl) {
         QDialog* dialog = new QDialog();
-        dialog->setWindowTitle(QString::fromUtf8(title));
+        dialog->setWindowTitle(QString::fromUtf8(dbl_to_str(title_dbl)));
         // No default layout — user calls flux_qt_set_layout explicitly
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();
@@ -293,19 +301,19 @@ extern "C" {
     }
 
     // Event binding (string function name — preferred in extensions)
-    void flux_qt_on_click_by_name(double btnHandle, const char* funcName) {
-        FluxQtBridge::instance().connectSignalByName(btnHandle, SIGNAL(clicked()), funcName);
+    void flux_qt_on_click_by_name(double btnHandle, double func_dbl) {
+        FluxQtBridge::instance().connectSignalByName(btnHandle, SIGNAL(clicked()), dbl_to_str(func_dbl));
     }
 
-    void flux_qt_on_value_changed_by_name(double handle, const char* funcName) {
-        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(valueChanged(int)), funcName);
+    void flux_qt_on_value_changed_by_name(double handle, double func_dbl) {
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(valueChanged(int)), dbl_to_str(func_dbl));
     }
 
-    void flux_qt_on_current_index_changed_by_name(double handle, const char* funcName) {
-        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(currentIndexChanged(int)), funcName);
+    void flux_qt_on_current_index_changed_by_name(double handle, double func_dbl) {
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(currentIndexChanged(int)), dbl_to_str(func_dbl));
     }
 
-    void flux_qt_on_toggled_by_name(double handle, const char* funcName) {
-        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(toggled(bool)), funcName);
+    void flux_qt_on_toggled_by_name(double handle, double func_dbl) {
+        FluxQtBridge::instance().connectSignalByName(handle, SIGNAL(toggled(bool)), dbl_to_str(func_dbl));
     }
 }
