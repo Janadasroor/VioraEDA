@@ -49,12 +49,77 @@ endif()
 # --- VIOSPICE ENGINE Support ---
 include(FetchContent)
 
-# Option to download prebuilt VioMATRIXC instead of building from source
-option(VIOSPICE_DOWNLOAD_VIOMATRIXC "Download prebuilt VioMATRIXC engine" OFF)
-set(VIOMATRIXC_DOWNLOAD_URL "https://github.com/Janadasroor/VioMATRIXC/releases/download/v0.1/viomatrixc-linux-x86_64.tar.gz"
+# Developer mode flag — OFF by default so new users download prebuilt binaries
+option(VIOSPICE_DEV_MODE "Enable local development mode (use local repos / build from source)" OFF)
+
+set(VIOMATRIXC_DOWNLOAD_URL "https://github.com/Janadasroor/VioMATRIXC/releases/download/v0.1.0/viomatrixc-linux-x86_64.tar.gz"
     CACHE STRING "URL for prebuilt VioMATRIXC tarball")
 
-if(VIOSPICE_DOWNLOAD_VIOMATRIXC)
+if(VIOSPICE_DEV_MODE)
+    # --- Build VioMATRIXC from source (local repo or FetchContent) ---
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../VioMATRIXC/configure.ac")
+        message(STATUS "VioMATRIXC: using local ../VioMATRIXC")
+        set(viomatrixc_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../VioMATRIXC")
+    else()
+        FetchContent_Declare(
+            viomatrixc
+            GIT_REPOSITORY https://github.com/Janadasroor/VioMATRIXC.git
+            GIT_TAG        main
+        )
+        FetchContent_GetProperties(viomatrixc)
+        if(NOT viomatrixc_POPULATED)
+            message(STATUS "Fetching VioMATRIXC engine from GitHub...")
+            FetchContent_Populate(viomatrixc)
+        endif()
+    endif()
+
+    if(APPLE)
+        set(NGSPICE_LIB_NAME "libngspice.dylib")
+    elseif(WIN32)
+        set(NGSPICE_LIB_NAME "libngspice.dll")
+    else()
+        set(NGSPICE_LIB_NAME "libngspice.so")
+    endif()
+
+    if(NOT EXISTS "${viomatrixc_SOURCE_DIR}/src/.libs/${NGSPICE_LIB_NAME}")
+        message(STATUS "Building VioMATRIXC engine from source...")
+        execute_process(
+            COMMAND sh ./autogen.sh
+            WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
+            RESULT_VARIABLE res
+        )
+        execute_process(
+            COMMAND sh ./configure --with-ngshared --enable-cider --enable-vicompat --prefix=${CMAKE_BINARY_DIR}/viospice_engine
+            WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
+            RESULT_VARIABLE res
+        )
+        execute_process(
+            COMMAND make -j8
+            WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
+            RESULT_VARIABLE res
+        )
+        if(NOT res EQUAL 0)
+            message(FATAL_ERROR "Failed to build VioMATRIXC!")
+        endif()
+    endif()
+
+    set(VIOSPICE_ENGINE_INCLUDE_DIRS "${viomatrixc_SOURCE_DIR}/src/include")
+    set(VIOSPICE_PREFERRED_ENGINE_DIR "${viomatrixc_SOURCE_DIR}/src/.libs")
+    set(VIOSPICE_PREFERRED_ENGINE_LIB "${viomatrixc_SOURCE_DIR}/src/.libs/${NGSPICE_LIB_NAME}")
+
+    # Copy .cm code models
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cm")
+    set(CM_DIRS "analog" "digital" "spice2poly" "tlines" "xtradev" "xtraevt")
+    foreach(DIR ${CM_DIRS})
+        set(CM_FILE "${viomatrixc_SOURCE_DIR}/src/xspice/icm/${DIR}/${DIR}.cm")
+        if(EXISTS "${CM_FILE}")
+            file(COPY "${CM_FILE}" DESTINATION "${CMAKE_BINARY_DIR}/cm")
+        endif()
+    endforeach()
+
+    message(STATUS "VIOSPICE ENGINE (dev build): ${VIOSPICE_PREFERRED_ENGINE_LIB}")
+else()
+    # --- Download prebuilt VioMATRIXC ---
     message(STATUS "Downloading prebuilt VioMATRIXC engine...")
     set(_vm_dir "${CMAKE_BINARY_DIR}/viomatrixc-prebuilt")
     file(DOWNLOAD "${VIOMATRIXC_DOWNLOAD_URL}"
@@ -67,90 +132,23 @@ if(VIOSPICE_DOWNLOAD_VIOMATRIXC)
     else()
         message(FATAL_ERROR "Failed to download VioMATRIXC from ${VIOMATRIXC_DOWNLOAD_URL}")
     endif()
+
     set(VIOSPICE_ENGINE_INCLUDE_DIRS "${_vm_dir}/include")
     set(VIOSPICE_PREFERRED_ENGINE_DIR "${_vm_dir}/lib")
     set(VIOSPICE_PREFERRED_ENGINE_LIB "${_vm_dir}/lib/libngspice.so")
-    add_compile_definitions(HAVE_NGSPICE)
-    set(VIOSPICE_ENGINE_FOUND TRUE)
-    message(STATUS "VIOSPICE ENGINE (prebuilt) found: ${VIOSPICE_PREFERRED_ENGINE_LIB}")
 
-    # Copy code models (.cm files) so simulation_manager can find them
+    # Copy .cm code models
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cm")
     file(GLOB _cm_files "${_vm_dir}/cm/*.cm")
     foreach(_cm ${_cm_files})
         file(COPY "${_cm}" DESTINATION "${CMAKE_BINARY_DIR}/cm")
-        get_filename_component(_cm_name "${_cm}" NAME)
-        message(STATUS "Copied prebuilt cm: ${_cm_name}")
     endforeach()
-else()
-    # Fetch VioMATRIXC Engine
-    FetchContent_Declare(
-        viomatrixc
-        GIT_REPOSITORY https://github.com/Janadasroor/VioMATRIXC.git
-        GIT_TAG        a1c64574335e74efbe309a194fdd053ed42d551c   # main branch HEAD 2026-05-15
-    )
-    FetchContent_GetProperties(viomatrixc)
-    if(NOT viomatrixc_POPULATED)
-        message(STATUS "Fetching and building VioMATRIXC engine...")
-        FetchContent_Populate(viomatrixc)
-        
-        # We only build it if the library doesn't exist yet
-        if(APPLE)
-            set(NGSPICE_LIB_NAME "libngspice.dylib")
-        elseif(WIN32)
-            set(NGSPICE_LIB_NAME "libngspice.dll")
-        else()
-            set(NGSPICE_LIB_NAME "libngspice.so")
-        endif()
 
-        if(NOT EXISTS "${viomatrixc_SOURCE_DIR}/src/.libs/${NGSPICE_LIB_NAME}")
-            if(WIN32)
-                message(WARNING "Automatic VioMATRIXC build on Windows requires a Unix-like environment (MSYS2/MinGW). Please build it manually if this fails.")
-                set(SH_CMD "sh")
-            else()
-                set(SH_CMD "sh")
-            endif()
-
-            execute_process(
-                COMMAND ${SH_CMD} ./autogen.sh
-                WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
-                RESULT_VARIABLE res_autogen
-            )
-            execute_process(
-                COMMAND ${SH_CMD} ./configure --with-ngshared --enable-cider --enable-vicompat --prefix=${CMAKE_BINARY_DIR}/viospice_engine
-                WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
-                RESULT_VARIABLE res_config
-            )
-            execute_process(
-                COMMAND make -j8
-                WORKING_DIRECTORY ${viomatrixc_SOURCE_DIR}
-                RESULT_VARIABLE res_make
-            )
-            if(NOT res_make EQUAL 0)
-                message(FATAL_ERROR "Failed to build VioMATRIXC!")
-            endif()
-        endif()
-        
-        # Copy the compiled code models (.cm files) to the build directory so VioSpice can load them
-        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cm")
-        set(CM_DIRS "analog" "digital" "spice2poly" "tlines" "xtradev" "xtraevt")
-        foreach(DIR ${CM_DIRS})
-            set(CM_FILE "${viomatrixc_SOURCE_DIR}/src/xspice/icm/${DIR}/${DIR}.cm")
-            if(EXISTS "${CM_FILE}")
-                file(COPY "${CM_FILE}" DESTINATION "${CMAKE_BINARY_DIR}/cm")
-                message(STATUS "Copied ${DIR}.cm")
-            endif()
-        endforeach()
-    endif()
-
-    set(VIOSPICE_ENGINE_INCLUDE_DIRS "${viomatrixc_SOURCE_DIR}/src/include")
-    set(VIOSPICE_PREFERRED_ENGINE_DIR "${viomatrixc_SOURCE_DIR}/src/.libs")
-    set(VIOSPICE_PREFERRED_ENGINE_LIB "${viomatrixc_SOURCE_DIR}/src/.libs/${NGSPICE_LIB_NAME}")
-    add_compile_definitions(HAVE_NGSPICE)
-    set(VIOSPICE_ENGINE_FOUND TRUE)
-    message(STATUS "VIOSPICE ENGINE found: ${VIOSPICE_PREFERRED_ENGINE_LIB}")
+    message(STATUS "VIOSPICE ENGINE (prebuilt): ${VIOSPICE_PREFERRED_ENGINE_LIB}")
 endif()
-# -----------------------
+
+add_compile_definitions(HAVE_NGSPICE)
+set(VIOSPICE_ENGINE_FOUND TRUE)
 
 # --- Python Embedding Support (App) ---
 find_package(Python3 3.10 COMPONENTS Interpreter Development QUIET)
@@ -224,13 +222,29 @@ endif()
 
 # --- FluxScript Support ---
 option(VIOSPICE_DOWNLOAD_FLUXSCRIPT "Download prebuilt FluxScript (still requires LLVM)" OFF)
-set(FLUXSCRIPT_DOWNLOAD_URL "https://github.com/Janadasroor/fluxscript/releases/download/v0.1/fluxscript-linux-x86_64.tar.gz"
+set(FLUXSCRIPT_DOWNLOAD_URL "https://github.com/Janadasroor/fluxscript/releases/download/v0.1.0/fluxscript-linux-x86_64.tar.gz"
     CACHE STRING "URL for prebuilt FluxScript tarball")
 
 set(FLUX_VIO_MATRIXC_LIB_DIR "${VIOSPICE_PREFERRED_ENGINE_DIR}" CACHE STRING "Path to VioMATRIXC libngspice directory" FORCE)
 
-if(VIOSPICE_DOWNLOAD_FLUXSCRIPT)
-    # Prebuilt FluxScript — still requires LLVM at link time
+if(VIOSPICE_DEV_MODE)
+    # --- Build FluxScript from source (local repo or FetchContent) ---
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript/CMakeLists.txt")
+        message(STATUS "FluxScript: using local ../fluxscript")
+        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript FluxScript)
+    else()
+        message(STATUS "FluxScript: fetching from GitHub")
+        FetchContent_Declare(
+            FluxScript
+            GIT_REPOSITORY https://github.com/Janadasroor/fluxscript.git
+            GIT_TAG        2717da0   # LLVM 21 compat + JIT fixes + eager compile cache
+        )
+        FetchContent_MakeAvailable(FluxScript)
+    endif()
+    add_compile_definitions(HAVE_FLUXSCRIPT FLUXSCRIPT_EXAMPLES_DIR="${fluxscript_SOURCE_DIR}/examples")
+    message(STATUS "FluxScript (dev build): ${fluxscript_SOURCE_DIR}")
+else()
+    # --- Download prebuilt FluxScript ---
     message(STATUS "Downloading prebuilt FluxScript...")
     set(_fs_dir "${CMAKE_BINARY_DIR}/fluxscript-prebuilt")
     file(DOWNLOAD "${FLUXSCRIPT_DOWNLOAD_URL}"
@@ -244,13 +258,13 @@ if(VIOSPICE_DOWNLOAD_FLUXSCRIPT)
         message(FATAL_ERROR "Failed to download FluxScript from ${FLUXSCRIPT_DOWNLOAD_URL}")
     endif()
 
-    # Find LLVM (required by prebuilt libfluxcript.a)
+    # Find LLVM (required by prebuilt libFluxScript.a)
     find_package(LLVM REQUIRED CONFIG)
     find_package(CURL REQUIRED)
     include_directories(${LLVM_INCLUDE_DIRS})
     add_definitions(${LLVM_DEFINITIONS})
 
-    # Map required LLVM components (must match what libfluxcript.a was built with)
+    # Map required LLVM components (must match what libFluxScript.a was built with)
     llvm_map_components_to_libnames(_flux_llvm_libs
         Core ExecutionEngine MCJIT OrcJIT Support native
         BitWriter BitReader Linker IRReader X86
@@ -267,21 +281,6 @@ if(VIOSPICE_DOWNLOAD_FLUXSCRIPT)
     set(fluxscript_SOURCE_DIR "${_fs_dir}")
     add_compile_definitions(HAVE_FLUXSCRIPT FLUXSCRIPT_EXAMPLES_DIR="${_fs_dir}/examples")
     message(STATUS "FluxScript (prebuilt): ${_fs_dir}/lib/libFluxScript.a")
-else()
-    # Use local fluxscript for development, fetch from GitHub for CI/fresh clones
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript/CMakeLists.txt")
-        message(STATUS "FluxScript: using local ../fluxscript")
-        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript FluxScript)
-    else()
-        message(STATUS "FluxScript: fetching from GitHub")
-        FetchContent_Declare(
-            FluxScript
-            GIT_REPOSITORY https://github.com/Janadasroor/fluxscript.git
-            GIT_TAG        2717da0   # LLVM 21 compat + JIT fixes + eager compile cache
-        )
-        FetchContent_MakeAvailable(FluxScript)
-    endif()
-    add_compile_definitions(HAVE_FLUXSCRIPT FLUXSCRIPT_EXAMPLES_DIR="${fluxscript_SOURCE_DIR}/examples")
 endif()
 # -----------------------
 

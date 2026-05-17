@@ -20,15 +20,12 @@ jobs:
             autoconf automake libtool m4 \
             qt6-base-dev qt6-charts-dev qt6-svg-dev qt6-tools-dev \
             libgl1-mesa-dev \
-            llvm-18-dev libclang-18-dev \
+            llvm-21-dev libclang-21-dev \
             libcurl4-openssl-dev \
             python3 python3-pip
 
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build FluxScript
-        run: cmake --build build --target FluxScript -j$(nproc)
+      - name: Configure (dev mode)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DVIOSPICE_DEV_MODE=ON
 
       - name: Build
         run: cmake --build build -j$(nproc)
