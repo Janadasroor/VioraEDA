@@ -200,7 +200,7 @@ else()
     FetchContent_Declare(
         FluxScript
         GIT_REPOSITORY https://github.com/Janadasroor/fluxscript.git
-        GIT_TAG        c4e6928   # LLVM 21 compat + JIT fixes
+        GIT_TAG        2717da0   # LLVM 21 compat + JIT fixes + eager compile cache
     )
     FetchContent_MakeAvailable(FluxScript)
 endif()
