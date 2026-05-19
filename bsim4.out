@@ -1,5 +1,0 @@
-
-Checking parameters for BSIM 4.8 model bsim4_nmos
-Warning: ckappas = 2e-09 is too small.
-Warning: ckappad = 2e-09 is too small.
-Warning: TNOIMOD=1 is not supported and may be removed from future version.
