@@ -1,11 +1,7 @@
 #pragma once
 
 #ifndef VIOSPICE_HAS_QT_WEBSOCKETS
-#if __has_include(<QtWebSockets/QWebSocketServer>)
-#define VIOSPICE_HAS_QT_WEBSOCKETS 1
-#else
 #define VIOSPICE_HAS_QT_WEBSOCKETS 0
-#endif
 #endif
 
 #if VIOSPICE_HAS_QT_WEBSOCKETS

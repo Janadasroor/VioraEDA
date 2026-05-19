@@ -7,6 +7,7 @@
         <file>icons/footprint_editor.png</file>
         <file>icons/gerber_viewer.png</file>
         <file>icons/calculator_tools.png</file>
+        <file>icons/spice_model_manager.png</file>
         <file>icons/app_icon.svg</file>
         <file>icons/cursor_pencil.svg</file>
         <file>icons/cursor_eraser.svg</file>

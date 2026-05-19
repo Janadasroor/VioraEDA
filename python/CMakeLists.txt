@@ -1,4 +1,4 @@
-find_package(Qt6 6.11.0 REQUIRED COMPONENTS Core Widgets Quick QuickWidgets)
+find_package(Qt6 6.10.0 REQUIRED COMPONENTS Core Widgets Quick QuickWidgets)
 
 add_library(FluxScriptManager STATIC
     cpp/core/flux_script_manager.cpp

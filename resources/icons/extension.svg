@@ -1,3 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4b5563" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M4 4h7a2 2 0 0 1 2 2v1a1.5 1.5 0 0 0 3 0V6a2 2 0 0 1 2-2h2v2a2 2 0 0 1-2 2h-1a1.5 1.5 0 0 0 0 3h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2v-1a1.5 1.5 0 0 0-3 0v1a2 2 0 0 1-2 2H4v-7a2 2 0 0 1 2-2V6a2 2 0 0 1-2-2z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Bottom-Left Block -->
+  <rect x="4.5" y="13" width="6.5" height="6.5" rx="1" />
+  
+  <!-- Bottom-Right Block -->
+  <rect x="13" y="13" width="6.5" height="6.5" rx="1" />
+  
+  <!-- Top-Left Block -->
+  <rect x="4.5" y="4.5" width="6.5" height="6.5" rx="1" />
+  
+  <!-- Top-Right Hovering Diamond Block (Rotated 45 degrees) -->
+  <g transform="translate(16.5, 7.5) rotate(45)">
+    <rect x="-3.25" y="-3.25" width="6.5" height="6.5" rx="1" />
+  </g>
 </svg>

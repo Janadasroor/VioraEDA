@@ -29,6 +29,7 @@ struct SimNode {
 struct SimModel {
     std::string name;
     SimComponentType type;
+    std::string modelLevel;  // "MOS1", "MOS2", "MOS3", "BSIM3", "BSIM4", "BSIMSOI", "HiSIM2", etc.
     std::map<std::string, double> params;
 };
 

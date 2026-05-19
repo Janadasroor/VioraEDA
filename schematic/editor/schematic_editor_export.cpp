@@ -90,6 +90,7 @@ void SchematicEditor::onSettings() {
         m_view->setSnapToGrid(config.snapToGrid());
         m_view->viewport()->update();
         applyTheme(); // Refresh theme if changed
+        refreshOscilloscopeDockContent(); // Dynamically update simulation panel full/compact view
     }
 }
 

@@ -14,8 +14,8 @@ SourceControlManager::SourceControlManager(QObject* parent)
 }
 
 SourceControlManager& SourceControlManager::instance() {
-    static SourceControlManager inst;
-    return inst;
+    static SourceControlManager* inst = new SourceControlManager();
+    return *inst;
 }
 
 void SourceControlManager::setProjectDir(const QString& dir) {

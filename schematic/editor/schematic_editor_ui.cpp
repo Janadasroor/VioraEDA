@@ -2532,15 +2532,15 @@ void SchematicEditor::onRunSimulation() {
     // Netlist generation now happens in the SimulationPanel background worker.
     // Avoid blocking the UI with a full net rebuild here.
 
+    if (m_simulationPanel) {
+        m_simulationPanel->setTargetScene(m_scene, m_netManager, m_projectDir, true);
+    }
+
     if (m_oscilloscopeDock && m_simulationPanel) {
         // Always show the analog oscilloscope panel when running a simulation
         refreshOscilloscopeDockContent();
         m_oscilloscopeDock->setFloating(false);
         m_oscilloscopeDock->show();
-    }
-
-    if (m_simulationPanel) {
-        m_simulationPanel->setTargetScene(m_scene, m_netManager, m_projectDir, true);
     }
     
     // Ensure all logic analyzer windows are ready.

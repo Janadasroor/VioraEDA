@@ -186,7 +186,10 @@ SchematicEditor::SchematicEditor(QWidget *parent)
     createMenuBar();
     createToolBar();
     createDrawingToolbar();
-    connectSimulationSignals();
+    // Defer simulation signal connection to ensure all UI components and singletons are fully initialized
+    QTimer::singleShot(0, this, [this]() {
+        connectSimulationSignals();
+    });
     updateSimulationUiState(false);
 
     // --- Remote Display Server ---

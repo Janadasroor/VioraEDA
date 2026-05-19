@@ -827,7 +827,7 @@ QWidget* ProjectManager::createLauncherArea() {
 
         // Utility tiles go into the same m_launcherGrid (after design tiles)
         addUtil("SPICE Model Manager","Manage simulation models and subcircuit libraries",
-                ":/icons/toolbar_netlist.png", QColor("#06b6d4"), &ProjectManager::openSpiceModelManager);
+                ":/icons/spice_model_manager.png", QColor("#06b6d4"), &ProjectManager::openSpiceModelManager);
         addUtil("Calculator Tools",  "Resistance, trace width, and impedance calculators",
                 ":/icons/calculator_tools.png", QColor("#f59e0b"), &ProjectManager::openCalculatorTools);
         addUtil("Extensions",   "Manage extensions, importers, and add-ons",

@@ -472,8 +472,8 @@ void SimulationPanel::createMainView(QSplitter* splitter) {
     QHBoxLayout* timelineLay = new QHBoxLayout(timelineContainer);
     timelineLay->setContentsMargins(8, 10, 8, 10);
     
-    QLabel* timelineIcon = new QLabel("🕒");
-    timelineLay->addWidget(timelineIcon);
+    m_timelineIcon = new QLabel("🕒");
+    timelineLay->addWidget(m_timelineIcon);
     
     m_timelineSlider = new QSlider(Qt::Horizontal);
     m_timelineSlider->setRange(0, 1000);

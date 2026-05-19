@@ -40,11 +40,11 @@ SplashScreen::SplashScreen(QWidget* parent) : QWidget(parent, Qt::FramelessWindo
     layout->setSpacing(20);
 
     m_logoLabel = new QLabel(this);
-    m_logoLabel->setPixmap(QPixmap(":/icons/viospice_logo.png").scaled(80, 80, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    m_logoLabel->setPixmap(QPixmap(":/icons/viora_eda_logo.png").scaled(120, 120, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     m_logoLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_logoLabel);
 
-    m_titleLabel = new QLabel("VIOSPICE", this);
+    m_titleLabel = new QLabel("VioraEDA", this);
     m_titleLabel->setStyleSheet(QString("font-size: 32px; font-weight: bold; letter-spacing: 4px; color: %1; background: transparent;").arg(accent));
     m_titleLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_titleLabel);

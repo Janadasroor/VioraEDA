@@ -136,11 +136,18 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
         } else if (line.rfind("Command:", 0) == 0) {
             std::string cmd = toLower(trim(line.substr(8)));
             if (cmd.find("tran") != std::string::npos) data.analysisType = SimAnalysisType::Transient;
-            else if (cmd.find("net") != std::string::npos || cmd.find("sp") != std::string::npos) data.analysisType = SimAnalysisType::SParameter;
+            else if (cmd.find("net") != std::string::npos || (cmd.find("sp") != std::string::npos && cmd.find("ngspice") == std::string::npos)) data.analysisType = SimAnalysisType::SParameter;
             else if (cmd.find("ac") != std::string::npos) data.analysisType = SimAnalysisType::AC;
             else if (cmd.find("dc") != std::string::npos) data.analysisType = SimAnalysisType::DC;
             else if (cmd.find("op") != std::string::npos) data.analysisType = SimAnalysisType::OP;
             else if (cmd.find("noise") != std::string::npos) data.analysisType = SimAnalysisType::Noise;
+        } else if (line.rfind("Plotname:", 0) == 0) {
+            std::string plotName = toLower(trim(line.substr(9)));
+            if (plotName.find("transient") != std::string::npos) data.analysisType = SimAnalysisType::Transient;
+            else if (plotName.find("ac") != std::string::npos) data.analysisType = SimAnalysisType::AC;
+            else if (plotName.find("dc") != std::string::npos) data.analysisType = SimAnalysisType::DC;
+            else if (plotName.find("op") != std::string::npos) data.analysisType = SimAnalysisType::OP;
+            else if (plotName.find("noise") != std::string::npos) data.analysisType = SimAnalysisType::Noise;
         } else if (line.rfind("Title:", 0) == 0) {
             std::string title = toLower(trim(line.substr(6)));
             if (data.analysisType == SimAnalysisType::OP) {
@@ -159,8 +166,9 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                     std::string name = normalizeWaveformName(parts[1]);
                     varNames.push_back(name);
                     
-                    // Auto-detect S-Parameters based on variable names
-                    if (name == "S(1,1)" || name == "S11" || name == "S(2,1)" || name == "S21") {
+                    // Auto-detect S-Parameters based on variable names, but only if not transient/dc/etc.
+                    if ((name == "S(1,1)" || name == "S11" || name == "S(2,1)" || name == "S21") &&
+                        (data.analysisType == SimAnalysisType::OP || data.analysisType == SimAnalysisType::SParameter || data.analysisType == SimAnalysisType::AC)) {
                         data.analysisType = SimAnalysisType::SParameter;
                     }
                 } else if (parts.size() == 1 && i == 0) {
@@ -378,7 +386,12 @@ SimResults RawData::toSimResults() const {
                 for (int p = 0; p < numPoints; ++p) {
                     double mag = y[i-1][p];
                     double phase = hasPhase[i - 1] ? yPhase[i - 1][p] : 0.0;
-                    std::complex<double> val = std::polar(mag, phase * (3.14159265358979323846 / 180.0));
+                    std::complex<double> val;
+                    if (mag >= 0.0) {
+                        val = std::polar(mag, phase * (3.14159265358979323846 / 180.0));
+                    } else {
+                        val = std::polar(-mag, (phase + 180.0) * (3.14159265358979323846 / 180.0));
+                    }
                     if (isS11) res.sParameterResults[p].s11 = val;
                     else if (isS21) res.sParameterResults[p].s21 = val;
                     else if (isS12) res.sParameterResults[p].s12 = val;

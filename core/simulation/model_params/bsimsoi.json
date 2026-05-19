@@ -1,0 +1,88 @@
+{
+    "version": "1.0",
+    "model": "BSIMSOI",
+    "description": "BSIMSOI (B4SOI) MOSFET model (LEVEL=10)",
+    "level": 10,
+    "spiceType": "NMOS",
+    "categories": [
+        {
+            "name": "Threshold Voltage",
+            "params": [
+                {"name": "Vth0", "default": "0.35", "unit": "V", "desc": "Threshold voltage at Vbs=0"},
+                {"name": "K1", "default": "0.45", "unit": "V^0.5", "desc": "First body bias coefficient"},
+                {"name": "K2", "default": "0.1", "unit": "", "desc": "Second body bias coefficient"},
+                {"name": "K3", "default": "0", "unit": "", "desc": "Narrow-width effect coefficient"},
+                {"name": "K3b", "default": "0", "unit": "", "desc": "Body bias coefficient of K3"},
+                {"name": "Dvt0", "default": "2.2", "unit": "", "desc": "First short-channel effect coefficient"},
+                {"name": "Dvt1", "default": "0.53", "unit": "", "desc": "Second short-channel effect coefficient"},
+                {"name": "Dvt2", "default": "-0.032", "unit": "V^-1", "desc": "Body bias coefficient of Dvt"},
+                {"name": "Eta0", "default": "0.5", "unit": "", "desc": "DIBL coefficient at Vds=0"},
+                {"name": "Etab", "default": "0", "unit": "V^-1", "desc": "Body bias coefficient of DIBL"},
+                {"name": "Nfactor", "default": "1", "unit": "", "desc": "Subthreshold swing coefficient"}
+            ]
+        },
+        {
+            "name": "Mobility / Velocity",
+            "params": [
+                {"name": "U0", "default": "0.045", "unit": "m^2/V-s", "desc": "Low-field mobility"},
+                {"name": "Ua", "default": "1.4e-9", "unit": "m/V", "desc": "First vertical field degradation"},
+                {"name": "Ub", "default": "2.2e-18", "unit": "m^2/V^2", "desc": "Second vertical field degradation"},
+                {"name": "Uc", "default": "-3e-11", "unit": "m/V^2", "desc": "Body bias coefficient of mobility"},
+                {"name": "Vsat", "default": "1.2e5", "unit": "m/s", "desc": "Saturation velocity"},
+                {"name": "A0", "default": "1", "unit": "", "desc": "Channel area coefficient"}
+            ]
+        },
+        {
+            "name": "SOI Specific",
+            "params": [
+                {"name": "Tsi", "default": "1e-7", "unit": "m", "desc": "Silicon film thickness"},
+                {"name": "Tbox", "default": "1e-7", "unit": "m", "desc": "Buried oxide thickness"},
+                {"name": "Nbody", "default": "1e17", "unit": "cm^-3", "desc": "Body doping concentration"},
+                {"name": "Rbody", "default": "1e3", "unit": "ohm", "desc": "Body resistance"},
+                {"name": "Rbsh", "default": "0", "unit": "ohm/sq", "desc": "Body sheet resistance"},
+                {"name": "Sao", "default": "0", "unit": "", "desc": "Self-heating coefficient"},
+                {"name": "Fbody", "default": "1", "unit": "", "desc": "Body floating flag"},
+                {"name": "Xti", "default": "3", "unit": "", "desc": "Temperature exponent of Is"},
+                {"name": "Dvsat", "default": "0", "unit": "", "desc": "Velocity saturation length dependence"},
+                {"name": "TnoiMod", "default": "1", "unit": "", "desc": "Thermal noise model selector"},
+                {"name": "FnoiMod", "default": "1", "unit": "", "desc": "Flicker noise model selector"}
+            ]
+        },
+        {
+            "name": "Geometry",
+            "params": [
+                {"name": "L", "default": "1e-6", "unit": "m", "desc": "Channel length"},
+                {"name": "W", "default": "1e-6", "unit": "m", "desc": "Channel width"},
+                {"name": "Lint", "default": "2e-9", "unit": "m", "desc": "Length offset"},
+                {"name": "Wint", "default": "5e-9", "unit": "m", "desc": "Width offset"},
+                {"name": "Tox", "default": "5e-9", "unit": "m", "desc": "Gate oxide thickness"},
+                {"name": "Xj", "default": "1.5e-7", "unit": "m", "desc": "S/D junction depth"}
+            ]
+        },
+        {
+            "name": "Series Resistance",
+            "params": [
+                {"name": "Rsh", "default": "0", "unit": "ohm/sq", "desc": "Sheet resistance"},
+                {"name": "Rdsw", "default": "200", "unit": "ohm-um", "desc": "Unit-width S/D resistance"}
+            ]
+        },
+        {
+            "name": "Capacitance",
+            "params": [
+                {"name": "CapMod", "default": "2", "unit": "", "desc": "Capacitance model selector"},
+                {"name": "Cgso", "default": "5e-10", "unit": "F/m", "desc": "Gate-source overlap capacitance"},
+                {"name": "Cgdo", "default": "5e-10", "unit": "F/m", "desc": "Gate-drain overlap capacitance"},
+                {"name": "Cgbo", "default": "0", "unit": "F/m", "desc": "Gate-body overlap capacitance"}
+            ]
+        },
+        {
+            "name": "Self-Heating",
+            "params": [
+                {"name": "Rth0", "default": "0", "unit": "K/W", "desc": "Thermal resistance per width"},
+                {"name": "Cth0", "default": "0", "unit": "J/K", "desc": "Thermal capacitance per width"},
+                {"name": "Sth0", "default": "0", "unit": "W/K", "desc": "Thermal conductance per width"},
+                {"name": "Tnom", "default": "27", "unit": "C", "desc": "Nominal temperature"}
+            ]
+        }
+    ]
+}

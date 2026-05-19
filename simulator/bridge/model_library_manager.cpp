@@ -224,10 +224,44 @@ void ModelLibraryManager::indexLibraryFile(const QString& path) {
                 QString type = parts[2];
                 if (type.contains('(')) type = type.section('(', 0, 0);
                 
+                QString modelLevel;
+                QString typeUpper = type.toUpper();
+                if (typeUpper == "BSIM4" || typeUpper == "BSIM3" ||
+                    typeUpper == "BSIMSOI" || typeUpper == "BSIM3SOI" ||
+                    typeUpper == "HISIM2" || typeUpper == "HISIM_HV" ||
+                    typeUpper == "VDMOS" || typeUpper == "SOI3") {
+                    modelLevel = typeUpper;
+                } else {
+                    // Try to extract LEVEL=N from the line
+                    QRegularExpression levelRe("LEVEL\\s*=\\s*(\\d+)", QRegularExpression::CaseInsensitiveOption);
+                    auto levelMatch = levelRe.match(line);
+                    if (levelMatch.hasMatch()) {
+                        int lv = levelMatch.captured(1).toInt();
+                        switch (lv) {
+                            case 1: modelLevel = "MOS1"; break;
+                            case 2: modelLevel = "MOS2"; break;
+                            case 3: modelLevel = "MOS3"; break;
+                            case 4: modelLevel = "BSIM1"; break;
+                            case 5: modelLevel = "BSIM2"; break;
+                            case 6: modelLevel = "MOS6"; break;
+                            case 8: modelLevel = "BSIM3"; break;
+                            case 9: modelLevel = "MOS9"; break;
+                            case 10: modelLevel = "BSIM3SOI"; break;
+                            case 14: modelLevel = "BSIM4"; break;
+                            case 20: modelLevel = "BSIMSOI"; break;
+                            case 53: modelLevel = "HISIM2"; break;
+                            case 55: modelLevel = "HISIM_HV"; break;
+                            case 56: modelLevel = "HISIM_HV"; break;
+                            default: break;
+                        }
+                    }
+                }
+                
                 QWriteLocker locker(&m_lock);
                 SpiceModelInfo info;
                 info.name = name;
-                info.type = type.toUpper();
+                info.type = typeUpper;
+                info.modelLevel = modelLevel;
                 info.libraryPath = path;
                 m_modelIndex.append(info);
             }
@@ -285,6 +319,21 @@ void ModelLibraryManager::loadLibraryFile(const QString& path) {
         // Add models to master netlist
         for (const auto& [name, model] : tempNetlist.models()) {
             m_masterNetlist.addModel(model);
+
+            // Update model index with modelLevel from parsed SimModel
+            for (auto& info : m_modelIndex) {
+                if (info.name.compare(QString::fromStdString(name), Qt::CaseInsensitive) == 0) {
+                    if (!model.modelLevel.empty()) {
+                        info.modelLevel = QString::fromStdString(model.modelLevel);
+                    }
+                    QStringList paramList;
+                    for (const auto& [k, v] : model.params) {
+                        paramList.append(QString::fromStdString(k));
+                    }
+                    info.params = paramList;
+                    break;
+                }
+            }
         }
         
         // Add subcircuits to master netlist

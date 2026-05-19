@@ -251,7 +251,8 @@ ProjectExplorerWidget::ProjectExplorerWidget(QWidget *parent)
     setupUi();
     applyTheme();
 
-    connect(&SourceControlManager::instance(), &SourceControlManager::statusUpdated, this, &ProjectExplorerWidget::onGitStatusUpdated);
+    auto& scm = SourceControlManager::instance();
+    connect(&scm, &SourceControlManager::statusUpdated, this, &ProjectExplorerWidget::onGitStatusUpdated);
     onGitStatusUpdated();
 }
 

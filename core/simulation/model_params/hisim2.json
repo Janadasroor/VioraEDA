@@ -1,0 +1,69 @@
+{
+    "version": "1.0",
+    "model": "HISIM2",
+    "description": "HiSIM2 MOSFET model (LEVEL=53)",
+    "level": 53,
+    "spiceType": "NMOS",
+    "spiceLevelParam": "LEVEL=53",
+    "categories": [
+        {
+            "name": "Core",
+            "params": [
+                {"name": "Vth", "default": "0.35", "unit": "V", "desc": "Threshold voltage"},
+                {"name": "Nsubc", "default": "2.5e17", "unit": "cm^-3", "desc": "Channel doping concentration"},
+                {"name": "Nsub", "default": "2.5e17", "unit": "cm^-3", "desc": "Substrate doping concentration"},
+                {"name": "Lps", "default": "0", "unit": "m", "desc": "Poly-gate length"},
+                {"name": "Xld", "default": "0", "unit": "m", "desc": "Gap between gate and D/S"},
+                {"name": "Xwd", "default": "0", "unit": "m", "desc": "Width reduction"},
+                {"name": "Tox", "default": "5e-9", "unit": "m", "desc": "Gate oxide thickness"},
+                {"name": "Xj", "default": "1.5e-7", "unit": "m", "desc": "S/D junction depth"}
+            ]
+        },
+        {
+            "name": "Mobility",
+            "params": [
+                {"name": "Mu0", "default": "0.045", "unit": "m^2/V-s", "desc": "Low-field mobility"},
+                {"name": "Mu1", "default": "0", "unit": "", "desc": "Mobility correction coefficient"},
+                {"name": "Mus", "default": "0", "unit": "", "desc": "Surface roughness mobility"},
+                {"name": "Mu2", "default": "0", "unit": "", "desc": "Mobility degradation coefficient"}
+            ]
+        },
+        {
+            "name": "Short Channel",
+            "params": [
+                {"name": "Vmax", "default": "1.2e5", "unit": "m/s", "desc": "Saturation velocity"},
+                {"name": "Par1", "default": "0", "unit": "", "desc": "First short-channel parameter"},
+                {"name": "Par2", "default": "0", "unit": "", "desc": "Second short-channel parameter"},
+                {"name": "Par3", "default": "0", "unit": "", "desc": "Third short-channel parameter"}
+            ]
+        },
+        {
+            "name": "Geometry",
+            "params": [
+                {"name": "L", "default": "1e-6", "unit": "m", "desc": "Channel length"},
+                {"name": "W", "default": "1e-6", "unit": "m", "desc": "Channel width"},
+                {"name": "Lint", "default": "0", "unit": "m", "desc": "Length offset"},
+                {"name": "Wint", "default": "0", "unit": "m", "desc": "Width offset"},
+                {"name": "Dlc", "default": "0", "unit": "m", "desc": "C-V length offset"},
+                {"name": "Dwc", "default": "0", "unit": "m", "desc": "C-V width offset"}
+            ]
+        },
+        {
+            "name": "Capacitance",
+            "params": [
+                {"name": "Cgso", "default": "5e-10", "unit": "F/m", "desc": "Gate-source overlap capacitance"},
+                {"name": "Cgdo", "default": "5e-10", "unit": "F/m", "desc": "Gate-drain overlap capacitance"},
+                {"name": "Cgbo", "default": "0", "unit": "F/m", "desc": "Gate-body overlap capacitance"},
+                {"name": "Cov", "default": "0", "unit": "F/m", "desc": "Overlap capacitance"}
+            ]
+        },
+        {
+            "name": "Temperature",
+            "params": [
+                {"name": "Tnom", "default": "27", "unit": "C", "desc": "Nominal temperature"},
+                {"name": "Tcv", "default": "0", "unit": "V/K", "desc": "Threshold voltage temperature coefficient"},
+                {"name": "Bv", "default": "0", "unit": "V", "desc": "Breakdown voltage"}
+            ]
+        }
+    ]
+}

@@ -1,0 +1,233 @@
+{
+    "version": "1.0",
+    "model": "BSIM4",
+    "description": "BSIM4v7 MOSFET model (LEVEL=14)",
+    "level": 14,
+    "spiceType": "BSIM4",
+    "categories": [
+        {
+            "name": "Threshold Voltage",
+            "params": [
+                {"name": "Vth0", "default": "0.35", "unit": "V", "desc": "Threshold voltage at Vbs=0"},
+                {"name": "K1", "default": "0.45", "unit": "V^0.5", "desc": "First body bias coefficient"},
+                {"name": "K2", "default": "0.1", "unit": "", "desc": "Second body bias coefficient"},
+                {"name": "K3", "default": "0", "unit": "", "desc": "Narrow-width effect coefficient"},
+                {"name": "K3b", "default": "0", "unit": "", "desc": "Body bias coefficient of K3"},
+                {"name": "Vbm", "default": "-3", "unit": "V", "desc": "Maximum body bias"},
+                {"name": "Dvt0", "default": "2.2", "unit": "", "desc": "First short-channel effect coefficient"},
+                {"name": "Dvt1", "default": "0.53", "unit": "", "desc": "Second short-channel effect coefficient"},
+                {"name": "Dvt2", "default": "-0.032", "unit": "V^-1", "desc": "Body bias coefficient of Dvt"},
+                {"name": "Dvt0w", "default": "0", "unit": "", "desc": "First narrow-channel effect coefficient"},
+                {"name": "Dvt1w", "default": "5.3e6", "unit": "m^-1", "desc": "Second narrow-channel effect coefficient"},
+                {"name": "Dvt2w", "default": "-0.032", "unit": "V^-1", "desc": "Body bias coefficient of Dvtw"},
+                {"name": "Eta0", "default": "0.5", "unit": "", "desc": "DIBL coefficient at Vds=0"},
+                {"name": "Etab", "default": "0", "unit": "V^-1", "desc": "Body bias coefficient of DIBL"},
+                {"name": "Nfactor", "default": "1", "unit": "", "desc": "Subthreshold swing coefficient"},
+                {"name": "Cit", "default": "0", "unit": "F/m^2", "desc": "Interface state capacitance"},
+                {"name": "Cdsc", "default": "2.4e-4", "unit": "F/m^2", "desc": "Drain/source to channel coupling capacitance"},
+                {"name": "Cdscb", "default": "0", "unit": "F/m^2", "desc": "Body bias coefficient of Cdsc"},
+                {"name": "Cdscd", "default": "0", "unit": "F/m^2", "desc": "Drain bias coefficient of Cdsc"},
+                {"name": "Pclm", "default": "1.3", "unit": "", "desc": "Channel length modulation coefficient"},
+                {"name": "Pdibl1", "default": "0.39", "unit": "", "desc": "First DIBL effect coefficient"},
+                {"name": "Pdibl2", "default": "0.0086", "unit": "", "desc": "Second DIBL effect coefficient"},
+                {"name": "Drout", "default": "0.56", "unit": "", "desc": "DIBL on Rout coefficient"},
+                {"name": "Pscreen", "default": "2", "unit": "", "desc": "Screen effect coefficient"},
+                {"name": "Pvag", "default": "0", "unit": "", "desc": "Vgs dependence of DIBL"}
+            ]
+        },
+        {
+            "name": "Mobility",
+            "params": [
+                {"name": "U0", "default": "0.045", "unit": "m^2/V-s", "desc": "Low-field mobility at Tnom"},
+                {"name": "Ua", "default": "1.4e-9", "unit": "m/V", "desc": "First vertical field degradation coefficient"},
+                {"name": "Ub", "default": "2.2e-18", "unit": "m^2/V^2", "desc": "Second vertical field degradation coefficient"},
+                {"name": "Uc", "default": "-3e-11", "unit": "m/V^2", "desc": "Body bias coefficient of mobility"},
+                {"name": "Ute", "default": "-1.5", "unit": "", "desc": "Temperature coefficient of mobility"},
+                {"name": "Eu", "default": "2.3", "unit": "", "desc": "Mobility temperature exponent"},
+                {"name": "Ud", "default": "0", "unit": "", "desc": "Third vertical field degradation coefficient"},
+                {"name": "Ua1", "default": "0", "unit": "m/V", "desc": "Second-order Ua"}
+            ]
+        },
+        {
+            "name": "Velocity Saturation",
+            "params": [
+                {"name": "Vsat", "default": "1.2e5", "unit": "m/s", "desc": "Saturation velocity at Tnom"},
+                {"name": "A0", "default": "1", "unit": "", "desc": "Channel area coefficient"},
+                {"name": "Ags", "default": "0", "unit": "", "desc": "Vgs coefficient of Abulk"},
+                {"name": "A1", "default": "0", "unit": "", "desc": "First non-saturation coefficient"},
+                {"name": "A2", "default": "0.99", "unit": "", "desc": "Second non-saturation coefficient"},
+                {"name": "Bulkm", "default": "1", "unit": "", "desc": "Bulk charge effect coefficient"},
+                {"name": "VsatTmp", "default": "0", "unit": "", "desc": "Temperature coefficient of Vsat"}
+            ]
+        },
+        {
+            "name": "Output Resistance",
+            "params": [
+                {"name": "Pscbe1", "default": "4.24e8", "unit": "V/m", "desc": "First substrate current body effect"},
+                {"name": "Pscbe2", "default": "1e-5", "unit": "m/V", "desc": "Second substrate current body effect"},
+                {"name": "Pdit", "default": "0.01", "unit": "", "desc": "DIBL on Rout coefficient"},
+                {"name": "Pditl", "default": "0", "unit": "", "desc": "Length dependence of Pdibl2"},
+                {"name": "Pdiblb", "default": "0", "unit": "", "desc": "Body bias of Pdibl2"},
+                {"name": "Pscbe1b", "default": "0", "unit": "", "desc": "Body bias of Pscbe1"},
+                {"name": "Pscbe2b", "default": "0", "unit": "", "desc": "Body bias of Pscbe2"}
+            ]
+        },
+        {
+            "name": "Geometry",
+            "params": [
+                {"name": "L", "default": "1e-6", "unit": "m", "desc": "Channel length"},
+                {"name": "W", "default": "1e-6", "unit": "m", "desc": "Channel width"},
+                {"name": "Lint", "default": "2e-9", "unit": "m", "desc": "Length offset per side"},
+                {"name": "Wint", "default": "5e-9", "unit": "m", "desc": "Width offset per side"},
+                {"name": "Ll", "default": "0", "unit": "m", "desc": "Length offset for L"},
+                {"name": "Lw", "default": "0", "unit": "m", "desc": "Length offset for W"},
+                {"name": "Lwl", "default": "0", "unit": "m", "desc": "Length offset for W*L"},
+                {"name": "Wl", "default": "0", "unit": "m", "desc": "Width offset for L"},
+                {"name": "Ww", "default": "0", "unit": "m", "desc": "Width offset for W"},
+                {"name": "Wwl", "default": "0", "unit": "m", "desc": "Width offset for W*L"},
+                {"name": "Lmin", "default": "0", "unit": "m", "desc": "Minimum channel length"},
+                {"name": "Wmin", "default": "0", "unit": "m", "desc": "Minimum channel width"},
+                {"name": "DLC", "default": "0", "unit": "m", "desc": "C-V channel length offset"},
+                {"name": "DWC", "default": "0", "unit": "m", "desc": "C-V channel width offset"}
+            ]
+        },
+        {
+            "name": "Series Resistance",
+            "params": [
+                {"name": "RdsMod", "default": "0", "unit": "", "desc": "S/D resistance model selector"},
+                {"name": "Rsh", "default": "0", "unit": "ohm/sq", "desc": "Sheet resistance"},
+                {"name": "Rsw", "default": "100", "unit": "ohm-um", "desc": "Unit-width S/D resistance"},
+                {"name": "RswMin", "default": "0", "unit": "ohm-um", "desc": "Minimum S/D resistance"},
+                {"name": "Rdsw", "default": "200", "unit": "ohm-um", "desc": "Unit-width S/D resistance (RdsMod=0)"},
+                {"name": "Prwg", "default": "0", "unit": "", "desc": "Gate-bias effect coefficient"},
+                {"name": "Prwb", "default": "0", "unit": "V^-1", "desc": "Body-bias effect coefficient"},
+                {"name": "Wr", "default": "1", "unit": "", "desc": "Width ratio for Rds"}
+            ]
+        },
+        {
+            "name": "Oxide / Gate",
+            "params": [
+                {"name": "Tox", "default": "5e-9", "unit": "m", "desc": "Gate oxide thickness"},
+                {"name": "Toxe", "default": "5e-9", "unit": "m", "desc": "Electrical gate oxide thickness"},
+                {"name": "Toxm", "default": "5e-9", "unit": "m", "desc": "Gate oxide thickness for I-V"},
+                {"name": "Toxp", "default": "1e-10", "unit": "m", "desc": "Poly-depletion Tox"},
+                {"name": "Toxref", "default": "5e-9", "unit": "m", "desc": "Reference Tox"},
+                {"name": "Xj", "default": "1.5e-7", "unit": "m", "desc": "Source/drain junction depth"},
+                {"name": "Ngcon", "default": "1", "unit": "cm^-3", "desc": "Gate doping concentration"},
+                {"name": "Epsrox", "default": "3.9", "unit": "", "desc": "Gate oxide dielectric constant"},
+                {"name": "Nox", "default": "1", "unit": "", "desc": "Oxide charge density factor"}
+            ]
+        },
+        {
+            "name": "Process / Doping",
+            "params": [
+                {"name": "Nch", "default": "2.5e17", "unit": "cm^-3", "desc": "Channel doping concentration"},
+                {"name": "Nsub", "default": "2.5e17", "unit": "cm^-3", "desc": "Substrate doping concentration"},
+                {"name": "Ngs", "default": "0", "unit": "cm^-3", "desc": "Gate-side doping"},
+                {"name": "Xpart", "default": "0", "unit": "", "desc": "Charge partitioning flag"},
+                {"name": "Vfbcv", "default": "-1", "unit": "V", "desc": "Flat-band voltage"},
+                {"name": "Vfb", "default": "-1", "unit": "V", "desc": "Flat-band voltage (alternative)"},
+                {"name": "Ln", "default": "0", "unit": "", "desc": "Non-uniform doping effect length"},
+                {"name": "Lp", "default": "0", "unit": "", "desc": "Peak doping length"}
+            ]
+        },
+        {
+            "name": "Capacitance",
+            "params": [
+                {"name": "CapMod", "default": "2", "unit": "", "desc": "Capacitance model selector"},
+                {"name": "Cgso", "default": "5e-10", "unit": "F/m", "desc": "Gate-source overlap capacitance"},
+                {"name": "Cgdo", "default": "5e-10", "unit": "F/m", "desc": "Gate-drain overlap capacitance"},
+                {"name": "Cgbo", "default": "0", "unit": "F/m", "desc": "Gate-body overlap capacitance"},
+                {"name": "Cgs1", "default": "0", "unit": "F/m", "desc": "Light-doped region capacitance"},
+                {"name": "Cgd1", "default": "0", "unit": "F/m", "desc": "Light-doped region capacitance"},
+                {"name": "Cgb1", "default": "0", "unit": "F/m", "desc": "Light-doped region capacitance"},
+                {"name": "CgsL", "default": "0", "unit": "F/m", "desc": "Overlap capacitance length dependence"},
+                {"name": "CgdL", "default": "0", "unit": "F/m", "desc": "Overlap capacitance length dependence"},
+                {"name": "Ckappad", "default": "2e-9", "unit": "F/m", "desc": "Drain side fringing capacitance"},
+                {"name": "Ckappas", "default": "2e-9", "unit": "F/m", "desc": "Source side fringing capacitance"},
+                {"name": "Cox", "default": "0", "unit": "F/m^2", "desc": "Gate oxide capacitance per area"},
+                {"name": "Elm", "default": "0", "unit": "", "desc": "Elmore capacitance model selector"},
+                {"name": "MobMod", "default": "1", "unit": "", "desc": "Mobility model selector"},
+                {"name": "RgateMod", "default": "0", "unit": "", "desc": "Gate resistance model selector"}
+            ]
+        },
+        {
+            "name": "Junction Diode",
+            "params": [
+                {"name": "Cj", "default": "5e-4", "unit": "F/m^2", "desc": "Unit-area bottom junction capacitance"},
+                {"name": "Cjsw", "default": "5e-10", "unit": "F/m", "desc": "Unit-length sidewall junction capacitance"},
+                {"name": "Cjswg", "default": "5e-10", "unit": "F/m", "desc": "Unit-length gate-side junction capacitance"},
+                {"name": "Mj", "default": "0.5", "unit": "", "desc": "Bottom junction grading coefficient"},
+                {"name": "Mjsw", "default": "0.33", "unit": "", "desc": "Sidewall junction grading coefficient"},
+                {"name": "Mjswg", "default": "0.33", "unit": "", "desc": "Gate-side junction grading coefficient"},
+                {"name": "Pb", "default": "0.8", "unit": "V", "desc": "Bottom junction built-in potential"},
+                {"name": "Pbsw", "default": "0.8", "unit": "V", "desc": "Sidewall junction built-in potential"},
+                {"name": "Pbswg", "default": "0.8", "unit": "V", "desc": "Gate-side junction built-in potential"},
+                {"name": "Js", "default": "1e-6", "unit": "A/m^2", "desc": "Unit-area junction saturation current"},
+                {"name": "Jssw", "default": "0", "unit": "A/m", "desc": "Unit-length sidewall saturation current"},
+                {"name": "Jsswg", "default": "0", "unit": "A/m", "desc": "Unit-length gate-side saturation current"},
+                {"name": "Is", "default": "1e-14", "unit": "A", "desc": "Diode saturation current"},
+                {"name": "N", "default": "1", "unit": "", "desc": "Diode emission coefficient"}
+            ]
+        },
+        {
+            "name": "Temperature",
+            "params": [
+                {"name": "Tnom", "default": "27", "unit": "C", "desc": "Nominal temperature"},
+                {"name": "ToxRef", "default": "5e-9", "unit": "m", "desc": "Reference oxide thickness"},
+                {"name": "Xti", "default": "3", "unit": "", "desc": "Temperature exponent of Is"},
+                {"name": "Tcv", "default": "0", "unit": "V/K", "desc": "Threshold voltage temperature coefficient"},
+                {"name": "Cgsl", "default": "0", "unit": "F/m", "desc": "Gate-source overlap capacitance per length"},
+                {"name": "Cgdl", "default": "0", "unit": "F/m", "desc": "Gate-drain overlap capacitance per length"},
+                {"name": "Toxp", "default": "0", "unit": "m", "desc": "Oxide thickness in poly-depletion"},
+                {"name": "Ntun", "default": "0", "unit": "", "desc": "Tunneling coefficient for gate leakage"}
+            ]
+        },
+        {
+            "name": "Noise",
+            "params": [
+                {"name": "Kf", "default": "0", "unit": "", "desc": "Flicker noise coefficient"},
+                {"name": "Af", "default": "1", "unit": "", "desc": "Flicker noise exponent"},
+                {"name": "Ef", "default": "1", "unit": "", "desc": "Flicker noise frequency exponent"},
+                {"name": "Nlev", "default": "0", "unit": "", "desc": "Noise model selector"},
+                {"name": "FnoiMod", "default": "1", "unit": "", "desc": "Flicker noise model selector"},
+                {"name": "TnoiMod", "default": "1", "unit": "", "desc": "Thermal noise model selector"},
+                {"name": "RnoiMod", "default": "1", "unit": "", "desc": "Resistive noise model selector"}
+            ]
+        },
+        {
+            "name": "Gate Leakage",
+            "params": [
+                {"name": "IgcMod", "default": "0", "unit": "", "desc": "Gate leakage current model selector"},
+                {"name": "Igc", "default": "0", "unit": "A", "desc": "Gate-channel tunneling current"},
+                {"name": "Igs", "default": "0", "unit": "A", "desc": "Gate-source tunneling current"},
+                {"name": "Igd", "default": "0", "unit": "A", "desc": "Gate-drain tunneling current"},
+                {"name": "Aigb", "default": "0.35", "unit": "", "desc": "Gate-body leakage coefficient"},
+                {"name": "Bigb", "default": "2.5e9", "unit": "V/m", "desc": "Gate-body leakage exponent"},
+                {"name": "Cigb", "default": "0.5", "unit": "", "desc": "Gate-body leakage correction"},
+                {"name": "Aigc", "default": "0.35", "unit": "", "desc": "Gate-channel leakage coefficient"},
+                {"name": "Bigc", "default": "2.5e9", "unit": "V/m", "desc": "Gate-channel leakage exponent"},
+                {"name": "Cigc", "default": "0.5", "unit": "", "desc": "Gate-channel leakage correction"},
+                {"name": "Aigs", "default": "0.35", "unit": "", "desc": "Gate-source leakage coefficient"},
+                {"name": "Bigs", "default": "2.5e9", "unit": "V/m", "desc": "Gate-source leakage exponent"},
+                {"name": "Cigs", "default": "0.5", "unit": "", "desc": "Gate-source leakage correction"},
+                {"name": "Nigc", "default": "1", "unit": "", "desc": "Gate-channel tunneling emission coefficient"},
+                {"name": "Nigs", "default": "1", "unit": "", "desc": "Gate-source tunneling emission coefficient"},
+                {"name": "Nigb", "default": "1", "unit": "", "desc": "Gate-body tunneling emission coefficient"},
+                {"name": "Pox", "default": "1", "unit": "", "desc": "Tunneling oxide thickness ratio"}
+            ]
+        },
+        {
+            "name": "Impact Ionization / Substrate Current",
+            "params": [
+                {"name": "Aii0", "default": "2e8", "unit": "", "desc": "First impact ionization coefficient"},
+                {"name": "Aii1", "default": "0", "unit": "", "desc": "Second impact ionization coefficient"},
+                {"name": "Aii2", "default": "0", "unit": "", "desc": "Third impact ionization coefficient"},
+                {"name": "Bii0", "default": "2e7", "unit": "V/m", "desc": "Impact ionization field exponent"},
+                {"name": "Bii1", "default": "0", "unit": "", "desc": "Second impact ionization field exponent"},
+                {"name": "Bii2", "default": "0", "unit": "", "desc": "Third impact ionization field exponent"},
+                {"name": "Niim", "default": "0", "unit": "", "desc": "Impact ionization model flag"}
+            ]
+        }
+    ]
+}

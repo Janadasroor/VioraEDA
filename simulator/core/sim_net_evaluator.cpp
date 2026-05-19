@@ -67,7 +67,11 @@ std::complex<double> sampleComplex(const SimWaveform& w, size_t i) {
     const double mag = w.yData[i];
     const double phaseDeg = i < w.yPhase.size() ? w.yPhase[i] : 0.0;
     const double phaseRad = phaseDeg * std::acos(-1.0) / 180.0;
-    return std::polar(mag, phaseRad);
+    if (mag >= 0.0) {
+        return std::polar(mag, phaseRad);
+    } else {
+        return std::polar(-mag, phaseRad + std::acos(-1.0));
+    }
 }
 
 std::string netBaseName(const NetStatement& stmt) {

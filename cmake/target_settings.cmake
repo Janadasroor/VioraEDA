@@ -51,7 +51,6 @@ if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
 endif()
 
 set(VIORAEDA_APP_LINK_LIBS
-    VioCore
     VioSymbols
     VioSchematicCore
     VioSchematicUI
@@ -59,11 +58,11 @@ set(VIORAEDA_APP_LINK_LIBS
     FluxScript
     VioFootprints
     VioraPCBCore
+    VioCore
     ${VIORAEDA_QT_LINK_LIBS}
 )
 
 set(VIORAEDA_CLI_LINK_LIBS
-    VioCore
     VioSymbols
     VioSchematicCore
     VioSchematicUI
@@ -71,6 +70,7 @@ set(VIORAEDA_CLI_LINK_LIBS
     FluxScript
     VioFootprints
     VioraPCBCore
+    VioCore
     ${VIORAEDA_QT_LINK_LIBS}
 )
 

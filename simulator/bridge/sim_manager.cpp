@@ -759,7 +759,11 @@ void evaluateNetStatementsIntoResults(const QString& netlistContent, SimAnalysis
                     double mag = w->yData[idx];
                     double phaseDeg = idx < w->yPhase.size() ? w->yPhase[idx] : 0.0;
                     double phaseRad = phaseDeg * 3.14159265358979323846 / 180.0;
-                    return std::polar(mag, phaseRad);
+                    if (mag >= 0.0) {
+                        return std::polar(mag, phaseRad);
+                    } else {
+                        return std::polar(-mag, phaseRad + 3.14159265358979323846);
+                    }
                 };
 
                 p.s11 = getComplex(s11w, i);

@@ -313,6 +313,19 @@ bool SimModelParser::parseModelLine(
         model.type = SimComponentType::SubcircuitInstance; 
     }
 
+    // Detect model level from type name (ngspice accepts BSIM4, BSIMSOI, etc. directly)
+    {
+        std::string typeUpper = typeOrBase;
+        std::transform(typeUpper.begin(), typeUpper.end(), typeUpper.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (typeUpper == "BSIM4" || typeUpper == "BSIM3" ||
+            typeUpper == "BSIMSOI" || typeUpper == "BSIM3SOI" ||
+            typeUpper == "HISIM2" || typeUpper == "HISIM_HV" ||
+            typeUpper == "VDMOS" || typeUpper == "SOI3") {
+            model.modelLevel = typeUpper;
+        }
+    }
+
     bool vdmosPchan = false;
     for (size_t i = 3; i < tokens.size(); ++i) {
         std::string token = stripParensComma(tokens[i]);
@@ -342,6 +355,34 @@ bool SimModelParser::parseModelLine(
     std::transform(typeUpper.begin(), typeUpper.end(), typeUpper.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     if (typeUpper == "VDMOS" && vdmosPchan) {
         model.type = SimComponentType::MOSFET_PMOS;
+    }
+
+    // Map LEVEL number to modelLevel string if not already set by type name
+    if (model.modelLevel.empty()) {
+        auto levelIt = model.params.find("LEVEL");
+        if (levelIt != model.params.end()) {
+            const int level = static_cast<int>(levelIt->second);
+            switch (level) {
+                case 1:  model.modelLevel = "MOS1"; break;
+                case 2:  model.modelLevel = "MOS2"; break;
+                case 3:  model.modelLevel = "MOS3"; break;
+                case 4:  model.modelLevel = "BSIM1"; break;
+                case 5:  model.modelLevel = "BSIM2"; break;
+                case 6:  model.modelLevel = "MOS6"; break;
+                case 8:  model.modelLevel = "BSIM3"; break;
+                case 9:  model.modelLevel = "MOS9"; break;
+                case 10: model.modelLevel = "BSIM3SOI"; break;
+                case 14: model.modelLevel = "BSIM4"; break;
+                case 20: model.modelLevel = "BSIMSOI"; break;
+                case 53: model.modelLevel = "HISIM2"; break;
+                case 55: model.modelLevel = "HISIM_HV"; break;
+                case 56: model.modelLevel = "HISIM_HV"; break;
+                default: model.modelLevel = "MOS1"; break;
+            }
+        } else if (model.type == SimComponentType::MOSFET_NMOS ||
+                   model.type == SimComponentType::MOSFET_PMOS) {
+            model.modelLevel = "MOS1";
+        }
     }
 
     outModels[model.name] = model;

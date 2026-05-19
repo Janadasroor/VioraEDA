@@ -219,7 +219,11 @@ void SmithChartWidget::drawTooltip(QPainter& painter) {
         if (std::abs(gamma) > 2.0) return; // Too far out
     } else {
         // Use the first trace's gamma for Z calculation in tooltip
-        gamma = m_traces.first().points[m_highlightIndex];
+        if (!m_traces.isEmpty() && m_highlightIndex >= 0 && m_highlightIndex < m_traces.first().points.size()) {
+            gamma = m_traces.first().points[m_highlightIndex];
+        } else {
+            gamma = {0, 0};
+        }
     }
 
     // Calculate Z (assuming 50 ohm)
@@ -248,9 +252,19 @@ void SmithChartWidget::drawTooltip(QPainter& painter) {
     
     textRect.moveTo(pos.x() + 15, pos.y() + 15);
 
-    // Keep inside widget
-    if (textRect.right() > width()) textRect.moveRight(pos.x() - 15);
-    if (textRect.bottom() > height()) textRect.moveBottom(pos.y() - 15);
+    // Keep inside widget boundaries to prevent clipping
+    if (textRect.right() > width()) {
+        textRect.moveRight(pos.x() - 15);
+    }
+    if (textRect.left() < 0) {
+        textRect.moveLeft(5);
+    }
+    if (textRect.bottom() > height()) {
+        textRect.moveBottom(pos.y() - 15);
+    }
+    if (textRect.top() < 0) {
+        textRect.moveTop(5);
+    }
 
     painter.setPen(Qt::NoPen);
     painter.setBrush(QColor(0, 0, 0, 180));

@@ -12,6 +12,7 @@
 struct SpiceModelInfo {
     QString name;
     QString type; // e.g., "NPN", "NMOS", "Diode", "Subcircuit"
+    QString modelLevel; // e.g., "MOS1", "BSIM4", "BSIMSOI", "HISIM2"
     QString libraryPath;
     QString description;
     QStringList params;

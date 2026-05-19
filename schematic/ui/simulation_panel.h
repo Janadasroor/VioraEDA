@@ -273,6 +273,7 @@ private:
     // Timeline / Time-Travel
     QSlider* m_timelineSlider = nullptr;
     QLabel* m_timelineLabel = nullptr;
+    QLabel* m_timelineIcon = nullptr;
     
     // Plotting
     QChartView* m_plotView = nullptr;

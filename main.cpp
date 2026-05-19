@@ -21,6 +21,7 @@
 #include "footprints/footprint_library.h"
 #include "simulator/bridge/sim_manager.h"
 
+#include <QIcon>
 #include <QApplication>
 #include <QDebug>
 #include <QLocalServer>
@@ -44,6 +45,11 @@ extern "C" {
 
 int main(int argc, char *argv[])
 {
+    // Enable ASan-friendly exit behavior
+    qputenv("ASAN_OPTIONS", "detect_leaks=1");
+
+    QApplication a(argc, argv);
+
     // MANDATORY: Setup custom simulation engine environment BEFORE any engine code is loaded
     QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (appDataPath.isEmpty()) {
@@ -53,11 +59,6 @@ int main(int argc, char *argv[])
 
     qputenv("SPICE_SCRIPTS", appDataPath.toUtf8());
     qputenv("SPICE_LIB_DIR", appDataPath.toUtf8());
-
-    // Enable ASan-friendly exit behavior
-    qputenv("ASAN_OPTIONS", "detect_leaks=1");
-
-    QApplication a(argc, argv);
     initEmbeddedPython();
     ThemeManager::instance();
     initializeFluxSimBridge();
@@ -65,6 +66,7 @@ int main(int argc, char *argv[])
 
     a.setApplicationName("VioraEDA");
     a.setOrganizationName("VIO");
+    a.setWindowIcon(QIcon(":/icons/viora_eda_logo.png"));
 
     QString serverName = "VioraEDA_instance_server";
     QString fileToOpen;

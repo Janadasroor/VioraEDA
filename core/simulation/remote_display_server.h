@@ -2,12 +2,13 @@
 #define REMOTE_DISPLAY_SERVER_H
 
 #include <QObject>
-#if __has_include(<QtWebSockets/QWebSocketServer>)
+#ifndef VIOSPICE_HAS_QT_WEBSOCKETS
+#define VIOSPICE_HAS_QT_WEBSOCKETS 0
+#endif
+#if VIOSPICE_HAS_QT_WEBSOCKETS
 #include <QtWebSockets/QWebSocketServer>
 #include <QtWebSockets/QWebSocket>
-#define VIOSPICE_HAS_QT_WEBSOCKETS 1
 #else
-#define VIOSPICE_HAS_QT_WEBSOCKETS 0
 class QWebSocketServer;
 class QWebSocket;
 #endif

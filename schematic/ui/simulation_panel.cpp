@@ -505,11 +505,13 @@ SimulationPanel::SimulationPanel(QGraphicsScene* scene, NetManager* netManager, 
     : QWidget(parent), m_scene(scene), m_netManager(netManager), m_projectDir(projectDir), m_acceptRealTimeStream(false) {
     setupUI();
     
-    auto& builtin = SimManager::instance();
-    connect(&builtin, &SimManager::logMessage, this, &SimulationPanel::onLogReceived);
-    connect(&builtin, &SimManager::simulationFinished, this, &SimulationPanel::onSimResultsReady);
-    connect(&builtin, &SimManager::realTimeDataBatchReceived, this, &SimulationPanel::onRealTimeDataBatchReceived);
-    connect(&builtin, &SimManager::errorOccurred, this, &SimulationPanel::onLogReceived);
+    QTimer::singleShot(0, this, [this]() {
+        auto& builtin = SimManager::instance();
+        connect(&builtin, &SimManager::logMessage, this, &SimulationPanel::onLogReceived);
+        connect(&builtin, &SimManager::simulationFinished, this, &SimulationPanel::onSimResultsReady);
+        connect(&builtin, &SimManager::realTimeDataBatchReceived, this, &SimulationPanel::onRealTimeDataBatchReceived);
+        connect(&builtin, &SimManager::errorOccurred, this, &SimulationPanel::onLogReceived);
+    });
 
     m_logFlushTimer = new QTimer(this);
     m_logFlushTimer->setInterval(100);
@@ -1860,6 +1862,16 @@ void SimulationPanel::setTargetScene(QGraphicsScene* scene, NetManager* netManag
         auto it = m_tabStates.find(scene);
         if (it != m_tabStates.end()) {
             restoreTabState(it.value());
+        } else {
+            if (m_analysisType) {
+                m_analysisType->setCurrentIndex(0); // Auto-Detect
+            }
+            syncFromSchematic();
+        }
+
+        // Switch to Waves tab automatically if switching to a non-RF mode (i.e. not RF S-Parameter)
+        if (m_analysisType && m_analysisType->currentIndex() != 5 && m_viewTabs) {
+            m_viewTabs->setCurrentIndex(0); // Index 0 is Waves (Analog Oscilloscope)
         }
     }
 }
@@ -2429,6 +2441,35 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
     if (!state.commandText.isEmpty()) {
         updateSchematicDirectiveFromCommand(state.commandText);
     }
+
+    // Restore Smith Chart if S-Parameter results are present
+    if (m_lastResults.analysisType == SimAnalysisType::SParameter && m_smithChart && !m_lastResults.sParameterResults.empty()) {
+        m_smithChart->clear();
+        QVector<std::complex<double>> s11, s21, s12, s22;
+        for (const auto& p : m_lastResults.sParameterResults) {
+            s11.append(p.s11);
+            s21.append(p.s21);
+            s12.append(p.s12);
+            s22.append(p.s22);
+        }
+        m_smithChart->addTrace({"S11", s11, QColor(59, 130, 246), true});
+        m_smithChart->addTrace({"S21", s21, QColor(234, 179, 8), true});
+        m_smithChart->addTrace({"S12", s12, QColor(168, 85, 247), true});
+        m_smithChart->addTrace({"S22", s22, QColor(239, 68, 68), true});
+
+        int points = static_cast<int>(m_lastResults.sParameterResults.size());
+        m_timelineSlider->blockSignals(true);
+        m_timelineSlider->setRange(0, std::max(0, points - 1));
+        m_timelineSlider->setValue(0);
+        m_timelineSlider->blockSignals(false);
+        m_timelineSlider->setEnabled(points > 1);
+
+        if (m_timelineIcon) m_timelineIcon->setText("📶");
+        if (points > 0) {
+            double freq = m_lastResults.sParameterResults.front().frequency;
+            m_timelineLabel->setText(formatFrequency(freq));
+        }
+    }
 }
 
 // Extracted to simulation_panel_ui.cpp: void SimulationPanel::setupUI
@@ -2512,12 +2553,20 @@ void SimulationPanel::onRunSimulation() {
         m_isSimInitiator = true;
         m_acceptRealTimeStream = true;
         g_liveStreamOwner = this;
+        if (m_viewTabs) {
+            m_viewTabs->setCurrentIndex(0); // Switch to Waves tab
+        }
         SimManager::instance().runRealTime(m_scene, m_netManager, interval);
         return;
     }
 
     // Ensure state is synced before thread starts
     syncFromSchematic();
+
+    // Switch to Waves tab automatically if running in a non-RF mode (i.e. not RF S-Parameter)
+    if (m_analysisType && m_analysisType->currentIndex() != 5 && m_viewTabs) {
+        m_viewTabs->setCurrentIndex(0); // Index 0 is Waves (Analog Oscilloscope)
+    }
 
     // Update simulation command directive on the schematic
     updateSchematicDirective();
@@ -2957,6 +3006,7 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
     m_timelineSlider->setEnabled(isTransient || isSParam);
     
     if (isTransient) {
+        if (m_timelineIcon) m_timelineIcon->setText("🕒");
         m_timelineSlider->blockSignals(true);
         m_timelineSlider->setRange(0, 1000);
         m_timelineSlider->setValue(1000); // Start at end
@@ -2966,6 +3016,7 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
             m_timelineLabel->setText(QString::number(effectiveResults.waveforms.front().xData.back(), 'g', 4) + " s");
         }
     } else if (isSParam) {
+        if (m_timelineIcon) m_timelineIcon->setText("📶");
         m_timelineSlider->blockSignals(true);
         int points = static_cast<int>(effectiveResults.sParameterResults.size());
         qDebug() << "[SimPanel] S-Parameter results found, points:" << points;
@@ -2979,6 +3030,7 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
             m_timelineLabel->setText(formatFrequency(freq));
         }
     } else {
+        if (m_timelineIcon) m_timelineIcon->setText("🕒");
         m_timelineLabel->setText("--- s");
     }
 

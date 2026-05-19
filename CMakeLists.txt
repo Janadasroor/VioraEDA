@@ -34,9 +34,9 @@ set(QT_VERSION_MAJOR 6)
 find_package(Qt6 QUIET COMPONENTS Pdf PdfWidgets)
 find_package(Qt6 QUIET COMPONENTS WebSockets)
 if(TARGET Qt${QT_VERSION_MAJOR}::WebSockets)
-    set(VIOSPICE_HAS_QT_WEBSOCKETS ON)
+    add_compile_definitions(VIOSPICE_HAS_QT_WEBSOCKETS=1)
 else()
-    set(VIOSPICE_HAS_QT_WEBSOCKETS OFF)
+    add_compile_definitions(VIOSPICE_HAS_QT_WEBSOCKETS=0)
     message(WARNING "Qt WebSockets not found. Remote display streaming will be disabled.")
 endif()
 if(TARGET Qt${QT_VERSION_MAJOR}::Pdf AND TARGET Qt${QT_VERSION_MAJOR}::PdfWidgets)
@@ -52,8 +52,20 @@ include(FetchContent)
 # Developer mode flag — OFF by default so new users download prebuilt binaries
 option(VIOSPICE_DEV_MODE "Enable local development mode (use local repos / build from source)" OFF)
 
-set(VIOMATRIXC_DOWNLOAD_URL "https://github.com/Janadasroor/VioMATRIXC/releases/download/v0.1.0/viomatrixc-linux-x86_64.tar.gz"
-    CACHE STRING "URL for prebuilt VioMATRIXC tarball")
+set(VIOMATRIXC_DOWNLOAD_BASE "https://github.com/Janadasroor/VioMATRIXC/releases/download/v0.1.0/viomatrixc"
+    CACHE STRING "URL prefix for prebuilt VioMATRIXC archive")
+
+if(WIN32)
+    set(VIOMATRIXC_ARCHIVE "viomatrixc-windows-x86_64.zip")
+    set(VIOMATRIXC_LIB_NAME "libngspice.dll")
+elseif(APPLE)
+    set(VIOMATRIXC_ARCHIVE "viomatrixc-macos-arm64.tar.gz")
+    set(VIOMATRIXC_LIB_NAME "libngspice.dylib")
+else()
+    set(VIOMATRIXC_ARCHIVE "viomatrixc-linux-x86_64.tar.gz")
+    set(VIOMATRIXC_LIB_NAME "libngspice.so")
+endif()
+set(VIOMATRIXC_DOWNLOAD_URL "${VIOMATRIXC_DOWNLOAD_BASE}-${VIOMATRIXC_ARCHIVE}")
 
 if(VIOSPICE_DEV_MODE)
     # --- Build VioMATRIXC from source (local repo or FetchContent) ---
@@ -122,20 +134,21 @@ else()
     # --- Download prebuilt VioMATRIXC ---
     message(STATUS "Downloading prebuilt VioMATRIXC engine...")
     set(_vm_dir "${CMAKE_BINARY_DIR}/viomatrixc-prebuilt")
+    set(_vm_archive "${_vm_dir}/${VIOMATRIXC_ARCHIVE}")
     file(DOWNLOAD "${VIOMATRIXC_DOWNLOAD_URL}"
-         "${_vm_dir}/viomatrixc.tar.gz" STATUS _dl_status)
+         "${_vm_archive}" STATUS _dl_status)
     list(GET _dl_status 0 _dl_rc)
     if(_dl_rc EQUAL 0)
-        file(ARCHIVE_EXTRACT INPUT "${_vm_dir}/viomatrixc.tar.gz"
+        file(ARCHIVE_EXTRACT INPUT "${_vm_archive}"
              DESTINATION "${_vm_dir}")
-        file(REMOVE "${_vm_dir}/viomatrixc.tar.gz")
+        file(REMOVE "${_vm_archive}")
     else()
         message(FATAL_ERROR "Failed to download VioMATRIXC from ${VIOMATRIXC_DOWNLOAD_URL}")
     endif()
 
     set(VIOSPICE_ENGINE_INCLUDE_DIRS "${_vm_dir}/include")
     set(VIOSPICE_PREFERRED_ENGINE_DIR "${_vm_dir}/lib")
-    set(VIOSPICE_PREFERRED_ENGINE_LIB "${_vm_dir}/lib/libngspice.so")
+    set(VIOSPICE_PREFERRED_ENGINE_LIB "${_vm_dir}/lib/${VIOMATRIXC_LIB_NAME}")
 
     # Copy .cm code models
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cm")
@@ -222,9 +235,21 @@ endif()
 # -----------------------
 
 # --- FluxScript Support ---
-option(VIOSPICE_DOWNLOAD_FLUXSCRIPT "Download prebuilt FluxScript (still requires LLVM)" OFF)
-set(FLUXSCRIPT_DOWNLOAD_URL "https://github.com/Janadasroor/fluxscript/releases/download/v0.1.0/fluxscript-linux-x86_64.tar.gz"
-    CACHE STRING "URL for prebuilt FluxScript tarball")
+option(VIOSPICE_DOWNLOAD_FLUXSCRIPT "Download prebuilt FluxScript" OFF)
+set(FLUXSCRIPT_DOWNLOAD_BASE "https://github.com/Janadasroor/fluxscript/releases/download/v0.1.0/fluxscript"
+    CACHE STRING "URL prefix for prebuilt FluxScript archive")
+
+if(WIN32)
+    set(FLUXSCRIPT_ARCHIVE "fluxscript-windows-x86_64.zip")
+    set(FLUXSCRIPT_LIB_NAME "FluxScript.dll")
+elseif(APPLE)
+    set(FLUXSCRIPT_ARCHIVE "fluxscript-macos-arm64.tar.gz")
+    set(FLUXSCRIPT_LIB_NAME "libFluxScript.dylib")
+else()
+    set(FLUXSCRIPT_ARCHIVE "fluxscript-linux-x86_64.tar.gz")
+    set(FLUXSCRIPT_LIB_NAME "libFluxScript.so")
+endif()
+set(FLUXSCRIPT_DOWNLOAD_URL "${FLUXSCRIPT_DOWNLOAD_BASE}-${FLUXSCRIPT_ARCHIVE}")
 
 set(FLUX_VIO_MATRIXC_LIB_DIR "${VIOSPICE_PREFERRED_ENGINE_DIR}" CACHE STRING "Path to VioMATRIXC libngspice directory" FORCE)
 
@@ -233,6 +258,7 @@ if(VIOSPICE_DEV_MODE)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript/CMakeLists.txt")
         message(STATUS "FluxScript: using local ../fluxscript")
         add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../fluxscript FluxScript)
+        set(FLUXSCRIPT_LIB_DIR "${CMAKE_BINARY_DIR}/FluxScript")
     else()
         message(STATUS "FluxScript: fetching from GitHub")
         FetchContent_Declare(
@@ -241,26 +267,37 @@ if(VIOSPICE_DEV_MODE)
             GIT_TAG        2717da0   # LLVM 21 compat + JIT fixes + eager compile cache
         )
         FetchContent_MakeAvailable(FluxScript)
+        set(FLUXSCRIPT_LIB_DIR "${fluxscript_BINARY_DIR}")
     endif()
     add_compile_definitions(HAVE_FLUXSCRIPT FLUXSCRIPT_EXAMPLES_DIR="${fluxscript_SOURCE_DIR}/examples")
     message(STATUS "FluxScript (dev build): ${fluxscript_SOURCE_DIR}")
+
+    # Locate LLVM shared library for bundling
+    find_library(FLUX_LLVM_LIB LLVM LLVM-21 LLVM.so.21.1
+        PATHS /usr/lib/llvm-21/lib /usr/lib/x86_64-linux-gnu
+        NO_DEFAULT_PATH
+    )
+    if(FLUX_LLVM_LIB)
+        message(STATUS "FluxScript LLVM lib: ${FLUX_LLVM_LIB}")
+    else()
+        message(WARNING "LLVM lib not found — FluxScript runtime will require system LLVM")
+    endif()
 else()
     # --- Download prebuilt FluxScript ---
     message(STATUS "Downloading prebuilt FluxScript...")
     set(_fs_dir "${CMAKE_BINARY_DIR}/fluxscript-prebuilt")
+    set(_fs_archive "${_fs_dir}/${FLUXSCRIPT_ARCHIVE}")
     file(DOWNLOAD "${FLUXSCRIPT_DOWNLOAD_URL}"
-         "${_fs_dir}/fluxscript.tar.gz" STATUS _dl_status)
+         "${_fs_archive}" STATUS _dl_status)
     list(GET _dl_status 0 _dl_rc)
     if(_dl_rc EQUAL 0)
-        file(ARCHIVE_EXTRACT INPUT "${_fs_dir}/fluxscript.tar.gz"
+        file(ARCHIVE_EXTRACT INPUT "${_fs_archive}"
              DESTINATION "${_fs_dir}")
-        file(REMOVE "${_fs_dir}/fluxscript.tar.gz")
+        file(REMOVE "${_fs_archive}")
     else()
         message(FATAL_ERROR "Failed to download FluxScript from ${FLUXSCRIPT_DOWNLOAD_URL}")
     endif()
 
-    # Find LLVM (required by prebuilt libFluxScript.a)
-    find_package(LLVM REQUIRED CONFIG)
     find_package(CURL REQUIRED)
     find_package(Eigen3 QUIET)
 
@@ -277,26 +314,21 @@ else()
         FetchContent_MakeAvailable(Eigen3)
     endif()
 
-    include_directories(${LLVM_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIR})
-    add_definitions(${LLVM_DEFINITIONS})
+    include_directories(${EIGEN3_INCLUDE_DIR})
 
-    # Map required LLVM components (must match what libFluxScript.a was built with)
-    llvm_map_components_to_libnames(_flux_llvm_libs
-        Core ExecutionEngine MCJIT OrcJIT Support native
-        BitWriter BitReader Linker IRReader X86
-    )
-
-    # Create an imported static library target
-    add_library(FluxScript STATIC IMPORTED GLOBAL)
+    # Create an imported shared library target (LLVM is bundled in the .so)
+    add_library(FluxScript SHARED IMPORTED GLOBAL)
     set_target_properties(FluxScript PROPERTIES
-        IMPORTED_LOCATION "${_fs_dir}/lib/libFluxScript.a"
+        IMPORTED_LOCATION "${_fs_dir}/lib/${FLUXSCRIPT_LIB_NAME}"
         INTERFACE_INCLUDE_DIRECTORIES "${_fs_dir}/include"
     )
-    target_link_libraries(FluxScript INTERFACE ${_flux_llvm_libs} CURL::libcurl)
+    target_link_libraries(FluxScript INTERFACE CURL::libcurl)
+
+    set(FLUXSCRIPT_LIB_DIR "${_fs_dir}/lib")
 
     set(fluxscript_SOURCE_DIR "${_fs_dir}")
     add_compile_definitions(HAVE_FLUXSCRIPT FLUXSCRIPT_EXAMPLES_DIR="${_fs_dir}/examples")
-    message(STATUS "FluxScript (prebuilt): ${_fs_dir}/lib/libFluxScript.a")
+    message(STATUS "FluxScript (prebuilt shared): ${_fs_dir}/lib/${FLUXSCRIPT_LIB_NAME}")
 endif()
 # -----------------------
 
@@ -378,11 +410,19 @@ if(BUILD_FLUX_RUNNER)
         -Wl,--end-group
     )
     set_target_properties(flux_runner PROPERTIES
-        BUILD_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
-        INSTALL_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+        BUILD_RPATH "\$ORIGIN;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR}"
+        INSTALL_RPATH "\$ORIGIN;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR}"
         BUILD_WITH_INSTALL_RPATH TRUE
         BUILD_RPATH_USE_ORIGIN TRUE
     )
+    if(VIOSPICE_DEV_MODE AND FLUX_LLVM_LIB)
+        add_custom_command(TARGET flux_runner POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${FLUX_LLVM_LIB}"
+                "$<TARGET_FILE_DIR:flux_runner>/libLLVM.so.21.1"
+            COMMENT "Copying libLLVM.so.21.1 next to flux_runner"
+        )
+    endif()
 endif()
 
 if(BUILD_VIOSPICE_CLI)
@@ -422,10 +462,18 @@ if(BUILD_VIOSPICE_CLI)
         # system libngspice resolves first, native code models load without the
         # VioSpice bridge symbols and SmartSignal A-devices fail at deck load.
         set_target_properties(viora PROPERTIES
-            BUILD_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+            BUILD_RPATH "\$ORIGIN;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR}"
             BUILD_RPATH_USE_ORIGIN TRUE
-            INSTALL_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+            INSTALL_RPATH "\$ORIGIN;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR}"
         )
+        if(VIOSPICE_DEV_MODE AND FLUX_LLVM_LIB)
+            add_custom_command(TARGET viora POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${FLUX_LLVM_LIB}"
+                    "$<TARGET_FILE_DIR:viora>/libLLVM.so.21.1"
+                COMMENT "Copying libLLVM.so.21.1 next to viora"
+            )
+        endif()
     endif()
 
     vioraeda_configure_app_target(viora)
@@ -467,11 +515,19 @@ if(BUILD_VIOSPICE_APP)
 
 
     set_target_properties(VioraEDA PROPERTIES
-        BUILD_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
-        INSTALL_RPATH "${VIOSPICE_PREFERRED_ENGINE_DIR}"
+        BUILD_RPATH "\$ORIGIN;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR}"
+        INSTALL_RPATH "\$ORIGIN;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR}"
         BUILD_WITH_INSTALL_RPATH TRUE
         BUILD_RPATH_USE_ORIGIN TRUE
     )
+    if(VIOSPICE_DEV_MODE AND FLUX_LLVM_LIB)
+        add_custom_command(TARGET VioraEDA POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${FLUX_LLVM_LIB}"
+                "$<TARGET_FILE_DIR:VioraEDA>/libLLVM.so.21.1"
+            COMMENT "Copying libLLVM.so.21.1 next to VioraEDA"
+        )
+    endif()
 
     # Link embedded Python runtime (Phase 4)
     if(Python3_FOUND)
