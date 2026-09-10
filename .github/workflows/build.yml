@@ -54,7 +54,7 @@ jobs:
       - name: Install system deps (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install cmake curl ccache libedit zstd llvm libomp qt@6 eigen || true
+          brew install cmake curl ccache libedit zstd llvm libomp qt@6 eigen autoconf automake libtool bison flex pkg-config || true
           QT_PREFIX="$(brew --prefix qt@6 2>/dev/null || brew --prefix qt)"
           echo "Qt6_DIR=$QT_PREFIX/lib/cmake/Qt6" >> $GITHUB_ENV
 
@@ -141,7 +141,7 @@ jobs:
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
-        run: cmake --preset release -DVIOSPICE_BUILD_VIOMATRIXC=OFF -DVIOSPICE_BUILD_FLUXSCRIPT=ON
+        run: cmake --preset release -DVIOSPICE_BUILD_VIOMATRIXC=ON -DVIOSPICE_BUILD_FLUXSCRIPT=ON
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'

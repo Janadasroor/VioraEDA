@@ -71,6 +71,14 @@ export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
 export HOMEBREW_NO_AUTO_UPDATE=1
 brew untap aws/tap 2>/dev/null || true
 
+# VioMATRIXC source builds need autotools (parity with Linux apt deps)
+for _tool in autoconf automake libtool bison flex pkg-config; do
+    if ! brew list "$_tool" >/dev/null 2>&1; then
+        info "Installing $_tool via Homebrew (VioMATRIXC source build)..."
+        brew install "$_tool" 2>/dev/null || true
+    fi
+done
+
 # Locate Bison
 for bp in /usr/local/opt/bison/bin /opt/homebrew/opt/bison/bin; do
     if [ -d "$bp" ]; then
@@ -138,7 +146,7 @@ CMAKE_ARGS=(
     -B "$ROOT/build"
     -S "$ROOT"
     -DCMAKE_BUILD_TYPE=Release
-    -DVIOSPICE_BUILD_VIOMATRIXC=OFF
+    -DVIOSPICE_BUILD_VIOMATRIXC=ON
     -DVIOSPICE_BUILD_FLUXSCRIPT=ON
     -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER
 )
