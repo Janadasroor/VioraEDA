@@ -101,7 +101,9 @@ info " Jobs       : $JOBS"
 info "=========================================================="
 
 mkdir -p "$OUT_DIR"
-rm -rf "$STAGE_DIR"
+if [ "$VERIFY_ONLY" -eq 0 ]; then
+    rm -rf "$STAGE_DIR"
+fi
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 mkdir -p "$APP_DIR/Contents/Frameworks"
@@ -132,7 +134,11 @@ fi
 
 [ -f "$BUILD_DIR/viora" ] && cp -f "$BUILD_DIR/viora" "$APP_DIR/Contents/MacOS/" || true
 [ -f "$BUILD_DIR/flux_runner" ] && cp -f "$BUILD_DIR/flux_runner" "$APP_DIR/Contents/MacOS/" || true
-[ -f "$BUILD_DIR/flux-lsp" ] && cp -f "$BUILD_DIR/flux-lsp" "$APP_DIR/Contents/MacOS/" || true
+if [ -f "$BUILD_DIR/flux-lsp" ]; then
+    cp -f "$BUILD_DIR/flux-lsp" "$APP_DIR/Contents/MacOS/" || true
+else
+    find "$BUILD_DIR/_deps/fluxscript-build" "$BUILD_DIR/FluxScript" -maxdepth 1 -name "flux-lsp" -type f -exec cp -f {} "$APP_DIR/Contents/MacOS/" \; 2>/dev/null || true
+fi
 [ -f "$BUILD_DIR/VioraEDA_Setup" ] && cp -f "$BUILD_DIR/VioraEDA_Setup" "$APP_DIR/Contents/MacOS/" || true
 find "$BUILD_DIR" -name "vioavr" -type f -exec cp -f {} "$APP_DIR/Contents/MacOS/" \; 2>/dev/null || true
 
@@ -305,6 +311,17 @@ else
 fi
 
 # Verify Qt deployment completeness (parity with Linux plugin staging)
+# macdeployqt ships only cocoa by default; stage minimal/offscreen too so
+# headless smoke tests (QT_QPA_PLATFORM=offscreen/minimal) work from the bundle.
+for _qtplugdir in "$QT_DIR/plugins/platforms" "${Qt6_DIR:-}/../../../plugins/platforms" /Users/jnd/Qt/6.6.3/macos/plugins/platforms; do
+    if [ -d "$_qtplugdir" ]; then
+        mkdir -p "$APP_DIR/Contents/PlugIns/platforms"
+        for _plug in libqminimal.dylib libqoffscreen.dylib; do
+            [ -f "$APP_DIR/Contents/PlugIns/platforms/$_plug" ] || cp -f "$_qtplugdir/$_plug" "$APP_DIR/Contents/PlugIns/platforms/" 2>/dev/null || true
+        done
+        break
+    fi
+done
 for _plug in "platforms/libqcocoa.dylib" "platforms/libqminimal.dylib" "platforms/libqoffscreen.dylib" "imageformats/libqsvg.dylib" "tls/libqcertonlybackend.dylib"; do
     if [ -f "$APP_DIR/Contents/PlugIns/$_plug" ]; then
         info "Qt plugin OK: $_plug"
