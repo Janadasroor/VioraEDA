@@ -443,8 +443,8 @@ jobs:
           test -f build/installer/VioraEDA-*-macos-*.pkg || echo "Note: .pkg missing (pkgbuild unavailable?)"
           # Fail closed on required bundle pieces (parity with Windows verify step)
           bash scripts/package_macos.sh --verify-only --lib "$HOME/viora-libs"
-          echo "=== otool portability check (no absolute runner paths) ==="
-          ! otool -L build/stage_macos/VioraEDA.app/Contents/MacOS/* 2>/dev/null | grep -E "/Users/runner/work|/home/runner/work" || (echo "ERROR: absolute runner paths in bundle" && exit 1)
+          echo "=== otool portability check (no absolute runner paths in dependencies) ==="
+          ! otool -L build/stage_macos/VioraEDA.app/Contents/MacOS/* 2>/dev/null | grep -E '^[[:space:]]+.*(/Users/runner/work|/home/runner/work)' || (echo "ERROR: absolute runner paths in bundle" && exit 1)
           echo "All macOS package checks passed"
 
       - name: Package (Windows)

@@ -109,6 +109,58 @@ mkdir -p "$APP_DIR/Contents/Resources"
 mkdir -p "$APP_DIR/Contents/Frameworks"
 mkdir -p "$APP_DIR/Contents/PlugIns"
 
+# Bundle content verification (parity with Windows/Linux verify steps).
+# NOTE: otool's first output line per binary is the binary's own path
+# (always absolute), so only indented dependency lines are matched.
+verify_bundle() {
+    local _missing=0
+    _check() {
+        if [ -e "$1" ]; then
+            info "OK: $2"
+        else
+            warn "MISSING: $2 ($1)"
+            _missing=1
+        fi
+    }
+    _check "$APP_DIR/Contents/MacOS/VioraEDA" "bin/VioraEDA"
+    _check "$APP_DIR/Contents/MacOS/viora" "bin/viora"
+    _check "$APP_DIR/Contents/MacOS/flux_runner" "bin/flux_runner"
+    _check "$APP_DIR/Contents/MacOS/vioavr" "bin/vioavr"
+    _check "$APP_DIR/Contents/MacOS/flux-lsp" "bin/flux-lsp (optional)"
+    _check "$APP_DIR/Contents/Resources/cm/analog.cm" "cm/analog.cm"
+    _check "$APP_DIR/Contents/Resources/cm/digital.cm" "cm/digital.cm"
+    _check "$APP_DIR/Contents/Resources/templates" "templates/"
+    _check "$APP_DIR/Contents/Resources/python/vspice" "python/vspice/"
+    _check "$APP_DIR/Contents/Info.plist" "Info.plist"
+    if [ -d "$APP_DIR/Contents/Resources/ViospiceLib" ]; then
+        info "OK: ViospiceLib ($(find "$APP_DIR/Contents/Resources/ViospiceLib" -type f | wc -l | tr -d ' ') files)"
+    else
+        warn "MISSING: ViospiceLib/"
+        _missing=1
+    fi
+    # No absolute build-machine paths may remain in staged *dependencies*
+    if command -v otool >/dev/null 2>&1; then
+        local _abs
+        _abs="$(otool -L "$APP_DIR/Contents/MacOS/"* 2>/dev/null | grep -E '^[[:space:]]+.*(/Users/runner/work|/home/runner/work)' || true)"
+        if [ -n "$_abs" ]; then
+            warn "Absolute build paths remain in bundle dependencies:"
+            echo "$_abs" >&2
+            _missing=1
+        else
+            info "OK: no absolute build paths in staged dependencies"
+        fi
+    fi
+    return $_missing
+}
+
+if [ "$VERIFY_ONLY" -eq 1 ]; then
+    [ -f "$APP_DIR/Contents/MacOS/VioraEDA" ] || die "Nothing to verify: $APP_DIR not staged (run without --verify-only first)"
+    info "Verify-only mode (no rebuild, no re-stage)..."
+    if verify_bundle; then ok "Bundle verification PASSED"; else die "Bundle verification FAILED"; fi
+    ls -lh "$OUT_DIR" 2>/dev/null || true
+    exit 0
+fi
+
 # ---------------------------------------------------------------------------
 # 1) Build binaries
 # ---------------------------------------------------------------------------
@@ -313,15 +365,26 @@ fi
 # Verify Qt deployment completeness (parity with Linux plugin staging)
 # macdeployqt ships only cocoa by default; stage minimal/offscreen too so
 # headless smoke tests (QT_QPA_PLATFORM=offscreen/minimal) work from the bundle.
-for _qtplugdir in "$QT_DIR/plugins/platforms" "${Qt6_DIR:-}/../../../plugins/platforms" /Users/jnd/Qt/6.6.3/macos/plugins/platforms; do
-    if [ -d "$_qtplugdir" ]; then
-        mkdir -p "$APP_DIR/Contents/PlugIns/platforms"
-        for _plug in libqminimal.dylib libqoffscreen.dylib; do
-            [ -f "$APP_DIR/Contents/PlugIns/platforms/$_plug" ] || cp -f "$_qtplugdir/$_plug" "$APP_DIR/Contents/PlugIns/platforms/" 2>/dev/null || true
-        done
+# Locate the platform plugins across Qt layouts (aqt cache, brew qt@6/qt, local ~/Qt).
+_QTPLUG_SRC=""
+for _qtdir in "${QT_DIR:-}" "${Qt6_DIR:-}/../../.." "$(brew --prefix qt@6 2>/dev/null)" "$(brew --prefix qt 2>/dev/null)" "$HOME/Qt/6.6.3/macos"; do
+    [ -n "$_qtdir" ] || continue
+    _found="$(find "$_qtdir" -path "*plugins/platforms/libqoffscreen.dylib" 2>/dev/null | head -n 1)"
+    if [ -n "$_found" ]; then
+        _QTPLUG_SRC="$(dirname "$_found")"
         break
     fi
 done
+if [ -n "$_QTPLUG_SRC" ]; then
+    mkdir -p "$APP_DIR/Contents/PlugIns/platforms"
+    for _plug in libqminimal.dylib libqoffscreen.dylib libqcocoa.dylib; do
+        [ -f "$APP_DIR/Contents/PlugIns/platforms/$_plug" ] || cp -f "$_QTPLUG_SRC/$_plug" "$APP_DIR/Contents/PlugIns/platforms/" 2>/dev/null || true
+    done
+    info "Qt platform plugins staged from $_QTPLUG_SRC"
+else
+    warn "Qt platform plugin source not found; offscreen/minimal may be missing"
+fi
+unset _QTPLUG_SRC _found _qtdir _plug
 for _plug in "platforms/libqcocoa.dylib" "platforms/libqminimal.dylib" "platforms/libqoffscreen.dylib" "imageformats/libqsvg.dylib" "tls/libqcertonlybackend.dylib"; do
     if [ -f "$APP_DIR/Contents/PlugIns/$_plug" ]; then
         info "Qt plugin OK: $_plug"
@@ -343,54 +406,6 @@ fi
 # ---------------------------------------------------------------------------
 # 8) Verify bundle contents (parity with Windows/Linux verify steps)
 # ---------------------------------------------------------------------------
-verify_bundle() {
-    local _missing=0
-    _check() {
-        if [ -e "$1" ]; then
-            info "OK: $2"
-        else
-            warn "MISSING: $2 ($1)"
-            _missing=1
-        fi
-    }
-    _check "$APP_DIR/Contents/MacOS/VioraEDA" "bin/VioraEDA"
-    _check "$APP_DIR/Contents/MacOS/viora" "bin/viora"
-    _check "$APP_DIR/Contents/MacOS/flux_runner" "bin/flux_runner"
-    _check "$APP_DIR/Contents/MacOS/vioavr" "bin/vioavr"
-    _check "$APP_DIR/Contents/MacOS/flux-lsp" "bin/flux-lsp (optional)"
-    _check "$APP_DIR/Contents/Resources/cm/analog.cm" "cm/analog.cm"
-    _check "$APP_DIR/Contents/Resources/cm/digital.cm" "cm/digital.cm"
-    _check "$APP_DIR/Contents/Resources/templates" "templates/"
-    _check "$APP_DIR/Contents/Resources/python/vspice" "python/vspice/"
-    _check "$APP_DIR/Contents/Info.plist" "Info.plist"
-    if [ -d "$APP_DIR/Contents/Resources/ViospiceLib" ]; then
-        info "OK: ViospiceLib ($(find "$APP_DIR/Contents/Resources/ViospiceLib" -type f | wc -l | tr -d ' ') files)"
-    else
-        warn "MISSING: ViospiceLib/"
-        _missing=1
-    fi
-    # No absolute build-machine paths may remain in staged binaries
-    if command -v otool >/dev/null 2>&1; then
-        local _abs
-        _abs="$(otool -L "$APP_DIR/Contents/MacOS/"* 2>/dev/null | grep -E "$ROOT_DIR|$BUILD_DIR|/Users/runner/work" || true)"
-        if [ -n "$_abs" ]; then
-            warn "Absolute build paths remain in bundle:"
-            echo "$_abs" >&2
-            _missing=1
-        else
-            info "OK: no absolute build paths in staged binaries"
-        fi
-    fi
-    return $_missing
-}
-
-if [ "$VERIFY_ONLY" -eq 1 ]; then
-    info "Verify-only mode..."
-    if verify_bundle; then ok "Bundle verification PASSED"; else die "Bundle verification FAILED"; fi
-    ls -lh "$OUT_DIR" 2>/dev/null || true
-    exit 0
-fi
-
 if ! verify_bundle; then
     warn "Bundle verification reported missing pieces (see above) — continuing to archive anyway"
 fi
