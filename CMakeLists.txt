@@ -660,7 +660,7 @@ if(VIOSPICE_DEV_MODE OR VIOSPICE_BUILD_FLUXSCRIPT)
         FetchContent_Declare(
             FluxScript
             GIT_REPOSITORY https://github.com/Janadasroor/fluxscript.git
-            GIT_TAG        16a93afaa342b7bec5c96eb0864468361b5fc113
+            GIT_TAG        48cdf4402428282aaeff85a2c26b5caa3eec9cd1
         )
         FetchContent_MakeAvailable(FluxScript)
         set(FLUXSCRIPT_LIB_DIR "${fluxscript_BINARY_DIR}")
