@@ -333,25 +333,38 @@ void SimulationManager::initialize() {
     );
 
     if (m_isInitialized) {
-        QString cmDir = QCoreApplication::applicationDirPath() + "/cm";
+        // Resolve the code-model directory across all install layouts:
+        //   dev/CLI/tarball: <appDir>/cm
+        //   legacy fallback: <appDir>/../cm
+        //   macOS bundle:    <appDir>/../Resources/cm  (MacOS -> Contents/Resources)
+        const QString appDir = QCoreApplication::applicationDirPath();
+        const QStringList cmCandidates = {appDir + "/cm", appDir + "/../cm",
+                                          appDir + "/../Resources/cm"};
+        QString cmDir;
+        for (const QString& cand : cmCandidates) {
+            if (QDir(cand).exists()) {
+                cmDir = cand;
+                break;
+            }
+        }
+        if (cmDir.isEmpty()) cmDir = appDir + "/cm";
+        auto resolveCm = [&](const QString& sub) -> QString {
+            for (const QString& cand : cmCandidates) {
+                const QString p = QString("%1/%2.cm").arg(cand, sub);
+                if (QFile::exists(p)) return p;
+            }
+            return QString("%1/%2.cm").arg(cmDir, sub);
+        };
         qDebug() << "[XSPICE] Loading code models from:" << cmDir;
         QStringList cmSubDirs = {"analog", "digital", "spice2poly", "tlines", "xtradev", "xtraevt", "viospice"};
-        
+
         for (const QString& sub : cmSubDirs) {
-            QString cmPath = QString("%1/%2.cm").arg(cmDir, sub);
+            QString cmPath = resolveCm(sub);
             if (QFile::exists(cmPath)) {
                 int rc = SpiceBackend::instance().execute(QString("codemodel %1").arg(cmPath));
                 qDebug() << "[XSPICE] Loaded" << sub << "rc=" << rc;
             } else {
                 qDebug() << "[XSPICE] MISSING:" << cmPath;
-                // Fallback: try relative to app dir /../cm
-                QString fallback = QCoreApplication::applicationDirPath() + "/../cm/" + sub + ".cm";
-                if (QFile::exists(fallback)) {
-                    qDebug() << "[XSPICE] Fallback found:" << fallback;
-                    SpiceBackend::instance().execute(QString("codemodel %1").arg(fallback));
-                } else {
-                    qDebug() << "[XSPICE] Fallback also missing:" << fallback;
-                }
             }
         }
 
@@ -362,8 +375,7 @@ void SimulationManager::initialize() {
         // from different VioMATRIXC trees (dev vs release). Verify the d_cosim
         // codemodel ABI tag before running; report a clear error instead of a
         // segfault inside CKTdump.
-        QString digitalCm = cmDir + "/digital.cm";
-        if (!QFile::exists(digitalCm)) digitalCm = QCoreApplication::applicationDirPath() + "/../cm/digital.cm";
+        QString digitalCm = resolveCm("digital");
         if (!verifyCosimAbiMatch(digitalCm)) {
             m_abiMismatch = true;
         }
