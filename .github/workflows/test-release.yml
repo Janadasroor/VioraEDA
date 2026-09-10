@@ -177,3 +177,85 @@ jobs:
           du -sh /tmp/testdir/bin/*
           echo ""
           echo "All tests completed"
+
+  test-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Download macOS assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p /tmp/macos-test
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            -p "*-macos-*.tar.gz" -O /tmp/macos-test/pkg.tar.gz --clobber
+          tar -tzf /tmp/macos-test/pkg.tar.gz | head -30
+
+      - name: Test 1 — bundle layout check
+        run: |
+          set -e
+          mkdir -p /tmp/macos-test/extract
+          tar -xzf /tmp/macos-test/pkg.tar.gz -C /tmp/macos-test/extract
+          APP=$(find /tmp/macos-test/extract -name "VioraEDA.app" -maxdepth 3 | head -n 1)
+          test -n "$APP" || (echo "MISSING: VioraEDA.app" && exit 1)
+          echo "APP=$APP"
+          test -f "$APP/Contents/MacOS/VioraEDA"
+          test -f "$APP/Contents/MacOS/viora"
+          test -f "$APP/Contents/MacOS/flux_runner"
+          test -f "$APP/Contents/Resources/cm/analog.cm"
+          test -f "$APP/Contents/Resources/cm/digital.cm"
+          test -f "$APP/Contents/Info.plist"
+          echo "All required bundle files present"
+
+      - name: Test 2 — otool portability check
+        run: |
+          set -e
+          APP=$(find /tmp/macos-test/extract -name "VioraEDA.app" -maxdepth 3 | head -n 1)
+          echo "=== otool -L viora ==="
+          otool -L "$APP/Contents/MacOS/viora" | head -40
+          if otool -L "$APP"/Contents/MacOS/* | grep -E "/Users/runner/work|/home/runner/work"; then
+            echo "FAIL: absolute runner paths remain"
+            exit 1
+          fi
+          echo "No absolute runner paths"
+
+      - name: Test 3 — CLI smoke (viora --version/--help)
+        env:
+          DYLD_LIBRARY_PATH: /tmp/macos-test/extract/VioraEDA.app/Contents/Frameworks
+          HOME: /tmp/macos-smoke
+        run: |
+          mkdir -p "$HOME"
+          APP=$(find /tmp/macos-test/extract -name "VioraEDA.app" -maxdepth 3 | head -n 1)
+          "$APP/Contents/MacOS/viora" --version
+          "$APP/Contents/MacOS/viora" --help | head -20
+
+      - name: Test 4 — GUI launch (offscreen, SIGTERM-tolerant)
+        env:
+          HOME: /tmp/macos-smoke2
+        run: |
+          set +e
+          APP=$(find /tmp/macos-test/extract -name "VioraEDA.app" -maxdepth 3 | head -n 1)
+          QT_QPA_PLATFORM=offscreen "$APP/Contents/MacOS/VioraEDA" &
+          pid=$!
+          sleep 8
+          kill $pid 2>/dev/null
+          wait $pid
+          rc=$?
+          set -e
+          if [ $rc -eq 0 ] || [ $rc -ge 128 ]; then
+            echo "PASS: VioraEDA started without crashing (exit $rc)"
+          else
+            echo "FAIL: VioraEDA crashed (exit $rc)"
+            exit $rc
+          fi

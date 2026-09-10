@@ -152,6 +152,29 @@ PREFIX_DIRS=()
 [ -n "$LLVM_DIR" ] && PREFIX_DIRS+=("$LLVM_DIR")
 ZSTD_PREFIX="$(brew --prefix zstd 2>/dev/null || true)"
 [ -n "$ZSTD_PREFIX" ] && PREFIX_DIRS+=("$ZSTD_PREFIX")
+# Eigen3 (header-only) for FluxScript AI surrogate module. Brew's Eigen 5 is
+# not in CMake's default prefix path on Apple Silicon, so discover and forward
+# it explicitly (mirrors top-level CMakeLists pre-seed).
+EIGEN_PREFIX="$(brew --prefix eigen 2>/dev/null || true)"
+if [ -z "$EIGEN_PREFIX" ] || [ ! -d "$EIGEN_PREFIX" ]; then
+    info "Installing Eigen3 headers via Homebrew..."
+    brew install eigen 2>/dev/null || true
+    EIGEN_PREFIX="$(brew --prefix eigen 2>/dev/null || true)"
+fi
+EIGEN_INCLUDE=""
+for cand in "$EIGEN_PREFIX/include/eigen3" "$EIGEN_PREFIX/include" /opt/homebrew/include/eigen3 /opt/homebrew/include /usr/local/include/eigen3 /usr/local/include; do
+    if [ -f "$cand/Eigen/Dense" ]; then
+        EIGEN_INCLUDE="$cand"
+        break
+    fi
+done
+if [ -n "$EIGEN_INCLUDE" ]; then
+    info "Eigen3 headers: $EIGEN_INCLUDE"
+    CMAKE_ARGS+=(-DEIGEN3_INCLUDE_DIR="$EIGEN_INCLUDE")
+else
+    warn "Eigen3 headers not found — FluxScript AI surrogate build may fail"
+fi
+[ -n "$EIGEN_PREFIX" ] && [ -d "$EIGEN_PREFIX" ] && PREFIX_DIRS+=("$EIGEN_PREFIX")
 
 if [ "${#PREFIX_DIRS[@]}" -gt 0 ]; then
     CMAKE_ARGS+=(-DCMAKE_PREFIX_PATH="$(IFS=';'; echo "${PREFIX_DIRS[*]}")")

@@ -433,6 +433,20 @@ jobs:
           bash scripts/package_macos.sh --lib "$HOME/viora-libs"
           ls -lh build/installer/
 
+      - name: Verify package contents (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          ls -lh build/installer/
+          test -f build/installer/VioraEDA-*-macos-*.dmg
+          test -f build/installer/VioraEDA-*-macos-*.tar.gz
+          test -f build/installer/VioraEDA-*-macos-*.pkg || echo "Note: .pkg missing (pkgbuild unavailable?)"
+          # Fail closed on required bundle pieces (parity with Windows verify step)
+          bash scripts/package_macos.sh --verify-only --lib "$HOME/viora-libs"
+          echo "=== otool portability check (no absolute runner paths) ==="
+          ! otool -L build/stage_macos/VioraEDA.app/Contents/MacOS/* 2>/dev/null | grep -E "/Users/runner/work|/home/runner/work" || (echo "ERROR: absolute runner paths in bundle" && exit 1)
+          echo "All macOS package checks passed"
+
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -586,6 +600,7 @@ jobs:
             build/installer/VioraEDA-*-linux-x86_64.deb
             build/installer/VioraEDA-*-macos-*.dmg
             build/installer/VioraEDA-*-macos-*.tar.gz
+            build/installer/VioraEDA-*-macos-*.pkg
             VioraEDA-*-linux-x86_64.tar.gz
             VioraEDA-*-linux-x86_64.AppImage
             deb-pkg/*.deb
