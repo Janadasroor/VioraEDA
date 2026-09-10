@@ -337,9 +337,11 @@ void SimulationManager::initialize() {
         //   dev/CLI/tarball: <appDir>/cm
         //   legacy fallback: <appDir>/../cm
         //   macOS bundle:    <appDir>/../Resources/cm  (MacOS -> Contents/Resources)
+        //   CMake dev bundle: <appDir>/../../../cm     (build/VioraEDA.app/Contents/MacOS -> build/cm)
         const QString appDir = QCoreApplication::applicationDirPath();
         const QStringList cmCandidates = {appDir + "/cm", appDir + "/../cm",
-                                          appDir + "/../Resources/cm"};
+                                          appDir + "/../Resources/cm",
+                                          appDir + "/../../../cm"};
         QString cmDir;
         for (const QString& cand : cmCandidates) {
             if (QDir(cand).exists()) {
