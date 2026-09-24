@@ -429,15 +429,24 @@ std::chrono::milliseconds SimulationManager::dynamicHaltBudget() const {
 }
 
 bool SimulationManager::haltAndWait(std::chrono::milliseconds budget) {
-    m_haltRequested = true;
-
     {
         std::lock_guard<std::mutex> lock(m_workerSyncMutex);
         // Already parked at a sync point (e.g. state==Halted) — no new
-        // callback will fire for a redundant bg_halt, so don't reset the flag.
-        if (m_ngspiceIsHalted) return true;
+        // callback will fire for a redundant bg_halt, so keep the flag set.
+        if (m_ngspiceIsHalted) { m_haltRequested = true; return true; }
     }
 
+    // Engine already terminated: there is nothing to halt. Do NOT set
+    // m_haltRequested here (and clear any stale value): a set flag diverts a
+    // subsequent finished callback into the Halted branch instead of
+    // Terminated and suppresses the spurious-halt auto-resume, stranding the
+    // run in Halted with a dead engine.
+    if (m_state == SimulationState::Finished || m_state == SimulationState::Error) {
+        m_haltRequested = false;
+        return true;
+    }
+
+    m_haltRequested = true;
     SpiceBackend::instance().execute("bg_halt");
 
     const auto deadline = std::chrono::steady_clock::now() + budget;
@@ -448,6 +457,7 @@ bool SimulationManager::haltAndWait(std::chrono::milliseconds budget) {
             // Issue 12: Engine already terminated — safe for alter/teardown commands,
             // but do NOT set m_ngspiceIsHalted = true (which conflates paused vs terminated).
             if (m_state == SimulationState::Finished || m_state == SimulationState::Error) {
+                m_haltRequested = false;
                 return true;
             }
             m_workerSyncCond.wait_for(lock, std::chrono::milliseconds(25));

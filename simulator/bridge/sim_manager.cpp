@@ -1243,14 +1243,19 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
 
     auto* proc = new QProcess(this);
     m_ngspiceProcess = proc;
+    // Tracked via QPointer like safeTempFile below: cleanupSimulation() nulls
+    // the member and deleteLater()s the object, so raw captures in the
+    // readyRead/errorOccurred/finished lambdas would otherwise dangle.
+    const QPointer<QProcess> safeProc(proc);
     auto processLogTail = QSharedPointer<QStringList>::create();
     proc->setProgram("ngspice");
     proc->setArguments({"-b", "-r", rawPath, tempFile->fileName()});
     proc->setWorkingDirectory(runInfo.absolutePath());
     proc->setProcessChannelMode(QProcess::MergedChannels);
 
-    connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc, processLogTail]() {
-        const QString text = QString::fromLocal8Bit(proc->readAllStandardOutput());
+    connect(proc, &QProcess::readyReadStandardOutput, this, [this, safeProc, processLogTail]() {
+        if (safeProc.isNull() || safeProc != m_ngspiceProcess) return;
+        const QString text = QString::fromLocal8Bit(safeProc->readAllStandardOutput());
         const QStringList lines = text.split(QRegularExpression("[\\r\\n]+"), Qt::SkipEmptyParts);
         for (const QString& line : lines) {
             processLogTail->append(line);
@@ -1261,8 +1266,8 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
         }
     });
 
-    connect(proc, &QProcess::errorOccurred, this, [this, safeTempFile, proc, processLogTail](QProcess::ProcessError error) {
-        if (proc != m_ngspiceProcess) return;
+    connect(proc, &QProcess::errorOccurred, this, [this, safeTempFile, safeProc, processLogTail](QProcess::ProcessError error) {
+        if (safeProc.isNull() || safeProc != m_ngspiceProcess) return;
         const QString msg = enrichNgspiceFailureMessage(
             QString("Failed to start ngspice process (%1).").arg(static_cast<int>(error)),
             *processLogTail);
@@ -1273,9 +1278,9 @@ void SimManager::startNgspiceWithNetlist(const QString& netlistContent) {
     });
 
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, safeTempFile, rawPath, proc, parseRawResults, processLogTail](int exitCode, QProcess::ExitStatus exitStatus) {
-        if (proc != m_ngspiceProcess) return;
-        const QString trailingText = QString::fromLocal8Bit(proc->readAllStandardOutput());
+            this, [this, safeTempFile, rawPath, safeProc, parseRawResults, processLogTail](int exitCode, QProcess::ExitStatus exitStatus) {
+        if (safeProc.isNull() || safeProc != m_ngspiceProcess) return;
+        const QString trailingText = QString::fromLocal8Bit(safeProc->readAllStandardOutput());
         if (!trailingText.trimmed().isEmpty()) {
             const QStringList lines = trailingText.split(QRegularExpression("[\\r\\n]+"), Qt::SkipEmptyParts);
             for (const QString& line : lines) {
