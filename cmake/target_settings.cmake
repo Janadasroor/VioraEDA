@@ -138,9 +138,20 @@ function(vioraeda_setup_rpath target)
     else()
         set(_origin "\$ORIGIN")
     endif()
+    # Source-built FluxScript links the system LLVM; a stale
+    # build/fluxscript-prebuilt/lib (bundled libLLVM needing libxml2.so.2,
+    # absent on Ubuntu 26.04+) must never shadow it via RPATH.
+    if(VIOSPICE_DEV_MODE OR VIOSPICE_BUILD_FLUXSCRIPT)
+        set(_flux_dirs "${FLUXSCRIPT_LIB_DIR}")
+    else()
+        set(_flux_dirs "${CMAKE_BINARY_DIR}/fluxscript-prebuilt/lib;${FLUXSCRIPT_LIB_DIR}")
+    endif()
+    # Keep the preferred VioMATRIXC engine dir before the generic fallbacks
+    # so the matching native code models resolve first.
+    set(_rpath "${CMAKE_BINARY_DIR};${_flux_dirs};${VIOSPICE_PREFERRED_ENGINE_DIR};${CMAKE_BINARY_DIR}/_deps/fluxscript-build;${CMAKE_BINARY_DIR}/_deps/viomatrixc-src/src/.libs;${CMAKE_BINARY_DIR}/viomatrixc-prebuilt/lib;/usr/local/opt/llvm@15/lib")
     set_target_properties(${target} PROPERTIES
-        BUILD_RPATH "${CMAKE_BINARY_DIR};${CMAKE_BINARY_DIR}/_deps/fluxscript-build;${CMAKE_BINARY_DIR}/_deps/viomatrixc-src/src/.libs;${CMAKE_BINARY_DIR}/fluxscript-prebuilt/lib;${CMAKE_BINARY_DIR}/viomatrixc-prebuilt/lib;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR};/usr/local/opt/llvm@15/lib"
-        INSTALL_RPATH "${_origin};${CMAKE_BINARY_DIR}/_deps/fluxscript-build;${CMAKE_BINARY_DIR}/_deps/viomatrixc-src/src/.libs;${CMAKE_BINARY_DIR}/fluxscript-prebuilt/lib;${CMAKE_BINARY_DIR}/viomatrixc-prebuilt/lib;${VIOSPICE_PREFERRED_ENGINE_DIR};${FLUXSCRIPT_LIB_DIR};/usr/local/opt/llvm@15/lib"
+        BUILD_RPATH "${_rpath}"
+        INSTALL_RPATH "${_origin};${_rpath}"
     )
 endfunction()
 
