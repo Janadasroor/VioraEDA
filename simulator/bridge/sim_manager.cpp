@@ -866,6 +866,10 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
         }
     });
     connect(&liveSim, &SimulationManager::rawResultsReady, this, [this](const QString& rawPath) {
+        // Stale core completion: a newer core run started after this bridge run
+        // captured its generation. Parsing it with this run's netlist text
+        // would mix two different circuits.
+        if (SimulationManager::instance().currentGeneration() != m_activeCoreGen) return;
         if (!m_ngspiceProcess && (!m_sharedNetlistPath.isEmpty() || m_control || m_stopRequested || !m_activeStepLabel.isEmpty() || !m_pendingStepRuns.isEmpty())) {
             parseRawResultsFile(rawPath, m_activeNetlistText, m_lastConfig.type);
         }
@@ -874,6 +878,9 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
     m_resultsPending = false;
 
     connect(&liveSim, &SimulationManager::simulationFinished, this, [this]() {
+        // Same staleness rule as rawResultsReady above: a superseded core run
+        // must not drive this bridge run's teardown.
+        if (SimulationManager::instance().currentGeneration() != m_activeCoreGen) return;
         if (!m_resultsPending) {
             cleanupSimulation();
             Q_EMIT simulationStopped();
@@ -1576,6 +1583,9 @@ bool SimManager::startSharedSimulation(const QString& netlistContent, const QStr
 
     Q_EMIT logMessage(startMessage);
     SimulationManager::instance().runSimulation(m_sharedNetlistPath, m_control);
+    // runSimulation bumped the core generation: capture it so the completion
+    // handlers above can recognise (and drop) completions from older runs.
+    m_activeCoreGen = SimulationManager::instance().currentGeneration();
     return true;
 }
 

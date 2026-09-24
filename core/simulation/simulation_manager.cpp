@@ -534,7 +534,12 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         }
         if (!error.isEmpty()) reportError(error);
         clearCircuits();
-        Q_EMIT simulationFinished();
+        // Deferred (not synchronous): the bridge snapshots this run's generation
+        // after runSimulation returns, so a synchronous emit would arrive before
+        // the snapshot and be mistaken for a stale completion. Every other
+        // completion path is already queued.
+        QMetaObject::invokeMethod(this, [this]() { Q_EMIT simulationFinished(); },
+                                  Qt::QueuedConnection);
         return;
     }
 
@@ -562,7 +567,10 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         QString finalErr;
         { std::lock_guard<std::mutex> lock(m_logMutex); finalErr = m_lastErrorMessage.isEmpty() ? "Ngspice failed to start simulation." : m_lastErrorMessage; }
         reportError(finalErr);
-        Q_EMIT simulationFinished();
+        // Deferred: see the load-failure path above — the bridge generation
+        // snapshot happens after runSimulation returns.
+        QMetaObject::invokeMethod(this, [this]() { Q_EMIT simulationFinished(); },
+                                  Qt::QueuedConnection);
         return;
     }
 #endif

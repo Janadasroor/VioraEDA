@@ -96,6 +96,12 @@ private:
     bool m_paused = false;
     bool m_resultsPending = false;
     SimAnalysisConfig m_lastConfig;
+    // Core run-generation captured when the current shared run was started.
+    // Core completions from an older generation (a newer core run began since,
+    // e.g. a direct run from the netlist editor) are dropped by the
+    // rawResultsReady/simulationFinished handlers instead of being parsed
+    // against this run's netlist text.
+    quint64 m_activeCoreGen{0};
 
     QList<PendingStepRun> m_pendingStepRuns;
     SimResults m_stepSweepResults;

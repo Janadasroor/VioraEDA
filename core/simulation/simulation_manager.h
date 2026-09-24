@@ -134,6 +134,9 @@ public Q_SLOTS:
     // --- State Accessors ---
     SimulationState state() const { return m_state; }
     QString stateString() const;
+    // Current run-generation (bumped by runSimulation). Lets external owners
+    // (e.g. the SimManager bridge) drop completions from superseded core runs.
+    quint64 currentGeneration() const { return m_runGeneration.load(); }
 
 private:
     // Internal Callback Handlers
