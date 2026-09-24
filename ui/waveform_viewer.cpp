@@ -750,8 +750,7 @@ void WaveformViewer::setupUi() {
     connect(m_nodeList, &QListWidget::itemSelectionChanged, this, &WaveformViewer::onNodeSelected);
     connect(m_nodeList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item){
         updateNodeItemStyle(item);
-        // Auto-fit X+Y when the user checks the first signal into an empty
-        // view; otherwise keep the current axes.
+        // Auto-fit when the first signal is checked into an empty view.
         bool fit = false;
         if (item && item->checkState() == Qt::Checked) {
             fit = true;
@@ -1296,8 +1295,7 @@ void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
     const QString resolvedName = findSignalKeyByAlias(m_signals.keys(), name);
     const QString targetName = resolvedName.isEmpty() ? name : resolvedName;
     const Qt::CheckState targetState = checked ? Qt::Checked : Qt::Unchecked;
-    // Auto-fit when this check turns an empty view non-empty (same rule as
-    // the interactive itemChanged path above).
+    // Same first-check auto-fit rule as the itemChanged path above.
     auto isFirstCheck = [&]() {
         if (!checked) return false;
         for (int i = 0; i < m_nodeList->count(); ++i) {
@@ -1408,9 +1406,21 @@ void WaveformViewer::toggleCursors() {
         m_measureDialog->setAcMode(m_acMode);
         m_measureDialog->show();
 
-        if (m_cursor1X == 0 && m_cursor2X == 0) {
-            m_cursor1X = m_panes.first()->axisX->min() + (m_panes.first()->axisX->max() - m_panes.first()->axisX->min()) * 0.25;
-            m_cursor2X = m_panes.first()->axisX->min() + (m_panes.first()->axisX->max() - m_panes.first()->axisX->min()) * 0.75;
+        if (!m_panes.isEmpty() && m_panes.first() && m_panes.first()->axisX) {
+            // Keep cursors inside the current viewport so they are visible
+            // when zoomed in; cursors already in view are left alone.
+            const double xMin = m_panes.first()->axisX->min();
+            const double xMax = m_panes.first()->axisX->max();
+            const bool inView = (m_cursor1X > xMin && m_cursor1X < xMax)
+                             && (m_cursor2X > xMin && m_cursor2X < xMax)
+                             && (m_cursor1X != m_cursor2X);
+            if (!inView && xMax > xMin) {
+                m_cursor1X = xMin + (xMax - xMin) * 0.25;
+                m_cursor2X = xMin + (xMax - xMin) * 0.75;
+                for (auto* p : m_panes) {
+                    if (p && p->view) p->view->setCursorPositions(m_cursor1X, 0, m_cursor2X, 0, nullptr);
+                }
+            }
         }
         updateCursors();
     } else {
@@ -2047,8 +2057,7 @@ void WaveformViewer::updateNodeItemStyle(QListWidgetItem* item) {
 QColor WaveformViewer::stableSignalColor(const QString& name) {
     PCBTheme* theme = ThemeManager::theme();
     const bool isDark = theme && theme->type() == PCBTheme::Dark;
-    // Same order as the legacy checked palette (dark/light), now keyed by
-    // name hash instead of list row so order changes can't recolor signals.
+    // Keyed by name hash (not list row) so order changes can't recolor.
     static const QStringList darkPalette = { "#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c" };
     static const QStringList lightPalette = { "#1d4ed8", "#047857", "#b45309", "#b91c1c", "#6d28d9", "#be185d", "#0f766e", "#c2410c" };
     const QStringList& palette = isDark ? darkPalette : lightPalette;

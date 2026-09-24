@@ -127,8 +127,25 @@ QIcon SchematicEditor::getThemeIcon(const QString& path) {
     return QIcon(pixmap);
 }
 
-void SchematicEditor::refreshOscilloscopeDockContent() {
-    if (!m_oscilloscopeDock || !m_simulationPanel) return;
+namespace {
+// Floated docks become Qt::Dialog (above our window, normal stacking vs
+// other apps); re-docked widgets go back to plain Qt::Widget.
+void normalizeFloatingDock(QDockWidget* dock) {
+    if (!dock) return;
+    QObject::connect(dock, &QDockWidget::topLevelChanged, dock, [dock](bool floating) {
+        if (floating) {
+            dock->setWindowFlags(Qt::Dialog | Qt::WindowTitleHint | Qt::WindowSystemMenuHint
+                                 | Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint);
+            dock->show();
+        } else {
+            dock->setWindowFlags(Qt::Widget);
+            dock->show();
+        }
+    });
+}
+} // namespace
+
+void SchematicEditor::refreshOscilloscopeDockContent() {    if (!m_oscilloscopeDock || !m_simulationPanel) return;
 
     const bool userWantsSParam = m_simulationPanel && m_simulationPanel->isSParameterModeSelected();
     const bool showFullPanel = userWantsSParam || ConfigManager::instance()
@@ -1725,6 +1742,12 @@ void SchematicEditor::createDockWidgets() {
         }
     });
 
+    // Floated Qt::Tool docks stay above unrelated apps on some WMs;
+    // normalize them (see helper above).
+    for (auto* dock : findChildren<QDockWidget*>()) {
+        normalizeFloatingDock(dock);
+    }
+
     // Initialize Simulation Panel (but don't add to tabs yet) so Oscilloscope is available
     if (m_scene && m_netManager) {
         m_simulationPanel = new SimulationPanel(m_scene, m_netManager, m_projectDir, this);
@@ -2500,9 +2523,8 @@ void SchematicEditor::runNetlistTabContent(const QString& content, const QString
 }
 
 void SchematicEditor::onRunSimulation() {
-    // If a netlist tab is active, simulate ITS content. The schematic path
-    // below always uses m_scene, so without this the Run action silently
-    // re-simulates the schematic while a .cir tab is in front.
+    // A netlist tab in front means its content runs; the schematic path
+    // below always uses m_scene and would simulate the wrong circuit.
     if (m_workspaceTabs) {
         if (QWidget* cur = m_workspaceTabs->currentWidget()) {
             if (auto* netEd = qobject_cast<NetlistEditor*>(cur)) {

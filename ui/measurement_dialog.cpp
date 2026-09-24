@@ -7,7 +7,8 @@
 
 MeasurementDialog::MeasurementDialog(QWidget *parent) : QDialog(parent) {
     setWindowTitle("VioView Cursor Measurements");
-    setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
+    // NOTE: no WindowStaysOnTopHint — as a parented dialog it already stays
+    // above the main window; pinning it would cover unrelated apps too.
     
     auto *layout = new QGridLayout(this);
     
