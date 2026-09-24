@@ -52,6 +52,12 @@ add_test(
 set_tests_properties(integration.bridge_stop_restart PROPERTIES LABELS "fast;integration;simulator;ngspice;regression")
 
 add_test(
+    NAME integration.shared_pause_resume
+    COMMAND test_shared_pause_resume
+)
+set_tests_properties(integration.shared_pause_resume PROPERTIES LABELS "fast;integration;simulator;ngspice;regression")
+
+add_test(
     NAME integration.project_manager_launch
     COMMAND test_project_manager_launch
 )
@@ -118,6 +124,25 @@ target_link_libraries(test_bridge_rerun PRIVATE
 add_executable(test_bridge_stop_restart
     test_bridge_stop_restart.cpp
     ${VIORAEDA_CLI_MODULE_OBJECTS}
+)
+
+add_executable(test_shared_pause_resume
+    test_shared_pause_resume.cpp
+    ${VIORAEDA_CLI_MODULE_OBJECTS}
+)
+
+target_link_libraries(test_shared_pause_resume PRIVATE Qt${QT_VERSION_MAJOR}::Test)
+vioraeda_configure_cli_target(test_shared_pause_resume)
+target_link_libraries(test_shared_pause_resume PRIVATE
+    ${VIOSPICE_LINKER_GROUP_BEGIN}
+    VioCore
+    VioSymbols
+    VioSchematic
+    VioUI
+    VioSimulator
+    FluxScript
+    FluxScriptManager
+    ${VIOSPICE_LINKER_GROUP_END}
 )
 
 target_link_libraries(test_bridge_stop_restart PRIVATE Qt${QT_VERSION_MAJOR}::Test)
