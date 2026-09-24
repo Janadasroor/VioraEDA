@@ -1735,17 +1735,21 @@ void SimManager::pauseSimulation(bool pause) {
         return;
     }
 
-    if (m_paused == pause) {
-        // Desync repair: the editor's cached pause flag and this flag can
-        // diverge when pause/resume races a tab switch (bg_halt/bg_resume are
-        // async) or when a stop left the engine halted. Only no-op when the
-        // engine already agrees with the request; otherwise fall through and
-        // re-issue the command so Resume can never get stuck.
+    // Pause/resume commands address the live shared engine: only issue them
+    // when it is in the matching state. Otherwise pause-during-Loading fires
+    // bg_halt from a threadpool thread racing loadNetlistInternal, and
+    // resume-after-finish addresses a dead engine. This also governs the
+    // m_paused==pause re-issue path below: re-issue only when the engine
+    // disagrees AND can accept the command (e.g. a stop left it halted while
+    // the flag says paused); otherwise no-op so Resume can never get stuck.
+    {
         const auto st = SimulationManager::instance().state();
         if (pause && st != SimulationState::Running) {
+            if (m_paused != pause) Q_EMIT logMessage("Engine is not running; pause ignored.");
             return;
         }
         if (!pause && st != SimulationState::Halted) {
+            if (m_paused != pause) Q_EMIT logMessage("Engine is not halted; resume ignored.");
             return;
         }
     }
