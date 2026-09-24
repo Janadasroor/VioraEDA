@@ -467,6 +467,12 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     if (!recoverEngineIfNeeded()) { reportError("Failed to recover simulation engine."); return; }
     if (!m_isInitialized) initialize();
 
+    // New run: orphan every async completion still queued from the previous
+    // run so its finish/error/raw cannot leak into this one (e.g. same old
+    // error re-reported after switching tabs), and drop the stale message.
+    ++m_runGeneration;
+    { std::lock_guard<std::mutex> lock(m_logMutex); m_lastErrorMessage.clear(); }
+
 #ifdef HAVE_NGSPICE
     { std::lock_guard<std::mutex> lock(m_netlistMutex); m_currentNetlist = netlist; }
     { std::lock_guard<std::mutex> lock(m_controlMutex); m_streamingControl = control; }
@@ -936,7 +942,10 @@ int SimulationManager::cbControlledExit(int status, bool immediate, bool quit, i
         if (status != 0 || (immediate && !isIntentional) || (quit && !isIntentional)) {
             self->m_engineRecoveryRequired = true;
         }
-        QMetaObject::invokeMethod(self, [self]() { self->handleSimulationFinished(""); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(self, [self, gen = self->m_runGeneration.load()]() {
+            if (gen != self->m_runGeneration.load()) return; // superseded by a newer run
+            self->handleSimulationFinished("", gen);
+        }, Qt::QueuedConnection);
     }
     return 0;
 }
@@ -1100,7 +1109,10 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
                 m_ngspiceIsHalted = true; // Unlock worker
             }
             m_workerSyncCond.notify_all();
-            QMetaObject::invokeMethod(this, "handleSimulationFinished", Qt::QueuedConnection, Q_ARG(QString, rawPath));
+            QMetaObject::invokeMethod(this, [this, rawPath, gen = m_runGeneration.load()]() {
+                if (gen != m_runGeneration.load()) return; // superseded by a newer run
+                handleSimulationFinished(rawPath, gen);
+            }, Qt::QueuedConnection);
         } else {
             setState(SimulationState::Halted);
             {
@@ -1130,7 +1142,10 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
         }
         m_workerSyncCond.notify_all();
         
-        QMetaObject::invokeMethod(this, "handleSimulationFinished", Qt::QueuedConnection, Q_ARG(QString, rawPath));
+        QMetaObject::invokeMethod(this, [this, rawPath, gen = m_runGeneration.load()]() {
+            if (gen != m_runGeneration.load()) return; // superseded by a newer run
+            handleSimulationFinished(rawPath, gen);
+        }, Qt::QueuedConnection);
     } else if (!finished && !isPaused) {
         // === Engine Running/Resumed ===
         setState(SimulationState::Running);
@@ -1145,7 +1160,8 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
     }
 }
 
-void SimulationManager::handleSimulationFinished(const QString& rawPath) {
+void SimulationManager::handleSimulationFinished(const QString& rawPath, quint64 runGen) {
+    if (runGen != m_runGeneration.load()) return; // superseded by a newer run
     QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection); 
     processBufferedData();
     m_stopRequested = false; 
@@ -1154,23 +1170,37 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath) {
     if (!m_lastLoadFailed && !m_lastRunFailed && !rawPath.isEmpty()) {
         // Issue 5: Execute raw-file export on worker thread without blocking GUI thread,
         // and verify actual vector presence.
-        QMetaObject::invokeMethod(m_worker, [this, rawPath]() {
+        QMetaObject::invokeMethod(m_worker, [this, rawPath, runGen]() {
             pvector_info vecInfo = ngGet_Vec_Info(const_cast<char*>("all"));
             if (!vecInfo) vecInfo = ngGet_Vec_Info(const_cast<char*>("time"));
             if (!vecInfo) vecInfo = ngGet_Vec_Info(const_cast<char*>("frequency"));
             if (!vecInfo) vecInfo = ngGet_Vec_Info(const_cast<char*>("v-sweep"));
             if (!vecInfo) vecInfo = ngGet_Vec_Info(const_cast<char*>("i-sweep"));
+            bool wrote = false;
             if (vecInfo && vecInfo->v_length > 0) {
                 SpiceBackend::instance().execute("write " + rawPath);
                 bool exists = QFile::exists(rawPath);
                 qint64 size = exists ? QFileInfo(rawPath).size() : 0;
                 if (exists && size > 0) {
-                    QMetaObject::invokeMethod(this, [this, rawPath]() {
+                    wrote = true;
+                    QMetaObject::invokeMethod(this, [this, rawPath, runGen]() {
+                        if (runGen != m_runGeneration.load()) return; // superseded
                         Q_EMIT rawResultsReady(rawPath);
                     }, Qt::QueuedConnection);
                 }
             }
-            QMetaObject::invokeMethod(this, [this]() {
+            QMetaObject::invokeMethod(this, [this, wrote, runGen]() {
+                if (runGen != m_runGeneration.load()) return; // superseded by a newer run
+                if (!wrote) {
+                    // Nothing ran (e.g. netlist without analysis): say so instead
+                    // of finishing silently and leaving stale dock waveforms up.
+                    std::lock_guard<std::mutex> lock(m_logMutex);
+                    m_logBuffer.push_back(QStringLiteral(
+                        "Ngspice: no simulation data was produced. The netlist contains "
+                        "no analysis (.tran/.ac/.dc/.op); analyses inside .control blocks "
+                        "are lifted automatically, otherwise add a directive."));
+                    processBufferedData();
+                }
                 Q_EMIT simulationFinished();
             }, Qt::QueuedConnection);
         }, Qt::QueuedConnection);

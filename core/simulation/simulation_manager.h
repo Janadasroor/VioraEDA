@@ -124,7 +124,7 @@ Q_SIGNALS:
     void realTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names);
 
 public Q_SLOTS:
-    void handleSimulationFinished(const QString& error);
+    void handleSimulationFinished(const QString& rawPath, quint64 runGen);
     void processBufferedData();
     void clearCircuits();
     bool loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut);
@@ -183,6 +183,13 @@ private:
     std::atomic<bool> m_jitUpdateInProgress{false};
     std::atomic<bool> m_fluxSyncRequested{false};
     std::atomic<bool> m_engineRecoveryRequired{false};
+
+    // Run generation: bumped on every runSimulation(). Async completions
+    // (ngspice callbacks, queued finish handlers, worker lambdas) capture
+    // the generation at queue time and no-op when a newer run has started.
+    // Without this, a previous run's delayed finish/error/raw lands in the
+    // new run (e.g. same old error reported after switching tabs).
+    std::atomic<quint64> m_runGeneration{0};
     
     // High-performance JIT update sync
     std::thread m_jitSyncThread;
