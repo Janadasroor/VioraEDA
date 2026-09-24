@@ -702,6 +702,11 @@ void SimulationManager::shutdown() {
 #ifdef HAVE_NGSPICE
     setState(SimulationState::Stopping);
     if (m_bufferTimer) m_bufferTimer->stop();
+    // Orphan all queued/in-flight worker work first: a worker blocked in a
+    // resume wait_for could otherwise time out after `quit` below and issue
+    // bg_run/resume at a dead engine. Every worker item re-checks the
+    // generation before touching the engine, so the bump cancels them all.
+    ++m_runGeneration;
     if (isRunning()) {
         // Issue 15: Confirmed-halt gate to avoid racing with worker executeSequence
         haltAndWait(std::chrono::milliseconds(1000));
@@ -709,6 +714,7 @@ void SimulationManager::shutdown() {
     SpiceBackend::instance().execute("bg_halt");
     SpiceBackend::instance().execute("quit");
     m_isInitialized = false;
+    m_haltRequested = false;
     setState(SimulationState::Idle);
 #endif
 }
