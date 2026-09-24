@@ -245,6 +245,23 @@ public:
         highlightCurrentLine();
     }
 
+    // Theme-aware chrome colors. The old hard-coded light values painted an
+    // opaque bright bar over the current line (and a white gutter) in dark
+    // mode, hiding the code underneath.
+    void applyThemeColors(bool light) {
+        if (light) {
+            m_lineColor = QColor(232, 240, 254);
+            m_areaBg = Qt::white;
+            m_areaFg = QColor(60, 60, 60);
+        } else {
+            m_lineColor = QColor(26, 34, 51);
+            m_areaBg = QColor(17, 21, 29);
+            m_areaFg = QColor(91, 100, 114);
+        }
+        m_lineNumberArea->update();
+        highlightCurrentLine();
+    }
+
     int lineNumberAreaWidth() const {
         int digits = 1;
         int max = qMax(1, blockCount());
@@ -258,7 +275,7 @@ public:
 
     void lineNumberAreaPaintEvent(QPaintEvent* event) {
         QPainter painter(m_lineNumberArea);
-        painter.fillRect(event->rect(), QColor(255, 255, 255));
+        painter.fillRect(event->rect(), m_areaBg);
 
         QTextBlock block = firstVisibleBlock();
         int blockNumber = block.blockNumber();
@@ -268,7 +285,7 @@ public:
         while (block.isValid() && top <= event->rect().bottom()) {
             if (block.isVisible() && bottom >= event->rect().top()) {
                 const QString number = QString::number(blockNumber + 1);
-                painter.setPen(QColor(60, 60, 60));
+                painter.setPen(m_areaFg);
                 painter.drawText(0, top, m_lineNumberArea->width() - 4, fontMetrics().height(),
                                  Qt::AlignRight, number);
             }
@@ -306,7 +323,7 @@ private Q_SLOTS:
         QList<QTextEdit::ExtraSelection> extraSelections;
         if (!isReadOnly()) {
             QTextEdit::ExtraSelection selection;
-            selection.format.setBackground(QColor(232, 240, 254));
+            selection.format.setBackground(m_lineColor);
             selection.format.setProperty(QTextFormat::FullWidthSelection, true);
             selection.cursor = textCursor();
             selection.cursor.clearSelection();
@@ -317,6 +334,9 @@ private Q_SLOTS:
 
 private:
     LineNumberArea* m_lineNumberArea = nullptr;
+    QColor m_lineColor = QColor(232, 240, 254);
+    QColor m_areaBg = Qt::white;
+    QColor m_areaFg = QColor(60, 60, 60);
 };
 
 void LineNumberArea::paintEvent(QPaintEvent* event) {
@@ -499,6 +519,7 @@ QPlainTextEdit* createTextEditor(QWidget* parent, const QString& content, const 
     editor->setReadOnly(readOnly);
     editor->setLineWrapMode(QPlainTextEdit::NoWrap);
     bool light = ThemeManager::theme() && ThemeManager::theme()->type() == PCBTheme::Light;
+    editor->applyThemeColors(light);
     editor->setStyleSheet(QString(
         "QPlainTextEdit { background: %1; color: %2; border: none; font-family: monospace; font-size: 12px; selection-background-color: %3; selection-color: %2; }"
     ).arg(light ? "#f8fafc" : "#0f1115",
