@@ -883,7 +883,7 @@ SimManager::SimManager(QObject* parent) : QObject(parent) {
         if (SimulationManager::instance().currentGeneration() != m_activeCoreGen) return;
         if (!m_resultsPending) {
             cleanupSimulation();
-            Q_EMIT simulationStopped();
+            emitStoppedOnce();
         }
     });
 }
@@ -964,6 +964,7 @@ void SimManager::runNetlistText(const QString& netlistContent) {
     }
     m_stopRequested = false;
     m_paused = false;
+    m_stopNotified = false; // new logical run: stopped may be reported again
     Q_EMIT simulationStarted();
     Q_EMIT logMessage("Running ngspice netlist...");
     SimAnalysisConfig config;
@@ -1046,6 +1047,7 @@ void SimManager::runNgspiceSimulation(const QString& netlist, const SimAnalysisC
 
     m_stopRequested = false;
     m_paused = false;
+    m_stopNotified = false; // new logical run: stopped may be reported again
     Q_EMIT simulationFinished(SimResults()); // Clear stale results from UI
     Q_EMIT simulationStarted();
     m_lastConfig = config;
@@ -1399,6 +1401,7 @@ void SimManager::runRealTime(QGraphicsScene* scene, NetManager* netMgr, double m
     m_stepSweepResults = SimResults();
     m_stopRequested = false;
     m_paused = false;
+    m_stopNotified = false; // new logical run: stopped may be reported again
 
     // Compile FluxScript smart signal blocks before starting the simulation
     if (scene) compileFluxScripts(scene);
@@ -1417,7 +1420,7 @@ void SimManager::runRealTime(QGraphicsScene* scene, NetManager* netMgr, double m
 void SimManager::startNextRealTimeSegment() {
     if (m_stopRequested || !m_rtScene || !m_rtNetMgr) {
         cleanupSimulation();
-        Q_EMIT simulationStopped();
+        emitStoppedOnce();
         return;
     }
 
@@ -1481,7 +1484,7 @@ void SimManager::stopRealTime() {
         }
     }
     Q_EMIT simulationPaused(false);
-    Q_EMIT simulationStopped();
+    emitStoppedOnce();
 }
 
 void SimManager::updateParameterLive(const QString& name, double value) {
@@ -1666,6 +1669,12 @@ bool SimManager::isRunning() const {
     return SimulationManager::instance().isRunning();
 }
 
+void SimManager::emitStoppedOnce() {
+    if (m_stopNotified) return;
+    m_stopNotified = true;
+    Q_EMIT simulationStopped();
+}
+
 void SimManager::stopAll() {
     const bool sharedRunActive = (m_control && !m_ngspiceProcess);
     m_stopRequested = true;
@@ -1701,7 +1710,7 @@ void SimManager::stopAll() {
     
     // ALWAYS emit stopped to unlock UI buttons immediately.
     // The data results will follow asynchronously via simulationFinished(results).
-    Q_EMIT simulationStopped();
+    emitStoppedOnce();
     
     if (m_paused) {
         m_paused = false;

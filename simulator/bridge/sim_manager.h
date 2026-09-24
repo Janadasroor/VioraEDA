@@ -109,6 +109,13 @@ private:
     QString m_activeNetlistText;
     QString m_sharedNetlistPath;
     bool m_stopRequested = false;
+    // True once simulationStopped() has been emitted for the current logical
+    // run (reset at every run entry). Late duplicate finishes — e.g. a stale
+    // core Finished arriving after stopAll() already reported — must not
+    // re-fire: consumers clear the active run tab/UI state on this signal and
+    // a duplicate landing during the NEXT run would corrupt it.
+    bool m_stopNotified{false};
+    void emitStoppedOnce();
     int m_completedStepRuns = 0;
     class QProcess* m_ngspiceProcess = nullptr;
 
