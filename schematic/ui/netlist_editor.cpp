@@ -5,6 +5,8 @@
 
 #include "netlist_editor.h"
 #include "simulation_manager.h"
+#include "../../simulator/bridge/sim_manager.h"
+#include "../editor/schematic_editor.h"
 #include "theme_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -15,6 +17,7 @@
 #include <QTemporaryFile>
 #include <QFile>
 #include <QFileInfo>
+#include <QMessageBox>
 #include <QTextStream>
 #include <QAction>
 #include <QLabel>
@@ -160,6 +163,27 @@ QString NetlistEditor::netlist() const {
 void NetlistEditor::onRun() {
     QString content = m_editor->toPlainText();
     if (content.trimmed().isEmpty()) return;
+
+    // A paused/halted run in another tab owns the single shared engine:
+    // resume it instead of silently destroying it. Switch back to the
+    // owning tab first so resumed data lands in its views. Only an
+    // actively running engine needs the discard confirmation below.
+    const auto engineState = SimulationManager::instance().state();
+    if (engineState == SimulationState::Halted || engineState == SimulationState::Paused) {
+        if (auto* ed = qobject_cast<SchematicEditor*>(window())) {
+            if (!ed->switchToActiveRunTab()) return;
+        }
+        SimManager::instance().pauseSimulation(false);
+        m_logArea->appendPlainText("Resuming paused simulation...");
+        return;
+    }
+    if (engineState == SimulationState::Running) {
+        if (QMessageBox::question(this, "Discard active simulation?",
+                "A simulation is still running. Starting this netlist will discard it. Continue?",
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+            return;
+        }
+    }
 
     onClearLog();
     m_logArea->show();

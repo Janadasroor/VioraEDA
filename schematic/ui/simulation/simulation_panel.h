@@ -80,6 +80,13 @@ public:
     void setTargetScene(QGraphicsScene* scene, NetManager* netManager, const QString& projectDir, bool clearState = true);
     void removeTabState(QGraphicsScene* scene);
     QWidget* getOscilloscopeContainer() const;
+    // Dock ownership helpers: the Waveforms dock borrows m_scopeContainer via
+    // QDockWidget::setWidget (which reparents it out of m_viewTabs). These
+    // move it back and forth without leaving a dangling tab or a stray
+    // top-level widget, so tab switches and Full Panel toggles cannot blank
+    // the dock or the panel's Waves tab.
+    void detachOscilloscopeContainerForDock();
+    void reclaimOscilloscopeContainer();
     bool hasResults() const { return m_hasLastResults; }
     void showDetailedLog();
     bool isRealTimeMode() const;
@@ -89,6 +96,11 @@ public:
     // waveforms into per-tab state, then clears the views so stale data from
     // the previous tab can never be mistaken for the new run's results.
     void beginNetlistRun();
+
+    struct CachedSignal {
+        QVector<double> time;
+        QVector<double> values;
+    };
 
     struct TabOscilloscopeState {
         SimResults lastResults;
@@ -113,6 +125,9 @@ public:
         };
         QList<ChartSeriesData> chartSeries;
         QList<ChartSeriesData> spectrumSeries;
+        // Rolling live history (probe-during-pause replay) and nothing else
+        // holds unchecked signals mid-run; must survive tab switches.
+        QMap<QString, CachedSignal> liveCache;
         
         // Simulation parameters
         AnalysisConfig analysisConfig;
@@ -297,10 +312,7 @@ private:
     QString m_currentlyHoveredNet;
 
     // Rolling cache of all signal data from live batches (for probe-during-pause)
-    struct CachedSignal {
-        QVector<double> time;
-        QVector<double> values;
-    };
+    // (struct declared above TabOscilloscopeState so tab state can hold it)
     QMap<QString, CachedSignal> m_signalCache;
     int m_signalCacheMaxPoints = 100000;
 

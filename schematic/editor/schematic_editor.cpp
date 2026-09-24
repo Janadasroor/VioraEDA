@@ -47,6 +47,8 @@ static SymbolLibrary* ensureDefaultUserSymbolLibrary() {
 }
 #include "schematic_connectivity.h"
 #include "../analysis/schematic_erc.h"
+#include "../../core/simulation/simulation_manager.h"
+#include "../../simulator/bridge/sim_manager.h"
 #include "../../core/flux/extensions/extension_manager.h"
 #include "theme_manager.h"
 #include "net_manager.h"
@@ -815,6 +817,9 @@ void SchematicEditor::addScriptTab(const QString& filePath) {
 }
 
 void SchematicEditor::onTabChanged(int index) {
+    // Tab removals during destruction emit currentChanged; the main-window
+    // layout is already gone then, so any UI touch (statusBar, docks) faults.
+    if (m_isDestroying) return;
     if (index < 0) {
         m_view = nullptr;
         m_scene = nullptr;
@@ -923,6 +928,30 @@ void SchematicEditor::onTabChanged(int index) {
     } else if (current) {
         updateWaveformsDockTitle(m_workspaceTabs->tabText(index).remove('*').trimmed());
     }
+    // Repair run controls from engine truth: cached flags can desync when
+    // queued finish/stop/error signals cross tab switches, leaving Resume
+    // unreachable on return to a paused tab. Source pause truth from the
+    // bridge (SimManager::isPaused) rather than the shared-engine state,
+    // which reports Halted for both paused and spuriously-halted engines.
+    // Only ever re-asserts running.
+    {
+        if (SimManager::instance().isRunning()) {
+            m_simulationRunning = true;
+            const auto engineState = SimulationManager::instance().state();
+            m_simPaused = SimManager::instance().isPaused()
+                || engineState == SimulationState::Halted
+                || engineState == SimulationState::Paused;
+            updateSimulationUiState(true, runStatusText(m_simPaused ? "Simulation paused." : "Simulation running..."));
+        }
+    }
+    // An actively running engine keeps streaming into the shared result views
+    // while another tab is frontmost, corrupting both tabs' stored states.
+    // Auto-pause on switch (already-paused runs are untouched); the halted
+    // engine plus stashed views resume cleanly on return.
+    if (!m_isConstructing && SimulationManager::instance().state() == SimulationState::Running) {
+        SimManager::instance().pauseSimulation(true);
+        statusBar()->showMessage("Simulation auto-paused on tab switch — Resume to continue.", 4000);
+    }
     if (!m_isConstructing) ConfigManager::triggerSessionSave();
 }
 
@@ -933,6 +962,20 @@ void SchematicEditor::closeTab(int index) {
     if (w == m_simulationPanel) {
         m_workspaceTabs->removeTab(index);
         return; // Don't delete the simulation panel, just hide the tab
+    }
+
+    // Single-engine ownership: closing the tab that owns the active run must
+    // stop the engine first — a live run references the tab's scene
+    // (SimManager::m_rtScene) and resuming into a deleted scene would crash.
+    // Stop works globally, so this is safe from any tab.
+    if (m_activeRunTab && w == m_activeRunTab
+        && (SimManager::instance().isRunning() || SimulationManager::instance().isRunning())) {
+        SimManager::instance().stopAll();
+        m_activeRunTab.clear();
+        m_activeRunSource.clear();
+        m_simulationRunning = false;
+        m_simPaused = false;
+        updateSimulationUiState(false, "Simulation stopped (owning tab closed).");
     }
 
     if (auto* scriptTab = qobject_cast<Flux::ScriptEditorTab*>(w)) {

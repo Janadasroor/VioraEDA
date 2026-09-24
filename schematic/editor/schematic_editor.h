@@ -19,6 +19,7 @@
 #include <QSet>
 #include <QUndoStack>
 #include <QAction>
+#include <QPointer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTemporaryFile>
@@ -65,6 +66,10 @@ public:
     // A netlist-editor tab started a run: reset the dock views so they cannot
     // keep displaying the previous (schematic) tab's waveforms.
     void onNetlistRunStarted(const QString& source);
+    // Single-active-run policy: true when the engine is idle, otherwise asks
+    // whether the active run may be discarded. Call before starting any run.
+    bool confirmReplaceActiveRun();
+    QString runStatusText(const QString& base) const;
     void setProjectContext(const QString& projectName, const QString& projectDir, const QStringList& workspaceFolders = QStringList());
 
     void showSimulationResults(const class SimResults& results);
@@ -95,6 +100,12 @@ public:
     void onRemoteFileUpdated(const QString& filePath, const QString& content);
 
     class SimulationPanel* getSimulationPanel() const { return m_simulationPanel; }
+
+    // Single-active-run ownership: the workspace tab that started the current
+    // run. Resume always switches back to it first so live batches land in
+    // the owning tab's views; Stop works globally from any tab.
+    // Returns false when the owner is gone (run discarded, caller aborts).
+    bool switchToActiveRunTab();
 
     void onClearSimulationOverlays();
     void onClearAllProbeMarkers();
@@ -426,6 +437,14 @@ private:
     // Set when a netlist-tab run starts; consumed when its raw results arrive
     // so schematic shared-engine runs never hijack the dock.
     bool m_expectNetlistResults = false;
+    // Human label of the circuit owning the shared engine right now
+    // (schematic file or netlist name). Shown in run status messages so
+    // Resume/Stop always identify their target.
+    QString m_activeRunSource;
+    // Workspace tab that started the active run (SchematicView for schematic
+    // runs, NetlistEditor/text tab for netlist runs). QPointer auto-nulls if
+    // the tab is deleted. Cleared alongside m_activeRunSource.
+    QPointer<QWidget> m_activeRunTab = nullptr;
     bool m_showVoltageOverlays;
     bool m_showCurrentOverlays;
     QTimer* m_autosaveTimer = nullptr;

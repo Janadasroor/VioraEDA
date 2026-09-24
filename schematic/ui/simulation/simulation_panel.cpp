@@ -1430,6 +1430,7 @@ void SimulationPanel::removeProbe(const QString& signalName) {
                 }
             }
         }
+
         if (m_spectrumChart) {
             const auto spectrumSeries = m_spectrumChart->series();
             for (auto* series : spectrumSeries) {
@@ -1691,7 +1692,13 @@ void SimulationPanel::setTargetScene(QGraphicsScene* scene, NetManager* netManag
     QGraphicsScene* oldScene = m_scene;
     if (clearState && oldScene && oldScene != scene) {
         TabOscilloscopeState saved = saveCurrentTabState();
-        if (saved.hasLastResults || !saved.waveformSignals.isEmpty()) {
+        // A paused/active run has no finished results yet; its whole history
+        // lives in the viewer/chart/cache. Save whenever anything exists or
+        // the engine is busy, or the paused tab comes back empty.
+        const bool liveContent = SimManager::instance().isRunning()
+            || (m_chart && !m_chart->series().isEmpty())
+            || !m_signalCache.isEmpty();
+        if (saved.hasLastResults || !saved.waveformSignals.isEmpty() || liveContent) {
             m_tabStates[oldScene] = saved;
         }
     }
@@ -2219,6 +2226,7 @@ SimulationPanel::TabOscilloscopeState SimulationPanel::saveCurrentTabState() con
 
     state.analysisConfig = getAnalysisConfig();
     state.commandText = m_commandLine ? m_commandLine->text() : QString();
+    state.liveCache = m_signalCache;
 
     return state;
 }
@@ -2297,6 +2305,28 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
                     s->attachAxis(axisX);
                     s->attachAxis(axisY);
                 }
+            }
+        }
+    }
+
+    // Live-run state that clearAllProbes() destroys but a paused run still
+    // needs: rolling history, checked set, and live series pointers (rebuilt
+    // from the restored chart so resumed batches append instead of duplicating).
+    m_signalCache = state.liveCache;
+    m_persistentCheckedSignals.clear();
+    if (m_signalList) {
+        for (int i = 0; i < m_signalList->count(); ++i) {
+            auto* item = m_signalList->item(i);
+            if (item && item->checkState() == Qt::Checked) {
+                m_persistentCheckedSignals.insert(item->text());
+            }
+        }
+    }
+    m_realTimeSeries.clear();
+    if (m_chart) {
+        for (auto* series : m_chart->series()) {
+            if (auto* line = qobject_cast<QLineSeries*>(series)) {
+                m_realTimeSeries[line->name()] = line;
             }
         }
     }
@@ -2394,6 +2424,30 @@ void SimulationPanel::setCurrentlyHoveredNet(const QString& netName) {
 }
 
 void SimulationPanel::onRunSimulation() {
+    // Resume-first: while paused, Run means Resume (not stop+restart).
+    // Without this, clicking Run on a paused tab destroys the run via the
+    // stop+retry path below and the waveforms never continue.
+    // Routed through the editor so a Resume issued while another tab is
+    // frontmost first switches back to the owning tab (live batches must
+    // land in the owner's views, not this tab's).
+    if (SimManager::instance().isPaused()) {
+        if (m_editor && !m_editor->switchToActiveRunTab()) return;
+        SimManager::instance().pauseSimulation(false);
+        return;
+    }
+    // Desync repair: engine parked at Halted but the bridge pause flag was
+    // lost (e.g. tab switch raced stop). Resume rather than restart.
+    if (SimManager::instance().isRunning()
+        && SimulationManager::instance().state() == SimulationState::Halted) {
+        if (m_editor && !m_editor->switchToActiveRunTab()) return;
+        SimManager::instance().pauseSimulation(false);
+        return;
+    }
+    // Single-active-run policy (own active runs restart silently via the
+    // stop+retry path below; foreign runs need explicit confirmation).
+    if (m_editor && !m_isSimInitiator && !m_editor->confirmReplaceActiveRun()) {
+        return;
+    }
     if (SimManager::instance().isRunning()) {
         m_acceptRealTimeStream = false;
         m_isSimInitiator = false;
@@ -3278,10 +3332,9 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 auto axesX = m_chart->axes(Qt::Horizontal);
                 auto axesY = m_chart->axes(Qt::Vertical);
                 if (!axesX.isEmpty() && !axesY.isEmpty()) {
-                    const QList<QColor> colors = {Qt::red, Qt::blue, QColor("#00aa00"), Qt::magenta, Qt::darkCyan};
                     series = new QLineSeries();
                     series->setName(uiName);
-                    series->setPen(QPen(colors[m_realTimeSeries.size() % colors.size()], 1.5));
+                    series->setPen(QPen(WaveformViewer::stableSignalColor(uiName), 1.5));
                     m_chart->addSeries(series);
                     series->attachAxis(axesX[0]);
                     series->attachAxis(axesY[0]);
@@ -4018,6 +4071,20 @@ void SimulationPanel::updateVirtualMeters(const SimResults& results) {
 
 QWidget* SimulationPanel::getOscilloscopeContainer() const {
     return m_scopeContainer;
+}
+
+void SimulationPanel::detachOscilloscopeContainerForDock() {
+    if (!m_scopeContainer || !m_viewTabs) return;
+    const int idx = m_viewTabs->indexOf(m_scopeContainer);
+    if (idx >= 0) {
+        m_viewTabs->removeTab(idx);
+    }
+}
+
+void SimulationPanel::reclaimOscilloscopeContainer() {
+    if (!m_scopeContainer || !m_viewTabs) return;
+    if (m_viewTabs->indexOf(m_scopeContainer) >= 0) return;
+    m_viewTabs->insertTab(0, m_scopeContainer, QStringLiteral("Waves"));
 }
 
 QString SimulationPanel::formatFrequency(double freq) const {

@@ -163,7 +163,34 @@ void SchematicEditor::refreshOscilloscopeDockContent() {    if (!m_oscilloscopeD
         return;
     }
 
-    m_oscilloscopeDock->setWidget(targetWidget);
+    if (showFullPanel) {
+        // Waves-only -> full: dock auto-releases the borrowed container on
+        // setWidget, leaving it parentless; reclaim it into the tab widget
+        // first so the panel's Waves tab is never left dangling/blank.
+        // Remove the panel from the workspace tabs if it is docked there,
+        // otherwise addTab later would fight the dock for ownership.
+        if (m_workspaceTabs) {
+            for (int i = 0; i < m_workspaceTabs->count(); ++i) {
+                if (m_workspaceTabs->widget(i) == m_simulationPanel) {
+                    m_workspaceTabs->removeTab(i);
+                    break;
+                }
+            }
+        }
+        m_oscilloscopeDock->setWidget(targetWidget);
+        m_simulationPanel->reclaimOscilloscopeContainer();
+    } else {
+        // Full -> waves-only: the dock auto-removes the full panel on
+        // setWidget, which would otherwise become a stray top-level window.
+        // Detach the container from the tab bar first, move it to the dock,
+        // then reparent the panel back to the editor hidden.
+        m_simulationPanel->detachOscilloscopeContainerForDock();
+        m_oscilloscopeDock->setWidget(targetWidget);
+        if (m_simulationPanel->parent() != this) {
+            m_simulationPanel->setParent(this);
+        }
+        m_simulationPanel->hide();
+    }
 }
 
 // Helper to create simple programmatic icons for components/tools
@@ -2018,19 +2045,29 @@ void SchematicEditor::createDrawingToolbar() {
 #include "../items/oscilloscope_item.h"
 
 void SchematicEditor::updateSimulationUiState(bool running, const QString& statusMessage) {
+    if (m_isDestroying) return;
     if (m_view) m_view->setSimulationRunning(running);
     m_simulationRunning = running;
     
-    // Primary Action (Run/Pause toggle)
+    // Primary Action (Run/Pause toggle). The engine is global (single active
+    // run), so the buttons stay visible on every tab; when the current tab
+    // is not the run owner the tooltips name the owner.
+    const bool onOwnerTab = !m_activeRunTab || !m_workspaceTabs
+        || m_workspaceTabs->currentWidget() == m_activeRunTab;
+    const QString ownerSuffix = (!onOwnerTab && !m_activeRunSource.isEmpty())
+        ? QStringLiteral(" — %1").arg(m_activeRunSource)
+        : QString();
     if (m_runSimToolbarAction) {
         if (running && !m_simPaused) {
             m_runSimToolbarAction->setIcon(getThemeIcon(":/icons/tool_pause.svg"));
             m_runSimToolbarAction->setText("Pause Simulation");
-            m_runSimToolbarAction->setToolTip("Pause current simulation");
+            m_runSimToolbarAction->setToolTip(QStringLiteral("Pause current simulation%1").arg(ownerSuffix));
         } else if (m_simPaused) {
             m_runSimToolbarAction->setIcon(getThemeIcon(":/icons/tool_run.svg"));
             m_runSimToolbarAction->setText("Resume Simulation");
-            m_runSimToolbarAction->setToolTip("Resume current simulation");
+            m_runSimToolbarAction->setToolTip(onOwnerTab
+                ? QStringLiteral("Resume current simulation")
+                : QStringLiteral("Resume simulation%1 (switches back to its tab)").arg(ownerSuffix));
         } else {
             m_runSimToolbarAction->setIcon(getThemeIcon(":/icons/tool_run.svg"));
             m_runSimToolbarAction->setText("Run Simulation (F8)");
@@ -2042,6 +2079,12 @@ void SchematicEditor::updateSimulationUiState(bool running, const QString& statu
 
     if (m_runSimMenuAction) m_runSimMenuAction->setEnabled(!running || m_simPaused);
     if (m_stopSimMenuAction) m_stopSimMenuAction->setEnabled(running);
+    // Stop is global: it stops the owning run from any tab.
+    if (m_stopSimToolbarAction) {
+        m_stopSimToolbarAction->setToolTip(onOwnerTab
+            ? QStringLiteral("Stop current simulation")
+            : QStringLiteral("Stop simulation%1").arg(ownerSuffix));
+    }
     
     // Stop button visibility
     if (m_simControlSubGroup) m_simControlSubGroup->setVisible(running);
@@ -2053,7 +2096,7 @@ void SchematicEditor::updateSimulationUiState(bool running, const QString& statu
 
 void SchematicEditor::onSimulationPaused(bool paused) {
     m_simPaused = paused;
-    updateSimulationUiState(m_simulationRunning, paused ? "Simulation paused." : "Simulation resumed.");
+    updateSimulationUiState(m_simulationRunning, runStatusText(paused ? "Simulation paused." : "Simulation resumed."));
 }
 
 void SchematicEditor::connectSimulationSignals() {
@@ -2061,7 +2104,12 @@ void SchematicEditor::connectSimulationSignals() {
 
     connect(&sim, &SimManager::simulationStarted, this, [this]() {
         m_simulationRunning = true;
-        updateSimulationUiState(true, "Simulation running...");
+        // A schematic run supersedes any pending netlist expectation.
+        m_expectNetlistResults = false;
+        const QString file = QFileInfo(m_currentFilePath).fileName();
+        m_activeRunSource = file.isEmpty() ? QStringLiteral("schematic") : file;
+        if (m_workspaceTabs) m_activeRunTab = m_workspaceTabs->currentWidget();
+        updateSimulationUiState(true, runStatusText("Simulation running..."));
         
         // Clear stale simulation issues from the previous run so an old error
         // does not linger after a new (valid) simulation starts.
@@ -2093,7 +2141,10 @@ void SchematicEditor::connectSimulationSignals() {
     connect(&sim, &SimManager::simulationFinished, this, [this](const SimResults& results) {
         if (m_simConfig.type != SimAnalysisType::RealTime) {
             m_simulationRunning = false;
-            updateSimulationUiState(false, "Simulation finished.");
+            updateSimulationUiState(false, runStatusText("Simulation finished."));
+            m_activeRunSource.clear();
+            m_activeRunTab.clear();
+            m_expectNetlistResults = false;
         }
         
 #ifdef HAVE_FLUXSCRIPT
@@ -2140,7 +2191,10 @@ void SchematicEditor::connectSimulationSignals() {
     connect(&sim, &SimManager::simulationStopped, this, [this]() {
         m_simPaused = false;
         m_simulationRunning = false;
-        updateSimulationUiState(false, "Simulation stopped.");
+        updateSimulationUiState(false, runStatusText("Simulation stopped."));
+        m_activeRunSource.clear();
+        m_activeRunTab.clear();
+        m_expectNetlistResults = false;
         // Clear stale heatmap data
         if (m_view) m_view->clearSimulationResults();
         if (m_scene) {
@@ -2158,7 +2212,10 @@ void SchematicEditor::connectSimulationSignals() {
 
     connect(&sim, &SimManager::errorOccurred, this, [this](const QString& message) {
         m_simulationRunning = false;
-        updateSimulationUiState(false, "Simulation error.");
+        updateSimulationUiState(false, runStatusText("Simulation error."));
+        m_activeRunSource.clear();
+        m_activeRunTab.clear();
+        m_expectNetlistResults = false;
         statusBar()->showMessage(QString("Simulation error: %1").arg(message), 5000);
         appendSimulationIssue(message);
     });
@@ -2170,17 +2227,24 @@ void SchematicEditor::connectSimulationSignals() {
     connect(&shared, &SimulationManager::simulationStarted, this, [this]() {
         m_simPaused = false;
         m_simulationRunning = true;
-        updateSimulationUiState(true, "Simulation running...");
+        if (m_workspaceTabs) m_activeRunTab = m_workspaceTabs->currentWidget();
+        updateSimulationUiState(true, runStatusText("Simulation running..."));
     });
     connect(&shared, &SimulationManager::simulationFinished, this, [this]() {
         m_simPaused = false;
         m_simulationRunning = false;
-        updateSimulationUiState(false, "Simulation finished.");
+        updateSimulationUiState(false, runStatusText("Simulation finished."));
+        m_activeRunSource.clear();
+        m_activeRunTab.clear();
+        m_expectNetlistResults = false;
     });
     connect(&shared, &SimulationManager::errorOccurred, this, [this](const QString& message) {
         m_simPaused = false;
         m_simulationRunning = false;
-        updateSimulationUiState(false, "Simulation error.");
+        updateSimulationUiState(false, runStatusText("Simulation error."));
+        m_activeRunSource.clear();
+        m_activeRunTab.clear();
+        m_expectNetlistResults = false;
         statusBar()->showMessage(QString("Simulation error: %1").arg(message), 5000);
         appendSimulationIssue(message);
     });
@@ -2475,7 +2539,9 @@ void SchematicEditor::loadSimulationResults(const QString& rawPath) {
 void SchematicEditor::onNetlistRunStarted(const QString& source) {
     if (!m_simulationPanel) return;
     m_expectNetlistResults = true;
-    updateWaveformsDockTitle(source);
+    m_activeRunSource = source.trimmed().isEmpty() ? QStringLiteral("netlist") : source.trimmed();
+    if (m_workspaceTabs) m_activeRunTab = m_workspaceTabs->currentWidget();
+    updateWaveformsDockTitle(m_activeRunSource);
     m_simulationPanel->beginNetlistRun();
     if (m_oscilloscopeDock) {
         refreshOscilloscopeDockContent();
@@ -2500,7 +2566,42 @@ void SchematicEditor::updateWaveformsDockTitle(const QString& source) {
                                                       : QStringLiteral("Waveforms — %1").arg(name));
 }
 
+QString SchematicEditor::runStatusText(const QString& base) const {
+    return m_activeRunSource.isEmpty() ? base : base + QStringLiteral(" — ") + m_activeRunSource;
+}
+
+bool SchematicEditor::confirmReplaceActiveRun() {
+    const auto st = SimulationManager::instance().state();
+    if (st != SimulationState::Running && st != SimulationState::Halted
+        && st != SimulationState::Paused) {
+        return true;
+    }
+    const QString victim = m_activeRunSource.isEmpty()
+        ? QStringLiteral("An active simulation")
+        : QStringLiteral("The %1 simulation").arg(m_activeRunSource);
+    return QMessageBox::question(this,
+            "Discard active simulation?",
+            QStringLiteral("%1 is paused or still running. Starting a new one will discard it. Continue?").arg(victim),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
+}
+
 void SchematicEditor::runNetlistTabContent(const QString& content, const QString& sourceName) {
+    // Paused/halted engine: resume instead of destroying (see NetlistEditor::onRun).
+    // Switch back to the owning tab first so resumed data lands in its views.
+    const auto engineState = SimulationManager::instance().state();
+    if (engineState == SimulationState::Halted || engineState == SimulationState::Paused) {
+        if (!switchToActiveRunTab()) return;
+        SimManager::instance().pauseSimulation(false);
+        statusBar()->showMessage("Resuming paused simulation...", 3000);
+        return;
+    }
+    if (engineState == SimulationState::Running) {
+        if (QMessageBox::question(this, "Discard active simulation?",
+                "A simulation is still running. Starting this netlist will discard it. Continue?",
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+            return;
+        }
+    }
     if (m_activeNetlistTempFile) {
         m_activeNetlistTempFile->remove();
         delete m_activeNetlistTempFile;
@@ -2550,6 +2651,21 @@ void SchematicEditor::onRunSimulation() {
     if (!m_scene || !m_netManager) {
         updateSimulationUiState(false, "Simulation unavailable: scene or net manager is not ready.");
         return;
+    }
+
+    // A netlist run owns the single shared engine: confirm before the
+    // schematic flow below destroys it (resume would become impossible).
+    if (m_expectNetlistResults) {
+        const auto engineState = SimulationManager::instance().state();
+        if (engineState == SimulationState::Running || engineState == SimulationState::Halted
+            || engineState == SimulationState::Paused) {
+            if (QMessageBox::question(this, "Discard netlist simulation?",
+                    "A netlist simulation is paused or still running. Starting the schematic one will discard it. Continue?",
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+                return;
+            }
+            m_expectNetlistResults = false;
+        }
     }
 
     if (m_mouseFollowPlacementActive) {
@@ -3127,7 +3243,34 @@ void SchematicEditor::onPauseSimulation() {
         return;
     }
 
+    // Single-engine ownership: Resume/Pause issued from a tab that does not
+    // own the run first switches back to the owner, so resumed live batches
+    // land in the owning tab's stashed views instead of this tab's.
+    // Stop needs no switch — it is global (handled by stopAll callers).
+    if (!switchToActiveRunTab()) {
+        return; // owner gone, run discarded inside switchToActiveRunTab()
+    }
+
     SimManager::instance().pauseSimulation(!m_simPaused);
+}
+
+bool SchematicEditor::switchToActiveRunTab() {
+    if (!m_activeRunTab || !m_workspaceTabs) return true; // no tracked owner; proceed
+    if (m_workspaceTabs->currentWidget() == m_activeRunTab) return true;
+    const int ownerIdx = m_workspaceTabs->indexOf(m_activeRunTab);
+    if (ownerIdx < 0) {
+        // Owner tab was closed: the engine may still reference its scene
+        // (SimManager::m_rtScene), so the run cannot safely continue.
+        SimManager::instance().stopAll();
+        m_activeRunTab.clear();
+        m_activeRunSource.clear();
+        m_simulationRunning = false;
+        m_simPaused = false;
+        updateSimulationUiState(false, "Original simulation tab was closed; run stopped.");
+        return false;
+    }
+    m_workspaceTabs->setCurrentIndex(ownerIdx);
+    return true;
 }
 
 void SchematicEditor::updateBreadcrumbs() {

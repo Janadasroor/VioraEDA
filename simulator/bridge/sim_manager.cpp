@@ -1460,6 +1460,13 @@ void SimManager::stopRealTime() {
     m_rtNetMgr = nullptr;
     if (!sharedRunActive) {
         cleanupSimulation();
+    } else {
+        // Same parked-engine leak as stopAll(): no Finished callback follows
+        // a redundant halt, so clean up synchronously when not Running.
+        const auto st = SimulationManager::instance().state();
+        if (st != SimulationState::Running && st != SimulationState::Loading) {
+            cleanupSimulation();
+        }
     }
     Q_EMIT simulationPaused(false);
     Q_EMIT simulationStopped();
@@ -1662,9 +1669,19 @@ void SimManager::stopAll() {
     }
     m_rtScene = nullptr;
     m_rtNetMgr = nullptr;
-    
+
     if (!sharedRunActive) {
         cleanupSimulation();
+    } else {
+        // Shared-engine runs rely on the async Finished callback for cleanup,
+        // but no callback ever fires when the engine is already parked
+        // (Halted) — a redundant bg_halt produces no state change. Without
+        // this, m_control leaks and every later Run reports "already running"
+        // until the app restarts.
+        const auto st = SimulationManager::instance().state();
+        if (st != SimulationState::Running && st != SimulationState::Loading) {
+            cleanupSimulation();
+        }
     }
     
     // ALWAYS emit stopped to unlock UI buttons immediately.
@@ -1695,7 +1712,18 @@ void SimManager::pauseSimulation(bool pause) {
     }
 
     if (m_paused == pause) {
-        return;
+        // Desync repair: the editor's cached pause flag and this flag can
+        // diverge when pause/resume races a tab switch (bg_halt/bg_resume are
+        // async) or when a stop left the engine halted. Only no-op when the
+        // engine already agrees with the request; otherwise fall through and
+        // re-issue the command so Resume can never get stuck.
+        const auto st = SimulationManager::instance().state();
+        if (pause && st != SimulationState::Running) {
+            return;
+        }
+        if (!pause && st != SimulationState::Halted) {
+            return;
+        }
     }
 
     if (m_control) {
