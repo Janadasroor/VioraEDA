@@ -30,7 +30,7 @@ public:
 Q_SIGNALS:
     // Emitted when a netlist run is launched so the owning editor can reset
     // result views (otherwise they keep showing the previous tab's data).
-    void runStarted();
+    void runStarted(const QString& source);
 
 private Q_SLOTS:
     void onRun();

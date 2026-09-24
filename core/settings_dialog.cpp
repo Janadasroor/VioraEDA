@@ -169,7 +169,7 @@ void SettingsDialog::setupUI() {
 
     QGroupBox* grpSimUi = new QGroupBox("Simulation UI");
     QVBoxLayout* laySimUi = new QVBoxLayout(grpSimUi);
-    m_showFullSimulationPanelCheck = new QCheckBox("Show full simulation panel in the Analog Oscilloscope dock");
+    m_showFullSimulationPanelCheck = new QCheckBox("Show full simulation panel in the Waveforms dock");
     m_autoShowSimulationTabCheck = new QCheckBox("Automatically switch to Simulation tab when running");
     m_showNetTableCheck = new QCheckBox("Show net voltage summary table on schematic after transient simulation");
     m_showNetTableCheck->setChecked(true);

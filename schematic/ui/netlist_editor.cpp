@@ -14,6 +14,7 @@
 #include <QFileDialog>
 #include <QTemporaryFile>
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QAction>
 #include <QLabel>
@@ -180,7 +181,10 @@ void NetlistEditor::onRun() {
         
         // Pass the absolute path to SimulationManager
         SimulationManager::instance().runSimulation(m_activeTempFile->fileName());
-        Q_EMIT runStarted();
+        const QString source = m_currentFilePath.isEmpty()
+            ? QStringLiteral("Netlist Editor")
+            : QFileInfo(m_currentFilePath).fileName();
+        Q_EMIT runStarted(source);
     }
 }
 

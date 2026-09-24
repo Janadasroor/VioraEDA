@@ -64,7 +64,7 @@ public:
     void loadSimulationResults(const QString& rawPath);
     // A netlist-editor tab started a run: reset the dock views so they cannot
     // keep displaying the previous (schematic) tab's waveforms.
-    void onNetlistRunStarted();
+    void onNetlistRunStarted(const QString& source);
     void setProjectContext(const QString& projectName, const QString& projectDir, const QStringList& workspaceFolders = QStringList());
 
     void showSimulationResults(const class SimResults& results);
@@ -168,7 +168,8 @@ private Q_SLOTS:
     // Runs the active workspace tab's netlist content through the shared
     // engine (used when a .cir/.sp text tab or NetlistEditor tab is active;
     // the schematic path below would otherwise simulate the wrong circuit).
-    void runNetlistTabContent(const QString& content);
+    void runNetlistTabContent(const QString& content, const QString& sourceName);
+    void updateWaveformsDockTitle(const QString& source);
     void onOpenSimulationSetup();
     void onEditSimulationFromDirective(const QString& currentCommand);
     void onPauseSimulation();

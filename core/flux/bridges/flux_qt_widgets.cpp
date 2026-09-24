@@ -584,11 +584,11 @@ extern "C" {
         return FluxQtBridge::instance().registerObject(win);
     }
 
-    // Create analog oscilloscope dock panel (scope display + channel controls only)
+    // Create waveforms dock panel (scope display + channel controls only)
     double flux_qt_create_scope_dock() {
         QWidget* dock = new QWidget();
         dock->setObjectName("ScopeDock");
-        dock->setWindowTitle("Analog Oscilloscope");
+        dock->setWindowTitle("Waveforms");
         QVBoxLayout* mainLayout = new QVBoxLayout(dock);
         mainLayout->setContentsMargins(4, 4, 4, 4);
         mainLayout->setSpacing(4);

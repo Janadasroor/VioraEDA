@@ -828,11 +828,11 @@ void SchematicEditor::onTabChanged(int index) {
         }
         updateBreadcrumbs();
         refreshHierarchyPanel();
+        updateWaveformsDockTitle(QString());
         return;
     }
     
-    QWidget* current = m_workspaceTabs->widget(index);
-    if (auto* view = qobject_cast<SchematicView*>(current)) {
+    QWidget* current = m_workspaceTabs->widget(index);    if (auto* view = qobject_cast<SchematicView*>(current)) {
         m_view = view;
         m_scene = view->scene();
         m_netManager = view->netManager();
@@ -915,6 +915,13 @@ void SchematicEditor::onTabChanged(int index) {
 
     if (m_showDetailedLogAction) {
         m_showDetailedLogAction->setEnabled(current == m_simulationPanel);
+    }
+    // Keep the results dock labeled with the visible tab's source so it is
+    // never mistaken for the pinned Analog Oscilloscope instrument window.
+    if (qobject_cast<SchematicView*>(current)) {
+        updateWaveformsDockTitle(QFileInfo(m_currentFilePath).fileName());
+    } else if (current) {
+        updateWaveformsDockTitle(m_workspaceTabs->tabText(index).remove('*').trimmed());
     }
     if (!m_isConstructing) ConfigManager::triggerSessionSave();
 }

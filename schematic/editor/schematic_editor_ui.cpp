@@ -574,7 +574,7 @@ void SchematicEditor::createToolBar() {
     addToggle(m_geminiDock, "Gemini Assistant");
     addToggle(m_hierarchyDock, "Sheet Hierarchy");
     addToggle(m_ercDock, "ERC Results");
-    addToggle(m_oscilloscopeDock, "Analog Oscilloscope");
+    addToggle(m_oscilloscopeDock, "Waveforms");
     addToggle(m_sourceControlDock, "Source Control");
 
 
@@ -1661,7 +1661,7 @@ void SchematicEditor::createDockWidgets() {
     m_componentDock->raise();
 
     // === Oscilloscope Dock ===
-    m_oscilloscopeDock = new QDockWidget("Analog Oscilloscope", this);
+    m_oscilloscopeDock = new QDockWidget("Waveforms", this);
     m_oscilloscopeDock->setObjectName("AnalogOscilloscopeDock");
     m_oscilloscopeDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
     m_oscilloscopeDock->setAllowedAreas(Qt::AllDockWidgetAreas);
@@ -1704,7 +1704,16 @@ void SchematicEditor::createDockWidgets() {
             });
         }
         menu.addSeparator();
-        menu.addAction("Hide Oscilloscope", this, [this]() {
+        QAction* fullPanelAct = menu.addAction("Full Panel", this, [this]() {
+            const bool full = !(m_simulationPanel
+                && m_oscilloscopeDock->widget() == static_cast<QWidget*>(m_simulationPanel));
+            ConfigManager::instance().setToolProperty("SimulationPanel", "showFullPanelInDock", full);
+            refreshOscilloscopeDockContent();
+        });
+        fullPanelAct->setCheckable(true);
+        fullPanelAct->setChecked(m_simulationPanel
+            && m_oscilloscopeDock->widget() == static_cast<QWidget*>(m_simulationPanel));
+        menu.addAction("Hide Waveforms", this, [this]() {
             m_oscilloscopeDock->hide();
         });
         menu.exec(m_oscilloscopeDock->mapToGlobal(pos));
@@ -2440,9 +2449,10 @@ void SchematicEditor::loadSimulationResults(const QString& rawPath) {
     }
 }
 
-void SchematicEditor::onNetlistRunStarted() {
+void SchematicEditor::onNetlistRunStarted(const QString& source) {
     if (!m_simulationPanel) return;
     m_expectNetlistResults = true;
+    updateWaveformsDockTitle(source);
     m_simulationPanel->beginNetlistRun();
     if (m_oscilloscopeDock) {
         refreshOscilloscopeDockContent();
@@ -2460,7 +2470,14 @@ bool isSpiceNetlistPath(const QString& path) {
 }
 } // namespace
 
-void SchematicEditor::runNetlistTabContent(const QString& content) {
+void SchematicEditor::updateWaveformsDockTitle(const QString& source) {
+    if (!m_oscilloscopeDock) return;
+    const QString name = source.trimmed();
+    m_oscilloscopeDock->setWindowTitle(name.isEmpty() ? QStringLiteral("Waveforms")
+                                                      : QStringLiteral("Waveforms — %1").arg(name));
+}
+
+void SchematicEditor::runNetlistTabContent(const QString& content, const QString& sourceName) {
     if (m_activeNetlistTempFile) {
         m_activeNetlistTempFile->remove();
         delete m_activeNetlistTempFile;
@@ -2477,7 +2494,7 @@ void SchematicEditor::runNetlistTabContent(const QString& content) {
     QTextStream out(m_activeNetlistTempFile);
     out << content;
     out.flush();
-    onNetlistRunStarted();
+    onNetlistRunStarted(sourceName);
     SimulationManager::instance().runSimulation(m_activeNetlistTempFile->fileName());
     statusBar()->showMessage("Running netlist simulation...", 3000);
 }
@@ -2502,7 +2519,7 @@ void SchematicEditor::onRunSimulation() {
                     statusBar()->showMessage("Netlist tab is empty; nothing to simulate.", 3000);
                     return;
                 }
-                runNetlistTabContent(content);
+                runNetlistTabContent(content, QFileInfo(tabPath).fileName());
                 return;
             }
         }
