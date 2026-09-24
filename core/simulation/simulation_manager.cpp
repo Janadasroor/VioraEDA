@@ -563,6 +563,19 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
         JitBridge::instance().registerTargetsWithEngine(m_fluxScriptTargets);
     }
 
+    // Loading-cancel path: a stop issued while the netlist was loading must
+    // not start the engine afterwards. (m_stopRequested is only set by stop
+    // paths and was cleared at run entry, so a set flag here unambiguously
+    // arrived mid-load.)
+    if (m_stopRequested.load()) {
+        if (m_bufferTimer) m_bufferTimer->stop();
+        setState(SimulationState::Idle);
+        clearCircuits();
+        QMetaObject::invokeMethod(this, [this]() { Q_EMIT simulationFinished(); },
+                                  Qt::QueuedConnection);
+        return;
+    }
+
     Q_EMIT simulationStarted();
     
     // Apply any GUI parameters (like switch states) before starting
@@ -1001,7 +1014,8 @@ int SimulationManager::cbSendChar(char* output, int id, void* userData) {
 int SimulationManager::cbSendStat(char* stat, int id, void* userData) {
     SimulationManager* self = static_cast<SimulationManager*>(userData);
     if (self && stat) {
-        static int throttle = 0; if (++throttle % 20 != 0) return 0;
+        // Invoked on ngspice threads: plain static int would be a data race.
+        static std::atomic<int> throttle{0}; if (++throttle % 20 != 0) return 0;
         std::lock_guard<std::mutex> lock(self->m_logMutex);
         self->m_logBuffer.push_back(QString::fromLatin1(stat));
     }
@@ -1196,9 +1210,21 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
             m_workerSyncCond.notify_all();
             
             if (!m_haltRequested.load()) {
+                // Spurious halt: nobody asked for it, so resume rather than
+                // strand the run. This executes inline (not deferred to the
+                // worker) by design — SpiceBackend deliberately bypasses its
+                // mutex for bg_halt/bg_resume so callbacks can issue them, and
+                // deferring would risk sitting halted with nobody resuming.
+                // Likewise isPaused() above is a read-only engine-flag query
+                // via cached function pointer, safe on the callback thread.
                 static QElapsedTimer lastAutoResume;
-                if (!lastAutoResume.isValid() || lastAutoResume.elapsed() > 200) {
-                    lastAutoResume.restart();
+                bool doResume = false;
+                { std::lock_guard<std::mutex> lock(m_workerSyncMutex);
+                  if (!lastAutoResume.isValid() || lastAutoResume.elapsed() > 200) {
+                      lastAutoResume.restart();
+                      doResume = true;
+                  } }
+                if (doResume) {
                     qDebug() << "[SimManager] Spurious halt. Auto-resuming...";
                     SpiceBackend::instance().execute("bg_resume");
                 }
@@ -1303,9 +1329,21 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath, quint64
 
 void SimulationManager::clearCircuits() {
 #ifdef HAVE_NGSPICE
+    bool settled = false;
     if (isRunning()) {
         // Issue 15: Confirmed-halt gate to avoid racing with worker executeSequence
-        haltAndWait(std::chrono::milliseconds(1000));
+        settled = haltAndWait(std::chrono::milliseconds(1000));
+    } else {
+        settled = (m_state != SimulationState::Loading);
+    }
+    // Release our deck copy only once the engine is confirmed parked/down.
+    // Clearing while a load is in flight or the engine still runs risks
+    // pulling storage out from under teardown; the next clear (post-run)
+    // releases it instead.
+    if (!settled) {
+        sendCommandAsync("bg_halt");
+        sendCommandAsync("reset");
+        return;
     }
     sendCommandAsync("bg_halt");
     sendCommandAsync("reset");

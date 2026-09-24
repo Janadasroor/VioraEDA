@@ -57,7 +57,7 @@ enum class SimulationState {
     Loading,        ///< Circuit netlist is being loaded/parsed
     Running,        ///< Simulation background thread is active and producing data
     Halted,         ///< Simulation is paused at a sync point for interaction
-    Paused,         ///< Simulation is manually paused by the user
+    Paused,         ///< Reserved: never entered (pause is reported via Halted); kept so existing `Halted || Paused` guards keep compiling
     Stopping,       ///< Shutdown sequence in progress
     Finished,       ///< Simulation completed naturally
     Error           ///< Simulation failed or crashed

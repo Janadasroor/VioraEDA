@@ -1586,6 +1586,10 @@ bool SimManager::startSharedSimulation(const QString& netlistContent, const QStr
     out.flush();
     tempFile->close();
     
+    // The previous shared temp (autoRemove=false) would otherwise leak on
+    // disk: it is only removed in cleanupSimulation, which a re-run may never
+    // have reached.
+    if (!m_sharedNetlistPath.isEmpty()) QFile::remove(m_sharedNetlistPath);
     m_sharedNetlistPath = tempFile->fileName();
     tempFile->deleteLater();
 
