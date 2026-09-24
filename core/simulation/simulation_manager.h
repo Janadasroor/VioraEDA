@@ -125,7 +125,7 @@ Q_SIGNALS:
 
 public Q_SLOTS:
     void handleSimulationFinished(const QString& rawPath, quint64 runGen);
-    void processBufferedData();
+    void processBufferedData(quint64 runGen);
     void clearCircuits();
     bool loadNetlistInternal(const QString& netlist, bool keepStorage, QString* errorOut);
     void applyPendingFluxSourceUpdates();

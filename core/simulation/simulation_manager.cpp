@@ -208,7 +208,11 @@ SimulationManager::SimulationManager(QObject* parent)
     : QObject(parent), m_isInitialized(false) {
     m_bufferTimer = new QTimer(this);
     m_bufferTimer->setInterval(33); // ~30 FPS
-    connect(m_bufferTimer, &QTimer::timeout, this, &SimulationManager::processBufferedData);
+    connect(m_bufferTimer, &QTimer::timeout, this, [this]() {
+        // Timer ticks always flush the current run; queued explicit flushes
+        // below carry the generation captured at queue time instead.
+        processBufferedData(m_runGeneration.load());
+    });
 
     m_workerThread = new QThread(this);
     m_worker = new CommandWorker();
@@ -536,7 +540,8 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
 
     QString error;
     if (!loadNetlistInternal(netlist, true, &error)) {
-        QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
+        // Manager thread: stop the timer synchronously instead of queueing.
+        if (m_bufferTimer) m_bufferTimer->stop();
         setState(SimulationState::Error);
         {
             std::lock_guard<std::mutex> lock(m_logMutex);
@@ -568,7 +573,8 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     SpiceBackend::instance().execute("set filetype=binary");
     
     setState(SimulationState::Running);
-    { std::lock_guard<std::mutex> lock(m_controlMutex); if (m_streamingControl) QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection); }
+    // Manager thread: start the timer synchronously when this run streams.
+    { std::lock_guard<std::mutex> lock(m_controlMutex); if (m_streamingControl && m_bufferTimer) m_bufferTimer->start(); }
     int rc = SpiceBackend::instance().execute("bg_run");
 
     if (rc != 0 || m_lastLoadFailed) {
@@ -604,7 +610,7 @@ bool SimulationManager::validateNetlist(const QString& netlist, QString* errorOu
 
     { std::lock_guard<std::mutex> lock(m_netlistMutex); m_currentNetlist = netlist; }
     bool ok = loadNetlistInternal(netlist, false, errorOut);
-    processBufferedData();
+    processBufferedData(m_runGeneration.load());
     return ok;
 }
 
@@ -693,8 +699,15 @@ void SimulationManager::stopSimulation() {
     m_haltRequested = true;
     m_stopRequested = true;
     sendCommandAsync("bg_halt");
-    QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
-    QMetaObject::invokeMethod(this, "processBufferedData", Qt::QueuedConnection);
+    // Manager thread: stop the timer synchronously. The trailing flush is
+    // queued, so tag it with this run's generation — if a newer run started
+    // first, it must neither emit old points nor discard new ones.
+    if (m_bufferTimer) m_bufferTimer->stop();
+    {
+        const quint64 gen = m_runGeneration.load();
+        QMetaObject::invokeMethod(this, [this, gen]() { processBufferedData(gen); },
+                                  Qt::QueuedConnection);
+    }
 #endif
 }
 
@@ -811,13 +824,23 @@ void SimulationManager::sendInternalCommand(const QString& command) {
         m_haltRequested = true; 
         QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
     }
-    else if (command == "bg_resume" || command == "resume") { 
+    else if (command == "bg_resume" || command == "resume") {
         // Issue 6: Clear stale m_stopRequested flag on resume
         m_stopRequested = false;
         m_haltRequested = false;
         // NOTE: Don't set Running state here - wait for handleEngineStateChange callback
         // to confirm ngspice has actually resumed. This prevents race conditions.
-        { std::lock_guard<std::mutex> lock(m_controlMutex); if (m_streamingControl) QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection); }
+        // Foreign thread (worker/threadpool): queue the start tagged with this
+        // run's generation so a stale start can't restart streaming after a
+        // newer run stopped.
+        { std::lock_guard<std::mutex> lock(m_controlMutex);
+          if (m_streamingControl) {
+              const quint64 gen = m_runGeneration.load();
+              QMetaObject::invokeMethod(m_bufferTimer, [this, gen]() {
+                  if (gen != m_runGeneration.load()) return; // superseded
+                  m_bufferTimer->start();
+              }, Qt::QueuedConnection);
+          } }
     }
     SpiceBackend::instance().execute(command);
 #endif
@@ -910,7 +933,11 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
 #endif
 }
 
-void SimulationManager::processBufferedData() {
+void SimulationManager::processBufferedData(quint64 runGen) {
+    // A flush queued by an older run must neither emit old points into the
+    // new run nor discard the new run's points: leave the buffer untouched
+    // when superseded; the current run's own flush/clear owns it.
+    if (runGen != m_runGeneration.load()) return;
     std::deque<SimDataPoint> batch; std::vector<QString> logBatch;
     { std::lock_guard<std::mutex> lock(m_bufferMutex); if (!m_simBuffer.empty()) m_simBuffer.swap(batch); }
     { std::lock_guard<std::mutex> lock(m_logMutex); if (!m_logBuffer.empty()) m_logBuffer.swap(logBatch); }
@@ -1197,7 +1224,16 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
         // === Engine Running/Resumed ===
         setState(SimulationState::Running);
         m_stopRequested = false; // Issue 6: clear stale stop flag on resume
-        { std::lock_guard<std::mutex> lock(m_controlMutex); if (m_streamingControl) QMetaObject::invokeMethod(m_bufferTimer, "start", Qt::QueuedConnection); }
+        // Callback thread: queue the start tagged with this run's generation
+        // (see sendInternalCommand above for why it must not be bare).
+        { std::lock_guard<std::mutex> lock(m_controlMutex);
+          if (m_streamingControl) {
+              const quint64 gen = m_runGeneration.load();
+              QMetaObject::invokeMethod(m_bufferTimer, [this, gen]() {
+                  if (gen != m_runGeneration.load()) return; // superseded
+                  m_bufferTimer->start();
+              }, Qt::QueuedConnection);
+          } }
         m_haltRequested = false; 
         {
             std::lock_guard<std::mutex> lock(m_workerSyncMutex);
@@ -1209,9 +1245,9 @@ void SimulationManager::handleEngineStateChange(bool finished, int id) {
 
 void SimulationManager::handleSimulationFinished(const QString& rawPath, quint64 runGen) {
     if (runGen != m_runGeneration.load()) return; // superseded by a newer run
-    QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection); 
-    processBufferedData();
-    m_stopRequested = false; 
+    QMetaObject::invokeMethod(m_bufferTimer, "stop", Qt::QueuedConnection);
+    processBufferedData(runGen);
+    m_stopRequested = false;
 
 #ifdef HAVE_NGSPICE
     if (!m_lastLoadFailed && !m_lastRunFailed && !rawPath.isEmpty()) {
@@ -1250,7 +1286,7 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath, quint64
                         "Ngspice: no simulation data was produced. The netlist contains "
                         "no analysis (.tran/.ac/.dc/.op); analyses inside .control blocks "
                         "are lifted automatically, otherwise add a directive."));
-                    processBufferedData();
+                    processBufferedData(runGen);
                 }
                 Q_EMIT simulationFinished();
             }, Qt::QueuedConnection);
