@@ -42,8 +42,8 @@ public:
     explicit CommandWorker(QObject* parent = nullptr) : QObject(parent) {}
     void setManager(SimulationManager* m) { m_manager = m; }
 public slots:
-    void execute(const QString& cmd);
-    void executeSequence(const QStringList& cmds);
+    void execute(const QString& cmd, quint64 runGen);
+    void executeSequence(const QStringList& cmds, quint64 runGen);
     void loadCircuit(char** deck);
 private:
     SimulationManager* m_manager = nullptr;

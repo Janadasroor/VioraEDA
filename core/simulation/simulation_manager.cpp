@@ -29,15 +29,22 @@
 
 using namespace Flux;
 
-void CommandWorker::execute(const QString& cmd) { 
+void CommandWorker::execute(const QString& cmd, quint64 runGen) {
     if (cmd.startsWith("alter", Qt::CaseInsensitive)) {
-        executeSequence(QStringList() << cmd);
+        executeSequence(QStringList() << cmd, runGen);
     } else {
-        SpiceBackend::instance().execute(cmd); 
+        SpiceBackend::instance().execute(cmd);
     }
 }
-void CommandWorker::executeSequence(const QStringList& cmds) {
+void CommandWorker::executeSequence(const QStringList& cmds, quint64 runGen) {
     if (cmds.isEmpty() || !m_manager) return;
+    // Queued behind a newer run: the alter/resume commands below target a dead
+    // circuit. Drop them — a stale `alter` on the new circuit or a stale
+    // `bg_run`/`resume` wedging the new engine is worse than a lost toggle.
+    auto superseded = [this, runGen] {
+        return runGen != m_manager->m_runGeneration.load();
+    };
+    if (superseded()) return;
 
     bool needsResume = false;
 
@@ -65,12 +72,15 @@ void CommandWorker::executeSequence(const QStringList& cmds) {
             SpiceBackend::instance().execute("bg_resume");
 
             // Re-queue the commands to retry after a brief delay so user actions (e.g. switch toggle) are not lost
-            QTimer::singleShot(50, this, [this, cmds]() {
-                executeSequence(cmds);
+            QTimer::singleShot(50, this, [this, cmds, runGen]() {
+                executeSequence(cmds, runGen);
             });
             return;
         }
     }
+
+    // haltAndWait blocked above: a newer run may have started meanwhile.
+    if (superseded()) return;
 
     // Apply alter commands while engine is safely halted at sync point
     // (ngSpice_Command will execute them since fl_paused=true && !fl_exited)
@@ -80,6 +90,7 @@ void CommandWorker::executeSequence(const QStringList& cmds) {
 
     m_manager->m_jitUpdateInProgress = false;
 
+    if (superseded()) return;
     if (needsResume) {
         qDebug() << "[SimWorker] Resuming simulation...";
         // NOTE: m_haltRequested stays true until handleEngineStateChange confirms actual resume
@@ -107,11 +118,13 @@ void CommandWorker::executeSequence(const QStringList& cmds) {
                     // ngspice reports not paused and not halted - bg thread exited
                     // Need to restart with bg_run
                     qDebug() << "[SimWorker] Bg thread exited after alter, restarting with bg_run...";
+                    if (superseded()) return;
                     SpiceBackend::instance().execute("bg_run");
                     m_manager->m_haltRequested = false;
                 } else {
                     // Still paused, try resume command
                     qDebug() << "[SimWorker] Trying resume command...";
+                    if (superseded()) return;
                     SpiceBackend::instance().execute("resume");
                     
                     bool resumed = m_manager->m_workerSyncCond.wait_for(lock, std::chrono::milliseconds(500), [this] {
@@ -121,6 +134,7 @@ void CommandWorker::executeSequence(const QStringList& cmds) {
                     if (!resumed) {
                         // Last resort: try bg_run
                         qDebug() << "[SimWorker] Resume failed, trying bg_run...";
+                        if (superseded()) return;
                         SpiceBackend::instance().execute("bg_run");
                     }
                     m_manager->m_haltRequested = false;
@@ -131,6 +145,7 @@ void CommandWorker::executeSequence(const QStringList& cmds) {
                     qDebug() << "[SimWorker] Resume succeeded - now Running.";
                 } else if (m_manager->m_state == SimulationState::Finished) {
                     qDebug() << "[SimWorker] Bg thread finished, restarting with bg_run...";
+                    if (superseded()) return;
                     SpiceBackend::instance().execute("bg_run");
                     m_manager->m_haltRequested = false;
                 }
@@ -231,7 +246,14 @@ QString SimulationManager::stateString() const {
 
 void SimulationManager::sendCommandAsync(const QString& cmd) {
     qDebug() << "[SimManager] Async command queued:" << cmd;
-    QMetaObject::invokeMethod(m_worker, "execute", Qt::QueuedConnection, Q_ARG(QString, cmd));
+    // Tag the command with the current run generation. If a newer run started
+    // before the worker gets to it, the command targets a dead run: a stale
+    // bg_halt landing after the new bg_run would strand the new run in Halted.
+    const quint64 gen = m_runGeneration.load();
+    QMetaObject::invokeMethod(m_worker, [this, cmd, gen]() {
+        if (gen != m_runGeneration.load()) return; // superseded by a newer run
+        m_worker->execute(cmd, gen);
+    }, Qt::QueuedConnection);
 }
 
 void SimulationManager::loadCircuitAsync(char** deck) {
@@ -846,10 +868,14 @@ void SimulationManager::applyPendingFluxSourceUpdates() {
     }
 
     QMetaObject::invokeMethod(m_worker, [this, spiceCmds]() {
-        m_worker->executeSequence(spiceCmds);
-        
+        // Capture the generation at queue time so a stale sequence queued
+        // behind a newer run aborts instead of altering the new circuit.
+        const quint64 gen = m_runGeneration.load();
+        m_worker->executeSequence(spiceCmds, gen);
+
         // Notify manager that sequence is done
-        QMetaObject::invokeMethod(this, [this]() {
+        QMetaObject::invokeMethod(this, [this, gen]() {
+            if (gen != m_runGeneration.load()) return; // superseded: new run owns these flags
             m_fluxSyncRequested = false;
             
             bool hasMore = false;
@@ -1168,6 +1194,10 @@ void SimulationManager::handleSimulationFinished(const QString& rawPath, quint64
         // Issue 5: Execute raw-file export on worker thread without blocking GUI thread,
         // and verify actual vector presence.
         QMetaObject::invokeMethod(m_worker, [this, rawPath, runGen]() {
+            // The worker item may have queued behind a newer run: abort before
+            // touching vectors, or we would `write` the NEW circuit's vectors
+            // into the OLD run's raw file.
+            if (runGen != m_runGeneration.load()) return; // superseded
             pvector_info vecInfo = ngGet_Vec_Info(const_cast<char*>("all"));
             if (!vecInfo) vecInfo = ngGet_Vec_Info(const_cast<char*>("time"));
             if (!vecInfo) vecInfo = ngGet_Vec_Info(const_cast<char*>("frequency"));
