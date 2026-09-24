@@ -305,6 +305,11 @@ QWidget* SimulationPanel::createAnalysisSetupWidget() {
 
 
     connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::onAnalysisChanged);
+    // User-driven changes only (activated, not currentIndexChanged):
+    // programmatic index syncs during tab switches must never kill runs.
+    connect(m_analysisType, QOverload<int>::of(&QComboBox::activated), this, [this](int) {
+        SimManager::instance().stopRealTime();
+    });
     connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateSchematicDirective);
     connect(m_analysisType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimulationPanel::updateCommandDisplay);
     connect(m_param1, &QLineEdit::textChanged, this, &SimulationPanel::updateSchematicDirective);
@@ -560,7 +565,6 @@ void SimulationPanel::onViewNetlist() {
 }
 
 void SimulationPanel::onAnalysisChanged(int index) {
-    SimManager::instance().stopRealTime();
     if (m_waveformViewer) {
         m_waveformViewer->setAcMode(index == 4 || index == 5); // AC or S-Parameter
     }
