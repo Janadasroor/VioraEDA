@@ -750,7 +750,17 @@ void WaveformViewer::setupUi() {
     connect(m_nodeList, &QListWidget::itemSelectionChanged, this, &WaveformViewer::onNodeSelected);
     connect(m_nodeList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item){
         updateNodeItemStyle(item);
-        updatePlot(false);
+        // Auto-fit X+Y when the user checks the first signal into an empty
+        // view; otherwise keep the current axes.
+        bool fit = false;
+        if (item && item->checkState() == Qt::Checked) {
+            fit = true;
+            for (int i = 0; i < m_nodeList->count(); ++i) {
+                const QListWidgetItem* other = m_nodeList->item(i);
+                if (other != item && other->checkState() == Qt::Checked) { fit = false; break; }
+            }
+        }
+        updatePlot(fit);
     });
     connect(m_nodeList, &QListWidget::itemClicked, this, &WaveformViewer::onNodeClicked);
     connect(m_nodeList, &QListWidget::customContextMenuRequested,
@@ -1286,6 +1296,19 @@ void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
     const QString resolvedName = findSignalKeyByAlias(m_signals.keys(), name);
     const QString targetName = resolvedName.isEmpty() ? name : resolvedName;
     const Qt::CheckState targetState = checked ? Qt::Checked : Qt::Unchecked;
+    // Auto-fit when this check turns an empty view non-empty (same rule as
+    // the interactive itemChanged path above).
+    auto isFirstCheck = [&]() {
+        if (!checked) return false;
+        for (int i = 0; i < m_nodeList->count(); ++i) {
+            const QListWidgetItem* other = m_nodeList->item(i);
+            if (other->text().compare(targetName, Qt::CaseInsensitive) != 0
+                && other->text().compare(name, Qt::CaseInsensitive) != 0
+                && other->checkState() == Qt::Checked) return false;
+        }
+        return true;
+    };
+    const bool fit = isFirstCheck();
     for (int i = 0; i < m_nodeList->count(); ++i) {
         QListWidgetItem* item = m_nodeList->item(i);
         if (item->text().compare(targetName, Qt::CaseInsensitive) == 0 ||
@@ -1297,7 +1320,7 @@ void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
             item->setCheckState(targetState);
             updateNodeItemStyle(item);
             m_nodeList->blockSignals(false);
-            if (!m_blockUpdates) updatePlot(false);
+            if (!m_blockUpdates) updatePlot(fit);
             return;
         }
     }
@@ -1308,7 +1331,7 @@ void WaveformViewer::setSignalChecked(const QString& name, bool checked) {
     item->setCheckState(targetState);
     updateNodeItemStyle(item);
     m_nodeList->blockSignals(false);
-    if (checked && !m_blockUpdates) updatePlot(false);
+    if (checked && !m_blockUpdates) updatePlot(fit);
 }
 
 void WaveformViewer::removeSignal(const QString& name) {
@@ -2013,18 +2036,28 @@ void WaveformViewer::updateNodeItemStyle(QListWidgetItem* item) {
     bool isDark = theme && theme->type() == PCBTheme::Dark;
 
     if (item->checkState() == Qt::Checked) {
-        // High-contrast palettes for light/dark modes
-        static const QStringList darkPalette = { "#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c" };
-        static const QStringList lightPalette = { "#1d4ed8", "#047857", "#b45309", "#b91c1c", "#6d28d9", "#be185d", "#0f766e", "#c2410c" };
-        
-        const QStringList& palette = isDark ? darkPalette : lightPalette;
-        int row = m_nodeList->row(item);
-        item->setForeground(QColor(palette[row % palette.size()]));
+        item->setForeground(stableSignalColor(item->text()));
         item->setFont(QFont("Inter", 9, QFont::Bold));
     } else {
         item->setForeground(isDark ? QColor("#71717a") : QColor("#9ca3af"));
         item->setFont(QFont("Inter", 9, QFont::Normal));
     }
+}
+
+QColor WaveformViewer::stableSignalColor(const QString& name) {
+    PCBTheme* theme = ThemeManager::theme();
+    const bool isDark = theme && theme->type() == PCBTheme::Dark;
+    // Same order as the legacy checked palette (dark/light), now keyed by
+    // name hash instead of list row so order changes can't recolor signals.
+    static const QStringList darkPalette = { "#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c" };
+    static const QStringList lightPalette = { "#1d4ed8", "#047857", "#b45309", "#b91c1c", "#6d28d9", "#be185d", "#0f766e", "#c2410c" };
+    const QStringList& palette = isDark ? darkPalette : lightPalette;
+    quint64 h = 1469598103934665603ull;
+    for (const QChar c : name.toLower()) {
+        h ^= static_cast<quint64>(c.unicode());
+        h *= 1099511628211ull;
+    }
+    return QColor(palette.at(static_cast<int>(h % static_cast<quint64>(palette.size()))));
 }
 
 void WaveformViewer::updateLegend() {

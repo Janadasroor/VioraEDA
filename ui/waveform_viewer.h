@@ -101,6 +101,10 @@ public:
     bool currentXRange(double& minX, double& maxX) const;
     void preserveXRangeOnce(double minX, double maxX);
     static QString formatValue(double val, const QString &unit = "");
+    // Name-stable trace color shared by every view (viewer list, viewer
+    // traces, panel list, live preview series): the same signal always gets
+    // the same color, live or finished, across reruns and restarts.
+    static QColor stableSignalColor(const QString& name);
     Q_INVOKABLE void updatePlot(bool autoScale = false);
     void setPlotQuality(PlotQuality quality);
     PlotQuality plotQuality() const { return m_plotQuality; }

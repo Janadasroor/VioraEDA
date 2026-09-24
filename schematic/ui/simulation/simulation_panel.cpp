@@ -122,6 +122,9 @@ QVector<QColor> transientNetPalette() {
     };
 }
 
+// Note: trace colors come from WaveformViewer::stableSignalColor, the single
+// source of truth also used for viewer list items and traces.
+
 QString canonicalWaveformNetName(const QString& rawName) {
     const QString trimmed = rawName.trimmed();
     if (trimmed.startsWith("V(", Qt::CaseInsensitive) && trimmed.endsWith(')')) {
@@ -1222,7 +1225,7 @@ void SimulationPanel::addProbe(const QString& signalName) {
                         if (!axesX.isEmpty() && !axesY.isEmpty()) {
                             auto* series = new QLineSeries();
                             series->setName(matchedName);
-                            series->setPen(QPen(Qt::red, 1.5));
+                            series->setPen(QPen(WaveformViewer::stableSignalColor(matchedName), 1.5));
                             QList<QPointF> points;
                             points.reserve(time.size());
                             for (int i = 0; i < time.size() && i < values.size(); ++i) {
@@ -1270,10 +1273,9 @@ void SimulationPanel::addProbe(const QString& signalName) {
                     else ay->setTitleText("Value");
                 }
 
-                const QList<QColor> colors = {Qt::red, Qt::blue, QColor("#00aa00"), Qt::magenta, Qt::darkCyan};
                 QLineSeries* series = new QLineSeries();
                 series->setName(liveSeriesName);
-                series->setPen(QPen(colors[m_realTimeSeries.size() % colors.size()], 1.5));
+                series->setPen(QPen(WaveformViewer::stableSignalColor(liveSeriesName), 1.5));
                 m_chart->addSeries(series);
                 series->attachAxis(axesX[0]);
                 series->attachAxis(axesY[0]);
@@ -3640,13 +3642,14 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
 
     const bool showSteppedMeasurementPlot = hasPlottableSteppedMeasurements(results.measurements);
 
-    const QList<QColor> colors = {Qt::red, Qt::blue, QColor("#00aa00"), Qt::magenta, Qt::darkCyan};
-    int colorIdx = 0;
-    
     for (const auto& wave : results.waveforms) {
         const QString rawWaveName = QString::fromStdString(wave.name);
         const QString waveName = resolveLiveSignalName(m_signalList, rawWaveName);
-        const QColor waveColor = colors[colorIdx % colors.size()];
+        // Preserve a user-customized color from the previous run first.
+        const auto* prevState = findPreviousSignalState(waveName);
+        const QColor waveColor = (prevState && prevState->customColor.isValid())
+            ? prevState->customColor
+            : WaveformViewer::stableSignalColor(waveName);
 
         QLineSeries* series = new QLineSeries();
         series->setUseOpenGL(shouldUseOpenGLRendering());
@@ -3749,8 +3752,6 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             delete phaseSeries;
         }
 
-        colorIdx++;
-        
         currentWaveNames.insert(waveName);
 
         double minVal = 0.0, maxVal = 0.0, avgVal = 0.0;
