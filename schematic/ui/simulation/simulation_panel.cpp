@@ -1454,8 +1454,21 @@ void SimulationPanel::removeProbe(const QString& signalName) {
     }
 }
 
-void SimulationPanel::clearAllProbes() {
-    if (!m_signalList) return;
+void SimulationPanel::beginNetlistRun() {
+    // Stash the current scene tab's state so switching back restores it.
+    if (m_scene) {
+        TabOscilloscopeState saved = saveCurrentTabState();
+        if (saved.hasLastResults || !saved.waveformSignals.isEmpty()) {
+            m_tabStates[m_scene] = saved;
+        }
+    }
+    clearAllProbes();
+    if (m_logOutput) {
+        m_logOutput->append("Running netlist simulation...");
+    }
+}
+
+void SimulationPanel::clearAllProbes() {    if (!m_signalList) return;
     const int count = m_signalList->count();
     m_signalList->clear();
     for (auto* s : m_realTimeSeries) delete s;

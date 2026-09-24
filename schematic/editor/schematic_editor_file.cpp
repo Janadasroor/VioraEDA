@@ -1506,6 +1506,7 @@ void SchematicEditor::onOpenNetlistEditor() {
     
     int idx = m_workspaceTabs->addTab(editor, getThemeIcon(":/icons/tool_sheet.svg"), "Netlist Editor");
     m_workspaceTabs->setCurrentIndex(idx);
+    connect(editor, &NetlistEditor::runStarted, this, &SchematicEditor::onNetlistRunStarted);
 }
 
 #include "../items/net_label_item.h"

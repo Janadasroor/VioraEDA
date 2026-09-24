@@ -180,6 +180,7 @@ void NetlistEditor::onRun() {
         
         // Pass the absolute path to SimulationManager
         SimulationManager::instance().runSimulation(m_activeTempFile->fileName());
+        Q_EMIT runStarted();
     }
 }
 
@@ -208,4 +209,8 @@ void NetlistEditor::onOutputReceived(const QString& msg) {
 
 void NetlistEditor::onSimulationFinished() {
     m_logArea->appendPlainText("\n--- Simulation Finished ---");
+}
+
+void NetlistEditor::runActiveNetlist() {
+    onRun();
 }

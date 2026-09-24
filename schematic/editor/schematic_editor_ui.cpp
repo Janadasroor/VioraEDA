@@ -39,6 +39,8 @@
 #include "../dialogs/spice_directive_dialog.h"
 #include "../../core/flux/extensions/extension_manager.h"
 #include "../../simulator/bridge/sim_manager.h"
+#include "../../core/simulation/simulation_manager.h"
+#include "../ui/netlist_editor.h"
 #include "../tools/schematic_zoom_area_tool.h"
 
 using Flux::Model::SymbolDefinition;
@@ -81,6 +83,7 @@ using Flux::Model::SymbolPrimitive;
 #include <QVBoxLayout>
 #include <QTemporaryFile>
 #include <QTextStream>
+#include <QPlainTextEdit>
 #include <QPointer>
 #include <array>
 #include "../io/netlist_to_schematic.h"
@@ -1735,6 +1738,15 @@ void SchematicEditor::createDockWidgets() {
         m_simulationPanel->setAnalysisConfig(pCfg);
 
         connect(m_simulationPanel, &SimulationPanel::resultsReady, this, &SchematicEditor::onSimulationResultsReady);
+        // Netlist-editor runs go through the shared engine (SimulationManager),
+        // which publishes its .raw path via rawResultsReady. Without this, those
+        // results never reach the dock and it keeps showing stale waveforms.
+        connect(&SimulationManager::instance(), &SimulationManager::rawResultsReady,
+                this, [this](const QString& rawPath) {
+                    if (!m_expectNetlistResults) return; // schematic runs use the bridge path
+                    m_expectNetlistResults = false;
+                    loadSimulationResults(rawPath);
+                });
         connect(m_simulationPanel, &SimulationPanel::realTimeBatchReady, this, &SchematicEditor::onRealTimeDataBatchReceived);
         connect(m_simulationPanel, &SimulationPanel::timeSnapshotReady, this, &SchematicEditor::onTimeTravelSnapshot);
         connect(m_simulationPanel, &SimulationPanel::probeRequested, this, [this]() {
@@ -2118,6 +2130,28 @@ void SchematicEditor::connectSimulationSignals() {
         statusBar()->showMessage(QString("Simulation error: %1").arg(message), 5000);
         appendSimulationIssue(message);
     });
+
+    // Netlist-tab runs go through the shared engine (SimulationManager), not
+    // the bridge above. Mirror the same Run/Pause/Stop toolbar state so the
+    // controls appear and work for netlist runs too.
+    auto& shared = SimulationManager::instance();
+    connect(&shared, &SimulationManager::simulationStarted, this, [this]() {
+        m_simPaused = false;
+        m_simulationRunning = true;
+        updateSimulationUiState(true, "Simulation running...");
+    });
+    connect(&shared, &SimulationManager::simulationFinished, this, [this]() {
+        m_simPaused = false;
+        m_simulationRunning = false;
+        updateSimulationUiState(false, "Simulation finished.");
+    });
+    connect(&shared, &SimulationManager::errorOccurred, this, [this](const QString& message) {
+        m_simPaused = false;
+        m_simulationRunning = false;
+        updateSimulationUiState(false, "Simulation error.");
+        statusBar()->showMessage(QString("Simulation error: %1").arg(message), 5000);
+        appendSimulationIssue(message);
+    });
 }
 
 void SchematicEditor::appendSimulationIssue(const QString& message) {
@@ -2406,7 +2440,74 @@ void SchematicEditor::loadSimulationResults(const QString& rawPath) {
     }
 }
 
+void SchematicEditor::onNetlistRunStarted() {
+    if (!m_simulationPanel) return;
+    m_expectNetlistResults = true;
+    m_simulationPanel->beginNetlistRun();
+    if (m_oscilloscopeDock) {
+        refreshOscilloscopeDockContent();
+        m_oscilloscopeDock->show();
+    }
+}
+
+namespace {
+// .cir/.sp style text tabs hold simulatable netlists; everything else falls
+// through to the schematic flow.
+bool isSpiceNetlistPath(const QString& path) {
+    const QString lower = path.trimmed().toLower();
+    return lower.endsWith(".cir") || lower.endsWith(".sp")
+        || lower.endsWith(".spice") || lower.endsWith(".cdl");
+}
+} // namespace
+
+void SchematicEditor::runNetlistTabContent(const QString& content) {
+    if (m_activeNetlistTempFile) {
+        m_activeNetlistTempFile->remove();
+        delete m_activeNetlistTempFile;
+        m_activeNetlistTempFile = nullptr;
+    }
+    m_activeNetlistTempFile = new QTemporaryFile(this);
+    m_activeNetlistTempFile->setFileTemplate(QDir::tempPath() + "/viospice_XXXXXX.cir");
+    if (!m_activeNetlistTempFile->open()) {
+        statusBar()->showMessage("Could not create temp netlist for simulation.", 3000);
+        delete m_activeNetlistTempFile;
+        m_activeNetlistTempFile = nullptr;
+        return;
+    }
+    QTextStream out(m_activeNetlistTempFile);
+    out << content;
+    out.flush();
+    onNetlistRunStarted();
+    SimulationManager::instance().runSimulation(m_activeNetlistTempFile->fileName());
+    statusBar()->showMessage("Running netlist simulation...", 3000);
+}
+
 void SchematicEditor::onRunSimulation() {
+    // If a netlist tab is active, simulate ITS content. The schematic path
+    // below always uses m_scene, so without this the Run action silently
+    // re-simulates the schematic while a .cir tab is in front.
+    if (m_workspaceTabs) {
+        if (QWidget* cur = m_workspaceTabs->currentWidget()) {
+            if (auto* netEd = qobject_cast<NetlistEditor*>(cur)) {
+                netEd->runActiveNetlist();
+                return;
+            }
+            const QString tabPath = cur->property("filePath").toString();
+            if (isSpiceNetlistPath(tabPath)) {
+                QString content;
+                if (auto* textEd = qobject_cast<QPlainTextEdit*>(cur)) {
+                    content = textEd->toPlainText();
+                }
+                if (content.trimmed().isEmpty()) {
+                    statusBar()->showMessage("Netlist tab is empty; nothing to simulate.", 3000);
+                    return;
+                }
+                runNetlistTabContent(content);
+                return;
+            }
+        }
+    }
+
     if (!m_scene || !m_netManager) {
         updateSimulationUiState(false, "Simulation unavailable: scene or net manager is not ready.");
         return;

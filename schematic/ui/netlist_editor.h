@@ -23,6 +23,14 @@ public:
     void loadFile(const QString& path);
     QString netlist() const;
     void applyTheme();
+    // Runs the current editor content (used by the global Run action when
+    // this tab is active).
+    void runActiveNetlist();
+
+Q_SIGNALS:
+    // Emitted when a netlist run is launched so the owning editor can reset
+    // result views (otherwise they keep showing the previous tab's data).
+    void runStarted();
 
 private Q_SLOTS:
     void onRun();

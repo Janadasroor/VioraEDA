@@ -85,6 +85,10 @@ public:
     bool isRealTimeMode() const;
     void setSchematicName(const QString& name);
     void plotResultsFromRaw(const QString& path);
+    // Called when a netlist-editor run starts: stashes the current scene tab's
+    // waveforms into per-tab state, then clears the views so stale data from
+    // the previous tab can never be mistaken for the new run's results.
+    void beginNetlistRun();
 
     struct TabOscilloscopeState {
         SimResults lastResults;

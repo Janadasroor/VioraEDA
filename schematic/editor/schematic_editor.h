@@ -21,6 +21,7 @@
 #include <QAction>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QTemporaryFile>
 #include "schematic_view.h"
 #include "../tools/schematic_tool.h"
 #include "../ui/simulation/simulation_setup_dialog.h"
@@ -61,6 +62,9 @@ public:
 
     bool openFile(const QString& filePath);
     void loadSimulationResults(const QString& rawPath);
+    // A netlist-editor tab started a run: reset the dock views so they cannot
+    // keep displaying the previous (schematic) tab's waveforms.
+    void onNetlistRunStarted();
     void setProjectContext(const QString& projectName, const QString& projectDir, const QStringList& workspaceFolders = QStringList());
 
     void showSimulationResults(const class SimResults& results);
@@ -161,6 +165,10 @@ private Q_SLOTS:
     void onSettings();
     void onAbout();
     void onRunSimulation();
+    // Runs the active workspace tab's netlist content through the shared
+    // engine (used when a .cir/.sp text tab or NetlistEditor tab is active;
+    // the schematic path below would otherwise simulate the wrong circuit).
+    void runNetlistTabContent(const QString& content);
     void onOpenSimulationSetup();
     void onEditSimulationFromDirective(const QString& currentCommand);
     void onPauseSimulation();
@@ -308,6 +316,8 @@ private:
 
     // UI Components
     QTabWidget *m_workspaceTabs;
+    // Temp file backing the last .cir/.sp text-tab run (cleaned on next run).
+    QTemporaryFile *m_activeNetlistTempFile = nullptr;
     QGraphicsScene *m_scene;
     SchematicView *m_view;
     NetManager *m_netManager;
@@ -412,6 +422,9 @@ private:
     bool m_isConstructing = true;
     bool m_simulationRunning;
     bool m_simPaused = false;
+    // Set when a netlist-tab run starts; consumed when its raw results arrive
+    // so schematic shared-engine runs never hijack the dock.
+    bool m_expectNetlistResults = false;
     bool m_showVoltageOverlays;
     bool m_showCurrentOverlays;
     QTimer* m_autosaveTimer = nullptr;
