@@ -45,7 +45,24 @@ NetlistProcessor::Result NetlistProcessor::process(const QString& netlistPath) {
 
     QDir baseDir = QFileInfo(netlistPath).absoluteDir();
     resolveWavPaths(result.lines, baseDir);
-    stripControlBlocks(result.lines);
+    commentOutAppDirectives(result.lines);
+    QStringList liftedAnalyses;
+    stripControlBlocks(result.lines, &liftedAnalyses);
+    // Decks that keep their analysis inside .control (e.g. "tran 2u 360m")
+    // would otherwise simulate nothing after stripping: bg_run with no
+    // analysis is a silent no-op and the scope keeps showing stale results.
+    // Re-inject the lifted analyses as directives when the deck declares none.
+    if (!liftedAnalyses.isEmpty() && !hasAnalysisDirective(result.lines)) {
+        int endIdx = -1;
+        for (int i = result.lines.size() - 1; i >= 0; --i) {
+            if (result.lines.at(i).trimmed().toLower().startsWith(".end")) { endIdx = i; break; }
+        }
+        if (endIdx < 0) { result.lines << ".end"; endIdx = result.lines.size() - 1; }
+        for (int i = liftedAnalyses.size() - 1; i >= 0; --i)
+            result.lines.insert(endIdx, liftedAnalyses.at(i));
+        qInfo() << "[NetlistProcessor] Lifted" << liftedAnalyses.size()
+                << "analyse(s) from .control:" << liftedAnalyses;
+    }
     ensureHeaderAndEnd(result.lines);
 
     result.success = true;
@@ -87,19 +104,51 @@ QString NetlistProcessor::resolveCaseInsensitiveFilePath(const QString& path) {
     return path;
 }
 
-void NetlistProcessor::stripControlBlocks(QStringList& lines) {
+void NetlistProcessor::stripControlBlocks(QStringList& lines, QStringList* liftedAnalyses) {
+    // Bare analysis commands valid both as control lines and as directives.
+    static const QRegularExpression analysisRe(
+        QStringLiteral("^\\s*(tran|ac|dc|op|noise)\\b(.*)$"),
+        QRegularExpression::CaseInsensitiveOption);
     QStringList filtered;
     bool inControl = false;
     for (const QString& line : lines) {
-        const QString trimmed = line.trimmed().toLower();
-        if (trimmed.startsWith(".control")) { inControl = true; continue; }
+        const QString trimmed = line.trimmed();
+        const QString lowered = trimmed.toLower();
+        if (lowered.startsWith(".control")) { inControl = true; continue; }
         if (inControl) {
-            if (trimmed.startsWith(".endc")) inControl = false;
+            if (lowered.startsWith(".endc")) { inControl = false; continue; }
+            if (liftedAnalyses && !trimmed.isEmpty()
+                && trimmed[0] != '*' && trimmed[0] != '#' && trimmed[0] != ';') {
+                const auto m = analysisRe.match(trimmed);
+                if (m.hasMatch())
+                    liftedAnalyses->append(QStringLiteral(".%1%2").arg(m.captured(1).toLower(), m.captured(2)));
+            }
             continue;
         }
         filtered << line;
     }
     lines = filtered;
+}
+
+bool NetlistProcessor::hasAnalysisDirective(const QStringList& lines) {
+    static const QRegularExpression directiveRe(
+        QStringLiteral("^\\s*\\.(tran|ac|dc|op|noise|disto|sens|tf|pz)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    for (const QString& line : lines) {
+        if (directiveRe.match(line).hasMatch()) return true;
+    }
+    return false;
+}
+
+void NetlistProcessor::commentOutAppDirectives(QStringList& lines) {
+    static const QRegularExpression appDirectiveRe(
+        QStringLiteral("^\\s*\\.(interactive|sp|net)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    for (QString& line : lines) {
+        if (appDirectiveRe.match(line).hasMatch()) {
+            line = QStringLiteral("* VioSpice evaluates post-simulation: %1").arg(line);
+        }
+    }
 }
 
 void NetlistProcessor::ensureHeaderAndEnd(QStringList& lines) {
