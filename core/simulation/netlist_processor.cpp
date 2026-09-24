@@ -48,10 +48,8 @@ NetlistProcessor::Result NetlistProcessor::process(const QString& netlistPath) {
     commentOutAppDirectives(result.lines);
     QStringList liftedAnalyses;
     stripControlBlocks(result.lines, &liftedAnalyses);
-    // Decks that keep their analysis inside .control (e.g. "tran 2u 360m")
-    // would otherwise simulate nothing after stripping: bg_run with no
-    // analysis is a silent no-op and the scope keeps showing stale results.
-    // Re-inject the lifted analyses as directives when the deck declares none.
+    // A deck whose analysis lives only in .control would otherwise simulate
+    // nothing after stripping; re-inject it as directives when none exist.
     if (!liftedAnalyses.isEmpty() && !hasAnalysisDirective(result.lines)) {
         int endIdx = -1;
         for (int i = result.lines.size() - 1; i >= 0; --i) {
@@ -60,8 +58,6 @@ NetlistProcessor::Result NetlistProcessor::process(const QString& netlistPath) {
         if (endIdx < 0) { result.lines << ".end"; endIdx = result.lines.size() - 1; }
         for (int i = liftedAnalyses.size() - 1; i >= 0; --i)
             result.lines.insert(endIdx, liftedAnalyses.at(i));
-        qInfo() << "[NetlistProcessor] Lifted" << liftedAnalyses.size()
-                << "analyse(s) from .control:" << liftedAnalyses;
     }
     ensureHeaderAndEnd(result.lines);
 

@@ -32,15 +32,13 @@ private:
     static void resolveWavPaths(QStringList& lines, const QDir& baseDir);
     static QString resolveCaseInsensitiveFilePath(const QString& path);
     static void ensureHeaderAndEnd(QStringList& lines);
-    // Strips .control blocks (the shared engine cannot execute the control
-    // language). Bare analysis commands found inside (tran/ac/dc/op/noise)
-    // are collected into liftedAnalyses so the caller can re-inject them as
-    // directives when the deck has no analysis of its own.
+    // Strips .control blocks (the shared engine cannot execute them).
+    // Bare analyses found inside are collected for re-injection when the
+    // deck declares none of its own.
     static void stripControlBlocks(QStringList& lines, QStringList* liftedAnalyses = nullptr);
     static bool hasAnalysisDirective(const QStringList& lines);
-    // Comments out app-private directives (.interactive/.sp/.net) that ngspice
-    // reports as "unimplemented dot command" (fatal for the load). Mirrors the
-    // bridge strippers; these are evaluated post-simulation by the app.
+    // Comments out app-private directives (.interactive/.sp/.net) that
+    // ngspice rejects as unimplemented dot commands (fatal for the load).
     static void commentOutAppDirectives(QStringList& lines);
 };
 

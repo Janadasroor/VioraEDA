@@ -467,9 +467,7 @@ void SimulationManager::runSimulation(const QString& netlist, SimControl* contro
     if (!recoverEngineIfNeeded()) { reportError("Failed to recover simulation engine."); return; }
     if (!m_isInitialized) initialize();
 
-    // New run: orphan every async completion still queued from the previous
-    // run so its finish/error/raw cannot leak into this one (e.g. same old
-    // error re-reported after switching tabs), and drop the stale message.
+    // New run: orphan queued completions from the previous run.
     ++m_runGeneration;
     { std::lock_guard<std::mutex> lock(m_logMutex); m_lastErrorMessage.clear(); }
 
@@ -618,7 +616,6 @@ bool SimulationManager::loadNetlistInternal(const QString& netlist, bool keepSto
     m_circStorage.reserve(processResult.lines.size() + 1);
     m_circPtrs.reserve(processResult.lines.size() + 1);
     for (const QString& line : processResult.lines) {
-        qDebug() << "[SimManager] Netlist line:" << line;
         m_circStorage.push_back(line.toLatin1());
         m_circPtrs.push_back(m_circStorage.back().data());
     }

@@ -3645,7 +3645,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     for (const auto& wave : results.waveforms) {
         const QString rawWaveName = QString::fromStdString(wave.name);
         const QString waveName = resolveLiveSignalName(m_signalList, rawWaveName);
-        // Preserve a user-customized color from the previous run first.
+        // User-customized color wins; otherwise the name-stable color.
         const auto* prevState = findPreviousSignalState(waveName);
         const QColor waveColor = (prevState && prevState->customColor.isValid())
             ? prevState->customColor
