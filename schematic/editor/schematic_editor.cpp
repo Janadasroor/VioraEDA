@@ -676,7 +676,16 @@ void SchematicEditor::addSchematicTab(const QString& name) {
         if (sheet) {
             sheet->updatePorts(m_projectDir);
             SchematicConnectivity::updateVisualConnections(scene);
-            statusBar()->showMessage("Synchronized pins for: " + sheet->sheetName(), 3000);
+            const int nPins = sheet->getPins().size();
+            if (nPins == 0) {
+                statusBar()->showMessage(
+                    QString("Sheet %1: no pins found — check its file path (%2)")
+                        .arg(sheet->sheetName(), sheet->fileName()), 5000);
+            } else {
+                statusBar()->showMessage(
+                    QString("Synchronized %1 pin(s) for: %2 — now wire parent nets to them")
+                        .arg(nPins).arg(sheet->sheetName()), 5000);
+            }
         }
     });
     connect(view, &SchematicView::runLiveERC, this, &SchematicEditor::runLiveERC);

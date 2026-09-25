@@ -121,7 +121,11 @@ void SchematicSheetItem::updatePorts(const QString& basePath) {
     }
     
     QFile file(filePath);
-    if (!file.exists()) return;
+    if (!file.exists()) {
+        qWarning() << "SchematicSheetItem: child file not found:" << filePath
+                   << "(sheet" << m_sheetName << "will have no pins)";
+        return;
+    }
     if (!file.open(QIODevice::ReadOnly)) return;
     
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll());

@@ -403,7 +403,20 @@ bool SchematicFileIO::loadSchematic(QGraphicsScene* scene, const QString& filePa
     if (!deserializeItems(scene, root["items"].toArray())) {
         return false;
     }
-    
+
+    // Pin state is not serialized: rebuild sheet pins from each child file so
+    // loads outside the GUI (CLI ERC/export, tests) see the same hierarchy
+    // the editor shows after its own post-load sync. Without this, sheets
+    // silently lose their ports here and child blocks disconnect.
+    {
+        const QString baseDir = QFileInfo(filePath).absolutePath();
+        for (QGraphicsItem* gi : scene->items()) {
+            if (auto* sheet = dynamic_cast<SchematicSheetItem*>(gi)) {
+                sheet->updatePorts(baseDir);
+            }
+        }
+    }
+
     return true;
 }
 
