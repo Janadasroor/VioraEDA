@@ -1015,6 +1015,24 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
     for (const QString& ref : dupRefs) {
         netlist.addDiagnostic(QString("[error] Duplicate reference designator: '%1'").arg(ref).toStdString());
     }
+
+    // Standalone-sheet guard: hierarchical ports only stitch when this scene
+    // is instantiated as a child sheet. At the simulated top level they
+    // dangle (no parent side exists), so the fragment can never simulate
+    // correctly. Fail loudly instead of letting ngspice die later with a
+    // cryptic singular-matrix error. [fatal] tells the GUI worker to block
+    // the run; only top-level ports are checked (child scenes stitch fine).
+    for (QGraphicsItem* gi : scene->items()) {
+        auto* si = dynamic_cast<SchematicItem*>(gi);
+        if (!si || si->itemType() != SchematicItem::HierarchicalPortType) continue;
+        QString portName = si->value().trimmed();
+        if (portName.isEmpty()) portName = si->reference().trimmed();
+        if (portName.isEmpty()) portName = "?";
+        netlist.addDiagnostic(QString("[fatal] Hierarchical port '%1' cannot be simulated standalone: "
+            "this sheet can only run through the parent schematic that instantiates it. "
+            "Open the top-level sheet and run there (or remove the port if this is meant to be a standalone circuit).")
+            .arg(portName).toStdString());
+    }
     
     QSet<QString> excludedSimRefs;
     for (const auto& comp : pkg.components) {

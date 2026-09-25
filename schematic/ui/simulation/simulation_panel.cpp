@@ -2752,7 +2752,7 @@ void SimulationPanel::onRunSimulation() {
                 issue.message = diag;
                 issue.category = "Preflight";
 
-                if (diag.contains("[error]") || diag.contains("Error", Qt::CaseInsensitive)) {
+                if (diag.contains("[error]") || diag.contains("[fatal]") || diag.contains("Error", Qt::CaseInsensitive)) {
                     issue.severity = ValidationIssue::Error;
                 } else if (diag.contains("[warn]") || diag.contains("Warn", Qt::CaseInsensitive)) {
                     issue.severity = ValidationIssue::Warning;
@@ -2824,6 +2824,19 @@ void SimulationPanel::onRunSimulation() {
         SimNetlist preflight = SimSchematicBridge::buildNetlist(&tempScene, &netMgr, projectDir);
         for (const auto& d : preflight.diagnostics()) {
             result.diagnostics.append(QString::fromStdString(d));
+        }
+
+        // Fatal preflight findings (e.g. standalone sub-sheet) block the run
+        // instead of sending a doomed netlist to ngspice.
+        {
+            QStringList fatals;
+            for (const QString& msg : result.diagnostics) {
+                if (msg.trimmed().startsWith("[fatal]")) fatals.append(msg.trimmed());
+            }
+            if (!fatals.isEmpty()) {
+                result.error = fatals.join("\n");
+                return result;
+            }
         }
 
         if (idx == 4 || idx == 5) { // AC Sweep (4) or S-Parameter (5)

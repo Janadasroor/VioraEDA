@@ -48,6 +48,7 @@
 #include "flux/schematic/factories/schematic_item_registry.h"
 #include "symbols/symbol_library.h"
 #include "schematic/io/netlist_generator.h"
+#include "schematic/items/schematic_item.h"
 #include "schematic/io/netlist_to_schematic.h"
 
 #if __has_include("pcb/drc/pcb_drc.h")
@@ -562,6 +563,28 @@ public:
             if (!SchematicFileIO::loadSchematic(&scene, filePath, pageSize, dummyTB)) {
                 std::cerr << "Error loading schematic: " << SchematicFileIO::lastError().toStdString() << std::endl;
                 return 1;
+            }
+
+            // Standalone-sheet guard: top-level hierarchical ports dangle
+            // without a parent sheet, so refuse instead of running a doomed
+            // deck that dies with a cryptic singular-matrix error.
+            {
+                QStringList topPorts;
+                for (QGraphicsItem* gi : scene.items()) {
+                    if (auto* si = dynamic_cast<SchematicItem*>(gi)) {
+                        if (si->itemType() == SchematicItem::HierarchicalPortType) {
+                            QString n = si->value().trimmed();
+                            if (n.isEmpty()) n = si->reference().trimmed();
+                            if (!n.isEmpty()) topPorts.append(n);
+                        }
+                    }
+                }
+                if (!topPorts.isEmpty()) {
+                    std::cerr << "Error: '" << filePath.toStdString() << "' contains hierarchical port(s) ("
+                              << topPorts.join(", ").toStdString()
+                              << ") and cannot be simulated standalone. Open the parent schematic that instantiates this sheet and run there." << std::endl;
+                    return 1;
+                }
             }
 
             SpiceNetlistGenerator::SimulationParams params;

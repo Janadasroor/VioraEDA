@@ -617,6 +617,20 @@ SpiceNetlistGenerator::GeneratedNetlist SpiceNetlistGenerator::generate(QGraphic
     QStringList runtimeWarnings = extraction.runtimeWarnings;
     runtimeWarnings.append(connResult.runtimeWarnings);
 
+    // Standalone-sheet guard (mirrors SimSchematicBridge preflight [fatal]):
+    // top-level hierarchical ports dangle without a parent sheet, so mark
+    // the deck loudly instead of emitting a fragment that dies in ngspice
+    // with a cryptic singular-matrix error.
+    for (QGraphicsItem* gi : scene->items()) {
+        auto* si = dynamic_cast<SchematicItem*>(gi);
+        if (!si || si->itemType() != SchematicItem::HierarchicalPortType) continue;
+        QString portName = si->value().trimmed();
+        if (portName.isEmpty()) portName = si->reference().trimmed();
+        if (portName.isEmpty()) portName = "?";
+        runtimeWarnings.append(QString("Hierarchical port '%1' cannot be simulated standalone: run through the parent schematic that instantiates this sheet.").arg(portName));
+        netlist += QString("* ERROR: Hierarchical port '%1' dangles without a parent sheet; this deck cannot simulate standalone\n").arg(portName);
+    }
+
     ModelInjector::inject(includePaths,
                           libPaths,
                           embeddedModelLines,
