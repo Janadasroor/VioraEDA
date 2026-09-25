@@ -292,11 +292,13 @@ void SchematicProbeTool::mousePressEvent(QMouseEvent* event) {
         for (QGraphicsItem* it : allItems) {
             auto* sheet = dynamic_cast<SchematicSheetItem*>(it);
             if (!sheet) continue;
-            for (auto* pin : sheet->getPins()) {
-                QPointF pinScene = sheet->mapToScene(pin->pos());
+            const QList<QPointF> cps = sheet->connectionPoints();
+            const QList<SheetPinItem*> pins = sheet->getPins();
+            for (int pi = 0; pi < pins.size() && pi < cps.size(); ++pi) {
+                QPointF pinScene = sheet->mapToScene(cps.at(pi));
                 QString pinNet = netMgr->findNetAtPoint(pinScene).trimmed();
                 if (pinNet.compare(netName, Qt::CaseInsensitive) == 0) {
-                    netName = sheet->sheetName().toUpper() + "_" + pin->name().toUpper();
+                    netName = sheet->sheetName().toUpper() + "_" + pins.at(pi)->name().toUpper();
                     break;
                 }
             }

@@ -192,10 +192,12 @@ QString findNearbyProbeNet(SchematicView* view, NetManager* netManager, const QP
 
             if (type == SchematicItem::SheetType) {
                 if (auto* sheet = dynamic_cast<SchematicSheetItem*>(candidate)) {
-                    for (auto* pin : sheet->getPins()) {
-                        QPointF pinScene = sheet->mapToScene(pin->pos());
+                    const QList<QPointF> cps = sheet->connectionPoints();
+                    const QList<SheetPinItem*> pins = sheet->getPins();
+                    for (int pi = 0; pi < pins.size() && pi < cps.size(); ++pi) {
+                        QPointF pinScene = sheet->mapToScene(cps.at(pi));
                         if (QLineF(scenePos, pinScene).length() < 16.0) {
-                            return sheet->sheetName().toUpper() + "_" + pin->name().toUpper();
+                            return sheet->sheetName().toUpper() + "_" + pins.at(pi)->name().toUpper();
                         }
                     }
                 }
@@ -232,11 +234,13 @@ QString findNearbyProbeNet(SchematicView* view, NetManager* netManager, const QP
         for (QGraphicsItem* it : allItems) {
             auto* sheet = dynamic_cast<SchematicSheetItem*>(it);
             if (!sheet) continue;
-            for (auto* pin : sheet->getPins()) {
-                QPointF pinScene = sheet->mapToScene(pin->pos());
+            const QList<QPointF> cps = sheet->connectionPoints();
+            const QList<SheetPinItem*> pins = sheet->getPins();
+            for (int pi = 0; pi < pins.size() && pi < cps.size(); ++pi) {
+                QPointF pinScene = sheet->mapToScene(cps.at(pi));
                 QString pinNet = netManager->findNetAtPoint(pinScene).trimmed();
                 if (pinNet.compare(net, Qt::CaseInsensitive) == 0) {
-                    return sheet->sheetName().toUpper() + "_" + pin->name().toUpper();
+                    return sheet->sheetName().toUpper() + "_" + pins.at(pi)->name().toUpper();
                 }
             }
         }

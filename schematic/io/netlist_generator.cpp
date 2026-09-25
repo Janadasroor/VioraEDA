@@ -310,14 +310,21 @@ QList<NetlistNet> NetlistGenerator::buildConnectivity(QGraphicsScene* scene, con
                     dsu.unite(gNetId, "PORT:" + prefix + port->label());
                 } else if (type == SchematicItem::SheetType) {
                     auto* sheet = static_cast<SchematicSheetItem*>(conn.item);
-                    for (auto* pin : sheet->getPins()) {
+                    // NOTE: SheetPinItem::pos() is the block edge, while the
+                    // electrical connection point (NetManager / connectionPoints())
+                    // is the 10px tail tip outside the block. Comparing against
+                    // pin->pos() is always ~10px off and never matches (see
+                    // SchematicSheetItem::connectionPoints). Match by tail tip.
+                    const QList<QPointF> sheetCps = sheet->connectionPoints();
+                    const QList<SheetPinItem*> sheetPins = sheet->getPins();
+                    for (int pi = 0; pi < sheetPins.size() && pi < sheetCps.size(); ++pi) {
                         // Check if connection point is at this pin
                         // Use proximity check instead of exact == to avoid floating-point
                         // precision issues from grid snapping and mapToScene transformations.
-                        QPointF pinScenePos = conn.item->mapToScene(pin->pos());
+                        QPointF pinScenePos = conn.item->mapToScene(sheetCps.at(pi));
                         QLineF dist(pinScenePos, conn.connectionPoint);
                         if (dist.length() < 5.0) {
-                            dsu.unite(gNetId, "PORT:" + prefix + sheet->sheetName() + "/" + pin->name());
+                            dsu.unite(gNetId, "PORT:" + prefix + sheet->sheetName() + "/" + sheetPins.at(pi)->name());
                         }
                     }
                 } else if (type != SchematicItem::WireType && 
