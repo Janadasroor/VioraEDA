@@ -323,6 +323,18 @@ private:
     QSet<QString> m_schematicNets;
     QString m_currentlyHoveredNet;
 
+    // Batches stranded while plotBuiltinResults tears down series/viewer.
+    // Replayed in order at rebuild end (or dropped when the rebuild was for
+    // a finished run whose points are already in the final results).
+    struct PendingLiveBatch {
+        std::vector<double> times;
+        std::vector<std::vector<double>> values;
+        QStringList names;
+    };
+    QList<PendingLiveBatch> m_pendingLiveBatches;
+    bool m_rebuildActive = false;
+    void drainStrandedLiveBatches(bool replay);
+
     // Rolling cache of all signal data from live batches (for probe-during-pause)
     // (struct declared above TabOscilloscopeState so tab state can hold it)
     QMap<QString, CachedSignal> m_signalCache;

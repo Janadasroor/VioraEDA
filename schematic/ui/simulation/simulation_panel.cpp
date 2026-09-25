@@ -959,13 +959,14 @@ void SimulationPanel::updateTransientNetTableOverlay(const SimResults& results) 
 }
 
 void SimulationPanel::addProbe(const QString& signalName) {
-    if (signalName.isEmpty()) return;
-    
+    if (signalName.isEmpty() || !m_signalList) return;
+
     // Check if it already exists (case-insensitive and step-aware)
     QList<QListWidgetItem*> matchedItems;
     for (int i = 0; i < m_signalList->count(); ++i) {
-        if (signalMatches(m_signalList->item(i)->text(), signalName)) {
-            matchedItems.append(m_signalList->item(i));
+        auto* item = m_signalList->item(i);
+        if (item && signalMatches(item->text(), signalName)) {
+            matchedItems.append(item);
         }
     }
     
@@ -1558,8 +1559,9 @@ void SimulationPanel::syncSignalListFromWaveformViewer() {
     for (const auto& sig : exports) {
         QListWidgetItem* item = nullptr;
         for (int i = 0; i < m_signalList->count(); ++i) {
-            if (m_signalList->item(i)->text() == sig.name) {
-                item = m_signalList->item(i);
+            auto* candidate = m_signalList->item(i);
+            if (candidate && candidate->text() == sig.name) {
+                item = candidate;
                 break;
             }
         }
@@ -2433,7 +2435,7 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
         m_timelineSlider->setEnabled(points > 1);
 
         if (m_timelineIcon) m_timelineIcon->setText("📶");
-        if (points > 0) {
+        if (points > 0 && m_timelineLabel) {
             double freq = m_lastResults.sParameterResults.front().frequency;
             m_timelineLabel->setText(formatFrequency(freq));
         }
@@ -3002,9 +3004,9 @@ QString SimulationPanel::generateSpiceNetlist() {
         params.start = m_param1->text();
         params.stop = m_param2->text();
         params.step = m_param3->text();
-        params.rfPort1Source = m_param4->text();
-        params.rfPort2Node = m_param5->text();
-        params.rfZ0 = m_param6->text();
+        params.rfPort1Source = m_param4 ? m_param4->text() : QString();
+        params.rfPort2Node = m_param5 ? m_param5->text() : QString();
+        params.rfZ0 = m_param6 ? m_param6->text() : QString();
     } else {
         params.type = SpiceNetlistGenerator::Transient; 
         params.stop = "10m";
@@ -3049,7 +3051,7 @@ void SimulationPanel::addMeasurementTableRow(const QString& waveName, const QCol
 void SimulationPanel::initTimelineControls(const SimResults& results) {
     // Shared by onSimResultsReady and restoreTabState: the slider/label must
     // reflect the restored results, not stay stale/blank from the other tab.
-    // m_timelineSlider is assumed present (same assumption as the plot path).
+    if (!m_timelineSlider || !m_timelineLabel) return;
     const bool isTransient = (results.analysisType == SimAnalysisType::Transient);
     const bool isSParam = (results.analysisType == SimAnalysisType::SParameter);
     m_timelineSlider->setEnabled(isTransient || isSParam);
@@ -3311,6 +3313,20 @@ int SimulationPanel::standardChartPointBudget() const {
 
 
 
+void SimulationPanel::drainStrandedLiveBatches(bool replay) {
+    m_rebuildActive = false;
+    QList<PendingLiveBatch> stranded;
+    stranded.swap(m_pendingLiveBatches);
+    // Replay only into a still-live run: a finished run's points are already
+    // in the final results, so replaying would duplicate boundary points.
+    // Re-entry is safe — the flag is clear, so batches process inline.
+    if (replay) {
+        for (const auto& b : stranded) {
+            onRealTimeDataBatchReceived(b.times, b.values, b.names);
+        }
+    }
+}
+
 void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& times, const std::vector<std::vector<double>>& values, const QStringList& names) {
     static int batchCount = 0;
     if (++batchCount % 10 == 0) {
@@ -3324,6 +3340,15 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
     if (times.empty()) return;
     if (!m_waveformViewer) return;
     if (values.empty() || names.empty()) return;
+
+    // Rebuild in progress (series/viewer torn down): appending now would hit
+    // deleted series or duplicate boundary points. Park the batch, bounded,
+    // for ordered replay at rebuild end.
+    if (m_rebuildActive) {
+        if (m_pendingLiveBatches.size() >= 64) m_pendingLiveBatches.removeFirst();
+        m_pendingLiveBatches.append({times, values, names});
+        return;
+    }
 
     // Throttle full chart rebuild to every 10 batches during live streaming
     const bool doFullUpdate = (batchCount % 10 == 0);
@@ -3469,9 +3494,9 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 // one phase of a periodic signal and make a valid waveform look flat.
                 const QList<QPointF> points = decimateMinMaxBuckets(times, signalValues, 240);
 
-                // If the chart is being cleared or rebuilt (m_acceptRealTimeStream check above),
-                // this series pointer might still be technically valid in this call stack, 
-                // but we should be extremely careful.
+                // Batches stranded across a rebuild never reach this append:
+                // they are parked in m_pendingLiveBatches while m_rebuildActive
+                // and replayed after the fresh series exist (see entry above).
                 series->append(points);
 
                 // Ring buffer: prune oldest points to stay within maxDataSize
@@ -3526,7 +3551,7 @@ void SimulationPanel::onTimelineValueChanged(int value) {
         if (tMin >= tMax) return;
         
         double t = tMin + (tMax - tMin) * (value / 1000.0);
-        m_timelineLabel->setText(QString::number(t, 'g', 4) + " s");
+        if (m_timelineLabel) m_timelineLabel->setText(QString::number(t, 'g', 4) + " s");
         
         auto snap = m_lastResults.interpolateAt(t);
         
@@ -3542,7 +3567,7 @@ void SimulationPanel::onTimelineValueChanged(int value) {
         
         int idx = std::clamp(value, 0, static_cast<int>(m_lastResults.sParameterResults.size()) - 1);
         double freq = m_lastResults.sParameterResults[idx].frequency;
-        m_timelineLabel->setText(formatFrequency(freq));
+        if (m_timelineLabel) m_timelineLabel->setText(formatFrequency(freq));
         
         if (m_smithChart) {
             m_smithChart->setHighlightIndex(idx);
@@ -3610,12 +3635,15 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
 
     // Disable real-time data while clearing to avoid race conditions
     m_acceptRealTimeStream = false;
+    m_rebuildActive = true;
     if (m_signalList) {
         for (int i = 0; i < m_signalList->count(); ++i) {
-            if (m_signalList->item(i)->checkState() == Qt::Checked) {
-                m_persistentCheckedSignals.insert(m_signalList->item(i)->text());
+            auto* item = m_signalList->item(i);
+            if (!item) continue;
+            if (item->checkState() == Qt::Checked) {
+                m_persistentCheckedSignals.insert(item->text());
             } else {
-                m_persistentCheckedSignals.remove(m_signalList->item(i)->text());
+                m_persistentCheckedSignals.remove(item->text());
             }
         }
     }
@@ -3691,6 +3719,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         if (waveformBatchStarted && m_waveformViewer) {
             m_waveformViewer->endBatchUpdate();
         }
+        drainStrandedLiveBatches(restoreRealTimeStream);
         m_acceptRealTimeStream = restoreRealTimeStream;
         return;
     }
@@ -4046,6 +4075,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
     Q_EMIT resultsReady(results);
 
     m_signalList->blockSignals(false);
+    drainStrandedLiveBatches(restoreRealTimeStream);
     m_acceptRealTimeStream = restoreRealTimeStream;
     m_isSimInitiator = false; // Just in case, though onSimResultsReady handles it
     for (auto* s : m_realTimeSeries) delete s;
