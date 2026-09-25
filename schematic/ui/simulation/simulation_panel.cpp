@@ -2943,7 +2943,11 @@ void SimulationPanel::onSimulationFinished() {
 void SimulationPanel::plotResultsFromRaw(const QString& path) {
     RawData rawData;
     QString error;
-    if (!RawDataParser::loadRawAscii(path.toStdString(), &rawData)) {
+    // Pass the error out-param through: without it the message below is
+    // always "Error: " with nothing after it.
+    std::string loadError;
+    if (!RawDataParser::loadRawAscii(path.toStdString(), &rawData, &loadError)) {
+        error = QString::fromStdString(loadError);
         m_logOutput->append("Error: " + error);
         return;
     }
@@ -3340,6 +3344,15 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
     if (times.empty()) return;
     if (!m_waveformViewer) return;
     if (values.empty() || names.empty()) return;
+
+    // Decimation budgets differ per path by design (live preview vs rebuild
+    // vs viewport min/max); log shape mismatches at ingest so masked
+    // raggedness stays visible instead of being silently zero-filled below.
+    // Rate-limited: batches arrive at ~30fps.
+    if (!values.empty() && static_cast<int>(values[0].size()) != names.size() && batchCount % 20 == 0) {
+        qDebug() << "[SimPanel] Live batch shape mismatch: vectors=" << names.size()
+                 << "values-per-row=" << values[0].size() << "(short rows filled with 0.0)";
+    }
 
     // Rebuild in progress (series/viewer torn down): appending now would hit
     // deleted series or duplicate boundary points. Park the batch, bounded,

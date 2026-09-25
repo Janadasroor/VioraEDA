@@ -1084,12 +1084,16 @@ void WaveformViewer::addSignal(const QString& name, const QVector<double>& time,
 
 void WaveformViewer::appendPoint(const QString& name, double x, double y) {
     if (!m_signals.contains(name)) {
+        // addSignal stores this first sample; falling through to the append
+        // below would store it twice (zero-dx segment distorting the start).
         addSignal(name, {x}, {y});
+    } else {
+        auto& sig = m_signals[name];
+        sig.time.append(x);
+        sig.values.append(y);
     }
-    
+
     auto& sig = m_signals[name];
-    sig.time.append(x);
-    sig.values.append(y);
 
     if (m_windowTime > 0) {
         const double cutoff = x - m_windowTime;
