@@ -63,6 +63,7 @@ endif()
 # Python-dependent test suites
 if(VIOSPICE_ENABLE_TESTS AND VIOSPICE_ENABLE_PYTHON)
     add_subdirectory(unit/ux)
+    add_subdirectory(unit/parser)
     add_subdirectory(integration)
     add_subdirectory(regression)
 endif()

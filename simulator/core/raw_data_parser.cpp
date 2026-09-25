@@ -223,9 +223,19 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
             
             // Hard limit to 100M points to prevent OOM/mimalloc corruption
             if (numPoints > 0 && numPoints < 100000000) {
-                data.x.reserve(numPoints);
-                for (int i = 0; i < (int)data.y.size(); ++i) data.y[i].reserve(numPoints);
-                for (int i = 0; i < (int)data.yPhase.size(); ++i) data.yPhase[i].reserve(numPoints);
+                // reserve() is only an optimization: cap the TOTAL preallocation
+                // across all vectors. Without this, `No. Variables: 5000` with
+                // `No. Points: 99999999` attempts ~5000 x 100M x 8B x 3 vectors
+                // (multi-TB). Each vector gets a share of the budget; geometric
+                // push_back growth (with the bad_alloc catch below) covers more.
+                constexpr long long kMaxTotalReserve = 64000000; // doubles (~512MB)
+                const long long vecCount = 1 + 2 * static_cast<long long>(data.y.size());
+                const long long perVec = vecCount > 0
+                    ? std::max<long long>(1024, kMaxTotalReserve / vecCount) : 0;
+                const auto n = static_cast<size_t>(std::min<long long>(numPoints, perVec));
+                data.x.reserve(n);
+                for (int i = 0; i < (int)data.y.size(); ++i) data.y[i].reserve(n);
+                for (int i = 0; i < (int)data.yPhase.size(); ++i) data.yPhase[i].reserve(n);
             } else if (numPoints >= 100000000) {
                  if (error) *error = "Simulation results exceed 100 million points. Aborting to prevent crash.";
                  return false;
@@ -235,37 +245,79 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                 // S-parameter data is always complex — force complex reading
                 bool forceComplex = isComplex || (data.analysisType == SimAnalysisType::SParameter);
 
-                // Skip any trailing whitespace/newlines after "Binary:" marker
-                char c;
-                while (file.get(c) && (c == '\n' || c == '\r'));
-                if (!file.eof()) file.unget();
+                // The header reader already consumed the marker line's own
+                // newline, so the stream sits at the payload start — unless
+                // the writer left a blank line behind. A leading \n/\r here is
+                // ambiguous (blank line vs first payload byte 0x0A/0x0D, which
+                // would shift every 8-byte read by one and silently corrupt
+                // the dataset), so disambiguate by size: the payload must be
+                // exactly numPoints complete rows.
+                if (numPoints > 0 && (file.peek() == '\n' || file.peek() == '\r')) {
+                    const auto cur = file.tellg();
+                    file.seekg(0, std::ios::end);
+                    const auto end = file.tellg();
+                    file.seekg(cur);
+                    if (cur != std::streampos(-1) && end != std::streampos(-1)) {
+                        const std::streamsize rowBytes =
+                            (std::streamsize)(1 + (forceComplex ? 1 : 0) +
+                                (numVariables - 1) * (forceComplex ? 2 : 1)) *
+                            (std::streamsize)sizeof(double);
+                        const std::streamsize remaining = end - cur;
+                        const std::streamsize expect = (std::streamsize)numPoints * rowBytes;
+                        if (remaining == expect + 1 || remaining == expect + 2) {
+                            // Exactly one blank line (LF or CRLF): skip it.
+                            char c; file.get(c);
+                            if (c == '\r' && file.peek() == '\n') file.get(c);
+                        }
+                        // else: the byte is payload — leave the stream untouched.
+                    }
+                }
 
                 int pointsParsed = 0;
+                // Row-sized scratch: a truncated file must discard the partial
+                // trailing row, never commit half of it (unchecked reads would
+                // otherwise inject garbage doubles as valid data).
+                std::vector<double> scratch(numVariables > 1 ? (size_t)(numVariables - 1) : 0);
+                std::vector<double> scratchPhase(scratch.size());
                 while (file) {
                     double xVal;
                     if (!file.read(reinterpret_cast<char*>(&xVal), sizeof(double))) break;
-                    
-                    if (forceComplex) {
-                        double xValImag;
-                        file.read(reinterpret_cast<char*>(&xValImag), sizeof(double));
-                        // Frequency is always real, so we just use the real part.
-                    }
-                    data.x.push_back(xVal);
 
+                    if (forceComplex) {
+                        double xValImag = 0.0;
+                        if (!file.read(reinterpret_cast<char*>(&xValImag), sizeof(double))) break;
+                        // Frequency is always real, so we just use the real part.
+                        (void)xValImag;
+                    }
+
+                    bool rowComplete = true;
                     for (int v = 1; v < numVariables; ++v) {
                         if (forceComplex) {
                             double re, im;
-                            file.read(reinterpret_cast<char*>(&re), sizeof(double));
-                            file.read(reinterpret_cast<char*>(&im), sizeof(double));
-                            double mag = std::hypot(re, im);
-                            double phase = std::atan2(im, re) * 180.0 / 3.14159265358979323846;
-                            data.y[v - 1].push_back(mag);
-                            data.yPhase[v - 1].push_back(phase);
-                            data.hasPhase[v - 1] = true;
+                            if (!file.read(reinterpret_cast<char*>(&re), sizeof(double)) ||
+                                !file.read(reinterpret_cast<char*>(&im), sizeof(double))) {
+                                rowComplete = false;
+                                break;
+                            }
+                            scratch[v - 1] = std::hypot(re, im);
+                            scratchPhase[v - 1] = std::atan2(im, re) * 180.0 / 3.14159265358979323846;
                         } else {
                             double val;
-                            file.read(reinterpret_cast<char*>(&val), sizeof(double));
-                            data.y[v - 1].push_back(val);
+                            if (!file.read(reinterpret_cast<char*>(&val), sizeof(double))) {
+                                rowComplete = false;
+                                break;
+                            }
+                            scratch[v - 1] = val;
+                        }
+                    }
+                    if (!rowComplete) break; // truncated trailing row: discard
+
+                    data.x.push_back(xVal);
+                    for (int v = 1; v < numVariables; ++v) {
+                        data.y[v - 1].push_back(scratch[v - 1]);
+                        if (forceComplex) {
+                            data.yPhase[v - 1].push_back(scratchPhase[v - 1]);
+                            data.hasPhase[v - 1] = true;
                         }
                     }
                     pointsParsed++;
@@ -275,7 +327,14 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
             } else {
                 int pointsParsed = 0;
                 std::string token;
-                
+
+                // Row-sized scratch shared with the binary path above: a short
+                // (truncated) trailing row is discarded whole. Committing it
+                // partially would shift every following value into the wrong
+                // column and desynchronize the dataset.
+                std::vector<double> asciiScratch(numVariables > 1 ? (size_t)(numVariables - 1) : 0);
+                std::vector<double> asciiScratchPhase(asciiScratch.size());
+                std::vector<char> asciiScratchComplex(asciiScratch.size(), 0);
                 auto parseComplex = [&](const std::string& t, double& mag, double& phase, bool& isComplexVal) {
                     std::string s = t;
                     if (s.size() >= 2 && s.front() == '(' && s.back() == ')') s = s.substr(1, s.size() - 2);
@@ -297,7 +356,7 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                 while (file >> token) {
                     // Token is the index, skip it
                     if (!(file >> token)) break; // This is the X value
-                    
+
                     double xVal = 0.0;
                     size_t commaPos = token.find(',');
                     if (commaPos != std::string::npos) {
@@ -305,17 +364,25 @@ bool RawDataParser::loadRawAscii(const std::string& path, RawData* out, std::str
                     } else {
                         parseDouble(token, xVal);
                     }
-                    data.x.push_back(xVal);
 
+                    bool rowComplete = true;
                     for (int v = 1; v < numVariables; ++v) {
-                        if (!(file >> token)) break;
+                        if (!(file >> token)) { rowComplete = false; break; }
                         double mag = 0.0, phase = 0.0;
                         bool isComplexVal = false;
                         parseComplex(token, mag, phase, isComplexVal);
-                        
-                        data.y[v - 1].push_back(mag);
-                        data.yPhase[v - 1].push_back(phase);
-                        if (isComplexVal) data.hasPhase[v - 1] = true;
+
+                        asciiScratch[v - 1] = mag;
+                        asciiScratchPhase[v - 1] = phase;
+                        asciiScratchComplex[v - 1] = isComplexVal ? 1 : 0;
+                    }
+                    if (!rowComplete) break; // short trailing row: discard whole
+
+                    data.x.push_back(xVal);
+                    for (int v = 1; v < numVariables; ++v) {
+                        data.y[v - 1].push_back(asciiScratch[v - 1]);
+                        data.yPhase[v - 1].push_back(asciiScratchPhase[v - 1]);
+                        if (asciiScratchComplex[v - 1]) data.hasPhase[v - 1] = true;
                     }
                     pointsParsed++;
                     if (numPoints > 0 && pointsParsed >= numPoints) break;
@@ -380,8 +447,12 @@ SimResults RawData::toSimResults() const {
     }
 
     if (res.analysisType == SimAnalysisType::SParameter) {
-        res.sParameterResults.resize(numPoints);
-        for (int p = 0; p < numPoints; ++p) {
+        // Clamp to actually-parsed data: a truncated file can deliver fewer
+        // rows than the header claimed, and toSimResults must never index
+        // past the ragged vectors.
+        const size_t nPts = numPoints > 0 ? std::min<size_t>((size_t)numPoints, x.size()) : 0;
+        res.sParameterResults.resize(nPts);
+        for (size_t p = 0; p < nPts; ++p) {
             res.sParameterResults[p].frequency = x[p];
         }
 
@@ -394,9 +465,11 @@ SimResults RawData::toSimResults() const {
             bool isS22 = (name == "S(2,2)" || name == "S22");
 
             if (isS11 || isS21 || isS12 || isS22) {
-                for (int p = 0; p < numPoints; ++p) {
+                if (i - 1 >= y.size() || i - 1 >= hasPhase.size() || i - 1 >= yPhase.size()) continue;
+                for (size_t p = 0; p < nPts; ++p) {
+                    if (p >= y[i-1].size()) break;
                     double mag = y[i-1][p];
-                    double phase = hasPhase[i - 1] ? yPhase[i - 1][p] : 0.0;
+                    double phase = (hasPhase[i - 1] && p < yPhase[i - 1].size()) ? yPhase[i - 1][p] : 0.0;
                     std::complex<double> val;
                     if (mag >= 0.0) {
                         val = std::polar(mag, phase * (3.14159265358979323846 / 180.0));
