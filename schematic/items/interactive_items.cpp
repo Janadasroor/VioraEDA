@@ -77,50 +77,9 @@ bool SignalGeneratorItem::fromJson(const QJsonObject& j) {
 }
 SchematicItem* SignalGeneratorItem::clone() const { return new SignalGeneratorItem(pos()); }
 
-SwitchItem::SwitchItem(QPointF pos, QGraphicsItem *parent) : SchematicItem(parent) {
-    setPos(pos);
-    setFlags(QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsMovable);
-    m_isOpen = true;
-    setReference("SW?");
-    setValue("1e12"); // Open resistance
-}
-
-void SwitchItem::onInteractiveClick(const QPointF&) {
-    m_isOpen = !m_isOpen;
-    setValue(m_isOpen ? "1e12" : "0.001");
-    update();
-}
-
-QRectF SwitchItem::boundingRect() const { return QRectF(-20, -20, 40, 40); }
-
-void SwitchItem::paint(QPainter *painter, const QStyleOptionGraphicsItem*, QWidget*) {
-    painter->setRenderHint(QPainter::Antialiasing);
-    painter->setPen(QPen(Qt::white, 2));
-    
-    painter->drawEllipse(-17, -2, 4, 4);
-    painter->drawEllipse(13, -2, 4, 4);
-
-    if (m_isOpen) {
-        painter->drawLine(-15, 0, 10, -15);
-    } else {
-        painter->drawLine(-15, 0, 15, 0);
-    }
-    
-    drawConnectionPointHighlights(painter);
-}
-
-QList<QPointF> SwitchItem::connectionPoints() const {
-    return { QPointF(-15, 0), QPointF(15, 0) };
-}
-
-QJsonObject SwitchItem::toJson() const { 
-    QJsonObject j; j["type"]="Switch"; j["open"]=m_isOpen; j["x"]=pos().x(); j["y"]=pos().y(); 
-    return j; 
-}
-bool SwitchItem::fromJson(const QJsonObject& j) { 
-    setPos(j["x"].toDouble(), j["y"].toDouble()); m_isOpen=j["open"].toBool(); return true; 
-}
-SchematicItem* SwitchItem::clone() const { return new SwitchItem(pos()); }
+// NOTE: SwitchItem lives in switch_item.cpp (engine-integrated toggle via
+// alter commands). Do NOT reimplement it here — duplicate definitions cause
+// an ODR violation and the linker picks method bodies arbitrarily.
 
 
 // --- LEDItem Implementation ---

@@ -524,6 +524,24 @@ SchematicItem* SchematicFileIO::createItemFromJson(const QJsonObject& json) {
         return nullptr;
     }
     
+    // Built-in interactive controls (switches, buttons, …) must instantiate
+    // as their real item class even when the JSON carries an inline
+    // symbolDef: a GenericComponentItem is not interactive, so its clicks
+    // fall into probing and the control can never be toggled. Custom library
+    // symbols are unaffected (the factory has no creator for them).
+    {
+        QPointF pos(json["x"].toDouble(), json["y"].toDouble());
+        SchematicItem* candidate = SchematicItemFactory::instance().createItem(type, pos, json);
+        if (candidate) {
+            if (candidate->isInteractive()) {
+                if (candidate->fromJson(json)) return candidate;
+                delete candidate;
+            } else {
+                delete candidate;
+            }
+        }
+    }
+
     // If the JSON carries an inline symbol definition, create a GenericComponentItem
     // directly from it. This bypasses the factory so that external/user symbols load
     // correctly even when their source library hasn't been indexed yet (e.g. during

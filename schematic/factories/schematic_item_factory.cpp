@@ -5,6 +5,7 @@
 
 #include "schematic_item_factory.h"
 #include <QDebug>
+#include <QSet>
 #include "generic_component_item.h"
 #include "symbol_library.h"
 #include "avr_microcontroller_item.h"
@@ -83,9 +84,36 @@ SchematicItem* SchematicItemFactory::createItem(const QString& typeName, QPointF
                                     isControlledSource);
 
     if (!isPowerItem && !isVoltageSource && !isCurrentSource && !isJfet && !isBjtAlias && !isMosAlias && !isMesfet && !isSpecializedItem) {
-        if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(typeName)) {
-            item = new GenericComponentItem(*def, parent);
-            item->setPos(pos);
+        // Built-in interactive controls (switches, buttons, …) win over a
+        // same-named library symbol: a GenericComponentItem is not
+        // interactive, so its clicks fall into probing and the control can
+        // never be toggled. The interactive set is probed once from the
+        // registered creators (a default-constructed instance reports
+        // isInteractive()); the count check re-probes if more types register
+        // later (there is no unregister path, so it cannot go stale).
+        static QSet<QString> s_interactiveTypes;
+        static size_t s_creatorCount = 0;
+        if (s_creatorCount != (size_t)m_creators.size()) {
+            s_interactiveTypes.clear();
+            for (auto it = m_creators.constBegin(); it != m_creators.constEnd(); ++it) {
+                if (SchematicItem* probe = it.value()(QPointF(), QJsonObject(), nullptr)) {
+                    if (probe->isInteractive()) s_interactiveTypes.insert(it.key());
+                    delete probe;
+                }
+            }
+            s_creatorCount = (size_t)m_creators.size();
+        }
+        if (s_interactiveTypes.contains(typeName)) {
+            auto it = m_creators.find(typeName);
+            if (it != m_creators.end()) {
+                item = it.value()(pos, properties, parent);
+            }
+        }
+        if (!item) {
+            if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(typeName)) {
+                item = new GenericComponentItem(*def, parent);
+                item->setPos(pos);
+            }
         }
     }
 

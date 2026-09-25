@@ -19,16 +19,48 @@
 #include "../../../schematic/items/wire_item.h"
 #include "../../../schematic/analysis/net_manager.h"
 #include "../../../schematic/tools/schematic_tool.h"
+#include "../../../schematic/io/schematic_file_io.h"
+#include "../../../schematic/factories/schematic_item_registry.h"
+#include <QJsonObject>
+#include <QJsonDocument>
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
+    // Same as the editor startup: built-in item creators must be registered
+    // before loading, or every item falls back to GenericComponentItem.
+    SchematicItemRegistry::registerBuiltInItems();
 
     // Declared before the view: ~SchematicView touches the current tool.
     SchematicTool selectTool(QStringLiteral("Select"));
 
     QGraphicsScene scene;
     NetManager netMgr;
-    SwitchItem* sw = new SwitchItem(QPointF(0, 0));
+    // Load the switch the way saved files do (inline symbolDef, as in
+    // examples.flxsch): the loader must instantiate the real interactive
+    // item, not a GenericComponentItem. Regression: the symbolDef branch
+    // bypassed the factory, so canvas switches were never interactive.
+    QJsonObject symDef;
+    symDef["name"] = "Switch";
+    QJsonObject swJson;
+    swJson["type"] = "Switch";
+    swJson["x"] = 0;
+    swJson["y"] = 0;
+    swJson["reference"] = "SW1";
+    swJson["symbolDef"] = symDef;
+    SchematicItem* loaded = SchematicFileIO::createItemFromJson(swJson);
+    if (!loaded || !loaded->isInteractive()) {
+        fprintf(stderr, "RESULT ok=0 (loaded switch is not interactive: %s)\n",
+                loaded ? loaded->itemTypeName().toUtf8().constData() : "null");
+        delete loaded;
+        return 2;
+    }
+    SwitchItem* sw = dynamic_cast<SwitchItem*>(loaded);
+    if (!sw) {
+        fprintf(stderr, "RESULT ok=0 (loaded switch is not a SwitchItem)\n");
+        delete loaded;
+        return 2;
+    }
+    sw->setPos(QPointF(0, 0));
     scene.addItem(sw);
     // A live net under the cursor: this is what diverted the click into the
     // probe flow on the buggy code (no net => fallback toggle path).
