@@ -160,7 +160,11 @@ void SimulationPanel::createToolbar(QVBoxLayout* layout) {
 
     QPushButton* clearProbesBtn = new QPushButton("Clear Probes");
     clearProbesBtn->setStyleSheet(buttonStyle(isLight ? "#cbd5e1" : "#4b5563", isLight ? textColor : "white"));
-    connect(clearProbesBtn, &QPushButton::clicked, this, &SimulationPanel::clearAllProbes);
+    // User-initiated view clear: keep the result model so re-probing the
+    // same run still works (ViewsOnly is the clearAllProbes default).
+    connect(clearProbesBtn, &QPushButton::clicked, this, [this]() {
+        clearAllProbes(ProbeClearScope::ViewsOnly);
+    });
     toolbar->addWidget(clearProbesBtn);
 
     toolbar->addSeparator();

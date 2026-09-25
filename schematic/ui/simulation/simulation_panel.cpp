@@ -1465,13 +1465,15 @@ void SimulationPanel::beginNetlistRun() {
             m_tabStates[m_scene] = saved;
         }
     }
-    clearAllProbes();
+    // A new run is incoming: drop the old model too, or probes added before
+    // the results arrive replay the previous run's data.
+    clearAllProbes(ProbeClearScope::ViewsAndModel);
     if (m_logOutput) {
         m_logOutput->append("Running netlist simulation...");
     }
 }
 
-void SimulationPanel::clearAllProbes() {    if (!m_signalList) return;
+void SimulationPanel::clearAllProbes(ProbeClearScope scope) {    if (!m_signalList) return;
     const int count = m_signalList->count();
     m_signalList->clear();
     for (auto* s : m_realTimeSeries) delete s;
@@ -1489,8 +1491,16 @@ void SimulationPanel::clearAllProbes() {    if (!m_signalList) return;
         m_waveformViewer->clear();
     }
     m_persistentCheckedSignals.clear();
-    m_signalCache.clear();
-    m_signalCacheOrder.clear();
+    if (scope == ProbeClearScope::ViewsAndModel) {
+        // New run / tab switch: the old model and its pause-history must go,
+        // or the next addProbe replays the previous run's data.
+        m_signalCache.clear();
+        m_signalCacheOrder.clear();
+        m_lastResults = SimResults();
+        m_previousResults = SimResults();
+        m_hasLastResults = false;
+        m_hasPreviousResults = false;
+    }
     if (m_logOutput) {
         m_logOutput->append(QString("Cleared %1 probe(s).").arg(count));
     }
@@ -1718,13 +1728,13 @@ void SimulationPanel::setTargetScene(QGraphicsScene* scene, NetManager* netManag
     }
 
     if (clearState) {
-        clearAllProbes();
+        // Tab switch: the old tab's state was saved above; drop the model as
+        // well so the incoming tab can never replay it.
+        clearAllProbes(ProbeClearScope::ViewsAndModel);
         if (m_issueList) m_issueList->clear();
         if (m_chart) m_chart->removeAllSeries();
         if (m_spectrumChart) m_spectrumChart->removeAllSeries();
-        m_lastResults = SimResults();
         m_previousResults = SimResults();
-        m_hasLastResults = false;
         m_hasPreviousResults = false;
         for (auto* s : m_realTimeSeries) delete s;
         m_realTimeSeries.clear();

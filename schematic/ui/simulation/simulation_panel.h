@@ -51,7 +51,13 @@ public:
     void addDifferentialProbe(const QString& pNet, const QString& nNet);
     void removeProbe(const QString& signalName);
     void setEditor(SchematicEditor* editor) { m_editor = editor; }
-    void clearAllProbes();
+    // View-clear vs model-clear split: ViewsOnly wipes charts/lists/checked
+    // state but keeps the result model and pause-history cache, so re-probing
+    // the same run still works. ViewsAndModel additionally drops m_lastResults
+    // (+previous/flags) and the live cache, so a new run can never replay the
+    // old run's data.
+    enum class ProbeClearScope { ViewsOnly, ViewsAndModel };
+    void clearAllProbes(ProbeClearScope scope = ProbeClearScope::ViewsOnly);
     void clearAllProbesPreserveX();
     void clearResults();
     bool hasProbe(const QString& signalName) const;
