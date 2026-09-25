@@ -104,6 +104,17 @@ ComponentExtractor::ExtractionResult ComponentExtractor::extract(
     // Auto-embed .model lines for referenced component models
     for (const auto& comp : pkg.components) {
         if (comp.excludeFromSim) continue;
+        // Interactive switches are emitted as R/S/W devices with embedded
+        // .model lines by the formatter; their display value ("Switch") is
+        // not a model name and must never trigger library/subcircuit
+        // resolution (it matches e.g. a thyristor .MODEL SWITCH in SCR.LIB,
+        // dragging a whole foreign library into the deck).
+        const QString swTypeLower = comp.typeName.trimmed().toLower();
+        const bool isInteractiveSwitch =
+            swTypeLower == "switch" || swTypeLower == "sw" ||
+            swTypeLower == "voltage controlled switch" || swTypeLower == "csw" ||
+            comp.reference.startsWith("SW", Qt::CaseInsensitive);
+        if (isInteractiveSwitch) continue;
         QString modelName = comp.value.trimmed();
         const QString typeLower = comp.typeName.trimmed().toLower();
         const bool isJfet = (typeLower == "njf" || typeLower == "pjf") ||

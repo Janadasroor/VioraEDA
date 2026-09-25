@@ -14,6 +14,7 @@
 #include "passes/spice_compat_rewriter.h"
 #include "passes/model_injector.h"
 #include "passes/component_extractor.h"
+#include "../../simulator/core/sim_value_parser.h"
 #include "../../symbols/symbol_library.h"
 #include "../../symbols/models/symbol_definition.h"
 #include "../../simulator/bridge/model_library_manager.h"
@@ -1718,7 +1719,15 @@ void ComponentFormatter::format(const ECOComponent& comp,
 
             QString switchRef = ref;
             if (!switchRef.startsWith("R", Qt::CaseInsensitive)) switchRef = "R" + ref;
+            // Interactive switch emulated as a live-altered resistor: the
+            // value must be numeric. A display-text value like "Switch" would
+            // leak verbatim into the deck (unknown model error), so fall back
+            // to the open-state default.
             QString switchValue = value.isEmpty() ? "1e12" : value;
+            double dummy = 0.0;
+            if (!SimValueParser::parseSpiceNumber(switchValue.toStdString(), dummy)) {
+                switchValue = "1e12";
+            }
             netlist += QString("%1 %2 %3 %4\n").arg(switchRef, n1, n2, switchValue);
             return;
         }
