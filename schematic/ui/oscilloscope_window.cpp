@@ -664,9 +664,17 @@ void OscilloscopeWindow::reprocessTraces() {
         }
         
         if (pWave) {
+            // Min/max-bucket decimation to a fixed budget: a full-rate
+            // polyline costs ~16B/point (~160MB/channel at 10M points) and
+            // freezes the UI, while naive striding drops narrow spikes.
+            // Min/max preserves the envelope. Iterate to min(x,y) length —
+            // ragged waves must not index past yData.
+            const size_t total = std::min(pWave->xData.size(), pWave->yData.size());
+            constexpr size_t kBuckets = 500;
+
             QVector<QPointF> points;
-            points.reserve(pWave->xData.size());
-            
+            points.reserve((qsizetype)std::min<size_t>(total, 2 * kBuckets));
+
             QJsonArray xArray;
             QJsonArray yArray;
 
@@ -674,10 +682,7 @@ void OscilloscopeWindow::reprocessTraces() {
             double offset = m_config.channels[i].offset;
             bool floating = m_config.channels[i].floatingGround;
 
-            size_t total = pWave->xData.size();
-            size_t step = (total > 500) ? total / 500 : 1;
-            
-            for (size_t s = 0; s < total; ++s) {
+            auto pushPoint = [&](size_t s) {
                 double x = pWave->xData[s];
                 double v = pWave->yData[s];
                 if (floating && nWave && s < nWave->yData.size()) {
@@ -685,10 +690,30 @@ void OscilloscopeWindow::reprocessTraces() {
                 }
                 double y = (v * scale) + offset;
                 points.append(QPointF(x, y));
+                xArray.append(x);
+                yArray.append(y);
+            };
 
-                if (s % step == 0) {
-                    xArray.append(x);
-                    yArray.append(y);
+            if (total <= 2 * kBuckets) {
+                for (size_t s = 0; s < total; ++s) pushPoint(s);
+            } else {
+                for (size_t b = 0; b < kBuckets; ++b) {
+                    const size_t b0 = b * total / kBuckets;
+                    const size_t b1 = (b + 1) * total / kBuckets;
+                    if (b1 <= b0) continue;
+                    size_t iMin = b0, iMax = b0;
+                    double yMin = 0.0, yMax = 0.0;
+                    for (size_t s = b0; s < b1; ++s) {
+                        double v = pWave->yData[s];
+                        if (floating && nWave && s < nWave->yData.size()) v -= nWave->yData[s];
+                        const double y = (v * scale) + offset;
+                        if (s == b0 || y < yMin) { yMin = y; iMin = s; }
+                        if (s == b0 || y > yMax) { yMax = y; iMax = s; }
+                    }
+                    // Emit in x order so the polyline never zig-zags.
+                    if (iMin == iMax) pushPoint(iMin);
+                    else if (iMin < iMax) { pushPoint(iMin); pushPoint(iMax); }
+                    else { pushPoint(iMax); pushPoint(iMin); }
                 }
             }
             visibleTraces[QString("CH%1").arg(i+1)] = points;

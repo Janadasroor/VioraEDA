@@ -491,20 +491,23 @@ SimResults RawData::toSimResults() const {
 SimResults::Snapshot SimResults::interpolateAt(double t) const {
     Snapshot snap;
     for (const auto& wave : waveforms) {
-        if (wave.xData.empty()) continue;
+        // Guard both axes and clamp to their common prefix: a ragged wave
+        // (y shorter than x) must not deref/index past yData.
+        if (wave.xData.empty() || wave.yData.empty()) continue;
+        const size_t n = std::min(wave.xData.size(), wave.yData.size());
 
         double val = 0.0;
         if (t <= wave.xData.front()) {
             val = wave.yData.front();
-        } else if (t >= wave.xData.back()) {
-            val = wave.yData.back();
+        } else if (t >= wave.xData[n - 1]) {
+            val = wave.yData[n - 1];
         } else {
-            auto it = std::lower_bound(wave.xData.begin(), wave.xData.end(), t);
+            auto it = std::lower_bound(wave.xData.begin(), wave.xData.begin() + n, t);
             size_t i1 = std::distance(wave.xData.begin(), it);
             if (i1 == 0) {
                 val = wave.yData.front();
-            } else if (i1 >= wave.xData.size()) {
-                val = wave.yData.back();
+            } else if (i1 >= n) {
+                val = wave.yData[n - 1];
             } else {
                 size_t i0 = i1 - 1;
                 double x0 = wave.xData[i0];

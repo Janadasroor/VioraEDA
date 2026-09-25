@@ -59,6 +59,7 @@ private slots:
     void binaryTruncatedRowDiscarded();
     void hugeHeaderClaimsDoNotReserveTerabytes();
     void sparamRaggedInputClamped();
+    void interpolateAtGuardsRaggedWaves();
     void cleanupTestCase() {
         for (const auto& p : tempPaths()) QFile::remove(p);
         tempPaths().clear();
@@ -232,6 +233,28 @@ void TestRawDataParser::sparamRaggedInputClamped() {
     QCOMPARE(res.sParameterResults[0].s11, std::polar(0.5, 0.0));
     QCOMPARE(res.sParameterResults[1].s11, std::complex<double>(0.0, 0.0));
     QCOMPARE(res.sParameterResults[2].s11, std::complex<double>(0.0, 0.0));
+}
+
+void TestRawDataParser::interpolateAtGuardsRaggedWaves() {
+    // Empty-y waves are skipped; ragged waves clamp to the common prefix
+    // instead of indexing past yData.
+    SimResults res;
+    SimWaveform ok;
+    ok.name = "V(OUT)";
+    ok.xData = {0.0, 1.0, 2.0};
+    ok.yData = {0.0, 10.0, 20.0};
+    SimWaveform ragged;
+    ragged.name = "V(RAG)";
+    ragged.xData = {0.0, 1.0, 2.0};
+    ragged.yData = {5.0};
+    SimWaveform emptyY;
+    emptyY.name = "V(EMPTY)";
+    emptyY.xData = {0.0, 1.0};
+    res.waveforms = {ok, ragged, emptyY};
+    const SimResults::Snapshot snap = res.interpolateAt(0.5);
+    QCOMPARE(snap.nodeVoltages.at("OUT"), 5.0);
+    QCOMPARE(snap.nodeVoltages.at("RAG"), 5.0);
+    QVERIFY(snap.nodeVoltages.find("EMPTY") == snap.nodeVoltages.end());
 }
 
 QTEST_APPLESS_MAIN(TestRawDataParser)
