@@ -1490,6 +1490,7 @@ void SimulationPanel::clearAllProbes() {    if (!m_signalList) return;
     }
     m_persistentCheckedSignals.clear();
     m_signalCache.clear();
+    m_signalCacheOrder.clear();
     if (m_logOutput) {
         m_logOutput->append(QString("Cleared %1 probe(s).").arg(count));
     }
@@ -1677,6 +1678,7 @@ void SimulationPanel::clearResults() {
     m_realTimeSeries.clear();
     m_realTimePointCounter = 0;
     m_signalCache.clear();
+    m_signalCacheOrder.clear();
     if (m_timelineSlider) m_timelineSlider->setValue(0);
     if (m_timelineLabel) m_timelineLabel->setText("t = 0");
     if (m_efficiencyTable) m_efficiencyTable->setRowCount(0);
@@ -1700,6 +1702,10 @@ void SimulationPanel::setTargetScene(QGraphicsScene* scene, NetManager* netManag
             || !m_signalCache.isEmpty();
         if (saved.hasLastResults || !saved.waveformSignals.isEmpty() || liveContent) {
             m_tabStates[oldScene] = saved;
+            // Count cap: scenes destroyed without closeTab would otherwise
+            // accumulate unbounded full result sets (removeTabState covers
+            // the normal close path).
+            while (m_tabStates.size() > kMaxTabStates) m_tabStates.erase(m_tabStates.begin());
         }
     }
 
@@ -1744,6 +1750,23 @@ void SimulationPanel::setTargetScene(QGraphicsScene* scene, NetManager* netManag
             m_viewTabs->setCurrentIndex(0); // Index 0 is Waves (Analog Oscilloscope)
         }
     }
+}
+
+void SimulationPanel::enforceSignalCacheBudget() {
+    // FIFO eviction of oldest-inserted signals while over either bound.
+    // Order entries for keys removed elsewhere (clear/restore) are skipped.
+    while (!m_signalCacheOrder.isEmpty() &&
+           (m_signalCache.size() > m_signalCacheMaxKeys ||
+            signalCacheTotalPoints() > kSignalCacheMaxTotalPoints)) {
+        m_signalCache.remove(m_signalCacheOrder.takeFirst());
+    }
+}
+
+qint64 SimulationPanel::signalCacheTotalPoints() const {
+    qint64 total = 0;
+    for (auto it = m_signalCache.constBegin(); it != m_signalCache.constEnd(); ++it)
+        total += (qint64)it.value().time.size() + (qint64)it.value().values.size();
+    return total;
 }
 
 void SimulationPanel::removeTabState(QGraphicsScene* scene) {
@@ -2313,6 +2336,7 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
     // needs: rolling history, checked set, and live series pointers (rebuilt
     // from the restored chart so resumed batches append instead of duplicating).
     m_signalCache = state.liveCache;
+    m_signalCacheOrder = state.liveCache.keys();
     m_persistentCheckedSignals.clear();
     if (m_signalList) {
         for (int i = 0; i < m_signalList->count(); ++i) {
@@ -2880,6 +2904,19 @@ void SimulationPanel::plotResultsFromRaw(const QString& path) {
     }
 
     SimResults results = rawData.toSimResults();
+    // A raw load is a full result set like any run completion: run the
+    // derived-data steps and publish it as the current results BEFORE
+    // plotting, so probing, timeline, CSV export and derived power use THIS
+    // data — not the previous run's.
+    appendDerivedPowerWaveforms(results);
+    appendEfficiencySummary(results);
+    refreshEfficiencyReport(results);
+    updateTransientNetTableOverlay(results);
+    if (m_hasLastResults) {
+        m_previousResults = std::move(m_lastResults);
+    }
+    m_lastResults = results;
+    m_hasLastResults = true;
     plotBuiltinResults(results);
     evaluateMeasStatements(results);
 }
@@ -3304,7 +3341,9 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
         // Rolling cache of ALL signal data (for probe-during-pause historical lookup)
         if (!isTime) {
             const QString cacheKey = name.isEmpty() ? rawName : name;
+            const bool isNewKey = !m_signalCache.contains(cacheKey);
             CachedSignal& cs = m_signalCache[cacheKey];
+            if (isNewKey) m_signalCacheOrder.append(cacheKey);
             for (size_t j = 0; j < times.size(); ++j) {
                 cs.time.append(times[j]);
                 cs.values.append(signalValues[j]);
@@ -3314,6 +3353,7 @@ void SimulationPanel::onRealTimeDataBatchReceived(const std::vector<double>& tim
                 cs.time.remove(0, removeCount);
                 cs.values.remove(0, removeCount);
             }
+            if (m_signalCache.size() > 256) enforceSignalCacheBudget();
         }
 
         if (!isTime && !isChecked && !isHovered) {
@@ -3746,8 +3786,12 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
         }
 
         if (m_waveformViewer) {
+            // Both branches must register under the resolved waveName: the
+            // pane index, checked state and list item below all key on it, so
+            // a raw wave.name here would leave AC traces unplottable whenever
+            // resolution renames the signal (e.g. #branch -> I()).
             if (results.analysisType == SimAnalysisType::AC && !wave.yPhase.empty()) {
-                m_waveformViewer->addSignal(QString::fromStdString(wave.name),
+                m_waveformViewer->addSignal(waveName,
                                             QVector<double>(wave.xData.begin(), wave.xData.end()),
                                             QVector<double>(wave.yData.begin(), wave.yData.end()),
                                             QVector<double>(wave.yPhase.begin(), wave.yPhase.end()));
@@ -3817,7 +3861,13 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             avgVal = sum / static_cast<double>(wave.yData.size());
         }
 
-        if (buildSpectrumChart && !showSteppedMeasurementPlot && results.analysisType == SimAnalysisType::Transient && wave.yData.size() >= 64) {
+        // Spectrum needs a usable time base: gate on the common prefix length
+        // (ragged waves must not index past either axis) and require a
+        // positive span — otherwise sampleRate divides by zero or back() on
+        // an empty/singleton x is UB.
+        const size_t specN = std::min(wave.xData.size(), wave.yData.size());
+        if (buildSpectrumChart && !showSteppedMeasurementPlot && results.analysisType == SimAnalysisType::Transient &&
+            specN >= 64 && wave.xData[specN - 1] > wave.xData.front()) {
             int nfft = 1024;
             std::vector<double> resampled = SimMath::resample(wave.xData, wave.yData, nfft);
             std::vector<std::complex<double>> complexIn(nfft);
@@ -3827,7 +3877,7 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
             specSeries->setUseOpenGL(shouldUseOpenGLRendering());
             specSeries->setName(waveName);
             specSeries->setPen(QPen(waveColor, 1.5));
-            double sampleRate = 1.0 / ( (wave.xData.back() - wave.xData.front()) / (wave.xData.size()-1) );
+            double sampleRate = (double)(specN - 1) / (wave.xData[specN - 1] - wave.xData.front());
             for (int i = 0; i < nfft / 2; ++i) {
                 double freq = i * sampleRate / nfft;
                 double mag = 2.0 * std::abs(complexOut[i]) / nfft;
@@ -4003,7 +4053,12 @@ bool SimulationPanel::exportResultsCsvFile(const QString& path) const {
     for (size_t i = 0; i < max; ++i) {
         out << static_cast<qulonglong>(i);
         for (const auto& w : m_lastResults.waveforms) {
-            if (i < w.xData.size()) out << "," << w.xData[i] << "," << w.yData[i]; else out << ",,";
+            // Gate each axis on its own length: emit empty cells past the
+            // shorter end so ragged waves stay column-aligned, never OOB.
+            if (i < w.xData.size()) {
+                out << "," << w.xData[i] << ",";
+                if (i < w.yData.size()) out << w.yData[i];
+            } else out << ",,";
         }
         out << "\n";
     }

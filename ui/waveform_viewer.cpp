@@ -1525,8 +1525,13 @@ void WaveformViewer::updatePlot(bool autoScale) {
         QListWidgetItem* item = m_nodeList->item(i);
         if (item->checkState() == Qt::Checked) {
             QString name = item->text();
-            if (m_signals.contains(name)) {
-                auto& sig = m_signals[name];
+            // Resolve case-insensitively like every other lookup: the list
+            // text can drift in case from the registered key (e.g. "v(out)"
+            // vs "V(OUT)"), which would otherwise check fine but render
+            // nothing.
+            const QString key = findSignalKeyByAlias(m_signals.keys(), name);
+            if (!key.isEmpty()) {
+                auto& sig = m_signals[key];
                 if (sig.time.isEmpty()) continue;
                 
                 ChartPane* pane = nullptr;
@@ -1606,8 +1611,9 @@ void WaveformViewer::updatePlot(bool autoScale) {
         QListWidgetItem* item = m_nodeList->item(i);
         if (item->checkState() == Qt::Checked) {
             QString name = item->text();
-            if (m_signals.contains(name)) {
-                const auto& data = m_signals[name];
+            const QString key = findSignalKeyByAlias(m_signals.keys(), name);
+            if (!key.isEmpty()) {
+                const auto& data = m_signals[key];
                 ChartPane* pane = nullptr;
                 if (data.paneIndex >= 0 && data.paneIndex < m_panes.size()) {
                     pane = m_panes[data.paneIndex];

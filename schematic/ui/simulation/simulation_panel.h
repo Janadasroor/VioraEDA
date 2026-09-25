@@ -315,6 +315,14 @@ private:
     // (struct declared above TabOscilloscopeState so tab state can hold it)
     QMap<QString, CachedSignal> m_signalCache;
     int m_signalCacheMaxPoints = 100000;
+    // Key-count/total caps: per-signal pruning alone still allows thousands
+    // of "save all" keys x 100k points each (GBs). Oldest-inserted signals
+    // are evicted first once either bound is exceeded.
+    int m_signalCacheMaxKeys = 1024;
+    static constexpr qint64 kSignalCacheMaxTotalPoints = 4000000; // time+values entries (~32MB)
+    QList<QString> m_signalCacheOrder; // insertion order for FIFO eviction
+    void enforceSignalCacheBudget();
+    qint64 signalCacheTotalPoints() const;
 
     // .meas post-processing
     std::vector<MeasStatement> m_measStatements;
@@ -338,7 +346,10 @@ private:
     void rebuildMeasFromTable();
     QString generateMeasLine(int row) const;
 
-    // Per-tab oscilloscope state persistence
+    // Per-tab oscilloscope state persistence (count-capped: scenes destroyed
+    // without closeTab would otherwise accumulate full result sets against
+    // dangling raw-pointer keys; closeTab evicts via removeTabState()).
+    static constexpr int kMaxTabStates = 16;
     QMap<QGraphicsScene*, TabOscilloscopeState> m_tabStates;
     QMap<QGraphicsScene*, QPointer<SimulationNetTableItem>> m_netTableItems;
 };

@@ -52,19 +52,24 @@ public:
      * @brief Resamples data to the nearest power of 2 for FFT processing.
      */
     static std::vector<double> resample(const std::vector<double>& x, const std::vector<double>& y, int targetSize) {
-        if (targetSize <= 1) return y.empty() ? std::vector<double>() : std::vector<double>{y.front()};
-        if (y.size() < 2) return y;
+        // Clamp to the common prefix: ragged inputs must not index past y,
+        // and empty inputs must not touch front()/back().
+        const size_t n = std::min(x.size(), y.size());
+        if (n == 0) return std::vector<double>();
+        if (targetSize <= 1) return std::vector<double>{y.front()};
+        if (n < 2) return std::vector<double>(y.begin(), y.begin() + n);
         std::vector<double> result(targetSize);
         double xMin = x.front();
-        double xMax = x.back();
+        double xMax = x[n - 1];
         double step = (xMax - xMin) / (targetSize - 1);
 
+        const auto xEnd = x.begin() + n;
         for (int i = 0; i < targetSize; ++i) {
             double tx = xMin + i * step;
             // Linear interpolation
-            auto it = std::lower_bound(x.begin(), x.end(), tx);
+            auto it = std::lower_bound(x.begin(), xEnd, tx);
             if (it == x.begin()) result[i] = y.front();
-            else if (it == x.end()) result[i] = y.back();
+            else if (it == xEnd) result[i] = y[n - 1];
             else {
                 auto prev = std::prev(it);
                 double t = (tx - *prev) / (*it - *prev);
