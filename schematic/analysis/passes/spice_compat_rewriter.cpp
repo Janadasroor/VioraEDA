@@ -724,6 +724,37 @@ QString SpiceCompatRewriter::rewriteLtVoltageSourceExtras(const QString& line, Q
     return out;
 }
 
+QString SpiceCompatRewriter::rewriteWavefileSourceSyntax(const QString& line, QStringList* warnings) {
+    // VioMATRIXC audio sources are instance parameters (`wavefile=`/`chan=`).
+    // A hand-typed positional `WAVEFILE "path" CHAN n` is not mapped by the
+    // deck parser and silently degrades to DC 0 (zero output), so normalize
+    // it here. Already-param form (`wavefile=`) passes through untouched.
+    static const QRegularExpression sourceRe(
+        "^\\s*([VI]\\S*)\\s+(\\S+)\\s+(\\S+)\\s+WAVEFILE\\s+\"([^\"]+)\"\\s*(.*)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = sourceRe.match(line);
+    if (!m.hasMatch()) return line;
+
+    const QString ref = m.captured(1).trimmed();
+    const QString tail = m.captured(5).trimmed();
+    // Bail if the tail already carries param syntax (e.g. wavefile= used as
+    // a trailing param after some other value form).
+    if (tail.contains("wavefile", Qt::CaseInsensitive)) return line;
+
+    QString chan;
+    static const QRegularExpression reChan(R"(CHAN\s*[= ]\s*(\d+))", QRegularExpression::CaseInsensitiveOption);
+    const auto chanMatch = reChan.match(tail);
+    if (chanMatch.hasMatch()) chan = chanMatch.captured(1);
+
+    QString out = QString("%1 %2 %3 wavefile=\"%4\"")
+        .arg(ref, m.captured(2).trimmed(), m.captured(3).trimmed(), m.captured(4).trimmed());
+    if (!chan.isEmpty()) out += " chan=" + chan;
+    if (warnings) {
+        warnings->append(QString("Rewrote positional WAVEFILE source %1 to wavefile=/chan= param syntax for VioMATRIXC audio.").arg(ref));
+    }
+    return out;
+}
+
 QString SpiceCompatRewriter::rewriteLtTriggeredPulseSource(const QString& line, QStringList* warnings) {
     static const QRegularExpression sourceRe(
         "^\\s*(V\\S*)\\s+(\\S+)\\s+(\\S+)\\s+(.+)$",
@@ -1428,6 +1459,7 @@ QString SpiceCompatRewriter::rewriteLtDirectiveLine(const QString& line, QString
     out = rewriteLtTriggeredWaveSource(out, "EXP", warnings);
     out = rewriteLtTriggeredWaveSource(out, "SFFM", warnings);
     out = rewriteLtVoltageSourceExtras(out, warnings);
+    out = rewriteWavefileSourceSyntax(out, warnings);
 
     {
         static const QRegularExpression sourceRe(

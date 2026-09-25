@@ -806,10 +806,13 @@ void ComponentFormatter::format(const ECOComponent& comp,
         value = comp.value;
         if (!comp.spiceModel.isEmpty()) value = comp.spiceModel;
 
-        // Standardize WAVEFILE and CHAN to space-separated syntax for better parser compatibility
+        // VioMATRIXC audio sources are instance parameters (`wavefile=` /
+        // `chan=`, WAVE function type). The positional `WAVEFILE "..." CHAN n`
+        // form is NOT mapped by the deck parser and silently degrades to a
+        // DC 0 source (zero output), so always emit the param form here.
         if (value.contains("WAVEFILE", Qt::CaseInsensitive)) {
-            // Resolve relative path if needed
-            static const QRegularExpression reFileWave(R"(WAVEFILE\s*=\s*\"([^\"]+)\")", QRegularExpression::CaseInsensitiveOption);
+            // Resolve relative path if needed (accept `=` or space separators)
+            static const QRegularExpression reFileWave(R"(WAVEFILE\s*[= ]\s*\"([^\"]+)\")", QRegularExpression::CaseInsensitiveOption);
             auto match = reFileWave.match(value);
             if (match.hasMatch()) {
                 QString rawPath = match.captured(1);
@@ -818,14 +821,14 @@ void ComponentFormatter::format(const ECOComponent& comp,
                 if (!fi.isAbsolute() && !projectDir.isEmpty()) {
                     targetPath = QDir(projectDir).absoluteFilePath(rawPath);
                 }
-                value = QString("WAVEFILE \"%1\"").arg(targetPath);
+                value = QString("wavefile=\"%1\"").arg(targetPath);
             }
 
-            static const QRegularExpression reChan(R"(CHAN\s*=\s*(\d+))", QRegularExpression::CaseInsensitiveOption);
+            static const QRegularExpression reChan(R"(CHAN\s*[= ]\s*(\d+))", QRegularExpression::CaseInsensitiveOption);
             auto matchChan = reChan.match(comp.value); // Check original comp.value if model didn't have it
             if (!matchChan.hasMatch()) matchChan = reChan.match(value);
             if (matchChan.hasMatch()) {
-                value += " CHAN " + matchChan.captured(1);
+                value += " chan=" + matchChan.captured(1);
             }
         } else if (value.contains("FILE=", Qt::CaseInsensitive)) {
             // Resolve relative paths for other FILE= references

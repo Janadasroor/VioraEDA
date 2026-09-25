@@ -17,6 +17,7 @@ public:
     static void updateSubcktDepthForLine(const QString& line, int& subcktDepth);
     static QString rewriteLtBehavioralIf(const QString& line, QStringList* warnings = nullptr);
     static QString rewriteLtVoltageSourceExtras(const QString& line, QStringList* warnings = nullptr);
+    static QString rewriteWavefileSourceSyntax(const QString& line, QStringList* warnings = nullptr);
     static QString rewriteLtTriggeredPulseSource(const QString& line, QStringList* warnings = nullptr);
     static QString rewriteLtTriggeredPwlSource(const QString& line, QStringList* warnings = nullptr);
     static QString rewriteLtTriggeredWaveSource(const QString& line, const QString& kind, QStringList* warnings = nullptr);
