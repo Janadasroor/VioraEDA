@@ -2412,8 +2412,7 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
     }
 
     // Restore Smith Chart if S-Parameter results are present
-    if (m_lastResults.analysisType == SimAnalysisType::SParameter && m_smithChart && !m_lastResults.sParameterResults.empty()) {
-        m_smithChart->clear();
+    if (m_lastResults.analysisType == SimAnalysisType::SParameter && m_smithChart && !m_lastResults.sParameterResults.empty()) {        m_smithChart->clear();
         QVector<std::complex<double>> s11, s21, s12, s22;
         for (const auto& p : m_lastResults.sParameterResults) {
             s11.append(p.s11);
@@ -2438,6 +2437,40 @@ void SimulationPanel::restoreTabState(const TabOscilloscopeState& state) {
             double freq = m_lastResults.sParameterResults.front().frequency;
             m_timelineLabel->setText(formatFrequency(freq));
         }
+    }
+
+    // Recompute everything the plot path sets from the restored model, or the
+    // tab comes back with stale/blank timeline, measurements, efficiency,
+    // design explorer and .meas output. (appendDerivedPowerWaveforms /
+    // appendEfficiencySummary are intentionally NOT re-run: they mutate the
+    // results, and the stored model already contains their output.)
+    if (m_hasLastResults) {
+        if (m_measurementsTable) {
+            m_measurementsTable->setRowCount(0);
+            for (const auto& wave : m_lastResults.waveforms) {
+                const QString waveName = resolveLiveSignalName(
+                    m_signalList, QString::fromStdString(wave.name));
+                double minVal = 0.0, maxVal = 0.0, avgVal = 0.0;
+                if (!wave.yData.empty()) {
+                    auto [minIt, maxIt] = std::minmax_element(wave.yData.begin(), wave.yData.end());
+                    minVal = *minIt;
+                    maxVal = *maxIt;
+                    double sum = 0.0;
+                    for (double v : wave.yData) sum += v;
+                    avgVal = sum / static_cast<double>(wave.yData.size());
+                }
+                addMeasurementTableRow(waveName,
+                                       WaveformViewer::stableSignalColor(waveName),
+                                       wave, m_lastResults.analysisType,
+                                       minVal, maxVal, avgVal);
+            }
+        }
+        initTimelineControls(m_lastResults);
+        refreshEfficiencyReport(m_lastResults);
+        updateTransientNetTableOverlay(m_lastResults);
+        if (m_designExplorerPanel) m_designExplorerPanel->updateResults(m_lastResults);
+        updateVirtualMeters(m_lastResults);
+        evaluateMeasStatements(m_lastResults);
     }
 }
 
@@ -2981,6 +3014,76 @@ QString SimulationPanel::generateSpiceNetlist() {
     return SpiceNetlistGenerator::generate(m_scene, m_projectDir, m_netManager, params).netlist;
 }
 
+void SimulationPanel::addMeasurementTableRow(const QString& waveName, const QColor& waveColor,
+                                              const SimWaveform& wave, SimAnalysisType analysisType,
+                                              double minVal, double maxVal, double avgVal) {
+    if (!m_measurementsTable) return;
+    int row = m_measurementsTable->rowCount();
+    m_measurementsTable->insertRow(row);
+    m_measurementsTable->setItem(row, 0, new QTableWidgetItem(waveName));
+    m_measurementsTable->item(row, 0)->setForeground(waveColor);
+    m_measurementsTable->setItem(row, 1, new QTableWidgetItem(QString::number(maxVal - minVal, 'f', 3)));
+    m_measurementsTable->setItem(row, 2, new QTableWidgetItem(QString::number(avgVal, 'f', 3)));
+    double sumSq = 0.0;
+    for (double v : wave.yData) sumSq += v * v;
+    const double rmsVal = wave.yData.empty() ? 0.0 : std::sqrt(sumSq / static_cast<double>(wave.yData.size()));
+    m_measurementsTable->setItem(row, 3, new QTableWidgetItem(QString::number(rmsVal, 'f', 3)));
+    const double freqHz = estimateFrequency(wave);
+    QString freqStr = (freqHz > 0.0) ? QString("%1 Hz").arg(QString::number(freqHz, 'g', 4)) : "-";
+    if (analysisType == SimAnalysisType::Transient) {
+        const double fftPeak = estimateFftPeakHz(wave);
+        if (fftPeak > 0.0) freqStr = QString("%1 (FFT %2)").arg(freqStr == "-" ? QString("~") : freqStr).arg(QString::number(fftPeak, 'g', 4));
+    }
+    m_measurementsTable->setItem(row, 4, new QTableWidgetItem(freqStr));
+    QString deltaStr = "-";
+    if (wave.xData.size() >= 2 && wave.yData.size() >= 2) {
+        const double x0 = wave.xData.front();
+        const double x1 = wave.xData.back();
+        const double xa = x0 + (x1 - x0) * m_cursorAFrac;
+        const double xb = x0 + (x1 - x0) * m_cursorBFrac;
+        deltaStr = QString::number(sampleAtX(wave, xb) - sampleAtX(wave, xa), 'f', 3);
+    }
+    m_measurementsTable->setItem(row, 5, new QTableWidgetItem(deltaStr));
+}
+
+void SimulationPanel::initTimelineControls(const SimResults& results) {
+    // Shared by onSimResultsReady and restoreTabState: the slider/label must
+    // reflect the restored results, not stay stale/blank from the other tab.
+    // m_timelineSlider is assumed present (same assumption as the plot path).
+    const bool isTransient = (results.analysisType == SimAnalysisType::Transient);
+    const bool isSParam = (results.analysisType == SimAnalysisType::SParameter);
+    m_timelineSlider->setEnabled(isTransient || isSParam);
+
+    if (isTransient) {
+        if (m_timelineIcon) m_timelineIcon->setText("🕒");
+        m_timelineSlider->blockSignals(true);
+        m_timelineSlider->setRange(0, 1000);
+        m_timelineSlider->setValue(1000); // Start at end
+        m_timelineSlider->blockSignals(false);
+
+        if (!results.waveforms.empty() && !results.waveforms.front().xData.empty()) {
+            m_timelineLabel->setText(QString::number(results.waveforms.front().xData.back(), 'g', 4) + " s");
+        }
+    } else if (isSParam) {
+        if (m_timelineIcon) m_timelineIcon->setText("📶");
+        m_timelineSlider->blockSignals(true);
+        int points = static_cast<int>(results.sParameterResults.size());
+        qDebug() << "[SimPanel] S-Parameter results found, points:" << points;
+        m_timelineSlider->setRange(0, std::max(0, points - 1));
+        m_timelineSlider->setValue(0);
+        m_timelineSlider->blockSignals(false);
+        m_timelineSlider->setEnabled(points > 1);
+
+        if (points > 0) {
+            double freq = results.sParameterResults.front().frequency;
+            m_timelineLabel->setText(formatFrequency(freq));
+        }
+    } else {
+        if (m_timelineIcon) m_timelineIcon->setText("🕒");
+        m_timelineLabel->setText("--- s");
+    }
+}
+
 void SimulationPanel::onSimResultsReady(const SimResults& results) {
     qDebug() << "[SimPanel] onSimResultsReady: waveforms=" << results.waveforms.size() 
              << "voltages=" << results.nodeVoltages.size() << "currents=" << results.branchCurrents.size();
@@ -3026,38 +3129,7 @@ void SimulationPanel::onSimResultsReady(const SimResults& results) {
     m_hasLastResults = true;
 
     // ── Timeline / Frequency Slider Initialization ──────────────────────────────────────
-    bool isTransient = (effectiveResults.analysisType == SimAnalysisType::Transient);
-    bool isSParam = (effectiveResults.analysisType == SimAnalysisType::SParameter);
-    m_timelineSlider->setEnabled(isTransient || isSParam);
-    
-    if (isTransient) {
-        if (m_timelineIcon) m_timelineIcon->setText("🕒");
-        m_timelineSlider->blockSignals(true);
-        m_timelineSlider->setRange(0, 1000);
-        m_timelineSlider->setValue(1000); // Start at end
-        m_timelineSlider->blockSignals(false);
-        
-        if (!effectiveResults.waveforms.empty() && !effectiveResults.waveforms.front().xData.empty()) {
-            m_timelineLabel->setText(QString::number(effectiveResults.waveforms.front().xData.back(), 'g', 4) + " s");
-        }
-    } else if (isSParam) {
-        if (m_timelineIcon) m_timelineIcon->setText("📶");
-        m_timelineSlider->blockSignals(true);
-        int points = static_cast<int>(effectiveResults.sParameterResults.size());
-        qDebug() << "[SimPanel] S-Parameter results found, points:" << points;
-        m_timelineSlider->setRange(0, std::max(0, points - 1));
-        m_timelineSlider->setValue(0);
-        m_timelineSlider->blockSignals(false);
-        m_timelineSlider->setEnabled(points > 1);
-        
-        if (points > 0) {
-            double freq = effectiveResults.sParameterResults.front().frequency;
-            m_timelineLabel->setText(formatFrequency(freq));
-        }
-    } else {
-        if (m_timelineIcon) m_timelineIcon->setText("🕒");
-        m_timelineLabel->setText("--- s");
-    }
+    initTimelineControls(effectiveResults);
 
     if (m_waveformViewer) {
         m_waveformViewer->beginBatchUpdate();
@@ -3899,32 +3971,8 @@ void SimulationPanel::plotBuiltinResults(const SimResults& results) {
 
 
         if (m_measurementsTable) {
-            int row = m_measurementsTable->rowCount();
-            m_measurementsTable->insertRow(row);
-            m_measurementsTable->setItem(row, 0, new QTableWidgetItem(waveName));
-            m_measurementsTable->item(row, 0)->setForeground(waveColor);
-            m_measurementsTable->setItem(row, 1, new QTableWidgetItem(QString::number(maxVal - minVal, 'f', 3)));
-            m_measurementsTable->setItem(row, 2, new QTableWidgetItem(QString::number(avgVal, 'f', 3)));
-            double sumSq = 0.0;
-            for (double v : wave.yData) sumSq += v * v;
-            const double rmsVal = wave.yData.empty() ? 0.0 : std::sqrt(sumSq / static_cast<double>(wave.yData.size()));
-            m_measurementsTable->setItem(row, 3, new QTableWidgetItem(QString::number(rmsVal, 'f', 3)));
-            const double freqHz = estimateFrequency(wave);
-            QString freqStr = (freqHz > 0.0) ? QString("%1 Hz").arg(QString::number(freqHz, 'g', 4)) : "-";
-            if (results.analysisType == SimAnalysisType::Transient) {
-                const double fftPeak = estimateFftPeakHz(wave);
-                if (fftPeak > 0.0) freqStr = QString("%1 (FFT %2)").arg(freqStr == "-" ? QString("~") : freqStr).arg(QString::number(fftPeak, 'g', 4));
-            }
-            m_measurementsTable->setItem(row, 4, new QTableWidgetItem(freqStr));
-            QString deltaStr = "-";
-            if (wave.xData.size() >= 2 && wave.yData.size() >= 2) {
-                const double x0 = wave.xData.front();
-                const double x1 = wave.xData.back();
-                const double xa = x0 + (x1 - x0) * m_cursorAFrac;
-                const double xb = x0 + (x1 - x0) * m_cursorBFrac;
-                deltaStr = QString::number(sampleAtX(wave, xb) - sampleAtX(wave, xa), 'f', 3);
-            }
-            m_measurementsTable->setItem(row, 5, new QTableWidgetItem(deltaStr));
+            addMeasurementTableRow(waveName, waveColor, wave, results.analysisType,
+                                   minVal, maxVal, avgVal);
         }
     }
 

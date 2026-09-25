@@ -205,6 +205,12 @@ private:
     void appendIssueItem(const QString& msg);
     TabOscilloscopeState saveCurrentTabState() const;
     void restoreTabState(const TabOscilloscopeState& state);
+    // Derived-UI recompute shared by the plot path and restoreTabState, so a
+    // restored tab shows the same measurements/timeline the plot path sets.
+    void addMeasurementTableRow(const QString& waveName, const QColor& waveColor,
+                                const SimWaveform& wave, SimAnalysisType analysisType,
+                                double minVal, double maxVal, double avgVal);
+    void initTimelineControls(const SimResults& results);
     static QString tabStateKey(QGraphicsScene* scene);
     void parseCommandText(const QString& command, bool skipTypeOverride = false);
     void updateCommandDisplay();
