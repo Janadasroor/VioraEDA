@@ -8,6 +8,7 @@
 #include "simulation_design_explorer_panel.h"
 #include "simulation_analyzer.h"
 #include "../../items/voltage_source_item.h"
+#include "../../items/schematic_sheet_item.h"
 #include "../../items/schematic_spice_directive_item.h"
 #include "../../items/schematic_page_item.h"
 #include "../../items/simulation_net_table_item.h"
@@ -2795,10 +2796,32 @@ void SimulationPanel::onRunSimulation() {
         }
 
 
+        // Snapshots carry no sheet-pin state (pins are rebuilt from child
+        // files on file load, not from JSON). Restore them so parent nets
+        // stitch to PORT nets during hierarchical netlisting.
+        if (!projectDir.isEmpty()) {
+            for (QGraphicsItem* gi : tempScene.items()) {
+                if (auto* sheet = dynamic_cast<SchematicSheetItem*>(gi)) {
+                    sheet->updatePorts(projectDir);
+                }
+            }
+        }
+
+        // Snapshots carry no sheet-pin state (pins are rebuilt from child
+        // files on file load, not from JSON). Restore them so parent nets
+        // stitch to PORT nets during hierarchical netlisting.
+        if (!projectDir.isEmpty()) {
+            for (QGraphicsItem* gi : tempScene.items()) {
+                if (auto* sheet = dynamic_cast<SchematicSheetItem*>(gi)) {
+                    sheet->updatePorts(projectDir);
+                }
+            }
+        }
+
         NetManager netMgr;
         netMgr.updateNets(&tempScene);
 
-        SimNetlist preflight = SimSchematicBridge::buildNetlist(&tempScene, &netMgr);
+        SimNetlist preflight = SimSchematicBridge::buildNetlist(&tempScene, &netMgr, projectDir);
         for (const auto& d : preflight.diagnostics()) {
             result.diagnostics.append(QString::fromStdString(d));
         }

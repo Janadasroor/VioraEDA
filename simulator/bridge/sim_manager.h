@@ -50,7 +50,7 @@ public:
     static QString generateNetlist(QGraphicsScene* scene, NetManager* netMgr, const SimAnalysisConfig& config, const QString& projectDir = "");
 
     // Debugger / Pre-flight check
-    QStringList preflightCheck(QGraphicsScene* scene, NetManager* netMgr, SimNetlist& outNetlist);
+    QStringList preflightCheck(QGraphicsScene* scene, NetManager* netMgr, SimNetlist& outNetlist, const QString& projectDir = QString());
     void runWithNetlist(const SimNetlist& netlist);
     
     void runRealTime(QGraphicsScene* scene, NetManager* netMgr, double maxStep = 1e-3, double maxTime = 0.0, int maxPts = 100000);

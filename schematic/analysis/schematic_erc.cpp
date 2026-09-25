@@ -50,6 +50,32 @@ QList<ERCViolation> SchematicERC::run(QGraphicsScene* scene, const QString& proj
         QString displayName = sheetPath.isEmpty() ? "Root" : sheetPath;
         if (displayName.endsWith("/")) displayName.chop(1);
 
+        // --- Duplicate sheet names within this scene (prefix collision) ---
+        // Hierarchy prefixes are built as parentPrefix + sheetName, so two
+        // sheets with the same name under the same parent produce identical
+        // component prefixes (e.g. NewSheet/R1 twice) and one instance is
+        // silently dropped from simulation. Flag it here per parent scene.
+        {
+            QMap<QString, QList<SchematicSheetItem*>> sheetsByName;
+            for (QGraphicsItem* item : activeScene->items()) {
+                if (auto* sheet = dynamic_cast<SchematicSheetItem*>(item)) {
+                    sheetsByName[sheet->sheetName().trimmed().toUpper()].append(sheet);
+                }
+            }
+            for (auto it = sheetsByName.constBegin(); it != sheetsByName.constEnd(); ++it) {
+                if (it.key().isEmpty() || it.value().size() <= 1) continue;
+                for (SchematicSheetItem* dup : it.value()) {
+                    ERCViolation v;
+                    v.severity = ERCViolation::Error;
+                    v.category = ERCViolation::Annotation;
+                    v.message = QString("Duplicate sheet name: '%1' appears %2 times in '%3'. Sheet prefixes collide; rename one sheet.").arg(dup->sheetName()).arg(it.value().size()).arg(displayName);
+                    v.position = dup->scenePos();
+                    v.item = (sheetPath.isEmpty()) ? dup : nullptr;
+                    violations.append(v);
+                }
+            }
+        }
+
         for (QGraphicsItem* item : activeScene->items()) {
             if (SchematicItem* si = dynamic_cast<SchematicItem*>(item)) {
                 if (si->itemType() == SchematicItem::WireType || si->itemType() == SchematicItem::BusType || 

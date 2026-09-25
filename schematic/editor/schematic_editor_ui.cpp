@@ -21,6 +21,7 @@
 #include "../dialogs/spice_step_dialog.h"
 #include "../../symbols/models/symbol_definition.h"
 #include "../items/generic_component_item.h"
+#include "../items/schematic_sheet_item.h"
 #include "../ui/schematic_components_widget.h"
 #include "../ui/schematic_hierarchy_panel.h"
 #include "../ui/simulation/simulation_panel.h"
@@ -2977,6 +2978,30 @@ void SchematicEditor::onRunSimulation() {
                     v.position = QPointF(0, 0);
                     v.item = nullptr;
                     localViolations.append(v);
+                }
+            }
+
+            // Check duplicate sheet names in current tab (hierarchy prefix collision:
+            // two sheets with the same name stitch the same PORT nets and emit the
+            // same prefixed references, so one instance is dropped from simulation).
+            {
+                QMap<QString, QList<SchematicSheetItem*>> sheetsByName;
+                for (QGraphicsItem* item : m_scene->items()) {
+                    if (auto* sheet = dynamic_cast<SchematicSheetItem*>(item)) {
+                        sheetsByName[sheet->sheetName().trimmed().toUpper()].append(sheet);
+                    }
+                }
+                for (auto it = sheetsByName.constBegin(); it != sheetsByName.constEnd(); ++it) {
+                    if (it.key().isEmpty() || it.value().size() <= 1) continue;
+                    for (SchematicSheetItem* dup : it.value()) {
+                        ERCViolation v;
+                        v.severity = ERCViolation::Error;
+                        v.category = ERCViolation::Annotation;
+                        v.message = QString("Duplicate sheet name: '%1' appears %2 times. Sheet prefixes collide; rename one sheet.").arg(dup->sheetName()).arg(it.value().size());
+                        v.position = dup->scenePos();
+                        v.item = dup;
+                        localViolations.append(v);
+                    }
                 }
             }
 

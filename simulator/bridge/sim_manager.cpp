@@ -1647,9 +1647,9 @@ void SimManager::parseRawResultsFile(const QString& path, const QString& netlist
     watcher->setFuture(QtConcurrent::run(parseResultsTask, path, netlistText, analysisType));
 }
 
-QStringList SimManager::preflightCheck(QGraphicsScene* scene, NetManager* netMgr, SimNetlist& outNetlist) {
+QStringList SimManager::preflightCheck(QGraphicsScene* scene, NetManager* netMgr, SimNetlist& outNetlist, const QString& projectDir) {
     // Generate netlist via bridge just to check structure/connectivity
-    outNetlist = SimSchematicBridge::buildNetlist(scene, netMgr);
+    outNetlist = SimSchematicBridge::buildNetlist(scene, netMgr, projectDir);
     outNetlist.flatten();
     
     QStringList diag;

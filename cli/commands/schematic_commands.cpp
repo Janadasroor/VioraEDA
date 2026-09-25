@@ -415,7 +415,7 @@ public:
 
         // Simulator preflight
         SimNetlist preflightNetlist;
-        QStringList preflight = SimManager::instance().preflightCheck(&scene, nullptr, preflightNetlist);
+        QStringList preflight = SimManager::instance().preflightCheck(&scene, nullptr, preflightNetlist, QFileInfo(filePath).absolutePath());
         QJsonArray preflightArr;
         for (const QString& msg : preflight) preflightArr.append(msg);
         out["preflight"] = preflightArr;
@@ -751,7 +751,7 @@ public:
             return 1;
         }
 
-        SimNetlist netlist = SimSchematicBridge::buildNetlist(&scene, nullptr);
+        SimNetlist netlist = SimSchematicBridge::buildNetlist(&scene, nullptr, QFileInfo(filePath).absolutePath());
 
         const bool listSignals = parser.isSet("list");
         const QStringList addSignals = parser.values("add");

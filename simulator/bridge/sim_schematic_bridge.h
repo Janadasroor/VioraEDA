@@ -25,7 +25,8 @@ public:
         QString id;
     };
 
-    static SimNetlist buildNetlist(QGraphicsScene* scene, NetManager* netManager);
+    static SimNetlist buildNetlist(QGraphicsScene* scene, NetManager* netManager,
+                                   const QString& projectDir = QString());
     static DiagnosticTarget extractDiagnosticTarget(const QString& message);
 
 private:

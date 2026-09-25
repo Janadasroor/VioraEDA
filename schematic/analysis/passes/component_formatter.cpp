@@ -479,7 +479,23 @@ void ComponentFormatter::format(const ECOComponent& comp,
         }
 
         if (emittedRefs.contains(refKey)) {
-            netlist += "* Skipping duplicate packaged unit " + ref + "\n";
+            // A second component with the same fully-prefixed reference.
+            // Multi-unit packages (e.g. quad op-amps) legitimately share one
+            // designator across units, so keep the silent skip for symbols
+            // whose definition carries unitCount > 1. Anything else (two R1s
+            // from same-named sheets, pasted duplicates, ...) means one
+            // instance would silently vanish from simulation: report loudly
+            // and still drop the second emission to keep the SPICE valid.
+            int unitCount = 1;
+            if (SymbolDefinition* def = SymbolLibraryManager::instance().findSymbol(comp.typeName)) {
+                unitCount = qMax(1, def->unitCount());
+            }
+            if (unitCount > 1) {
+                netlist += "* Skipping duplicate packaged unit " + ref + "\n";
+            } else {
+                runtimeWarnings.append(QString("Duplicate reference %1: second instance dropped from simulation. Rename one instance or give the sheets unique names.").arg(ref));
+                netlist += "* ERROR: Duplicate reference " + ref + " - second instance dropped from simulation\n";
+            }
             return;
         }
         emittedRefs.insert(refKey);

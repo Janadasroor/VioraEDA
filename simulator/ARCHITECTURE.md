@@ -529,8 +529,10 @@ Stamp: conductance gd between anode,cathode + current source ieq
 ```cpp
 class SimSchematicBridge {
 public:
-    // Extract netlist from the current schematic scene
-    static SimNetlist buildNetlist(QGraphicsScene* scene, NetManager* netManager);
+    // Extract netlist from the current schematic scene.
+    // projectDir enables hierarchical child-sheet expansion (prefixed refs).
+    static SimNetlist buildNetlist(QGraphicsScene* scene, NetManager* netManager,
+                                   const QString& projectDir = QString());
 
 private:
     // Map SchematicItem types to SimComponentType

@@ -990,13 +990,15 @@ bool appendPinsByAliasOrder(
 }
 }
 
-SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* netManager) {
+SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* netManager, const QString& projectDir) {
     SimNetlist netlist;
     if (!scene) return netlist;
     int vnum = 0;
 
-    // 1. Get components first (to know which are excluded)
-    ECOPackage pkg = NetlistGenerator::generateECOPackage(scene, "", netManager);
+    // 1. Get components first (to know which are excluded).
+    // projectDir enables hierarchical child-sheet expansion, so references
+    // carry their sheet prefix (e.g. NewSheet/R1) and stay unique.
+    ECOPackage pkg = NetlistGenerator::generateECOPackage(scene, projectDir, netManager);
 
     // Detect duplicate reference designators (simulation-blocking)
     QSet<QString> seenRefs;
@@ -1019,12 +1021,36 @@ SimNetlist SimSchematicBridge::buildNetlist(QGraphicsScene* scene, NetManager* n
         if (comp.excludeFromSim) excludedSimRefs.insert(comp.reference);
     }
 
-    // 2. Get canonical connectivity from SchematicConnectivity (NetManager-based),
-    // falling back to NetlistGenerator compatibility path if needed.
-    QList<SchematicConnectivityNet> nets = SchematicConnectivity::buildConnectivity(scene, netManager);
+    // 2. Get canonical connectivity. Hierarchical designs must use the
+    // prefixed NetlistGenerator path so child component refs (NewSheet/R1)
+    // match between pkg.components and net pins. Flat scenes keep the
+    // legacy NetManager path (zero behavior change).
+    QList<SchematicConnectivityNet> nets;
+    bool useHierarchicalNets = false;
+    if (!projectDir.isEmpty()) {
+        for (QGraphicsItem* gi : scene->items()) {
+            if (auto* si = dynamic_cast<SchematicItem*>(gi)) {
+                if (si->itemType() == SchematicItem::SheetType) { useHierarchicalNets = true; break; }
+            }
+        }
+    }
+    if (useHierarchicalNets) {
+        const QList<NetlistNet> hierNets = NetlistGenerator::buildConnectivity(scene, projectDir, netManager);
+        for (const auto& n : hierNets) {
+            SchematicConnectivityNet converted;
+            converted.name = n.name;
+            for (const auto& p : n.pins) {
+                converted.pins.append({p.componentRef, p.pinName});
+            }
+            nets.append(converted);
+        }
+    }
+    if (nets.isEmpty()) {
+        nets = SchematicConnectivity::buildConnectivity(scene, netManager);
+    }
     if (nets.isEmpty()) {
         qWarning() << "Simulator: SchematicConnectivity returned no nets, falling back to NetlistGenerator path.";
-        const QList<NetlistNet> legacyNets = NetlistGenerator::buildConnectivity(scene, "", netManager);
+        const QList<NetlistNet> legacyNets = NetlistGenerator::buildConnectivity(scene, projectDir, netManager);
         for (const auto& n : legacyNets) {
             SchematicConnectivityNet converted;
             converted.name = n.name;

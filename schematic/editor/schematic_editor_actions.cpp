@@ -2704,6 +2704,15 @@ void SchematicEditor::onRewindRequested() {
     qDebug() << "[SchematicEditor] Executing AI Rewind...";
     QString error;
     if (SchematicFileIO::loadSchematicFromJson(m_scene, m_lastCheckpoint, &error)) {
+        // JSON snapshots carry no sheet-pin state; rebuild from child files
+        // so hierarchy probing/netlisting keeps working after a rewind.
+        if (!m_projectDir.isEmpty()) {
+            for (QGraphicsItem* gi : m_scene->items()) {
+                if (auto* sheet = dynamic_cast<SchematicSheetItem*>(gi)) {
+                    sheet->updatePorts(m_projectDir);
+                }
+            }
+        }
         m_isModified = true;
         update();
     } else {
