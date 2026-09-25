@@ -136,6 +136,42 @@ SchematicItem* findProbeableComponentAt(SchematicView* view, const QPoint& viewP
                                               view->transform()));
 }
 
+// Interactive controls (switches, …) use the same generous hit logic as
+// probing, but match isInteractive() instead. This MUST stay separate from
+// findProbeableComponentAt: that one excludes interactive components (so
+// hover/body probing skips them), which makes it unusable for click routing
+// — using it there silently drops every switch click into the probe flow.
+SchematicItem* findInteractiveComponentAt(SchematicView* view, const QPoint& viewPos, const QPointF& scenePos) {
+    if (!view || !view->scene()) return nullptr;
+
+    auto findFromItems = [](const QList<QGraphicsItem*>& items) -> SchematicItem* {
+        for (QGraphicsItem* it : items) {
+            SchematicItem* candidate = owningSchematicItem(it);
+            if (candidate && !candidate->isSubItem() && candidate->isInteractive()) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    const QRect exactRect(viewPos.x() - 2, viewPos.y() - 2, 5, 5);
+    if (SchematicItem* candidate = findFromItems(view->items(exactRect))) {
+        return candidate;
+    }
+
+    // Symbol interiors are often hollow, so shape hits can miss even when the
+    // cursor is visibly over the body.
+    constexpr qreal kBodyHitRadius = 15.0;
+    const QRectF sceneRect(scenePos.x() - kBodyHitRadius,
+                           scenePos.y() - kBodyHitRadius,
+                           kBodyHitRadius * 2.0,
+                           kBodyHitRadius * 2.0);
+    return findFromItems(view->scene()->items(sceneRect,
+                                              Qt::IntersectsItemBoundingRect,
+                                              Qt::DescendingOrder,
+                                              view->transform()));
+}
+
 QString findNearbyProbeNet(SchematicView* view, NetManager* netManager, const QPoint& viewPos, const QPointF& scenePos) {
     if (!view || !netManager) return {};
 
@@ -616,8 +652,10 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
         QPointF scenePos = mapToScene(event->pos());
         
         // Do not intercept clicks for interactive components! Let them handle their own interaction.
-        SchematicItem* interactiveComp = findProbeableComponentAt(this, event->pos(), scenePos);
-        if (interactiveComp && interactiveComp->isInteractive()) {
+        // NOTE: must use findInteractiveComponentAt here — findProbeableComponentAt
+        // excludes interactive components, so it can never return the switch.
+        SchematicItem* interactiveComp = findInteractiveComponentAt(this, event->pos(), scenePos);
+        if (interactiveComp) {
             interactiveComp->onInteractivePress(scenePos);
             interactiveComp->onInteractiveClick(scenePos);
             event->accept();
@@ -691,16 +729,18 @@ void SchematicView::mousePressEvent(QMouseEvent *event) {
                 event->accept();
                 return;
             } else {
-                // Not over a wire/label, check for component body
-                SchematicItem* compItem = findProbeableComponentAt(this, event->pos(), scenePos);
-                
-                // Do not intercept clicks for interactive components! Let them handle their own interaction.
-                if (compItem && compItem->isInteractive()) {
+                // Not over a wire/label, check for component body.
+                // Interactive controls first: findProbeableComponentAt excludes
+                // them, so it can never return the switch — check separately
+                // before falling through to body probing.
+                SchematicItem* compItem = findInteractiveComponentAt(this, event->pos(), scenePos);
+                if (compItem) {
                     compItem->onInteractivePress(scenePos);
                     compItem->onInteractiveClick(scenePos);
                     event->accept();
                     return;
                 }
+                compItem = findProbeableComponentAt(this, event->pos(), scenePos);
 
                 const bool powerHeld = event->modifiers() & Qt::ShiftModifier;
                 const bool ctrlHeld = event->modifiers() & Qt::ControlModifier;
