@@ -15,6 +15,7 @@
 #include <QTimer>
 #include <QDebug>
 #include <QSignalSpy>
+#include <QTest>
 #include <QThread>
 #include "simulation/simulation_manager.h"
 #include <iostream>
@@ -37,7 +38,7 @@ int main(int argc, char *argv[]) {
         "RSW1 1 2 1k\n"
         "R1 2 0 1k\n"
         "C1 2 0 100u\n"
-        ".tran 10u 2 0\n"
+        ".tran 10u 20 0\n"
         ".end\n";
 
     QTemporaryFile tempNetlist;
@@ -87,6 +88,40 @@ int main(int argc, char *argv[]) {
         return 2;
     }
     fprintf(stderr, "STRESS: phase2 ok (%d batches after toggles)\n", batches);
+
+    // --- Phase 2b: alters must take ELECTRICAL effect, not just not-stall ---
+    // V1=5V with RSW1=500 on the V1-RSW1-R1(1k) divider puts V(2) at 3.33V.
+    // Regression: with the halt skipped, the engine rejected every alter
+    // ("type bg_halt first") and values never moved.
+    dataSpy.clear();
+    sim.alterSwitchVoltage("V1", 5.0);
+    sim.alterSwitchResistance("RSW1", 500.0);
+    QTest::qWait(1500); // halt/alter/resume latency + RC settle (tau ~33ms)
+    dataSpy.clear(); // drop anything queued before the alter landed
+    bool inRange = false;
+    double v2last = 0.0;
+    for (int i = 0; i < 30 && !inRange; ++i) {
+        if (!dataSpy.wait(200)) break; // run may have finished; fail below
+        const auto args = dataSpy.last();
+        const auto times = args.at(0).value<std::vector<double>>();
+        const auto rows = args.at(1).value<std::vector<std::vector<double>>>();
+        const auto names = args.at(2).value<QStringList>();
+        int idx = -1;
+        for (int n = 0; n < names.size(); ++n) {
+            if (names.at(n).endsWith("(2)", Qt::CaseInsensitive)) { idx = n; break; }
+        }
+        if (idx < 0 || times.empty() || rows.empty()) continue;
+        const auto& lastRow = rows.back();
+        if ((int)lastRow.size() <= idx) continue;
+        v2last = lastRow[idx];
+        if (v2last > 2.5 && v2last < 4.2) inRange = true;
+    }
+    fprintf(stderr, "STRESS: alter-effect v2=%g inRange=%d\n", v2last, inRange ? 1 : 0);
+    if (!inRange) {
+        fprintf(stderr, "STRESS: FAIL - alter had no electrical effect\n");
+        sim.shutdown();
+        return 2;
+    }
 
     // --- Phase 3: stop then IMMEDIATELY re-run (no wait for async cleanup) ---
     fprintf(stderr, "STRESS: stop + immediate rerun... (state=%s)\n", sim.stateString().toUtf8().constData());

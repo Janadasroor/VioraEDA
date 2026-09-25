@@ -48,10 +48,18 @@ void CommandWorker::executeSequence(const QStringList& cmds, quint64 runGen) {
 
     bool needsResume = false;
 
-    // Issue 1: In native SmartSignal mode, do not use bg_halt / bg_resume cycles for alter sequences.
-    // The native engine applies alter commands directly in-solver.
-    // Only in non-native / legacy mode, gate through haltAndWait.
-    if (m_manager->isRunning() && !m_manager->isNativeSmartSignalMode()) {
+    // Plain SPICE device alters (R/V/I/…) are rejected by the engine unless
+    // it is halted ("cannot execute alter …, type bg_halt first"), so they
+    // must gate through haltAndWait — including with the VioMATRIXC engine.
+    // Only runs that actually use native in-solver constructs (SmartSignal /
+    // JIT targets registered for this run) skip the halt cycle. Gating on
+    // engine capability instead (isNativeSmartSignalMode) silently dropped
+    // every live alter on fork-engine builds: switches, sliders and JIT
+    // updates toggled visually but never reached the engine.
+    bool hasNativeTargets = false;
+    { std::lock_guard<std::mutex> lock(m_manager->m_fluxTargetsMutex);
+      hasNativeTargets = !m_manager->m_fluxScriptTargets.isEmpty(); }
+    if (m_manager->isRunning() && !hasNativeTargets) {
         qDebug() << "[SimWorker] Requesting bg_halt for alteration...";
 
         // Issue 3: Use dynamic halt budget scaled by circuit complexity
